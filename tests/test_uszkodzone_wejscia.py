@@ -1,8 +1,8 @@
 """Uszkodzony plik taty, który czyta Centrum rozliczeń, nie kończy się ogólnym Komunikatem.
 
 Macierz: plik × uszkodzenie × wejście Centrum. Świat taty (Rejestr zleceń, trzy Wzorce, Plik
-zbiorczy, Konfiguracja wykonawców, Ustawienia, metryki, dziennik i pliki Zgłoszeń) powstaje raz,
-a każdy przypadek dostaje jego kopię z jednym uszkodzonym plikiem albo folderem.
+zbiorczy, Konfiguracja wykonawców, Ustawienia, metryki, dziennik, Logi Uruchomienia i pliki
+Zgłoszeń) powstaje raz, a każdy przypadek dostaje jego kopię z jednym uszkodzonym plikiem albo folderem.
 Ogólny Komunikat to 500 „nieoczekiwany błąd”, Uruchomienie zakończone nieoczekiwanym wyjątkiem
 albo sprawdzenie Diagnozy „nieoczekiwany błąd”. Odmowa 500 z własnym tekstem jest zamierzona.
 Plik albo folder bez dostępu jest niedostępny: żaden Komunikat nie nazywa go uszkodzonym.
@@ -58,6 +58,7 @@ FILES: dict[str, tuple[str, str]] = {
     "przeczytane_powiadomienia": ("config/powiadomienia.json", TEXT),
     "uruchomienia_centrum": ("config/centrum-uruchomienia.jsonl", LINES),
     "dziennik_centrum": ("logs/centrum-rozliczen.log", LINES),
+    "logi_uruchomien": ("logs/uruchomienia", FOLDER),
     "metryki_przygotowania": (".przygotowanie-pliku-zbiorczego-metrics.jsonl", LINES),
     "metryki_przebiegu": (".rozliczenia-metrics.jsonl", LINES),
     "rejestr": ("ZLECENIA INTERMAX OD 08_11_2021.xlsx", XLSX),
@@ -244,6 +245,7 @@ def _build(root: Path) -> None:
         assert finished_view(client)["result"]["ending"] == "finished"
     for name in ("metryki_przygotowania", "metryki_przebiegu", "uruchomienia_centrum", "dziennik_centrum", "uwagi_taty"):
         assert world.path(name).stat().st_size > 0, name
+    assert len(list(world.path("logi_uruchomien").iterdir())) == 2, "Logi Uruchomienia obu podglądów"
 
 
 Problems = list[str]

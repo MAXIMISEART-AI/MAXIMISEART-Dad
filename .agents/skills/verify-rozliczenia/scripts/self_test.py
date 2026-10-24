@@ -9,6 +9,9 @@ import subprocess
 import sys
 import uuid
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "tools"))
+
+from skrypt_skilla import Parser, create_run_root, new_run
 
 SCRIPT = Path(__file__).resolve()
 SKILL_ROOT = SCRIPT.parents[1]
@@ -16,9 +19,6 @@ REPO_ROOT = SCRIPT.parents[4]
 FEATURES_ROOT = SKILL_ROOT / "features"
 SCRIPTS_ROOT = SKILL_ROOT / "scripts"
 HELPER_REFERENCE = re.compile(r"scripts[\\/]([A-Za-z0-9_.-]+\.py)")
-sys.path.insert(0, str(REPO_ROOT / "tools"))
-
-from skrypt_skilla import Parser, create_run_root, new_run  # noqa: E402
 
 REQUIRED_FRONTMATTER = ("name", "description")
 REQUIRED_MAP_HEADINGS = (

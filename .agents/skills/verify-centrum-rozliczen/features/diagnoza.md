@@ -13,7 +13,10 @@ stop, whether and how to offer the Diagnoza (`diagnosis`: `on_request` or
 `automatic`), and the Diagnoza; the browser only shows them. A check that
 fails itself (a nieoczekiwany wyjątek inside the Diagnoza) is `nie sprawdzono`
 in its place and the rest still runs, so the Diagnoza always ends with an
-explanation and `Wyślij do Maksa`.
+explanation and `Wyślij do Maksa`. Dad sees nothing more, but Centrum adds each
+Diagnoza to the Logi Uruchomienia of its Uruchomienie: the file gets the field
+`diagnosis`, and the queue of the skrzynka Zgłoszeń one more comment with the
+whole Logi.
 
 ## Sub-features
 
@@ -24,6 +27,7 @@ explanation and `Wyślij do Maksa`.
 - `diagnoza-inny-komunikat`: after removing the lock, `Uruchom ponownie` ends with a different Komunikat (no orders in the period), which is `for_tata` again.
 - `diagnoza-do-maksa`: a missing Wzorzec rozliczenia wewnętrznego is `for_maks` and offers `Diagnoza` at once; with a newer `main` the Diagnoza still confirms the missing Wzorzec, offers no `Uruchom ponownie`, and only proposes the update in one quiet line `Jest też nowsza wersja narzędzia.` with an outline `Zaktualizuj narzędzie`, while `Wyślij do Maksa` stays the main action (`update_proposal`).
 - `diagnoza-bez-przyczyny`: with the Wzorzec back, a reload and `Diagnoza` find no cause: the explanation banner `Wyjaśnienie Diagnozy` reads „Nie znalazłem przyczyny na tym komputerze. Wyślij do Maksa.”; the Centrum log records each Diagnoza with its cause code.
+- `diagnoza-w-logach`: the file of Logi of that Uruchomienie (`logs/uruchomienia/*-<run id>.json`) holds the last Diagnoza in `diagnosis`: explanation code `NIE_ZNALEZIONO_PRZYCZYNY` and every check with the label, state and detail of the server's answer; without a key the newest `*-logi-uruchomienia-<first 8 of run id>.json` in `config/zgloszenia/kolejka/` holds that file character for character, after the queued Logi of the Uruchomienie itself.
 - `diagnoza-nieoczekiwany-wyjatek`: a nieoczekiwany wyjątek while reading the Rejestr zleceń (`diagnosis` `automatic`) shows the Diagnoza, `Wyślij do Maksa` and `Co zostanie wysłane` without a click on `Diagnoza`; the same failure inside the Diagnoza leaves `Rejestr zleceń` `nie sprawdzono` and its type in the Centrum log and in the Zgłoszenie.
 - `diagnoza-nieoczekiwany-wyjatek-zgloszenie`: `Wyślij do Maksa` after that Diagnoza answers with the `Ostrzeżenie` „Nie wysłano Zgłoszenia: na tym komputerze nie ma klucza do Zgłoszeń.” and `Spróbuj ponownie`; the preview waits in `config/zgloszenia/Zgłoszenie BLAD_NIEOCZEKIWANY 08_14_09_2026.md`.
 
@@ -45,6 +49,7 @@ Preconditions:
 - **Inny Komunikat.** Delete the lock file, click `Uruchom ponownie` on the banner. The banner reads `W Rejestrze zleceń nie ma żadnego zlecenia z tego okresu.` with `Uruchom ponownie`; `stop_kind` is `for_tata`; region `Diagnoza` is gone.
 - **Do Maksa.** Rename `config/Wzorzec rozliczenia wewnętrznego.xlsx` aside, click `Uruchom ponownie`. The banner reads `Nie znaleziono wzorca, z którego powstają pliki okresu.` with `Diagnoza` at once (`stop_kind` `for_maks`). Write 40 × `e` to `<root>/github/main-commit.txt` and click `Diagnoza`: region `Diagnoza` confirms the Komunikat, note `Propozycja aktualizacji` reads `Jest też nowsza wersja narzędzia.` and holds button `Zaktualizuj narzędzie` (enabled, outline) while `Wyślij do Maksa` is primary, and no `Uruchom ponownie` is shown. The answer (`api/diagnoza-do-maksa-wyjasnienie.json`) has `confirms_stop` `true`, `next_action` `report`, and `update_proposal` `true`. Delete `main-commit.txt`.
 - **Bez przyczyny.** Rename the Wzorzec back, reload, click `Diagnoza`. The banner `Wyjaśnienie Diagnozy` in region `Diagnoza` reads `Nie znalazłem przyczyny na tym komputerze.` and `Wyślij do Maksa.`; the server's answer has every check `passed` and `next_action` `report`. The Centrum log has `diagnoza proces=preparation okres=08_14_09_2026 przyczyna=NIE_ZNALEZIONO_PRZYCZYNY`.
+- **W Logach.** Read the file of Logi of that `run.id` and the queue as in `diagnoza-w-logach`. Nothing on the page changes; the checks are in `drive.txt`.
 - **Nieoczekiwany wyjątek.** Create `<root>/awaria/odczyt-rejestru` (the fault hook of `serve_centrum.py`; it reaches the process and the Diagnoza alike), click `Nowe Uruchomienie procesu` and start the same Podgląd bez zapisu. Without any click, while the hook file still exists, region `Diagnoza` shows `Wyjaśnienie Diagnozy` with `Nie znalazłem przyczyny na tym komputerze.`, button `Wyślij do Maksa` and the collapsed `Co zostanie wysłane`; the banner has no `Diagnoza` button. The server's result has `ending` `unexpected` and `diagnosis` `automatic`. In `Sprawdzono (10)` the item `Rejestr zleceń` reads `Nie udało się sprawdzić: nieoczekiwany błąd.` with the icon `nie sprawdzono`. The Centrum log has `nieoczekiwany-wyjatek typ=RuntimeError miejsce="Diagnoza: Rejestr zleceń"` and no exception text; figure `Treść Zgłoszenia` under `Co zostanie wysłane` has the title `BLAD_NIEOCZEKIWANY: …` and that log entry. Delete the hook file.
 - **Zgłoszenie po wyjątku.** Without `config/zgloszenia-klucz.txt`, click `Wyślij do Maksa` in region `Diagnoza`. Label `Ostrzeżenie` reads „Nie wysłano Zgłoszenia: na tym komputerze nie ma klucza do Zgłoszeń.” with button `Spróbuj ponownie`; `config/zgloszenia/Zgłoszenie BLAD_NIEOCZEKIWANY 08_14_09_2026.md` is `# <title>\n\n<body>` as shown, and the server's result has `report` `saved`.
 - **Proof.** Screenshots `50`–`59`, `api/diagnoza-*.json`, and the checks in `drive.txt`.

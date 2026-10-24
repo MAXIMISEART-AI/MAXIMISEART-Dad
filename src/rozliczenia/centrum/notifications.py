@@ -229,7 +229,7 @@ class Notifications:
                     self._notes.mark(closures)
                 else:
                     self._reports.mark(closures)
-        except Exception as failure:  # noqa: BLE001 - granica wątku sprawdzania: typ wyjątku trafia do dziennika
+        except Exception as failure:
             self._log.unexpected_failure(failure, where="stan spraw w Powiadomieniach")
 
     def _notifications(self) -> contract.Notifications:

@@ -55,6 +55,7 @@ import zipfile
 import zlib
 from bisect import bisect_left, bisect_right
 from collections.abc import Mapping, Sequence
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 from decimal import Decimal
@@ -889,16 +890,23 @@ def _autofilter(xml: bytes, data_end: int, links_at: int) -> tuple[int, int, byt
 
 
 def _compressed_chunks(xml: bytes, boundaries: list[int]) -> list[bytes]:
-    """Kawałki od każdej granicy do następnej; po każdym pełne opróżnienie, więc kawałek nie sięga wstecz."""
+    """Kawałki od każdej granicy do następnej, każdy z własnego kompresora i z pełnym opróżnieniem, więc nie sięga wstecz.
 
-    compressor = zlib.compressobj(_COMPRESSION_LEVEL, zlib.DEFLATED, -15)
+    Ostatni kończy strumień. Kawałki nie zależą od siebie, a zlib kompresuje bez blokady GIL, więc powstają równolegle.
+    """
+
     view = memoryview(xml)
-    chunks: list[bytes] = []
-    for index, start in enumerate(boundaries):
+    ends = [*boundaries[1:], len(xml)]
+
+    def compressed(index: int) -> bytes:
+        compressor = zlib.compressobj(_COMPRESSION_LEVEL, zlib.DEFLATED, -15)
         last = index == len(boundaries) - 1
-        end = len(xml) if last else boundaries[index + 1]
-        chunks.append(compressor.compress(view[start:end]) + compressor.flush(zlib.Z_FINISH if last else zlib.Z_FULL_FLUSH))
-    return chunks
+        return compressor.compress(view[boundaries[index] : ends[index]]) + compressor.flush(
+            zlib.Z_FINISH if last else zlib.Z_FULL_FLUSH
+        )
+
+    with ThreadPoolExecutor() as pool:
+        return list(pool.map(compressed, range(len(boundaries))))
 
 
 def _split_row(row_xml: bytes, number: int) -> tuple[bytes, dict[int, bytes]]:

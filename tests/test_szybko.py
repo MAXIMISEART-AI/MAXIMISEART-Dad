@@ -20,6 +20,10 @@ import szybko  # noqa: E402
 
 BY_CHANGE_ONLY = {
     "tests/test_brama_pre_push.py": "sprawdza zachowanie bramy pushem w repozytorium testu, a nie całe repozytorium",
+    "tests/test_git_w_testach.py": (
+        "sprawdza gita sesji testów, a nie całe repozytorium; zmiana conftest.py i fixtures/git_config.py uruchamia "
+        "wszystkie testy"
+    ),
     "tests/test_praca_w_toku.py": "sprawdza werdykt narzędzia na repozytoriach testu, a nie całe repozytorium; trwa ok. 19 s",
     "tests/test_szybko.py": "sprawdza samo szybko w repozytoriach testu; graf wybiera go przy zmianie tools/szybko.py i AGENTS.md",
 }
@@ -75,6 +79,17 @@ COUNTED = (
 )
 
 
+@pytest.fixture(autouse=True)
+def wspolny_cache_mypy(tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Mypy repozytoriów testu dzieli cache workera: typeshed i biblioteki nie są sprawdzane na nowo w każdym teście.
+
+    Pliki repozytorium mają w każdym teście inną ścieżkę, więc mypy sprawdza je od nowa. Krok dla Windows ma własne
+    ``--cache-dir`` w repozytorium testu i zmienna go nie dotyczy.
+    """
+
+    monkeypatch.setenv("MYPY_CACHE_DIR", str(tmp_path_factory.getbasetemp() / "mypy-szybko"))
+
+
 def _structure_stubs(body: str) -> dict[str, str]:
     stubs: dict[str, str] = {}
     for node in szybko.STRUCTURE:
@@ -89,6 +104,10 @@ def _repo(tmp_path: Path, structure: str = "pass") -> Path:
     for static_check in ("ruff", "mypy"):
         pytest.importorskip(static_check, reason="szybko uruchamia ruff i mypy z dodatku dev")
     repo = repository(tmp_path / "repo", {**BASE_FILES, **_structure_stubs(structure)})
+    # Krok najstarszego Pythona sprawdzają osobne testy; tu requires-python to Python, którym biegnie szybko.
+    pyproject = (repo / "pyproject.toml").read_text(encoding="utf-8")
+    current = f'requires-python = ">={sys.version_info[0]}.{sys.version_info[1]}"'
+    (repo / "pyproject.toml").write_text(re.sub(r"requires-python = .*", current, pyproject), encoding="utf-8")
     for name in (".gitignore", "tools/szybko.py"):
         shutil.copy2(ROOT / name, repo / name)
     commit(repo, "baza")
@@ -225,9 +244,12 @@ def test_test_jest_dotkniety_zmiana_pliku_ktory_wskazuje_sciezka(tmp_path: Path,
     assert "test_zawsze_pada" not in answered.stdout
 
 
-@pytest.mark.parametrize("changed", ["pyproject.toml", "requirements.txt", "tests/conftest.py"])
+@pytest.mark.parametrize(
+    "changed", ["pyproject.toml", "requirements.txt", "tests/conftest.py", "tests/fixtures/git_config.py"]
+)
 def test_zmiana_konfiguracji_albo_conftest_uruchamia_pelny_zestaw(tmp_path: Path, changed: str) -> None:
     repo = _repo(tmp_path)
+    (repo / changed).parent.mkdir(parents=True, exist_ok=True)
     with (repo / changed).open("a", encoding="utf-8") as file:
         file.write("\n")
 
@@ -291,6 +313,118 @@ def test_blad_typu_tylko_na_windows_wywraca_szybkie_sprawdzenie(tmp_path: Path) 
     # Na Windows zwykły krok mypy też sprawdza Windows, więc pada razem z krokiem dla Windows.
     expected = "SZYBKO FAIL | mypy, mypy (Windows)" if sys.platform == "win32" else "SZYBKO FAIL | mypy (Windows)"
     assert (answered.returncode, answered.stdout.splitlines()[-1]) == (1, expected), answered.stdout
+
+
+ONLY_NEWER_PYTHON = (
+    "from dataclasses import dataclass, field\nfrom types import MappingProxyType\n\n\n"
+    "@dataclass(frozen=True)\nclass Ilosci:\n    wartosci: object = field(default=MappingProxyType({}))\n"
+)
+
+
+def _requiring(repo: Path, version: tuple[int, int]) -> None:
+    _write(repo, "pyproject.toml", f'[project]\nname = "pakiet"\nrequires-python = ">={version[0]}.{version[1]}"\n\n[tool.mypy]\nfiles = ["src"]\n')
+    commit(repo, "requires-python")
+    git(repo, "update-ref", "refs/remotes/origin/main", "HEAD")
+
+
+def test_modul_ktory_nie_importuje_sie_najstarszym_pythonem_wywraca_szybkie_sprawdzenie(tmp_path: Path) -> None:
+    if sys.version_info[:2] == (3, 11) or shutil.which("uv") is None:
+        pytest.skip("krok biegnie, gdy szybko ma Pythona nowszego niż 3.11 i uv, które da Pythona 3.11")
+    repo = _repo(tmp_path)
+    _requiring(repo, (3, 11))
+    _write(repo, "src/pakiet/ilosci.py", ONLY_NEWER_PYTHON)
+
+    answered = _szybko(repo)
+
+    assert "pakiet.ilosci: ValueError: mutable default" in answered.stdout
+    last = answered.stdout.splitlines()[-1]
+    assert (answered.returncode, last) == (1, "SZYBKO FAIL | import src pod Pythonem 3.11"), answered.stdout
+
+
+def test_bez_uv_krok_najstarszego_pythona_pada_z_droga_naprawy(tmp_path: Path) -> None:
+    repo = _repo(tmp_path)
+    _requiring(repo, (3, sys.version_info[1] - 1))
+    git_folder = str(Path(shutil.which("git") or "git").parent)
+    if shutil.which("uv", path=git_folder):
+        pytest.skip("uv leży w tym samym folderze co git")
+
+    answered = subprocess.run(
+        [sys.executable, str(repo / "tools" / "szybko.py")],
+        cwd=repo,
+        env={**os.environ, "PATH": git_folder, "PYTEST_XDIST_AUTO_NUM_WORKERS": "2"},
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        check=False,
+    )
+
+    oldest = f"3.{sys.version_info[1] - 1}"
+    assert f"brak uv, więc szybko nie sprawdzi Pythona {oldest}: zainstaluj uv albo .venv z {oldest}" in answered.stdout
+    last = answered.stdout.splitlines()[-1]
+    assert (answered.returncode, last) == (1, f"SZYBKO FAIL | import src pod Pythonem {oldest}"), answered.stdout
+
+
+FAKE_UV = f"""#!{sys.executable}
+import os, subprocess, sys
+with open(os.environ["WYWOLANIA_UV"], "a", encoding="utf-8") as calls:
+    calls.write(("offline" if "--offline" in sys.argv else "online") + "\\n")
+if "--offline" in sys.argv and os.environ["CACHE_UV"] == "zimny":
+    sys.exit(1)
+arguments = sys.argv[1:]
+sys.exit(subprocess.run([sys.executable, *arguments[arguments.index("python") + 1 :]]).returncode)
+"""
+
+
+@pytest.mark.parametrize(("cache", "calls"), [("ciepły", ["offline"]), ("zimny", ["offline", "online"])])
+def test_uv_pyta_siec_tylko_bez_cache_a_modul_ktory_sie_nie_importuje_wywraca_krok(
+    tmp_path: Path, cache: str, calls: list[str]
+) -> None:
+    repo = _repo(tmp_path)
+    _requiring(repo, (3, sys.version_info[1] - 1))
+    _write(repo, "src/pakiet/stary.py", "raise ImportError('tylko na nowszym Pythonie')\n")
+    fake = tmp_path / "bin" / "uv"
+    fake.parent.mkdir()
+    fake.write_text(FAKE_UV, encoding="utf-8")
+    fake.chmod(0o755)
+    log = tmp_path / "wywolania.txt"
+
+    answered = subprocess.run(
+        [sys.executable, str(repo / "tools" / "szybko.py")],
+        cwd=repo,
+        env={**os.environ, "PATH": f"{fake.parent}{os.pathsep}{os.environ['PATH']}", "WYWOLANIA_UV": str(log), "CACHE_UV": cache},
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        check=False,
+    )
+
+    assert log.read_text(encoding="utf-8").split() == calls
+    assert "pakiet.stary: ImportError: tylko na nowszym Pythonie" in answered.stdout
+    last = answered.stdout.splitlines()[-1]
+    assert (answered.returncode, last) == (1, f"SZYBKO FAIL | import src pod Pythonem 3.{sys.version_info[1] - 1}"), answered.stdout
+
+
+def test_requires_python_bez_najstarszej_wersji_wywraca_szybkie_sprawdzenie(tmp_path: Path) -> None:
+    repo = _repo(tmp_path)
+    _write(repo, "pyproject.toml", '[project]\nname = "pakiet"\nrequires-python = "~=3.11"\n\n[tool.mypy]\nfiles = ["src"]\n')
+    commit(repo, "requires-python")
+    git(repo, "update-ref", "refs/remotes/origin/main", "HEAD")
+
+    answered = _szybko(repo)
+
+    assert "requires-python '~=3.11' nie ma postaci >=X.Y" in answered.stdout
+    last = answered.stdout.splitlines()[-1]
+    assert (answered.returncode, last) == (1, "SZYBKO FAIL | import src pod najstarszym Pythonem"), answered.stdout
+
+
+def test_szybko_na_najstarszym_pythonie_nie_ma_osobnego_kroku_importu(tmp_path: Path) -> None:
+    repo = _repo(tmp_path)
+    _requiring(repo, sys.version_info[:2])
+
+    answered = _szybko(repo)
+
+    assert "import src pod Pythonem" not in answered.stdout
+    assert (answered.returncode, answered.stdout.splitlines()[-1]) == (0, "SZYBKO OK"), answered.stdout
 
 
 def test_nieznana_baza_konczy_sie_jedna_linia_wyniku(tmp_path: Path) -> None:

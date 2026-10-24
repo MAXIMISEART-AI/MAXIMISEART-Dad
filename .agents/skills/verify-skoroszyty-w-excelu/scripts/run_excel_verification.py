@@ -28,16 +28,16 @@ import openpyxl
 
 import excel
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "tools"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "src"))
+
+from rozliczenia.workbook_files import QUANTITY_COLUMNS
+from skrypt_skilla import SKIPPED, Parser, create_run_root, new_run
 
 SCRIPT = Path(__file__).resolve()
 REPO_ROOT = SCRIPT.parents[4]
 OTHER_SKILL = REPO_ROOT / ".agents" / "skills" / "verify-rozliczenia" / "scripts"
 PROCESS_SCRIPT = REPO_ROOT / "tools" / "uruchom_proces.py"
-sys.path.insert(0, str(REPO_ROOT / "src"))
-sys.path.insert(0, str(REPO_ROOT / "tools"))
-
-from rozliczenia.workbook_files import QUANTITY_COLUMNS  # noqa: E402
-from skrypt_skilla import Parser, create_run_root, new_run  # noqa: E402
 
 # Exit code of the machine script for Wymaga sprawdzenia.
 NEEDS_REVIEW_EXIT = 2
@@ -626,7 +626,7 @@ def main(argv: list[str] | None = None) -> int:
         real_templates = _real_templates(args.templates_dir)
         if real_templates is None:
             print(f"VERIFY SKIP | wzorce=prawdziwe | no config/ holds all three Wzorce; use --wzorce syntetyczne | evidence={evidence}")
-            return 0
+            return SKIPPED
     run.observe("excel_version", excel.installed_version())
     run.observe("wzorce", args.wzorce)
     excel_was_running = excel.running()

@@ -202,7 +202,7 @@ def _rolled_back(restart: Restart) -> bool:
 
     try:
         ToolClone(restart.root).roll_back()
-    except Exception:  # noqa: BLE001 - każda porażka cofnięcia kończy się okienkiem dla taty
+    except Exception:
         return False
     finally:
         shutil.rmtree(restart.work, ignore_errors=True)

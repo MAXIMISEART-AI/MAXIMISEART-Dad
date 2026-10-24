@@ -92,9 +92,10 @@ zamiast każdej naprawy z osobna.
   przy `Aktualna` i przy `Nie sprawdzono` (brak sieci, brak Wydania, brak
   commitu) go nie ma. Regułę ma jedno miejsce, `tool_freshness.offers_update`,
   a Konfiguracja i Powiadomienia podają ją przeglądarce w polu `update_offered`
-  (#319, #324). Powiadomienie ocenia ostatnią odpowiedź GitHuba, więc bez
-  sieci zostaje takie, jakie było. Odpowiedź `Masz najnowszą wersję.` zostaje
-  na uśpiony tag (wyżej) i na każdego klienta HTTP.
+  (#319, #324). Powiadomienie o naprawie miało przycisk zawsze; #323 je
+  usunęło. Powiadomienie o nowej wersji ocenia ostatnią odpowiedź GitHuba, więc
+  bez sieci zostaje takie, jakie było. Odpowiedź `Masz najnowszą wersję.`
+  zostaje na uśpiony tag (wyżej) i na każdego klienta HTTP.
 
 ### Ochrona przed tagiem założonym ręcznie
 

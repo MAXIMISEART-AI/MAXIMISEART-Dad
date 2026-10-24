@@ -82,8 +82,8 @@ def drive_configuration(run: Run, page: Page) -> None:
         and buttons.filter(has_text="Zaktualizuj narzędzie").count() == 0
         and page.locator("main").get_by_role("button", name="Napisz do Maksa", exact=True).count() == 1
         and page.locator("main").get_by_role("button", name="Powiadomienia", exact=False).count() == 1,
-        "the page offers no action besides the header's menu, `Napisz do Maksa`, Powiadomienia and theme buttons;"
-        " the current tool has no `Zaktualizuj narzędzie`",
+        "the page offers no action besides the header's menu, `Napisz do Maksa`, Powiadomienia and theme buttons; the current tool"
+        " has no `Zaktualizuj narzędzie`",
     )
     offer = run.api("/api/configuration", "konfiguracja-tylko-do-odczytu")
     run.check(

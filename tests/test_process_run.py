@@ -19,6 +19,7 @@ from rozliczenia.message import REPORT_TO_MAINTAINER, Message, StopError
 from rozliczenia.phase_runner import PhaseRunner
 from rozliczenia.process_run import Finished, Outcome, Process, Stop, run_process
 
+from tests.fixtures.clock import ManualClock
 from tests.fixtures.fake_process import (
     ENDINGS,
     METRICS_WARNING,
@@ -46,8 +47,11 @@ def run_core(
     dry_run: bool = False,
     tata: Tata | None = None,
     view: Callable[[Inputs, Durations], Durations] = durations_view,
+    clock: Callable[[], float] = time.perf_counter,
 ) -> Outcome[Durations]:
-    return run_process(process, Inputs(dry_run=dry_run), tata or Tata(), view=view, metrics_path=metrics_path)
+    return run_process(
+        process, Inputs(dry_run=dry_run), tata or Tata(), view=view, metrics_path=metrics_path, clock=clock
+    )
 
 
 @pytest.mark.parametrize("dry_run", [False, True], ids=["RUN", "DRY-RUN"])
@@ -170,13 +174,26 @@ def test_przerwanie_przechodzi_przez_rdzen(tmp_path: Path, interrupted_at: str) 
 
 
 def test_czas_decyzji_taty_nie_liczy_sie_do_czasu_uruchomienia(tmp_path: Path) -> None:
-    pause_s = 1.0
-    tata = Tata(before_answer=lambda: time.sleep(pause_s))
+    clock = ManualClock()
+    tata = Tata(before_answer=lambda: clock.advance(600))
 
-    outcome = run_core(fake_process(execute=asking_between_planning_and_saving), tmp_path / "metrics.jsonl", tata=tata)
+    def working_250_ms_before_and_500_ms_after_decision(
+        inputs: Inputs, observer: ProgressObserver, conversation: Conversation
+    ) -> Durations:
+        clock.advance(0.25)
+        durations = asking_between_planning_and_saving(inputs, observer, conversation)
+        clock.advance(0.5)
+        return durations
+
+    outcome = run_core(
+        fake_process(execute=working_250_ms_before_and_500_ms_after_decision),
+        tmp_path / "metrics.jsonl",
+        tata=tata,
+        clock=clock,
+    )
 
     assert outcome.result == "OK"
     assert len(tata.decisions) == 1
-    assert outcome.total_duration_ms < pause_s * 1000
+    assert outcome.total_duration_ms == 750
     [record] = records(tmp_path / "metrics.jsonl")
-    assert record["total_duration_ms"] == outcome.total_duration_ms
+    assert record["total_duration_ms"] == 750

@@ -51,16 +51,17 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Literal
 
-REPO_ROOT = Path(__file__).resolve().parents[4]
-SOURCE_ROOT = REPO_ROOT / "src"
-sys.path.insert(0, str(SOURCE_ROOT))
+sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "src"))
 
-from rozliczenia import process_run  # noqa: E402
-from rozliczenia.centrum import contract, runs, shutdown  # noqa: E402
-from rozliczenia.centrum.run_view import PREPARATION  # noqa: E402
-from rozliczenia.decision import Decision  # noqa: E402
-from rozliczenia.message import Message  # noqa: E402
-from rozliczenia.preparation_process import PROCESS  # noqa: E402
+from rozliczenia import process_run
+from rozliczenia.centrum import contract, runs, shutdown
+from rozliczenia.centrum.run_view import PREPARATION
+from rozliczenia.decision import Decision
+from rozliczenia.message import Message
+from rozliczenia.preparation_process import PROCESS
+from rozliczenia.progress import ProgressProjection
+
+REPO_ROOT = Path(__file__).resolve().parents[4]
 
 VERIFIED_FILES = ("runs.py", "shutdown.py")
 STEP_TIMEOUT_SECONDS = 10.0
@@ -485,6 +486,7 @@ def harness(scheduler: Scheduler) -> Iterator[World]:
             total_duration_ms=0,
             technical_notes=(),
             metrics_saved=True,
+            progress=ProgressProjection().snapshot,
         )
 
     class NoStops:

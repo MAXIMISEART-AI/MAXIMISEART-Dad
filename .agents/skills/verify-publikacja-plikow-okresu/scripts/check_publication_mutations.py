@@ -10,10 +10,9 @@ from __future__ import annotations
 from pathlib import Path
 import sys
 
-REPO_ROOT = Path(__file__).resolve().parents[4]
-sys.path.insert(0, str(REPO_ROOT / "tools"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "tools"))
 
-from mutacje import Edit, Mutation, check_all  # noqa: E402
+from mutacje import Edit, Mutation, check_all
 
 VERIFIED = Path("src/rozliczenia/preparation_files.py")
 EXPLORER = (".agents/skills/verify-publikacja-plikow-okresu/scripts/explore_publication.py",)

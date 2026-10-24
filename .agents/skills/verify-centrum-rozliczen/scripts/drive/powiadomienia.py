@@ -24,6 +24,7 @@ SUMMARY = "Plik zbiorczy ma kolumnę z kilometrami. Rozliczenia pracowników prz
 FIRST_SUMMARY = "Pierwsza wersja z Powiadomieniami. Tutaj zobaczysz, co Maks zrobił z Twoimi Uwagami i Zgłoszeniami."
 # A Wydanie GitHub names as the newest on `main` that the update does not take: the clone never had this commit.
 DORMANT_RELEASE = "e" * 40
+CASE_LABELS = ("zgloszenie", "uwaga-taty")
 
 
 def _release(tag: str, body: str, published_at: str) -> dict[str, object]:
@@ -58,10 +59,11 @@ def _versions(run: Run, name: str) -> list[tuple[object, object, object]]:
 
 
 def _asked(run: Run) -> list[str]:
-    """Labels of every question for issues with a label, closed ones included (how Powiadomienia ask)."""
+    """Labels of every question about Dad's cases, closed ones included; Logi Uruchomienia ask the same way."""
 
     asked = run.root / "skrzynka-zgloszen-zapytania.jsonl"
-    return [json.loads(line)["label"] for line in asked.read_text(encoding="utf-8").splitlines()] if asked.exists() else []
+    lines = asked.read_text(encoding="utf-8").splitlines() if asked.exists() else []
+    return [label for label in (json.loads(line)["label"] for line in lines) if label in CASE_LABELS]
 
 
 def _advance_clock(run: Run, minutes: int) -> None:
@@ -140,7 +142,7 @@ def drive_notifications(run: Run, page: Page) -> None:
         "the open Zgłoszenie is a Powiadomienie named by its „Co się stało”, without the code",
     )
     run.check(answer["unread"] == sum(item["unread"] for item in items), "the unread count is the new Powiadomienia")
-    run.capture(page, "72-powiadomienia-dzwonek")
+    run.capture(page, "180-powiadomienia-dzwonek")
 
     run.step(FEATURE, "powiadomienia-zamkniete")
     print(f"  harness: Maks closes Uwaga #{note['number']} as completed and Zgłoszenie #{report['number']} as not planned", flush=True)
@@ -155,11 +157,11 @@ def drive_notifications(run: Run, page: Page) -> None:
     run.check(after_first > asked, "Centrum asked the skrzynka about Dad's open cases")
     _enter(page, run, "uruchomienia", "Uruchomienia")
     run.check(len(_asked(run)) == after_first, "a second read within 10 minutes does not ask the skrzynka again")
-    run.capture(page, "73-powiadomienia-kropka")
+    run.capture(page, "181-powiadomienia-kropka")
     header = page.locator("header").first.bounding_box()
     assert header is not None
     page.screenshot(
-        path=run.evidence / "screenshots" / "73b-powiadomienia-kropka-zblizenie.png",
+        path=run.evidence / "screenshots" / "181b-powiadomienia-kropka-zblizenie.png",
         clip={"x": header["x"] + header["width"] - 240, "y": header["y"], "width": 240, "height": header["height"]},
     )
 
@@ -187,10 +189,10 @@ def drive_notifications(run: Run, page: Page) -> None:
     run.check(stored["schema_version"] == 1 and len(stored["przeczytane"]) >= 2, "config/powiadomienia.json keeps them")
     expect(page.get_by_role("alert")).to_have_count(0)
     expect(error_toasts(page)).to_have_count(0)
-    run.capture(page, "74-powiadomienia-widok")
+    run.capture(page, "182-powiadomienia-widok")
     _toggle_theme(page)
     expect(note_row.get_by_label("nowe", exact=True)).to_be_visible()
-    run.capture(page, "75-powiadomienia-widok-drugi-motyw")
+    run.capture(page, "183-powiadomienia-widok-drugi-motyw")
     _toggle_theme(page)
 
     run.step(FEATURE, "powiadomienia-po-wyjsciu")
@@ -213,7 +215,7 @@ def drive_notifications(run: Run, page: Page) -> None:
         expect(page.get_by_role("alert")).to_have_count(0)
         expect(error_toasts(page)).to_have_count(0)
         expect(_bell(page)).to_have_accessible_name(BELL)
-        run.capture(page, "76-powiadomienia-brak-sieci")
+        run.capture(page, "184-powiadomienia-brak-sieci")
     finally:
         (box / "brak-sieci").unlink(missing_ok=True)
     try:
@@ -281,10 +283,10 @@ def _drive_new_version(run: Run, page: Page, note: dict[str, object], report: di
         " Powiadomienie, and entering the view marked both read",
     )
     expect(page.get_by_role("alert")).to_have_count(0)
-    run.capture(page, "77-powiadomienia-nowa-wersja")
+    run.capture(page, "185-powiadomienia-nowa-wersja")
     _toggle_theme(page)
     expect(card).to_be_visible()
-    run.capture(page, "78-powiadomienia-nowa-wersja-drugi-motyw")
+    run.capture(page, "186-powiadomienia-nowa-wersja-drugi-motyw")
     _toggle_theme(page)
 
     run.step(FEATURE, "powiadomienia-aktualizacja")
@@ -311,7 +313,7 @@ def _drive_new_version(run: Run, page: Page, note: dict[str, object], report: di
         == head,
         "the clone stays on its commit",
     )
-    run.capture(page, "79-powiadomienia-aktualizacja")
+    run.capture(page, "187-powiadomienia-aktualizacja")
 
     run.step(FEATURE, "powiadomienia-wydanie-aktualne")
     print("  harness: the newest Wydanie on `main` is v0.2.0 on the tool's own commit (Dad is on it)", flush=True)
@@ -328,7 +330,7 @@ def _drive_new_version(run: Run, page: Page, note: dict[str, object], report: di
         _versions(run, "powiadomienia-wydanie-aktualne") == [("0.2.0", False, False), ("0.1.0", False, False)],
         "a Wydanie Dad is on stays in the history, read, without the button",
     )
-    run.capture(page, "80-powiadomienia-wydanie-aktualne")
+    run.capture(page, "188-powiadomienia-wydanie-aktualne")
 
     run.step(FEATURE, "powiadomienia-wydania-brak-sieci")
     (run.root / "github" / "brak-sieci").touch()
@@ -345,4 +347,4 @@ def _drive_new_version(run: Run, page: Page, note: dict[str, object], report: di
         _versions(run, "powiadomienia-wydania-brak-sieci") == [("0.2.0", False, False), ("0.1.0", False, False)],
         "without network the Powiadomienia about Wydania stay as they were, with no Komunikat",
     )
-    run.capture(page, "81-powiadomienia-wydania-brak-sieci")
+    run.capture(page, "189-powiadomienia-wydania-brak-sieci")

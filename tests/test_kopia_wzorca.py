@@ -39,6 +39,7 @@ CZESCI = {"syntetyczny": 4, "maly": 1}
 
 
 # 60 przykładów na Wzorzec: ~90 s wszystkich części razem, najdłuższa ~22 s, na Macu M4 Max; kilka razy dłużej na runnerze Windows.
+@pytest.mark.dlugi
 @pytest.mark.timeout(600)
 @pytest.mark.parametrize(("wzorzec", "czesc"), [(wzorzec, czesc) for wzorzec, czesci in CZESCI.items() for czesc in range(czesci)])
 def test_rozliczenie_pracownika_z_kopii_wzorca_jest_jak_zapisane_przez_openpyxl_dla_generowanych_wierszy_danych(

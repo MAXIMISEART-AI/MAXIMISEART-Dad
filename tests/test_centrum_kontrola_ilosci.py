@@ -17,10 +17,10 @@ import pytest
 
 from rozliczenia.centrum.report_box import Refused, SendOutcome, Sent, Unreachable
 
-from tests.fixtures.centrum import TOOL_COMMIT, FakeIssue, FakeReportBox, finished_view
+from tests.fixtures.centrum import TOOL_COMMIT, FakeIssue, FakeReportBox, finished_view, without_times
 from tests.fixtures.centrum_processes import SettlingCentrum, run_to_end, settling_centrum
 from tests.fixtures.potomne import wait_for
-from tests.fixtures.settlement import CellValue, PERIOD, write_quantity_source
+from tests.fixtures.settlement import MARKED, CellValue, PERIOD, write_quantity_source
 
 KEY = "github_pat_SYNTETYCZNY_KLUCZ_ZGLOSZEN"
 LABEL: Final = "kontrola-ilosci"
@@ -143,7 +143,9 @@ def box(centrum: SettlingCentrum) -> FakeReportBox:
 
 
 def queued(centrum: SettlingCentrum) -> list[Path]:
-    return sorted((centrum.tmp_path / "config" / "zgloszenia" / "kolejka").glob("*"))
+    """Kontrole ilości w kolejce; Logi Uruchomienia mają w niej własne pliki."""
+
+    return sorted((centrum.tmp_path / "config" / "zgloszenia" / "kolejka").glob(f"*-{LABEL}-*"))
 
 
 def sent_check(centrum: SettlingCentrum) -> FakeIssue:
@@ -162,7 +164,8 @@ def test_przebieg_z_poprawkami_taty_daje_kontrole_ilosci_z_grupami_roznic_i_licz
     assert (issue.label, issue.title) == (LABEL, f"Kontrola ilości {PERIOD}: 7 różnic")
     assert issue.body == expected_body(view["run"]["id"])
     assert box(centrum).keys == [KEY]
-    assert f"skrzynka-wyslano etykieta={LABEL} okres={PERIOD} numer=1" in centrum.log_path.read_text(encoding="utf-8")
+    sent = f"skrzynka-wyslano etykieta={LABEL} okres={PERIOD} numer=1"
+    assert wait_for(lambda: sent in centrum.log_path.read_text(encoding="utf-8"))
 
 
 def test_przy_zera_roznic_kontrola_ilosci_tez_powstaje_z_tytulem_bez_roznic(tmp_path: Path) -> None:
@@ -187,24 +190,6 @@ def test_plik_zbiorczy_bez_naglowka_kolumny_wejscia_daje_kontrole_bez_porownania
     assert "nie ma nagłówka UMOWA, URZĄDZENIA, CZYNNOŚCI, DATA" in issue.body
 
 
-STARTED = datetime(2026, 9, 9, 13, 45)
-MARKED: dict[str, CellValue] = {
-    "A": "ZNACZNIK-MIASTO",
-    "B": "ZNACZNIK-ADRES",
-    "C": "u ZNACZNIK-UMOWA",
-    "D": "nokia ZNACZNIK-URZADZENIA",
-    "E": "ZNACZNIK-CZYNNOSCI",
-    "F": "ZNACZNIK-NUMER-ZL",
-    "G": STARTED,
-    "I": "ZNACZNIK-NUMER-UMOWY",
-    "J": "tak",
-    "K": "ZNACZNIK-ZREALIZOWANE",
-    "AQ": "ZNACZNIK-AQ",
-    "AR": "ZNACZNIK-AR",
-    "AS": "ZNACZNIK-AS",
-    "AT": "ZNACZNIK-AT",
-    "V": "ZNACZNIK-ILOSC",
-}
 FORBIDDEN = (
     "ZNACZNIK-MIASTO",
     "ZNACZNIK-ADRES",
@@ -236,7 +221,7 @@ def test_kontrola_ilosci_nie_ma_adresu_numerow_wykonawcy_daty_ani_czynnosci_zrea
     assert [marker for marker in FORBIDDEN if marker in sent] == []
     assert all(marker in sent for marker in ALLOWED)
     assert "| V | 1 | nieliczbowa | `ZNACZNIK-CZYNNOSCI` | `u ZNACZNIK-UMOWA` | śr 13 | 1 |" in sent
-    assert queued(centrum) == []
+    assert wait_for(lambda: queued(centrum) == [])
     seen_by_tata = [
         json.dumps(view),
         centrum.client.get("/api/runs/current").text,
@@ -246,20 +231,6 @@ def test_kontrola_ilosci_nie_ma_adresu_numerow_wykonawcy_daty_ani_czynnosci_zrea
         *(path.read_text(encoding="utf-8") for path in (tmp_path / "config").glob("*.json*")),
     ]
     assert [marker for marker in ALLOWED if any(marker in text for text in seen_by_tata)] == []
-
-
-def _without_times(value: object) -> object:
-    """Wynik Uruchomienia albo rekord metryk bez czasów i identyfikatorów, które różnią się z każdym Uruchomieniem."""
-
-    if isinstance(value, dict):
-        return {
-            key: _without_times(item)
-            for key, item in value.items()
-            if not (key == "id" or key.endswith("_ms") or key.endswith("_at") or key in ("timestamp", "value"))
-        }
-    if isinstance(value, list):
-        return [_without_times(item) for item in value]
-    return value
 
 
 @pytest.mark.parametrize(
@@ -278,11 +249,11 @@ def test_wynik_przebiegu_jest_ten_sam_przy_kazdej_odpowiedzi_skrzynki(
 
     reference = centrum_with(tmp_path / "bez-skrzynki", TATA_ROWS, key=False)
     expected = run_to_end(reference, dry_run=False)
-    assert _without_times(view["result"]) == _without_times(expected["result"])
+    assert without_times(view["result"]) == without_times(expected["result"])
     assert view["result"]["technical_notes"] == [] and view["result"]["warnings"] == []
     [record] = centrum.metric_records()
     [expected_record] = reference.metric_records()
-    assert _without_times(record) == _without_times(expected_record)
+    assert without_times(record) == without_times(expected_record)
     assert list((tmp_path / "config" / "zgloszenia").glob("Zgłoszenie *.md")) == []
 
 
@@ -313,7 +284,7 @@ def test_podglad_i_zatrzymanie_nie_tworza_kontroli_ilosci(tmp_path: Path) -> Non
     assert stopped["result"]["ending"] == "stop"
     assert queued(centrum) == []
     assert box(centrum).keys == []
-    assert "skrzynka-" not in centrum.log_path.read_text(encoding="utf-8")
+    assert f"etykieta={LABEL}" not in centrum.log_path.read_text(encoding="utf-8")
 
 
 def repeated(centrum: SettlingCentrum) -> dict[str, Any]:
@@ -335,7 +306,7 @@ def test_powtorzony_przebieg_okresu_dopisuje_kontrole_jako_komentarz_do_otwarteg
     assert box(centrum).wait_until(lambda fake: bool(first.comments)), "druga Kontrola ilości nie dotarła"
     assert [issue.number for issue in box(centrum).issues_with(LABEL)] == [first.number]
     assert first.comments == [expected_body(second["run"]["id"]).removeprefix(f"{LINE}\n\n")]
-    assert queued(centrum) == []
+    assert wait_for(lambda: queued(centrum) == [])
 
 
 def test_gdy_maks_zamknal_issue_okresu_powtorzony_przebieg_zaklada_nowe(tmp_path: Path) -> None:
@@ -375,26 +346,28 @@ def waiting_for_network(centrum: SettlingCentrum) -> int:
 
 
 def test_kontrola_ilosci_bez_sieci_czeka_w_kolejce_i_wychodzi_przy_nastepnym_starcie_centrum(tmp_path: Path) -> None:
+    # Bez sieci przez cały czas, a nie na jedną odpowiedź: Logi Uruchomienia budzą kolejkę osobno, więc Kontrola
+    # może pójść w jednym albo dwóch przejściach.
     centrum = centrum_with(tmp_path, TATA_ROWS)
-    box(centrum).outcomes.append(Unreachable())
+    box(centrum).search_failure = Unreachable()
 
     view = run_to_end(centrum, dry_run=False)
 
-    assert box(centrum).wait_until(lambda fake: len(fake.keys) == 1)
+    assert wait_for(lambda: waiting_for_network(centrum) >= 1)
     assert view["result"]["result"] == "OK"
     assert view["result"]["technical_notes"] == [] and view["result"]["warnings"] == []
     [waiting] = queued(centrum)
     assert [path.name for path in (tmp_path / "config" / "zgloszenia").iterdir()] == ["kolejka"]
 
-    box(centrum).outcomes.append(Unreachable())
+    before_start = waiting_for_network(centrum)
     centrum.restart()
     with centrum.client:
-        assert box(centrum).wait_until(lambda fake: len(fake.keys) == 2)
+        assert wait_for(lambda: waiting_for_network(centrum) > before_start)
         assert centrum.client.get("/api/runs/current").json()["state"] == "idle"
-    assert wait_for(lambda: waiting_for_network(centrum) == 2)
     assert queued(centrum) == [waiting]
     assert box(centrum).issues == []
 
+    box(centrum).search_failure = None
     centrum.restart()
     with centrum.client:
         issue = sent_check(centrum)
@@ -406,11 +379,12 @@ def test_kontrola_ilosci_bez_sieci_czeka_w_kolejce_i_wychodzi_przy_nastepnym_sta
 
 def test_ponowienie_przy_starcie_nie_opoznia_startu_centrum(tmp_path: Path) -> None:
     centrum = centrum_with(tmp_path, TATA_ROWS)
-    box(centrum).outcomes.append(Unreachable())
+    box(centrum).search_failure = Unreachable()
     run_to_end(centrum, dry_run=False)
-    assert box(centrum).wait_until(lambda fake: len(fake.keys) == 1)
+    assert wait_for(lambda: waiting_for_network(centrum) >= 1)
     box(centrum).open_hold = hold = threading.Event()
     box(centrum).opening.clear()
+    box(centrum).search_failure = None
     centrum.restart()
 
     # Start na osobnym wątku: start, który czeka na skrzynkę, wisiałby inaczej do końca testu.

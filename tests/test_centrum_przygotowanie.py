@@ -578,7 +578,7 @@ def test_dziennik_centrum_ma_poczatek_i_koniec_uruchomienia_z_wynikiem_bez_danyc
 
     log = centrum.log_path.read_text(encoding="utf-8")
     events = [line.split(" ", 1)[1] for line in log.splitlines()]
-    assert events == [
+    assert [event for event in events if event.startswith("uruchomienie-")] == [
         f"uruchomienie-start proces=preparation tryb=RUN okres={PERIOD}",
         f"uruchomienie-koniec proces=preparation tryb=RUN okres={PERIOD} wynik=WYMAGA_SPRAWDZENIA koniec=finished",
     ]

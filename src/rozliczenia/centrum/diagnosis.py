@@ -19,7 +19,7 @@ wyjątek), jest „nie sprawdzono” na swoim miejscu, a typ wyjątku trafia do
 dziennika Centrum, nigdy jego treść; reszta sprawdzeń idzie dalej, więc
 Diagnoza zawsze kończy się wyjaśnieniem i podglądem Zgłoszenia. Diagnoza
 niczego nie zapisuje ani nie naprawia; jej wynik i ostatnie wpisy dziennika
-zostają w ``Diagnosis`` po stronie serwera, np. dla Zgłoszenia.
+zostają w ``Diagnosis`` po stronie serwera, dla Zgłoszenia i Logów Uruchomienia.
 """
 
 from __future__ import annotations
@@ -129,15 +129,13 @@ class Surroundings:
 
 
 @dataclass(frozen=True)
-class _Computer:
-    """Komputer taty w chwili Diagnozy: Ustawienia taty, Konfiguracja, dziennik i okres Zatrzymania."""
+class _ProcessFiles:
+    """Pliki taty, które czyta i zapisuje proces ``process`` w okresie ``period``, wyliczone z Ustawień i Konfiguracji."""
 
     process: contract.ProcessKey
     period: SettlementPeriod
     settings: Settings
     configuration: ConfigurationFiles
-    log: CentrumLog
-    surroundings: Surroundings
 
     @cached_property
     def period_folder(self) -> PeriodFolder | PeriodFolderLookupError | None:
@@ -150,10 +148,6 @@ class _Computer:
             return locate_period_folder(periods_directory, self.period)
         except PeriodFolderLookupError as error:
             return error
-
-    @cached_property
-    def log_entries(self) -> tuple[str, ...]:
-        return tuple(self.log.recent(_LOG_ENTRIES))
 
     @cached_property
     def period_files(self) -> tuple[Path, ...]:
@@ -171,9 +165,43 @@ class _Computer:
 
     @cached_property
     def templates(self) -> tuple[Template, ...]:
-        """Wzorce, które czyta proces Zatrzymania."""
+        """Wzorce, które czyta proces."""
 
         return tuple(template for template in self.configuration.templates() if template.used_by == self.process)
+
+    @property
+    def files(self) -> list[Path]:
+        """Rejestr zleceń (tylko Przygotowanie), Wzorce i pliki Folderu okresu; ścieżki mogą nie istnieć."""
+
+        files = []
+        register = self.settings.existing_register
+        if self.process == "preparation" and register is not None:
+            files.append(register)
+        files += [template.path for template in self.templates]
+        return files + list(self.period_files)
+
+
+def files_of_process(
+    process: contract.ProcessKey, period: str, *, settings: Settings, configuration: ConfigurationFiles
+) -> list[Path]:
+    """Pliki taty Uruchomienia procesu ``process`` dla tokenu okresu ``period``, ta sama lista co w sprawdzeniu OneDrive.
+
+    Folder okresu czyta przez ``reading``: ``PeriodFolderInaccessible``, gdy się nie da.
+    """
+
+    return _ProcessFiles(process, parse_period_token(period), settings, configuration).files
+
+
+@dataclass(frozen=True)
+class _Computer(_ProcessFiles):
+    """Komputer taty w chwili Diagnozy: pliki procesu Zatrzymania, dziennik i granice poza plikami taty."""
+
+    log: CentrumLog
+    surroundings: Surroundings
+
+    @cached_property
+    def log_entries(self) -> tuple[str, ...]:
+        return tuple(self.log.recent(_LOG_ENTRIES))
 
 
 _CheckRun = Callable[[_Computer, str], list[CheckResult]]
@@ -201,7 +229,7 @@ class _Check:
             return self.run(computer, self.label)
         except PeriodFolderInaccessible as inaccessible:
             return [CheckResult.failed(self.label, preparation_messages.folder_inaccessible(inaccessible.folder))]
-        except Exception as failure:  # noqa: BLE001 - granica sprawdzenia: typ wyjątku trafia do dziennika Centrum
+        except Exception as failure:
             computer.log.unexpected_failure(failure, where=f"Diagnoza: {self.label}")
             return [CheckResult.not_checked(self.label, _NOT_CHECKED_UNEXPECTED)]
 
@@ -363,22 +391,11 @@ def _files_in_onedrive(computer: _Computer, label: str) -> list[CheckResult]:
     cloud = computer.surroundings.cloud_files
     if not cloud.checked:
         return [CheckResult.not_checked(label, "Nie sprawdzono: tylko w Windows.")]
-    files = [path for path in _files_of_process(computer) if path.is_file()]
+    files = [path for path in computer.files if path.is_file()]
     for path in files:
         if cloud.online_only(path):
             return [CheckResult.failed(label, diagnosis_messages.file_only_in_cloud(path))]
     return [CheckResult.passed(label, f"Sprawdzone pliki są na tym komputerze: {len(files)}.")]
-
-
-def _files_of_process(computer: _Computer) -> list[Path]:
-    """Rejestr zleceń, wzorce i pliki Folderu okresu, które czyta proces Zatrzymania."""
-
-    files = []
-    register = computer.settings.existing_register
-    if computer.process == "preparation" and register is not None:
-        files.append(register)
-    files += [template.path for template in computer.templates]
-    return files + list(computer.period_files)
 
 
 @_check("Dziennik Centrum rozliczeń")
