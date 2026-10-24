@@ -100,7 +100,7 @@ def ensure_register_available(register_path: Path) -> None:
     try:
         workbook_files.ensure_available(register_path)
     except WorkbookError as error:
-        raise StopError(messages.register_unusable(register_path, error)) from error
+        raise StopError(messages.register_unusable(error)) from error
 
 
 def read_register(register_path: Path, period: SettlementPeriod | None = None) -> list[RegisterSheet]:
@@ -120,7 +120,7 @@ def read_register(register_path: Path, period: SettlementPeriod | None = None) -
             with workbook.narrowed(date_columns, period.start, period.end) as narrowed:
                 return _read_register_sheets(narrowed, positions)
     except WorkbookError as error:
-        raise StopError(messages.register_unusable(register_path, error)) from error
+        raise StopError(messages.register_unusable(error)) from error
 
 
 def _register_position(column: Column, columns: dict[str, int]) -> int | None:

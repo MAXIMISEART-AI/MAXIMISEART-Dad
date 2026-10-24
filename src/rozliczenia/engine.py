@@ -30,19 +30,13 @@ def check_worker_template(template_path: Path) -> TemplateFile:
     return template
 
 
-def _collective_file_stop(source_path: Path, error: WorkbookError) -> StopError:
-    """Zatrzymanie z Komunikatem Przebiegu rozliczeń dla Pliku zbiorczego, którego nie da się użyć."""
-
-    return StopError(settlement_messages.collective_file_unusable(source_path, error))
-
-
 def _read_source_rows(source_path: Path) -> tuple[dict[str, list[DataRow]], list[Issue], CollectiveOrders]:
     """Czyta Wiersze danych Pliku zbiorczego z ich Wyróżnieniami i grupuje je po identyfikatorze WYKONAWCA."""
 
     try:
         read = collective_file.read_data_rows(source_path)
     except WorkbookError as error:
-        raise _collective_file_stop(source_path, error) from error
+        raise StopError(settlement_messages.collective_file_unusable(error)) from error
     rows_by_worker: defaultdict[str, list[DataRow]] = defaultdict(list)
     for row in read.rows:
         rows_by_worker[normalize_text(row.worker)].append(row)
@@ -105,7 +99,7 @@ def run_settlements(
         try:
             workbook_files.ensure_available(source_path)
         except WorkbookError as error:
-            raise _collective_file_stop(source_path, error) from error
+            raise StopError(settlement_messages.collective_file_unusable(error)) from error
         try:
             folder = PeriodFolder.from_collective_file(source_path)
         except PeriodFolderError as exc:
@@ -118,7 +112,7 @@ def run_settlements(
         try:
             worker_template = check_worker_template(worker_template_path)
         except WorkbookError as error:
-            raise StopError(settlement_messages.worker_template_unusable(worker_template_path, error)) from error
+            raise StopError(settlement_messages.worker_template_unusable(error)) from error
         return folder, mapping, worker_template
 
     folder, mapping, worker_template = phases.check(check_inputs)
@@ -147,9 +141,7 @@ def run_settlements(
             worker_template.create(target_path, rows)
         except WorkbookError as error:
             raise StopError(
-                settlement_messages.worker_template_unusable_in_saving(
-                    worker_template_path, target_directory, worker_name, error
-                )
+                settlement_messages.worker_template_unusable_in_saving(target_directory, worker_name, error)
             ) from error
         except Exception as exc:
             raise StopError(settlement_messages.worker_file_failed(target_directory, worker_name)) from exc

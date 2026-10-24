@@ -57,24 +57,16 @@ PREPARATION_SAMPLES: Samples = {
         lambda: messages.worker_config_problem(CONFIG, INVALID_CONFIG),
     ],
     "template_unusable": [
-        *(partial(messages.template_unusable, TEMPLATE, WorkbookError(TEMPLATE, problem)) for problem in Problem),
+        *(partial(messages.template_unusable, WorkbookError(TEMPLATE, problem)) for problem in Problem),
+        partial(messages.template_unusable, WorkbookError(TEMPLATE, Problem.LAYOUT, MissingHeader("Sheet1", 17, "WYKONAWCA"))),
         partial(
-            messages.template_unusable,
-            TEMPLATE,
-            WorkbookError(TEMPLATE, Problem.LAYOUT, MissingHeader("Sheet1", 17, "WYKONAWCA")),
+            messages.template_unusable, WorkbookError(TEMPLATE, Problem.LAYOUT, MissingHeader("Sheet1", 17, "WYKONAWCA", "G"))
         ),
-        partial(
-            messages.template_unusable,
-            TEMPLATE,
-            WorkbookError(TEMPLATE, Problem.LAYOUT, MissingHeader("Sheet1", 17, "WYKONAWCA", "G")),
-        ),
-        partial(
-            messages.template_unusable, TEMPLATE, WorkbookError(TEMPLATE, Problem.LAYOUT, MergedCells("Sheet1", "B19:C20"))
-        ),
+        partial(messages.template_unusable, WorkbookError(TEMPLATE, Problem.LAYOUT, MergedCells("Sheet1", "B19:C20"))),
     ],
     "register_missing": [lambda: messages.register_missing(REGISTER)],
     "register_unusable": [
-        partial(messages.register_unusable, REGISTER, WorkbookError(REGISTER, problem)) for problem in Problem
+        partial(messages.register_unusable, WorkbookError(REGISTER, problem)) for problem in Problem
     ],
     "register_without_headers": [
         lambda: messages.register_without_headers(REGISTER, SHEET, ["SKUTECZNE"]),
@@ -149,7 +141,7 @@ SETTLEMENT_SAMPLES: Samples = {
         )
     ],
     "collective_file_unusable": [
-        partial(settlement_messages.collective_file_unusable, SOURCE, WorkbookError(SOURCE, problem)) for problem in Problem
+        partial(settlement_messages.collective_file_unusable, WorkbookError(SOURCE, problem)) for problem in Problem
     ],
     "worker_settlements_exist": [lambda: settlement_messages.worker_settlements_exist(WORKER_SETTLEMENTS)],
     "worker_config_problem": [
@@ -159,13 +151,12 @@ SETTLEMENT_SAMPLES: Samples = {
         lambda: settlement_messages.worker_config_problem(CONFIG, INVALID_CONFIG),
     ],
     "worker_template_unusable": [
-        partial(settlement_messages.worker_template_unusable, WORKER_TEMPLATE, WorkbookError(WORKER_TEMPLATE, problem))
+        partial(settlement_messages.worker_template_unusable, WorkbookError(WORKER_TEMPLATE, problem))
         for problem in Problem
     ],
     "worker_template_unusable_in_saving": [
         partial(
             settlement_messages.worker_template_unusable_in_saving,
-            WORKER_TEMPLATE,
             WORKER_SETTLEMENTS,
             "Wykonawca Testowy",
             WorkbookError(WORKER_TEMPLATE, problem),

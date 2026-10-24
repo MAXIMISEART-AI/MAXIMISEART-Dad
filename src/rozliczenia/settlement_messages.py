@@ -25,20 +25,20 @@ _SAVE_AND_RETRY: Final = "Potem zapisz i zamknij Plik zbiorczy w Excelu i urucho
 _LEGACY_WORKER_TEMPLATE_NAME: Final = "placeholder.xlsx"
 
 
-def collective_file_unusable(source: Path, error: WorkbookError) -> Message:
+def collective_file_unusable(error: WorkbookError) -> Message:
     """Plik zbiorczy, którego nie da się użyć; ``error`` mówi dlaczego."""
 
     match error.problem:
         case Problem.MISSING:
-            return collective_file_missing(source)
+            return collective_file_missing(error.path)
         case Problem.OPEN_IN_EXCEL:
-            return _collective_file_open(source)
+            return _collective_file_open(error.path)
         case Problem.INACCESSIBLE:
-            return _collective_file_inaccessible(source)
+            return _collective_file_inaccessible(error.path)
         case Problem.LAYOUT:
-            return _collective_file_without_worker_header(source)
+            return _collective_file_without_worker_header(error.path)
         case Problem.UNREADABLE | Problem.HAS_DATA:
-            return _collective_file_unreadable(source)
+            return _collective_file_unreadable(error.path)
         case _:
             assert_never(error.problem)
 
@@ -142,14 +142,14 @@ def worker_config_problem(config_path: Path, error: WorkerConfigError) -> Messag
     )
 
 
-def worker_template_unusable(template_path: Path, error: WorkbookError) -> Message:
+def worker_template_unusable(error: WorkbookError) -> Message:
     """Wzorzec rozliczenia pracownika nie przeszedł Sprawdzania; ``error`` mówi dlaczego."""
 
     match error.problem:
         case Problem.MISSING:
-            detail = f"Nie znaleziono Wzorca rozliczenia pracownika: {template_path.name}."
-            if template_path.with_name(_LEGACY_WORKER_TEMPLATE_NAME).is_file():
-                detail += f" Zmień nazwę pliku {_LEGACY_WORKER_TEMPLATE_NAME} w tym samym folderze na „{template_path.name}”."
+            detail = f"Nie znaleziono Wzorca rozliczenia pracownika: {error.path.name}."
+            if error.path.with_name(_LEGACY_WORKER_TEMPLATE_NAME).is_file():
+                detail += f" Zmień nazwę pliku {_LEGACY_WORKER_TEMPLATE_NAME} w tym samym folderze na „{error.path.name}”."
         case Problem.OPEN_IN_EXCEL:
             detail = "Wzorzec rozliczenia pracownika jest otwarty lub zablokowany."
         case Problem.LAYOUT:
@@ -163,7 +163,7 @@ def worker_template_unusable(template_path: Path, error: WorkbookError) -> Messa
     return Message(
         code="ZLY_WZORZEC_PRACOWNIKA",
         what=f"Nie można użyć Wzorca rozliczenia pracownika. {detail}",
-        where=file_label(template_path),
+        where=file_label(error.path),
         action=(
             "Jeśli Wzorzec jest otwarty w Excelu, zamknij go bez zapisywania zmian i uruchom ponownie. "
             f"W innym wypadku {REPORT_TO_MAINTAINER.lower()}"
@@ -208,16 +208,14 @@ def worker_file_failed(target_directory: Path, worker_name: str) -> Message:
     )
 
 
-def worker_template_unusable_in_saving(
-    template_path: Path, target_directory: Path, worker_name: str, error: WorkbookError
-) -> Message:
+def worker_template_unusable_in_saving(target_directory: Path, worker_name: str, error: WorkbookError) -> Message:
     """Wzorzec rozliczenia pracownika zmieniony po Sprawdzaniu, przy skoroszycie pracownika ``worker_name``."""
 
     match error.problem:
         case Problem.LAYOUT | Problem.HAS_DATA:
             return worker_file_failed(target_directory, worker_name)
         case Problem.MISSING | Problem.OPEN_IN_EXCEL | Problem.INACCESSIBLE | Problem.UNREADABLE:
-            return _worker_files_not_copied(template_path)
+            return _worker_files_not_copied(error.path)
         case _:
             assert_never(error.problem)
 
