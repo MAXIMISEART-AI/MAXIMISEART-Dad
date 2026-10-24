@@ -1,4 +1,4 @@
-"""Katalog Komunikatów Przebiegu rozliczeń: zatrzymania i problemy z podsumowania dla taty.
+"""Katalog Komunikatów Przebiegu rozliczeń: zatrzymania i ostrzeżenia podsumowania dla taty.
 
 Każda fabryka zwraca Komunikat (``message.Message``) w trzech częściach: co się
 stało, gdzie, co zrobić. Zatrzymanie to ``raise StopError(fabryka(...))``.
@@ -12,7 +12,6 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Final, assert_never
 
-from .domain import Issue
 from .message import REPORT_TO_MAINTAINER, Message, file_label, folder_label
 from .workbook_files import WORKER_HEADER, Problem, WorkbookError
 from .worker_config import WorkerConfigError
@@ -199,6 +198,27 @@ def rows_without_worker(source: Path) -> Message:
     )
 
 
+def unmapped_worker_warning(source: Path) -> Message:
+    return Message(
+        code="BRAK_MAPOWANIA",
+        what="Nieznany identyfikator WYKONAWCA; sprawdź konfigurację pracowników.",
+        where=file_label(source),
+        action=(
+            "Popraw WYKONAWCĘ w kolumnie H albo poproś osobę utrzymującą narzędzie o dopisanie Wykonawcy "
+            f"do konfiguracji wykonawców. {_SAVE_AND_RETRY}"
+        ),
+    )
+
+
+def row_without_worker_warning(source: Path, row: int) -> Message:
+    return Message(
+        code="BRAK_WYKONAWCY",
+        what=f"Wiersz {row} ma dane, ale nie ma wykonawcy w kolumnie {WORKER_HEADER.column}.",
+        where=file_label(source),
+        action=f"Wpisz WYKONAWCĘ w kolumnie H tego wiersza. {_SAVE_AND_RETRY}",
+    )
+
+
 def worker_file_failed(target_directory: Path, worker_name: str) -> Message:
     return Message(
         code="BLAD_SZABLONU_PRACOWNIKA",
@@ -299,24 +319,4 @@ def plan_not_shown() -> Message:
         what="Nie udało się pokazać planu. Nic nie zapisano.",
         where="Przebieg rozliczeń",
         action=REPORT_TO_MAINTAINER,
-    )
-
-
-_ISSUE_ACTIONS: Final[dict[str, str]] = {
-    "BRAK_MAPOWANIA": (
-        "Popraw WYKONAWCĘ w kolumnie H albo poproś osobę utrzymującą narzędzie o dopisanie Wykonawcy "
-        f"do konfiguracji wykonawców. {_SAVE_AND_RETRY}"
-    ),
-    "BRAK_WYKONAWCY": f"Wpisz WYKONAWCĘ w kolumnie H tego wiersza. {_SAVE_AND_RETRY}",
-}
-
-
-def issue_message(issue: Issue, source: Path) -> Message:
-    """Problem z podsumowania (wynik „Wymaga sprawdzenia”) w trzech częściach."""
-
-    return Message(
-        code=issue.code,
-        what=issue.message,
-        where=file_label(source),
-        action=_ISSUE_ACTIONS.get(issue.code, REPORT_TO_MAINTAINER),
     )

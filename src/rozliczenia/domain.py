@@ -8,6 +8,7 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Callable, ClassVar, Literal, Mapping
 
+from .message import Message
 from .order_facts import CollectiveOrders
 
 
@@ -29,14 +30,6 @@ WorkerStatus = Literal["ZAPISANO", "PUSTY_SZABLON", "PLAN"]
 """Wynik Przetworzenia Szablonu pracownika; szablonu, którego nie da się bezpiecznie zapisać, nie ma w wynikach."""
 StopKind = Literal["for_tata", "for_maks"]
 """Rodzaj Zatrzymania: przyczynę usuwa tata według Komunikatu (``for_tata``) albo Maks (``for_maks``)."""
-
-
-@dataclass(frozen=True)
-class Issue:
-    """Problem możliwy do pokazania bez ujawniania danych klientów."""
-
-    code: str
-    message: str
 
 
 @dataclass(frozen=True)
@@ -146,7 +139,8 @@ class SettlementSummary:
     orders: CollectiveOrders = ()
     """Dozwolona treść każdego Wiersza danych, który Przebieg wczytał: dla Kontroli ilości w Centrum."""
     results: list[WorkerResult] = field(default_factory=list)
-    issues: list[Issue] = field(default_factory=list)
+    warnings: list[Message] = field(default_factory=list)
+    """Ostrzeżenia Podglądu bez zapisu z katalogu Przebiegu rozliczeń; Przebieg z zapisem zatrzymuje się na nich."""
     phase_durations_ms: Mapping[ProgressPhase, int] = field(default_factory=lambda: MappingProxyType({}))
 
     @property
@@ -171,4 +165,4 @@ class SettlementSummary:
 
     @property
     def ok(self) -> bool:
-        return not self.issues
+        return not self.warnings

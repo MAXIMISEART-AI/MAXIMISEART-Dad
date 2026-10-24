@@ -15,7 +15,6 @@ from rozliczenia import preparation_messages as messages
 from rozliczenia import settlement_messages
 from rozliczenia.centrum import diagnosis_messages, report_messages, start_problems, update_messages
 from rozliczenia.centrum.tool_update import LIBRARIES_FAILED, NEW_VERSION_FAILED, ROLLBACK_FAILED, UNEXPECTED
-from rozliczenia.domain import Issue
 from rozliczenia.message import Message
 from rozliczenia.period_folder import PeriodFolderLookupError
 from rozliczenia.settlement_period import parse_period_token
@@ -165,6 +164,8 @@ SETTLEMENT_SAMPLES: Samples = {
     ],
     "unmapped_worker": [lambda: settlement_messages.unmapped_worker(SOURCE)],
     "rows_without_worker": [lambda: settlement_messages.rows_without_worker(SOURCE)],
+    "unmapped_worker_warning": [lambda: settlement_messages.unmapped_worker_warning(SOURCE)],
+    "row_without_worker_warning": [lambda: settlement_messages.row_without_worker_warning(SOURCE, 19)],
     "worker_file_failed": [lambda: settlement_messages.worker_file_failed(WORKER_SETTLEMENTS, "Wykonawca Testowy")],
     "publish_failed": [lambda: settlement_messages.publish_failed(WORKER_SETTLEMENTS)],
     "staging_left": [
@@ -184,14 +185,6 @@ SETTLEMENT_SAMPLES: Samples = {
     "unexpected_failure": [settlement_messages.unexpected_failure],
     "summary_not_shown": [settlement_messages.summary_not_shown],
     "plan_not_shown": [settlement_messages.plan_not_shown],
-    "issue_message": [
-        lambda: settlement_messages.issue_message(
-            Issue("BRAK_MAPOWANIA", "Nieznany identyfikator WYKONAWCA; sprawdź konfigurację pracowników."), SOURCE
-        ),
-        lambda: settlement_messages.issue_message(
-            Issue("BRAK_WYKONAWCY", "Wiersz 19 ma dane, ale nie ma wykonawcy w kolumnie H."), SOURCE
-        ),
-    ],
 }
 
 START_SAMPLES: Samples = {

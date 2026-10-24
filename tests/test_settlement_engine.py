@@ -134,7 +134,7 @@ def test_przygotowanie_skoroszytow_pracownikow_publikuje_folder_rozliczen_pracow
     assert {path.name for path in target_directory.glob("*.xlsx")} == expected_files
     assert summary.written_count == 2
     assert summary.empty_count == 1
-    assert summary.issues == []
+    assert summary.warnings == []
     assert all(result.output_file.parent == target_directory for result in summary.results)
     assert worker_template_path.read_bytes() == worker_template_before
 
@@ -280,7 +280,7 @@ def test_numer_zlecenia_w_rozliczeniu_pracownika_ma_hiperlacze_z_pliku_zbiorczeg
 
     summary = run_settlements(source_path, config_path, worker_template_path=worker_template_path)
 
-    assert (summary.written_count, summary.empty_count, summary.issues) == (2, 1, [])
+    assert (summary.written_count, summary.empty_count, summary.warnings) == (2, 1, [])
     # Szablon pracownika Adriana dostaje pierwsze i trzecie zlecenie Pliku zbiorczego, Darka drugie.
     assert hyperlinks(target_directory / f"Rozliczenie {PERIOD} - Adrian Testowy.xlsx") == {"F18": links[18], "F19": links[20]}
     assert hyperlinks(target_directory / f"Rozliczenie {PERIOD} - Darek Fikcyjny.xlsx") == {"F18": links[19]}
@@ -322,7 +322,7 @@ def test_przebieg_rozliczen_na_wzorcu_z_formula_w_wierszu_danych_zapisuje_jak_op
 
     summary = run_settlements(source_path, config_path, worker_template_path=worker_template_path)
 
-    assert (summary.written_count, summary.empty_count, summary.issues) == (2, 1, [])
+    assert (summary.written_count, summary.empty_count, summary.warnings) == (2, 1, [])
     assert worker_template_path.read_bytes() == worker_template_before
     written_directory = tmp_path / "przebieg"
     written_directory.mkdir()
@@ -405,7 +405,7 @@ def test_podglad_bez_zapisu_pokazuje_problemy_wierszy_danych_i_plan_kazdego_wyko
         worker_template_path=tmp_path / "Wzorzec rozliczenia pracownika.xlsx",
     )
 
-    assert [issue.code for issue in summary.issues] == ["BRAK_WYKONAWCY", "BRAK_MAPOWANIA"]
+    assert [warning.code for warning in summary.warnings] == ["BRAK_WYKONAWCY", "BRAK_MAPOWANIA"]
     assert [(result.worker_name, result.status, result.rows) for result in summary.results] == [
         ("Adrian Testowy", "PUSTY_SZABLON", 0),
         ("Darek Fikcyjny", "PLAN", 1),
