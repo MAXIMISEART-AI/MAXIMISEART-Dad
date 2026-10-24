@@ -238,6 +238,7 @@ def drive_dad_note(run: Run, page: Page) -> None:
         return request.url.endswith("/api/dad-notes/draft") and request.post_data_json == {
             "title": FIRST[0],
             "body": FIRST[1],
+            "run_id": None,
         }
 
     page.route("**/api/dad-notes/draft", lambda route: route.abort())
