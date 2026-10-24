@@ -27,7 +27,7 @@ Preconditions:
 - Its default fixture contains mapped rows for Adrian Testowy and Darek Fikcyjny and no rows for Kamil Syntetyczny. The output folder is absent before the run.
 
 - **Run the proof.** Run `py -3 .agents\skills\verify-rozliczenia\scripts\run_verification.py`. The dry-run and write both return `0` for the default fixture.
-- **Observe progress.** `assert-run.txt` reports `progress_reported=true`: in `run.json` the progress has `templates_completed` 3 of `template_total` 3 with `Zapisane szablony` 2 and `Puste szablony` 1, and the summary has `Zapisane szablony` 2, `Puste szablony` 1, and the `file_plan` of all three workers.
+- **Observe progress.** `assert-run.txt` reports `progress_reported=true`: in `run.json` the progress has `templates_completed` 3 of `template_total` 3 with `Zapisane szablony` 2 and `Puste szablony` 1, and the summary has `Zapisane szablony` 2, `Puste szablony` 1, and the `worker_settlements` of all three workers.
 - **Verify workbook state.** Read `assert-run.txt`; it returns `ASSERT OK` with exit code `0` after checking exactly three files, routed values, the Hiperłącze of every `NUMER ZL.` cell (`hyperlinks_equal_plik_zbiorczy=F`), preserved formulas/sheets/formatting, an empty Kamil workbook, and an untouched Wzorzec rozliczenia pracownika.
 
 ## Gotchas

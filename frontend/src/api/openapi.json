@@ -449,6 +449,78 @@
         }
       }
     },
+    "/api/periods/{token}/worker-settlements/open": {
+      "post": {
+        "tags": [
+          "okresy"
+        ],
+        "summary": "Open Worker Settlement",
+        "operationId": "openWorkerSettlement",
+        "parameters": [
+          {
+            "name": "token",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Token"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WorkerSettlementRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Opened"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/runs": {
       "post": {
         "tags": [
@@ -1203,6 +1275,7 @@
               "changeTheme",
               "getPeriodBoard",
               "openPeriodPath",
+              "openWorkerSettlement",
               "getRunSetup",
               "startRun",
               "decideRun",
@@ -3195,7 +3268,8 @@
             "enum": [
               "run",
               "rerun",
-              "open_period_folder"
+              "open_collective_file",
+              "open_worker_settlements_folder"
             ],
             "title": "Next Action"
           },
@@ -3413,11 +3487,11 @@
             "type": "array",
             "title": "Files"
           },
-          "file_plan": {
+          "worker_settlements": {
             "anyOf": [
               {
                 "items": {
-                  "$ref": "#/components/schemas/WorkerFile"
+                  "$ref": "#/components/schemas/WorkerSettlement"
                 },
                 "type": "array"
               },
@@ -3425,7 +3499,7 @@
                 "type": "null"
               }
             ],
-            "title": "File Plan"
+            "title": "Worker Settlements"
           }
         },
         "additionalProperties": false,
@@ -3434,10 +3508,10 @@
           "figures",
           "counts",
           "files",
-          "file_plan"
+          "worker_settlements"
         ],
         "title": "RunSummary",
-        "description": "Podsumowanie albo plan (DRY-RUN) procesu tak, jak pokazuje je karta Uruchomienia, bez danych klientów.\n\nLiczby wyniku, potem szczegóły: kafelki liczb (np. Zlecenia na dzień), pliki okresu i plan plików\n(``None``, gdy proces go nie ma)."
+        "description": "Podsumowanie albo plan (DRY-RUN) procesu tak, jak pokazuje je karta Uruchomienia, bez danych klientów.\n\nLiczby wyniku, potem szczegóły: kafelki liczb (np. Zlecenia na dzień), pliki okresu i Rozliczenia\npracowników: plan po podglądzie, zapisane po uruchomieniu (``None``, gdy proces ich nie tworzy)."
       },
       "Settings": {
         "properties": {
@@ -3880,25 +3954,50 @@
         "title": "ViewTiming",
         "description": "Pomiar gotowego widoku z przeglądarki: same liczby i nazwy z kontraktu, bez adresów i treści.\n\n``ready_ms`` to czas do gotowej treści, ``fcp_ms`` pierwsze malowanie treści\n(tylko przy zimnym starcie), ``skeleton_ms`` czas widocznego szkieletu."
       },
-      "WorkerFile": {
+      "WorkerSettlement": {
         "properties": {
+          "worker": {
+            "type": "string",
+            "title": "Worker"
+          },
           "file": {
             "type": "string",
             "title": "File"
           },
-          "rows": {
+          "orders": {
             "type": "integer",
-            "title": "Rows"
+            "title": "Orders"
+          },
+          "empty": {
+            "type": "boolean",
+            "title": "Empty"
           }
         },
         "additionalProperties": false,
         "type": "object",
         "required": [
+          "worker",
           "file",
-          "rows"
+          "orders",
+          "empty"
         ],
-        "title": "WorkerFile",
-        "description": "Wiersz planu plików: nazwa pliku Szablonu pracownika i liczba Wierszy danych (0 = pusty skoroszyt)."
+        "title": "WorkerSettlement",
+        "description": "Rozliczenie pracownika jednego Wykonawcy: nazwa pliku, liczba jego zleceń w okresie i czy szablon jest pusty."
+      },
+      "WorkerSettlementRequest": {
+        "properties": {
+          "worker": {
+            "type": "string",
+            "title": "Worker"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "worker"
+        ],
+        "title": "WorkerSettlementRequest",
+        "description": "Którego Wykonawcy Rozliczenie pracownika otworzyć; ścieżkę wylicza serwer z Folderu okresu."
       },
       "WorkersReady": {
         "properties": {

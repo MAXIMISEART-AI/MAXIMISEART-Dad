@@ -617,6 +617,61 @@ def test_otwieranie_bez_wskazanego_folderu_okresow_prosi_o_jego_wskazanie(tmp_pa
     assert app.platform.opened == []
 
 
+def test_rozliczenie_pracownika_otwiera_sie_po_nazwie_wykonawcy(tmp_path: Path) -> None:
+    app, periods = with_periods_directory(tmp_path)
+    worker_folder = write_worker_settlements(
+        write_period_files(periods, "22_28_09_2026"), "22_28_09_2026", ["Anna Testowa", "Bartek Fikcyjny"]
+    )
+
+    response = app.client.post(
+        "/api/periods/22_28_09_2026/worker-settlements/open", json={"worker": "Bartek Fikcyjny"}
+    )
+
+    assert (response.status_code, response.json()) == (200, {"name": "Rozliczenie 22_28_09_2026 - Bartek Fikcyjny.xlsx"})
+    assert app.platform.opened == [worker_folder / "Rozliczenie 22_28_09_2026 - Bartek Fikcyjny.xlsx"]
+
+
+def test_wykonawca_bez_rozliczenia_pracownika_w_okresie_dostaje_odmowe(tmp_path: Path) -> None:
+    app, periods = with_periods_directory(tmp_path)
+    write_worker_settlements(write_period_files(periods, "22_28_09_2026"), "22_28_09_2026", ["Anna Testowa"])
+    write_worker_settlements(write_period_files(periods, "29_05_10_2026"), "29_05_10_2026", ["Celina Inna"])
+
+    response = app.client.post("/api/periods/22_28_09_2026/worker-settlements/open", json={"worker": "Celina Inna"})
+
+    assert (response.status_code, response.json()) == (
+        404,
+        {"message": "Rozliczenia pracownika Celina Inna nie ma w okresie 22_28_09_2026."},
+    )
+    assert app.platform.opened == []
+
+
+@pytest.mark.parametrize("worker", ["x/../../../poza", "a/b", "..\\poza", "..", ""])
+def test_nazwa_wykonawcy_nie_wyprowadza_poza_folder_rozliczen_pracownikow(tmp_path: Path, worker: str) -> None:
+    app, periods = with_periods_directory(tmp_path)
+    worker_folder = write_worker_settlements(write_period_files(periods, "22_28_09_2026"), "22_28_09_2026", [])
+    # Pliki, które otworzyłaby ścieżka sklejona z nazwą bez sprawdzenia: poza folderem i w podfolderze.
+    (worker_folder / "Rozliczenie 22_28_09_2026 - x").mkdir()
+    (periods / "poza.xlsx").touch()
+    (worker_folder / "Rozliczenie 22_28_09_2026 - a").mkdir()
+    (worker_folder / "Rozliczenie 22_28_09_2026 - a" / "b.xlsx").touch()
+
+    response = app.client.post("/api/periods/22_28_09_2026/worker-settlements/open", json={"worker": worker})
+
+    assert response.status_code == 404
+    assert app.platform.opened == []
+
+
+def test_otwieranie_rozliczenia_pracownika_bez_wskazanego_folderu_okresow_prosi_o_jego_wskazanie(
+    tmp_path: Path,
+) -> None:
+    app = centrum(tmp_path)
+
+    response = app.client.post("/api/periods/22_28_09_2026/worker-settlements/open", json={"worker": "Anna Testowa"})
+
+    assert (response.status_code, response.json()) == (409, {"message": "Najpierw wskaż folder okresów."})
+    assert app.platform.opened == []
+
+
 def log_lines(app: Centrum) -> list[str]:
     """Wpisy dziennika Centrum bez znacznika czasu."""
 
