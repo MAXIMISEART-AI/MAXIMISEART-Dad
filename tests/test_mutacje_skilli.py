@@ -397,6 +397,15 @@ def test_kazdy_nastepny_najdluzszy_skrypt_idzie_do_najlzejszej_czesci(monkeypatc
     assert [[script.parents[1].name for script in part] for part in chosen] == [["verify-b"], ["verify-c"], ["verify-a", "verify-d"]]
 
 
+def test_skrypt_spoza_tabeli_czasow_wazy_mediane_tabeli(monkeypatch: pytest.MonkeyPatch) -> None:
+    tool = _load_tool(monkeypatch)
+    scripts = [ROOT / ".agents" / "skills" / f"verify-{name}" / "scripts" / f"check_{name}_mutations.py" for name in ("a", "b", "c", "nowy")]
+
+    chosen = tool.parts(scripts, 3, {"verify-a": 100, "verify-b": 60, "verify-c": 50})
+
+    assert [[script.parents[1].name for script in part] for part in chosen] == [["verify-a"], ["verify-b", "verify-c"], ["verify-nowy"]]
+
+
 def test_najdluzszy_skrypt_z_tabeli_czasow_ma_czesc_dla_siebie(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     times = _load_tool(monkeypatch).CI_TIMES_S
     for skill in times:
