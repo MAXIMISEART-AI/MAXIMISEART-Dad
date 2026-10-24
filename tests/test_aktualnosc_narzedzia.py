@@ -135,7 +135,7 @@ def test_wyzsze_wydanie_spoza_main_jest_pominiete_a_nizsze_na_main_wybrane(githu
 
 @pytest.mark.parametrize("repository", ["bez-wydan", "tylko-spoza-main"])
 def test_bez_wydania_na_main_github_odpowiada_ze_nie_ma_wydania(github: str, repository: str) -> None:
-    assert releases_from(f"{github}/{repository}", timeout_s=2) == GitHubReleases(None)
+    assert releases_from(f"{github}/{repository}", timeout_s=2) == GitHubReleases(None, None)
 
 
 @pytest.mark.parametrize(

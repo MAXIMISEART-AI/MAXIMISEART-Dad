@@ -7,14 +7,16 @@ to nowe Powiadomienie. Nowe są tylko stany, które dał Maks (rozwiązana, prze
 to czynność taty i kropki na dzwonku nie zapala.
 
 Powiadomienie o nowej wersji to opublikowane Wydanie (GitHub Release) o numerze nie wyższym od najnowszego Wydania na
-`main`, które wybiera Aktualność narzędzia (ADR 0014): wyższe spoza `main` się nie liczy. Ma notkę „Co nowego”, sprawy
-wysłane z tego komputera, które rozwiązuje (``release_notes.parse``), a najnowsze także przycisk Aktualizacji narzędzia,
-gdy pozwala na to ``offers_update``.
+`main`, które wybiera Aktualność narzędzia (ADR 0014): wyższe spoza `main` się nie liczy. Niższego Centrum nie
+sprawdza osobno (każde to pytanie do API); Release z notką zakłada tylko narzędzie Wydań, które sprawdza `main`.
+Powiadomienie ma notkę „Co nowego”, sprawy wysłane z tego komputera, które rozwiązuje (``release_notes.parse``), a
+najnowsze także przycisk Aktualizacji narzędzia, gdy pozwala na to ``offers_update``. Nowe (kropka na dzwonku) jest
+tylko Wydanie z przyciskiem, czyli nowsze od wersji taty; starsze Wydania to historia i kropki nie zapalają.
 
 Centrum pyta przy starcie, w tle, i przy odczycie Powiadomień, gdy od ostatniego pytania minęło ``CHECK_INTERVAL_S``:
 GitHub o Wydania zawsze, Skrzynkę Zgłoszeń o zamknięcie otwartych spraw tylko przy otwartych sprawach i kluczu.
 Najnowsze Wydanie na `main` daje ta sama pamiętana odpowiedź GitHuba co w Konfiguracji, więc obie nie pytają o nie dwa
-razy. Odczyt czeka na trwające pytanie najwyżej ``CHECK_WAIT_S`` i odpowiada ostatnim znanym stanem, a spóźniona
+razy; ta odpowiedź może mieć do 10 minut, więc nowe Wydanie pojawia się najpóźniej po 20 minutach. Odczyt czeka na trwające pytanie najwyżej ``CHECK_WAIT_S`` i odpowiada ostatnim znanym stanem, a spóźniona
 odpowiedź i tak zapisuje stan. Brak sieci albo odmowa przechodzą po cichu, bez Komunikatu, z ostatnią znaną
 odpowiedzią. Przeczytane Powiadomienia (ich ``id``) leżą w ``config/powiadomienia.json`` poza Gitem i przetrwają
 restart Centrum.
@@ -44,9 +46,9 @@ from rozliczenia.centrum.tool_update import Release
 
 NOTIFICATIONS_FILE: Final = "powiadomienia.json"
 SCHEMA_VERSION: Final = 1
-# Skrzynkę Zgłoszeń o stan spraw taty Centrum pyta najwyżej raz na 10 minut.
+# Skrzynkę Zgłoszeń o stan spraw taty i GitHub o Wydania Centrum pyta najwyżej raz na 10 minut.
 CHECK_INTERVAL_S: Final = 10 * 60
-# Tyle odczyt Powiadomień czeka na trwające pytanie skrzynki, zanim odpowie ostatnim znanym stanem.
+# Tyle odczyt Powiadomień czeka na trwające pytanie skrzynki i GitHuba, zanim odpowie ostatnim znanym stanem.
 CHECK_WAIT_S: Final = 3.0
 
 # (czeka w kolejce, issue zamknięte, state_reason) → stan sprawy. GitHub zamyka issue bez powodu jako ``completed``,
@@ -153,7 +155,7 @@ class Notifications:
         self._releases = _Releases()
 
     def view(self) -> contract.Notifications:
-        """Powiadomienia od najnowszego; gdy pora, najpierw pyta skrzynkę (czeka najwyżej ``CHECK_WAIT_S``)."""
+        """Powiadomienia od najnowszego; gdy pora, najpierw pyta skrzynkę i GitHub (czeka najwyżej ``CHECK_WAIT_S``)."""
 
         check = self._start_check_if_due()
         if check is not None:
@@ -255,16 +257,17 @@ class Notifications:
                 continue
             notes = parse(published.notes)
             notification_id = f"wydanie-{release.tag}"
+            offered = known.offered and release == newest
             versions.append(
                 contract.ReleaseNotification(
                     kind="nowa_wersja",
                     id=notification_id,
                     at=published.at,
-                    unread=notification_id not in self._read,
+                    unread=offered and notification_id not in self._read,
                     version=".".join(map(str, release.number)),
                     summary=notes.summary,
                     solved=[case for case in map(sent.solved, notes.cases) if case is not None],
-                    update_offered=known.offered and release == newest,
+                    update_offered=offered,
                 )
             )
         return versions

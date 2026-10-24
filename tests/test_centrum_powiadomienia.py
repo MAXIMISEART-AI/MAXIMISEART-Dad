@@ -332,7 +332,7 @@ def test_nowsze_wydanie_daje_powiadomienie_z_notka_sprawami_taty_i_przyciskiem(t
     assert centrum.client.get("/api/configuration").json()["update_offered"] is True
 
 
-def test_wydanie_nie_nowsze_od_wersji_taty_nie_ma_przycisku_a_wyzsze_spoza_main_nie_jest_powiadomieniem(
+def test_wydanie_nie_nowsze_od_wersji_taty_nie_ma_przycisku_ani_kropki_a_wyzsze_spoza_main_nie_jest_powiadomieniem(
     tmp_path: Path,
 ) -> None:
     centrum = preparing_centrum(tmp_path)
@@ -347,10 +347,11 @@ def test_wydanie_nie_nowsze_od_wersji_taty_nie_ma_przycisku_a_wyzsze_spoza_main_
         published("v0.1.0", "Pierwsza wersja z Powiadomieniami.", PUBLISHED_AT - timedelta(days=14)),
     )
 
-    assert [(item["version"], item["update_offered"]) for item in new_versions(centrum)] == [
-        ("0.2.0", False),
-        ("0.1.0", False),
+    assert [(item["version"], item["update_offered"], item["unread"]) for item in new_versions(centrum)] == [
+        ("0.2.0", False, False),
+        ("0.1.0", False, False),
     ]
+    assert notifications(centrum)["unread"] == 0
     assert centrum.client.get("/api/configuration").json()["update_offered"] is False
 
 

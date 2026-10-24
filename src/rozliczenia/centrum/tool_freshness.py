@@ -40,7 +40,7 @@ class GitHubReleases:
     """Odpowiedź GitHuba: commit i tag najnowszego Wydania na `main`; ``None``, gdy na `main` nie ma żadnego Wydania."""
 
     newest: str | None
-    tag: str | None = None
+    tag: str | None
 
 
 # ``None``: GitHub nie odpowiedział (brak sieci, odmowa, limit czasu, niepełna odpowiedź).

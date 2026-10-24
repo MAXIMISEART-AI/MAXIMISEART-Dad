@@ -199,8 +199,9 @@ function ReleaseBody({ release }: { release: Release }) {
       <p className="text-sm text-pretty whitespace-pre-line text-muted-foreground">{release.summary}</p>
       {release.solved.length === 0 ? null : (
         <ul aria-label="Rozwiązane sprawy" className="flex flex-col gap-1 text-sm">
-          {release.solved.map((item) => (
-            <li key={`${item.kind}-${item.title}`} className="flex items-start gap-2 break-words">
+          {release.solved.map((item, index) => (
+            // Dwie Uwagi mogą mieć ten sam tytuł, a lista z serwera się nie zmienia w trakcie wizyty.
+            <li key={index} className="flex items-start gap-2 break-words">
               <CheckIcon className="mt-0.5 size-3.5 shrink-0 text-success" aria-hidden />
               {`${SOLVED[item.kind]}: ${item.title}`}
             </li>

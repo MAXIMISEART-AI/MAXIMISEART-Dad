@@ -20,7 +20,8 @@ sent from this computer that it solves (`Uwaga: <tytuł>`, `Zgłoszenie: <Co si�
 stało>`). The one Centrum offers the update to (`update_offered`, the same rule
 as Konfiguracja) stands in its own card above the list with `Zaktualizuj
 narzędzie`; once Dad is on it, it goes back to the list as history, read and
-without the button. A higher Wydanie from outside `main` is no Powiadomienie.
+without the button. Only that card is new and lights the dot; older Wydania
+are history. A higher Wydanie from outside `main` is no Powiadomienie.
 Centrum asks GitHub for the Wydania with the same rhythm as the skrzynka, one
 question for the list of Releases per 10 minutes.
 

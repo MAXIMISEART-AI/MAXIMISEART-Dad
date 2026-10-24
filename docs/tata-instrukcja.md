@@ -178,8 +178,7 @@ rozwiązuje, i przycisk `Zaktualizuj narzędzie`. Po aktualizacji przycisk znika
 a karta zostaje na liście jako historia.
 
 Czerwona kropka na dzwonku znaczy, że Maks coś zrobił z Twoją sprawą albo wydał
-nową wersję. Gdy
-wejdziesz w Powiadomienia, kropka gaśnie; nowe sprawy mają małą kropkę, dopóki
+nową wersję. Gdy wejdziesz w Powiadomienia, kropka gaśnie; nowe sprawy mają małą kropkę, dopóki
 nie wyjdziesz. Niczego nie oznaczasz ręcznie. Centrum sprawdza to przy
 otwarciu i najwyżej raz na 10 minut. Bez internetu nic się nie pokazuje i nic
 się nie psuje; Centrum sprawdzi ponownie później.
