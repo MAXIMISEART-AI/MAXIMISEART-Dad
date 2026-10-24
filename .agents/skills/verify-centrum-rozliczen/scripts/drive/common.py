@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
+from datetime import date, timedelta
 from fnmatch import fnmatchcase
 import json
 from pathlib import Path
@@ -132,6 +133,19 @@ def ensure_files_set(run: Run, page: Page) -> None:
         run.answer_picker(run.fixture["order_register"])
         page.get_by_role("button", name="Wskaż Rejestr zleceń", exact=True).click()
         run.wait_for(lambda: run.remembered("rejestr_zlecen") == run.fixture["order_register"], "Rejestr zleceń set")
+
+
+def period_choice(token: str, status: str) -> str:
+    """A period in the combobox ``Okres`` as Dad reads it: ``wt 06.10 – pon 12.10 · ostatni pełny · 06_12_10_2026``.
+
+    The days come from the token itself (the Monday's day, month and year; the Tuesday six days earlier), not from
+    the server's answer, so a wrong date on screen fails the drive.
+    """
+
+    _, monday_day, month, year = token.split("_")
+    monday = date(int(year), int(month), int(monday_day))
+    tuesday = monday - timedelta(days=6)
+    return f"wt {tuesday:%d.%m} – pon {monday:%d.%m} · {status} · {token}"
 
 
 def period_row(page: Page, token: str) -> Locator:

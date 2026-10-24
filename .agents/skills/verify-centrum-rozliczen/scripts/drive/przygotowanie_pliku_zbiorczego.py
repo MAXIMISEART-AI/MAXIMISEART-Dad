@@ -18,6 +18,7 @@ from drive.common import (
     figure,
     finished_result,
     history_rows,
+    period_choice,
     period_files,
     period_row,
     sent_requests,
@@ -88,7 +89,7 @@ def drive_preparation(run: Run, page: Page) -> None:
     page.get_by_role("button", name=f"Przygotuj plik zbiorczy, okres {LAST_COMPLETE}", exact=True).click()
     expect(page.get_by_text("Nowe Uruchomienie procesu", exact=True)).to_be_visible()
     run.check(page.url.endswith("#/uruchomienia"), "the row's next step opens Uruchomienia")
-    expect(page.get_by_role("combobox", name="Okres")).to_contain_text(f"{LAST_COMPLETE} · ostatni pełny")
+    expect(page.get_by_role("combobox", name="Okres")).to_contain_text(period_choice(LAST_COMPLETE, "ostatni pełny"))
     expect(page.get_by_role("group", name="Rejestr zleceń")).to_contain_text(register_name)
     expect(page.get_by_text("Zapisz i zamknij Rejestr zleceń w Excelu", exact=True)).to_be_visible()
     setup = run.api("/api/runs/setup", "przygotowanie-wybor-okresu")["processes"]
@@ -136,13 +137,13 @@ def drive_preparation(run: Run, page: Page) -> None:
     no_preview = confirm.get_by_text("Nie było podglądu bez zapisu", exact=True)
     page.reload()
     page.get_by_role("button", name="Nowe Uruchomienie procesu").click()
-    expect(page.get_by_role("combobox", name="Okres")).to_contain_text(f"{LAST_COMPLETE} · ostatni pełny")
+    expect(page.get_by_role("combobox", name="Okres")).to_contain_text(period_choice(LAST_COMPLETE, "ostatni pełny"))
     page.get_by_role("button", name="Uruchom", exact=True).click()
     expect(confirm).to_be_visible()
     expect(no_preview).to_have_count(0)
     confirm.get_by_role("button", name="Anuluj").click()
     page.get_by_role("combobox", name="Okres").click()
-    page.get_by_role("option", name=f"{NOT_PREVIEWED} · Brak plików okresu", exact=True).click()
+    page.get_by_role("option", name=period_choice(NOT_PREVIEWED, "Brak plików okresu"), exact=True).click()
     page.get_by_role("button", name="Uruchom", exact=True).click()
     expect(no_preview).to_be_visible()
     setup = run.api("/api/runs/setup", "przygotowanie-podglad-po-odswiezeniu")["processes"]

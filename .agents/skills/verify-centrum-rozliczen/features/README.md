@@ -47,6 +47,7 @@ feature file as the recipe.
   and accessible name; the names are Polish UI text, so copy them exactly
   (`exact=True`: Playwright otherwise matches case-insensitive substrings, and
   `Wskaż folder okresów` differs from `Wskaż Folder okresów` only in case).
+- Name a period in combobox `Okres` with `period_choice` (`drive/common.py`): its days from the token, its Status okresu, and the token, as in `wt 06.10 – pon 12.10 · ostatni pełny · 06_12_10_2026`.
 - Answer a native picker by writing the path to `<root>/picker/answer.txt`
   before the click. Leave the file absent to cancel.
 - Read side effects from the run root: `config/centrum-ustawienia.yaml`,

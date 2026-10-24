@@ -19,6 +19,7 @@ from drive.common import (
     finished_result,
     history_rows,
     last_opened_is,
+    period_choice,
     period_files,
     period_row,
 )
@@ -93,7 +94,7 @@ def drive_settlement(run: Run, page: Page) -> None:
     page.get_by_role("button", name=f"Utwórz rozliczenia pracowników, okres {LAST_COMPLETE}", exact=True).click()
     expect(page.get_by_text("Nowe Uruchomienie procesu", exact=True)).to_be_visible()
     expect(page.get_by_role("radio", name="Przebieg rozliczeń")).to_be_checked()
-    expect(page.get_by_role("combobox", name="Okres")).to_contain_text(f"{LAST_COMPLETE} · ostatni pełny")
+    expect(page.get_by_role("combobox", name="Okres")).to_contain_text(period_choice(LAST_COMPLETE, "ostatni pełny"))
     expect(page.get_by_role("group", name="Plik zbiorczy")).to_contain_text(collective_file.name)
     expect(page.get_by_text("Zapisz i zamknij Plik zbiorczy w Excelu", exact=True)).to_be_visible()
     processes = run.api("/api/runs/setup", "przebieg-wybor-okresu")["processes"]

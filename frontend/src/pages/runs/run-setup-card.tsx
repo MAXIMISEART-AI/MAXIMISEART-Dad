@@ -23,9 +23,29 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
+import { shortDate } from "@/lib/format"
 import { useRuns, type RunDraft } from "@/lib/runs"
 import { useSettings } from "@/lib/settings"
 import { ConfirmRunDialog } from "@/pages/runs/run-dialogs"
+
+/**
+ * Okres w wyborze: dni od wtorku do poniedziałku i Status okresu, a ciszej token, którym nazywa się Folder okresu.
+ * Okres zawsze zaczyna się we wtorek i kończy w poniedziałek, więc dni tygodnia są stałe.
+ */
+function PeriodLabel({ choice }: { choice: PeriodChoice }) {
+  return (
+    <>
+      <span>
+        wt {shortDate(choice.tuesday)} – pon {shortDate(choice.monday)} ·{" "}
+        {choice.last_complete ? "ostatni pełny" : choice.status_label}
+      </span>
+      <span className="ml-auto pl-3 text-muted-foreground">
+        <span className="sr-only"> · </span>
+        {choice.token}
+      </span>
+    </>
+  )
+}
 
 const PROCESS_ICONS: Record<Process, React.ReactNode> = {
   preparation: <FileSpreadsheetIcon aria-hidden />,
@@ -56,10 +76,7 @@ export function RunSetupCard({ processes }: { processes: ReadonlyArray<ProcessSe
   const chosenPeriod = chosen.periods.find((choice) => choice.token === period)
   const blocked = chosen.blocker !== null
 
-  const choices = chosen.periods.map((choice) => ({
-    value: choice.token,
-    label: `${choice.token} · ${choice.last_complete ? "ostatni pełny" : choice.status_label}`,
-  }))
+  const choices = chosen.periods.map((choice) => ({ value: choice.token, label: <PeriodLabel choice={choice} /> }))
 
   const run = (dryRun: boolean) => start({ ...selection, dry_run: dryRun })
 
@@ -115,7 +132,7 @@ export function RunSetupCard({ processes }: { processes: ReadonlyArray<ProcessSe
                 <SelectTrigger id="okres" className="w-full tabular-nums">
                   <SelectValue />
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent className="w-auto min-w-(--anchor-width)">
                   <SelectGroup>
                     {choices.map((choice) => (
                       <SelectItem key={choice.value} value={choice.value} className="tabular-nums">
