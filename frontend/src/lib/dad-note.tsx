@@ -24,7 +24,7 @@ export function DadNoteProvider({ children }: { children: React.ReactNode }) {
     <DadNoteContext.Provider value={openNote}>
       {children}
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="gap-5 sm:max-w-lg">
+        <DialogContent className="max-h-[calc(100dvh-2rem)] gap-5 overflow-y-auto sm:max-w-lg">
           <DadNoteForm key={opening.count} openedFrom={opening.runId} close={() => setOpen(false)} />
         </DialogContent>
       </Dialog>

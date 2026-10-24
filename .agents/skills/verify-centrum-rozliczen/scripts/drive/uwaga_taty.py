@@ -326,6 +326,11 @@ def _opened_about(run: Run, page: Page, run_id: str, name: str) -> tuple[Locator
     offered = _note_runs(run, run_id, name)
     run.check(run_id in [entry["run_id"] for entry in offered], "the server offers the Uruchomienie it was opened from")
     _offers(run, dialog.get_by_role("radiogroup", name="Uruchomienie", exact=True), offered, run_id)
+    box, viewport = dialog.bounding_box(), page.viewport_size
+    run.check(
+        box is not None and viewport is not None and box["y"] >= 0 and box["y"] + box["height"] <= viewport["height"],
+        "the whole dialog fits the window; a long list scrolls inside it",
+    )
     return dialog, offered
 
 
