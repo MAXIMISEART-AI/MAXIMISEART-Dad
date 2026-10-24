@@ -403,7 +403,7 @@ def _comment_all(
 def _waiting(outcome: Refused | Rejected | Unreachable | None) -> tuple[WaitingCause, Literal["stop", "next"]]:
     """Przyczyna w dzienniku i co dalej w przejściu kolejki po porażce wysyłki (``None``: brak klucza).
 
-    Brak klucza, brak sieci i odmowa (401/403/404: klucz, dostęp albo limit zapytań) spotkałyby każdy następny plik,
+    Brak klucza, brak sieci (także limit zapytań) i odmowa (401/403/404: klucz albo dostęp) spotkałyby każdy następny plik,
     więc przejście staje z jedną linią dziennika. Odmowa treści dotyczy tylko tego pliku: zostaje do następnego
     startu Centrum, a przejście idzie dalej.
     """
