@@ -9,23 +9,24 @@ powstaje tylko tutaj, raz. Pamięć ostatniego Zatrzymania każdego procesu jest
 tylko w pamięci serwera, więc restart Centrum ją zeruje.
 
 Przy Zatrzymaniu „do Maksa” i Powtórce Centrum proponuje Diagnozę; przy
-nieoczekiwanym wyjątku zaczyna ją od razu. ``Stops`` prowadzi Diagnozę
-Zatrzymania (Diagnoza, wpis w dzienniku, Diagnoza w Logach Uruchomienia,
-podgląd Zgłoszenia, pytanie skrzynki) i wysyłkę Zgłoszenia. Każda z nich
-zwraca nowy stan Zgłoszenia, a ``RunHost`` pokazuje go na karcie Uruchomienia.
+nieoczekiwanym wyjątku zaczyna ją od razu. Takie Zatrzymanie ma od swojego końca
+uchwyt Zgłoszenia (``reports.ReportHandle``). ``Stops`` prowadzi Diagnozę
+Zatrzymania (Diagnoza, wpis w dzienniku, Diagnoza w Logach Uruchomienia, nowy
+podgląd Zgłoszenia) i wysyłkę Zgłoszenia, a każdy nowy stan Zgłoszenia uchwyt
+sam oddaje ``RunHost``, który pokazuje go na karcie Uruchomienia.
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 import threading
 from typing import Final, Protocol, overload
 
 from rozliczenia.centrum import contract
 from rozliczenia.centrum.diagnosis import Diagnosis
 from rozliczenia.centrum.log import CentrumLog
-from rozliczenia.centrum.reports import Draft, ProblemFingerprint, Reports, StopReport
+from rozliczenia.centrum.reports import NoPreview, ProblemFingerprint, ReportHandle, ReportShown, Reports, StopReport
 from rozliczenia.process_run import Stop
 
 NO_DIAGNOSIS: Final = "Diagnoza jest przy Zatrzymaniu do Maksa albo przy powtórce tego samego Komunikatu."
@@ -57,12 +58,14 @@ class Stops:
         self._last: dict[contract.ProcessKey, ProblemFingerprint] = {}
 
     @overload
-    def ended(self, info: contract.RunInfo, stop: Stop) -> StoppedRun: ...
+    def ended(self, info: contract.RunInfo, stop: Stop, *, shown: ReportShown) -> StoppedRun: ...
 
     @overload
-    def ended(self, info: contract.RunInfo, stop: None) -> None: ...
+    def ended(self, info: contract.RunInfo, stop: None, *, shown: ReportShown) -> None: ...
 
-    def ended(self, info: contract.RunInfo, stop: Stop | None) -> StoppedRun | None:
+    def ended(self, info: contract.RunInfo, stop: Stop | None, *, shown: ReportShown) -> StoppedRun | None:
+        """Zatrzymanie zakończonego Uruchomienia; ``shown`` dostaje każdy nowy stan jego Zgłoszenia."""
+
         if stop is None:
             with self._lock:
                 self._last.pop(info.process, None)
@@ -75,11 +78,12 @@ class Stops:
         offer: contract.DiagnosisOffer | None = (
             None if kind == "for_tata" else "on_request" if stop.kind == "stop" else "automatic"
         )
-        report = None if offer is None else self._reports.state(fingerprint)
+        report = None if offer is None else self._reports.handle(fingerprint, shown=shown)
         return StoppedRun(info, stop, fingerprint, kind, offer, report)
 
-    def diagnose(self, stopped: StoppedRun) -> tuple[contract.Diagnosis, contract.ReportState]:
-        if stopped.offer is None:
+    def diagnose(self, stopped: StoppedRun) -> contract.Diagnosis:
+        report = stopped.report
+        if report is None:
             raise contract.Refusal(409, NO_DIAGNOSIS)
         info = stopped.info
         diagnosis = self._diagnosis_of(info.process, info.period)
@@ -87,10 +91,8 @@ class Stops:
         # Adres sprzed komentarza tej Diagnozy: podgląd nie zależy od tego, czy kolejka zdążyła go już wysłać.
         logs = self._logs.link(info.id)
         self._log_diagnosis(info.id, diagnosis)
-        draft = self._reports.draft(info.id, StopReport(info, stopped.stop, stopped.fingerprint, diagnosis, logs))
-        state = self._reports.ask(draft)
-        stopped.draft = draft
-        return diagnosis.view(stopped.stop.message, draft.view), state
+        draft = report.prepare(StopReport(info, stopped.stop, stopped.fingerprint, diagnosis, logs))
+        return diagnosis.view(stopped.stop.message, draft)
 
     def _log_diagnosis(self, run_id: str, diagnosis: Diagnosis) -> None:
         """Diagnoza w Logach Uruchomienia; ich błąd nie zmienia Diagnozy ani Zgłoszenia, tylko trafia do dziennika."""
@@ -101,20 +103,22 @@ class Stops:
             self._log.unexpected_failure(failure, where="Diagnoza w Logach Uruchomienia")
 
     def send(self, stopped: StoppedRun) -> contract.ReportState:
-        if stopped.offer is None:
+        report = stopped.report
+        if report is None:
             raise contract.Refusal(409, NO_DIAGNOSIS)
-        draft = stopped.draft
-        if draft is None:
-            raise contract.Refusal(409, _NO_DRAFT)
-        return self._reports.send(draft)
+        try:
+            return report.send()
+        except NoPreview:
+            raise contract.Refusal(409, _NO_DRAFT) from None
 
 
-@dataclass(eq=False)
+@dataclass(frozen=True, eq=False)
 class StoppedRun:
+    """Zatrzymanie zakończonego Uruchomienia; ``report`` (uchwyt jego Zgłoszenia) jest tam, gdzie ``offer``."""
+
     info: contract.RunInfo
     stop: Stop
     fingerprint: ProblemFingerprint
     kind: contract.StopKind
     offer: contract.DiagnosisOffer | None
-    report: contract.ReportState | None
-    draft: Draft | None = field(default=None, init=False, repr=False)
+    report: ReportHandle | None
