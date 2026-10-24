@@ -168,10 +168,11 @@ REQUIRED_SCREENSHOTS = {
     "uwaga-taty": (
         "170-uwaga-ikona-w-naglowku.png",
         "171-uwaga-puste-okno.png",
-        "172-uwaga-wypelniona.png",
-        "173-uwaga-czeka-na-internet.png",
-        "174-uwaga-wysylanie.png",
-        "175-uwaga-wyslana.png",
+        "172-uwaga-dlugi-tekst.png",
+        "173-uwaga-wypelniona.png",
+        "174-uwaga-czeka-na-internet.png",
+        "175-uwaga-wysylanie.png",
+        "176-uwaga-wyslana.png",
     ),
     "logi-uruchomienia": (
         "160-logi-podglad.png",
