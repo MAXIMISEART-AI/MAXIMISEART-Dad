@@ -124,11 +124,19 @@ jobs:
           if ($LASTEXITCODE -ne 0) {
             throw "Splitting the test files failed (exit code $LASTEXITCODE)"
           }
-          py -3 -m pytest -n auto $files
+          py -3 -m pytest -n auto --junitxml=junit.xml $files
 
       - name: Run tests (Linux)
         if: ${{ runner.os == 'Linux' }}
-        run: python -m pytest -n auto $(python tools/czesci_pytest.py --linux ${{ matrix.part }})
+        run: python -m pytest -n auto --junitxml=junit.xml $(python tools/czesci_pytest.py --linux ${{ matrix.part }})
+
+      - name: Upload junit
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: junit-${{ runner.os }}-${{ matrix.python-version }}-${{ strategy.job-index }}
+          path: junit.xml
+          retention-days: 3
 
   mutations:
     # A mutation check's verdict does not depend on the Python version, so it runs once, beside pytest.
