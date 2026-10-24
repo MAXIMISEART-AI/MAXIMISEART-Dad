@@ -554,6 +554,7 @@ def _world(tmp_path: Path) -> list[_Checkout]:
     return world
 
 
+@pytest.mark.dlugi
 def test_raport_zgodny_ze_specyfikacja_w_kazdym_stanie_repozytorium(tmp_path: Path) -> None:
     world = _world(tmp_path)
     answer = json.dumps(

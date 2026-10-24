@@ -39,6 +39,7 @@ testpaths = ["tests"]
 addopts = ["--strict-config", "--dist", "worksteal"]
 # Najwolniejszy test trwa kilka sekund; zawieszony test kończy się błędem zamiast blokować przebieg.
 timeout = 120
+markers = ["dlugi: test trwa kilka razy dłużej niż inne; xdist zaczyna od niego kawałek listy workera"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

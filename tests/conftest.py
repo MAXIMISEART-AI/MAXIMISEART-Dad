@@ -22,6 +22,31 @@ from rozliczenia.centrum.log import CentrumLog
 _CHECKED_CONTENT_TYPES = ("application/json", "text/event-stream")
 
 
+def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
+    """Testy ``@pytest.mark.dlugi`` zaczynają kawałki listy, które ``--dist worksteal`` rozdaje workerom na start.
+
+    Worker dostaje ciągły kawałek listy, a inne workery kradną z jego końca, więc długi test w głębi kawałka zaczyna
+    się pod koniec przebiegu i jeden worker kończy kilkanaście sekund po pozostałych. Kolejność poza xdist zostaje.
+    """
+
+    workers = getattr(config, "workerinput", {}).get("workercount")
+    long = [item for item in items if item.get_closest_marker("dlugi")]
+    if not workers or not long:
+        return
+    rest = [item for item in items if not item.get_closest_marker("dlugi")]
+    ordered: list[pytest.Item] = []
+    remaining = len(items)
+    for index in range(workers):
+        first = long[index::workers]
+        # Rozmiar kawałka jak w WorkStealingScheduling.check_schedule: pozostałe testy po równo na pozostałe workery.
+        size = remaining // (workers - index)
+        take = max(size - len(first), 0)
+        ordered += first + rest[:take]
+        rest = rest[take:]
+        remaining -= len(first) + take
+    items[:] = ordered + rest
+
+
 @pytest.fixture(autouse=True)
 def git_bez_konserwacji_w_tle(monkeypatch: pytest.MonkeyPatch) -> None:
     """Od Gita 2.54 ``git maintenance run --auto`` po ``commit`` wykonuje też ``git worktree prune``.
