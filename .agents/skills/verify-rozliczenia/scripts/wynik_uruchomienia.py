@@ -23,12 +23,11 @@ from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.worksheet import Worksheet
 from pydantic import ValidationError
 
-REPO_ROOT = Path(__file__).resolve().parents[4]
-sys.path.insert(0, str(REPO_ROOT / "tools"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "tools"))
 
-from uruchom_proces import ProcessResult  # noqa: E402
+from uruchom_proces import ProcessResult
 
-from rozliczenia.centrum import contract  # noqa: E402
+from rozliczenia.centrum import contract
 
 __all__ = [
     "Link",

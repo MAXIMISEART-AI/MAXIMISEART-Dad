@@ -110,6 +110,9 @@ extend-select = [
 # Konsola startu Centrum i instalatora skrótu.
 "src/rozliczenia/centrum/launcher.py" = ["T201"]
 "src/rozliczenia/centrum/shortcut.py" = ["T201"]
+# Szeroki except w Centrum kończy się unexpected_failure dziennika Centrum albo ponownym rzuceniem; pilnuje tego
+# tests/test_granice_wyjatkow.py zamiast noqa z tym samym powodem w każdej kopii.
+"src/rozliczenia/centrum/**" = ["BLE001"]
 
 [tool.ruff.lint.flake8-tidy-imports.banned-api]
 # Mypy w CI sprawdza kod dla Windows i dla macOS/Linuksa, ale gałąź pod os.name widzi na obu, więc
