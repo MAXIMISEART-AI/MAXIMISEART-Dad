@@ -6,8 +6,9 @@ rozmowę od rdzenia Uruchomienia procesu (``decision.Conversation``), i sam
 zatrzymuje się po odmowie. Zatrzymania zgłasza jako ``StopError`` z
 Komunikatem dla taty, a wynik nie zawiera danych klientów.
 
-Ten moduł sekwencjonuje cztery etapy i między Planowaniem a Zapisywaniem
-składa Decyzję taty o niepełnym okresie. Odczyt Rejestru zleceń jest w
+Ten moduł sekwencjonuje cztery etapy i jako jedyny tłumaczy fakty planu na
+ostrzeżenia, fakt wyniku (``quantities_to_complete``) i Decyzję taty o
+niepełnym okresie, o którą pyta między Planowaniem a Zapisywaniem. Odczyt Rejestru zleceń jest w
 ``preparation_register``, wybór zleceń okresu i reguły zleceń w
 ``preparation_plan``, Ilości usług zleceń w ``quantity_rules`` (wyznaczane w Planowaniu, więc podgląd bez zapisu
 ma te same ostrzeżenia ilości co zapis), a wzorce i zapis plików okresu w ``preparation_files``.
@@ -29,6 +30,8 @@ from .domain import ProgressObserver, ProgressPhase
 from .message import Message, StopError
 from .period_folder import PeriodFolder, PeriodFolderInaccessible, PeriodFolderLookupError, locate_period_folder
 from .phase_runner import PhaseRunner
+from .preparation_files import CollectiveFilePlan
+from .preparation_plan import IncompletePeriod, Plan
 from .quantity_rules import WEEKDAY_LABELS
 from .settlement_period import SettlementPeriod, parse_period_token
 from .workbook_files import WorkbookError
@@ -60,6 +63,8 @@ class PreparationSummary:
     skipped_empty_rows: int
     orders_per_day: dict[date, int] = field(default_factory=dict)
     warnings: list[Message] = field(default_factory=list)
+    quantities_to_complete: bool = False
+    """Tata uzupełnia Ilości usług w Pliku zbiorczym przed Przebiegiem rozliczeń."""
     phase_durations_ms: Mapping[ProgressPhase, int] = field(default_factory=lambda: MappingProxyType({}))
 
     def labeled_orders_per_day(self) -> list[tuple[str, int]]:
@@ -99,17 +104,49 @@ def _locate_period_folder(periods_directory: Path, period: SettlementPeriod) -> 
         raise StopError(messages.folder_inaccessible(exc.folder)) from exc
 
 
-def _incomplete_period_decision(plan: PreparationSummary) -> Decision | None:
-    """Decyzja taty o niepełnym okresie, gdy plan ma takie ostrzeżenie."""
+def _incomplete_period_warning(register_path: Path, plan: Plan, incomplete: IncompletePeriod) -> Message:
+    return messages.incomplete_period(
+        register_path, plan.sheet, plan.period.token, incomplete.last_order_day, incomplete.monday
+    )
 
-    warning = next((item for item in plan.warnings if item.code == messages.INCOMPLETE_PERIOD), None)
-    if warning is None:
+
+def _plan_warnings(
+    register_path: Path, files: preparation_files.PeriodFiles, plan: Plan, collective: CollectiveFilePlan
+) -> list[Message]:
+    """Ostrzeżenia z faktów planu: najpierw o Rejestrze zleceń, potem o wierszach Pliku zbiorczego."""
+
+    collective_filename = files.folder.collective_file.name
+    warnings: list[Message] = []
+    if plan.incomplete_period is not None:
+        warnings.append(_incomplete_period_warning(register_path, plan, plan.incomplete_period))
+    if collective.too_few_zero_rows:
+        warnings.append(
+            messages.too_few_zero_rows(
+                collective_filename,
+                collective.successful_count,
+                collective.zero_row_count,
+                collective.first_row_without_zeros,
+            )
+        )
+    if collective.rows_without_rule:
+        warnings.append(messages.unknown_devices(collective_filename, collective.rows_without_rule))
+    if collective.rows_from_description:
+        warnings.append(messages.rows_from_description(collective_filename, collective.rows_from_description))
+    if collective.description_columns:
+        warnings.append(messages.columns_from_description(collective_filename, collective.description_columns))
+    return warnings
+
+
+def _incomplete_period_decision(register_path: Path, plan: Plan, summary: PreparationSummary) -> Decision | None:
+    """Decyzja taty o niepełnym okresie, gdy plan ma taki fakt."""
+
+    if plan.incomplete_period is None:
         return None
     return Decision(
         title=messages.INCOMPLETE_PERIOD_TITLE,
-        message=warning,
+        message=_incomplete_period_warning(register_path, plan, plan.incomplete_period),
         counts_title=messages.ORDERS_PER_DAY,
-        counts=plan.labeled_orders_per_day(),
+        counts=summary.labeled_orders_per_day(),
         question=messages.INCOMPLETE_PERIOD_QUESTION,
     )
 
@@ -180,13 +217,12 @@ def prepare_collective_file(
     folder = files.folder
     register = phases.read(lambda: preparation_register.read_register(register_path, folder.period))
 
-    def plan_orders() -> tuple[preparation_plan.Plan, list[Message]]:
+    def plan_orders() -> tuple[Plan, CollectiveFilePlan, list[Message]]:
         plan = preparation_plan.plan_period_orders(register_path, register, folder.period, config_path, worker_mapping)
-        warnings = preparation_plan.period_warnings(register_path, plan)
-        warnings.extend(preparation_files.plan_period_files(files, len(plan.orders), plan.collective_rows))
-        return plan, warnings
+        collective = preparation_files.plan_period_files(files, len(plan.orders), plan.collective_rows)
+        return plan, collective, _plan_warnings(register_path, files, plan, collective)
 
-    plan, warnings = phases.plan(plan_orders, issue_count=lambda planned: len(planned[1]))
+    plan, collective, warnings = phases.plan(plan_orders, issue_count=lambda planned: len(planned[2]))
     summary = PreparationSummary(
         internal_settlement_file=folder.internal_settlement,
         collective_file=folder.collective_file,
@@ -195,9 +231,10 @@ def prepare_collective_file(
         skipped_empty_rows=plan.skipped_empty_rows,
         orders_per_day=plan.orders_per_day,
         warnings=warnings,
+        quantities_to_complete=collective.quantities_to_complete,
     )
     if conversation is not None and not dry_run:
-        decision = _incomplete_period_decision(summary)
+        decision = _incomplete_period_decision(register_path, plan, summary)
         if decision is not None:
             with phases.paused():
                 consent = conversation.confirm(decision)
