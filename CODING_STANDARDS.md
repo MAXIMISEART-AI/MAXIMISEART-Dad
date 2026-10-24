@@ -28,8 +28,11 @@ They complement `GLOSSARY.md`, the ADRs, and the executable checks; they do not 
   Workbook code (`workbook_files` and the Sprawdzanie of each Wzorzec) raises `WorkbookError`, and each caller translates the error with one catalog function.
   That function ends its `match` on `Problem` with `assert_never`, so mypy rejects a new `Problem` until every catalog handles it.
   Other code calls its catalog's factories directly, and a process summary reports its problems as warning Komunikaty in `warnings`.
-- Outside a catalog, decide on a Komunikat only by a code or a set of codes that the catalog exports for that decision (`INCOMPLETE_PERIOD`).
-  Never map a code back to the fact that produced it.
+- Never decide on a Komunikat's code outside a catalog, and never map a code back to the fact that produced it.
+  A process's plan returns typed facts (`preparation_plan.Plan.incomplete_period`, `preparation_files.CollectiveFilePlan`), and one place per process translates them into warnings, Zatrzymania, the result and Decyzja taty: `collective_preparation` and `engine`.
+  A catalog factory takes facts (row numbers, column letters, dates), not layout types.
+  `tests/test_decyzje_na_faktach.py` rejects a comparison or `match` on `.code` in the engine (`src/rozliczenia/*.py`).
+  Centrum rozliczeń still decides on two codes until its own change: `NEWER_TOOL_VERSION` in `centrum/diagnosis.py` and `_RETRIED_BY_TATA` in `centrum/tool_updates.py`.
 - Classify failures that can invalidate a write as typed critical exceptions.
   This includes preparing or restoring `xl/externalLinks/*`, not only the final filesystem replacement.
 - Preserve `Nienadpisywanie`: existing input data is reported and never replaced automatically.

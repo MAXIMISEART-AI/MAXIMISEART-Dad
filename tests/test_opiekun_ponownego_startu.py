@@ -170,13 +170,14 @@ def test_opiekun_czeka_na_zwolnienie_portu_i_startuje_nowa_wersje_z_nowym_identy
     assert not work.exists()
     assert ToolClone(clone).interrupted_update() is None
     events = [line.split(" ", 2)[1] for line in _log_lines(clone)]
-    # Stare Centrum zwalnia port, zanim zapisze „stop”, więc jego „stop” może przyjść po starcie nowego.
-    assert [event for event in events if event not in {"stop", "blad-startu", "juz-dziala"}][:5] == [
+    assert [event for event in events if event not in {"blad-startu", "juz-dziala"}] == [
         "start",
         "zamkniecie",
+        "stop",
         "aktualizacja-koniec",
         "start",
         "zamkniecie",
+        "stop",
     ]
     assert f"aktualizacja-koniec wynik=ok przed={before} po={newest} biblioteki=nie" in [
         line.split(" ", 1)[1] for line in _log_lines(clone)

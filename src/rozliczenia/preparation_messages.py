@@ -21,18 +21,8 @@ from typing import Final, assert_never
 
 from .message import REPORT_TO_MAINTAINER, Message, file_label, folder_label
 from .period_folder import PeriodFolderLookupError, month_folder_label
-from .quantity_rules import DESCRIPTION_COLUMNS
 from .workbook_files import WORKER_HEADER, MergedCells, MissingHeader, Problem, WorkbookError
 from .worker_config import WorkerConfigError
-
-# Kod czytany poza katalogiem: decyzja o niepełnym okresie.
-INCOMPLETE_PERIOD = "NIEPELNY_OKRES"
-# Ostrzeżenia ilości: tylko z ich powodu zapisany Plik zbiorczy wymaga sprawdzenia, więc skrypty, które czekają
-# na Przygotowanie bez uwag, przyjmują taki wynik.
-UNKNOWN_DEVICES = "NIEZNANE_URZADZENIA"
-ROWS_FROM_DESCRIPTION = "WIERSZE_Z_OPISU"
-COLUMNS_FROM_DESCRIPTION = "KOLUMNY_Z_OPISU"
-QUANTITY_WARNINGS: Final = frozenset({UNKNOWN_DEVICES, ROWS_FROM_DESCRIPTION, COLUMNS_FROM_DESCRIPTION})
 
 # Napisy Decyzji taty o niepełnym okresie; jej Komunikat to ``incomplete_period``, odmowa ``incomplete_period_refused``.
 INCOMPLETE_PERIOD_TITLE: Final = "Ostrzeżenie: niepełny okres"
@@ -590,7 +580,7 @@ def unknown_devices(collective_filename: str, row_numbers: Sequence[int]) -> Mes
     """Ostrzeżenie: Reguły ilości nie znają składnika ``URZĄDZENIA``, więc wiersz ma tylko ilości od niego niezależne."""
 
     return Message(
-        code=UNKNOWN_DEVICES,
+        code="NIEZNANE_URZADZENIA",
         what=(
             "Narzędzie nie zna urządzenia z kolumny URZĄDZENIA, więc w tych wierszach Pliku zbiorczego wpisało "
             "tylko ilości niezależne od urządzeń (V, T i N)."
@@ -607,7 +597,7 @@ def rows_from_description(collective_filename: str, row_numbers: Sequence[int]) 
     """Ostrzeżenie: wiersze rozliczane z opisu (prewencja, niedostępność usług, puste ``URZĄDZENIA``) bez ilości."""
 
     return Message(
-        code=ROWS_FROM_DESCRIPTION,
+        code="WIERSZE_Z_OPISU",
         what=(
             "Te wiersze Pliku zbiorczego rozlicza się z opisu technika (prewencja, niedostępność usług albo puste "
             "URZĄDZENIA), więc narzędzie nie wpisało w nich żadnych ilości."
@@ -620,14 +610,13 @@ def rows_from_description(collective_filename: str, row_numbers: Sequence[int]) 
     )
 
 
-def columns_from_description(collective_filename: str) -> Message:
-    """Ostrzeżenie zawsze po Planowaniu: kolumn z opisu technika Reguły ilości nie wypełniają."""
+def columns_from_description(collective_filename: str, columns: Sequence[str]) -> Message:
+    """Ostrzeżenie zawsze po Planowaniu: kolumn z opisu technika (``columns``) Reguły ilości nie wypełniają."""
 
-    columns = ", ".join(DESCRIPTION_COLUMNS[:-1]) + f" i {DESCRIPTION_COLUMNS[-1]}"
     return Message(
-        code=COLUMNS_FROM_DESCRIPTION,
+        code="KOLUMNY_Z_OPISU",
         what="Ilości, które wynikają z opisu technika (CZYNNOŚCI ZREALIZOWANE), narzędzie zostawia do uzupełnienia.",
-        where=f"plik {collective_filename}, kolumny {columns}",
+        where=f"plik {collective_filename}, kolumny {', '.join(columns[:-1])} i {columns[-1]}",
         action=(
             "Przejrzyj opis technika w każdym wierszu Pliku zbiorczego i uzupełnij ilości w tych kolumnach przed "
             "Przebiegiem rozliczeń."
@@ -645,7 +634,7 @@ def incomplete_period(
     """Ostrzeżenie: ostatnie zlecenie okresu jest sprzed poniedziałku okresu."""
 
     return Message(
-        code=INCOMPLETE_PERIOD,
+        code="NIEPELNY_OKRES",
         what=(
             f"Ostatnie zlecenie okresu jest {_FROM_WEEKDAY[last_order_day.weekday()]} {last_order_day:%d.%m.%Y}, "
             f"a okres kończy się w poniedziałek {monday:%d.%m.%Y}. Rejestr zleceń może nie mieć jeszcze "

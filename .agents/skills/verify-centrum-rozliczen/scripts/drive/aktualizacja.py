@@ -303,7 +303,7 @@ def drive_update(run: Run, page: Page) -> None:
         expect(_status(page, RESTARTING)).to_be_visible(timeout=20_000)
         expect(card.get_by_role("button", name=BUTTON, exact=True)).to_be_disabled()
         run.check(not _answers(run), "the old Centrum has closed and the new one is not up yet")
-        run.check(_log_events(run)[-2:] == ["aktualizacja-start", "zamkniecie"], "the old Centrum closed itself")
+        run.check(_log_events(run)[-3:] == ["aktualizacja-start", "zamkniecie", "stop"], "the old Centrum closed itself and logged its stop")
         run.check(
             "zamkniecie z=aktualizacja" in (run.root / "logs" / "centrum-rozliczen.log").read_text(encoding="utf-8"),
             "the closing names the update, not the card",
@@ -349,13 +349,9 @@ def drive_update(run: Run, page: Page) -> None:
             entries[2:] == [f"aktualizacja-start przed={first}", f"aktualizacja-koniec wynik=ok przed={first} po={newest} biblioteki=nie"],
             "the Centrum log has the retry's start and end with both commits, and no path",
         )
-        # The old Centrum releases the port at once but gives open connections (the tab's event stream) up to
-        # 5 s before it logs `stop`, so its `stop` may come after the new Centrum's `start`.
-        run.wait_for(lambda: "stop" in _since_update(run), "the old Centrum stopped")
         run.check(
-            [event for event in _since_update(run) if event != "stop"] == ["zamkniecie", "aktualizacja-koniec", "start"]
-            and _since_update(run).count("stop") == 1,
-            "the new Centrum logged the end of the update, then its start",
+            _since_update(run) == ["zamkniecie", "stop", "aktualizacja-koniec", "start"],
+            "the old Centrum logged its stop, then the new Centrum the end of the update and its start",
         )
         run.capture(page, "101-aktualizacja-zaktualizowano")
 
@@ -422,6 +418,11 @@ def _drive_failed_installation(
     page.reload()
     card = _tool_card(page)
     expect(card).to_contain_text("Jest nowsza wersja")
+    run.check(
+        run.api("/api/tool-update", "aktualizacja-instalowanie-przed") == {"state": "idle"},
+        "with a newer Wydanie than the one the last update was up to date with, the server forgets that result",
+    )
+    expect(card.get_by_role("status").filter(has_text=UP_TO_DATE)).to_have_count(0)
     card.get_by_role("button", name=BUTTON, exact=True).click()
     expect(card.get_by_role("status").filter(has_text=INSTALLING)).to_be_visible()
     expect(card.get_by_role("button", name=BUTTON, exact=True)).to_be_disabled()
@@ -529,11 +530,9 @@ def _drive_new_version_not_starting(
         ],
         "the Centrum log has the update and its end in the old version, with both commits and no path",
     )
-    run.wait_for(lambda: "stop" in _since_update(run), "the Centrum before the click stopped")
     run.check(
-        [event for event in _since_update(run) if event != "stop"] == ["zamkniecie", "aktualizacja-koniec", "start"]
-        and _since_update(run).count("stop") == 1,
-        "only the old version started again; the new one never logged a start",
+        _since_update(run) == ["zamkniecie", "stop", "aktualizacja-koniec", "start"],
+        "the Centrum before the click logged its stop; only the old version started again, the new one never logged a start",
     )
     run.capture(page, "136-aktualizacja-nie-wystartowala")
 

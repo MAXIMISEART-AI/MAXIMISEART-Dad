@@ -21,7 +21,6 @@ from rozliczenia.collective_preparation import (
     PreparationSummary,
     prepare_collective_file,
 )
-from rozliczenia import preparation_messages
 from rozliczenia.decision import Conversation
 from rozliczenia.domain import ProgressObserver
 from rozliczenia.message import Message
@@ -31,6 +30,8 @@ from tests.fixtures.workbooks import active_worksheet, add_external_link_fixture
 PERIOD = "08_14_09_2026"
 INTERNAL_SETTLEMENT_NAME = f"Rozliczenie wew. {PERIOD}.xlsx"
 COLLECTIVE_FILE_NAME = f"Rozliczenie {PERIOD} - zbiorcze.xlsx"
+QUANTITY_WARNINGS = frozenset({"NIEZNANE_URZADZENIA", "WIERSZE_Z_OPISU", "KOLUMNY_Z_OPISU"})
+"""Kody ostrzeżeń o Ilościach usług do uzupełnienia (``tests/test_ostrzezenia_ilosci.py``)."""
 
 # Układ nowego Rejestru taty: pusta kolumna A, AKCJE w B, ZWROT i UWAGI na końcu.
 # AKCJE, ZWROT i UWAGI nie są przenoszone; kolumny są przesunięte względem wzorców.
@@ -513,4 +514,4 @@ def incomplete_period_fixture(tmp_path: Path) -> PreparationFixture:
 def other_warnings(warnings: Sequence[Message]) -> list[Message]:
     """Ostrzeżenia Przygotowania bez ostrzeżeń ilości, które ma każdy okres (``tests/test_ostrzezenia_ilosci.py``)."""
 
-    return [warning for warning in warnings if warning.code not in preparation_messages.QUANTITY_WARNINGS]
+    return [warning for warning in warnings if warning.code not in QUANTITY_WARNINGS]

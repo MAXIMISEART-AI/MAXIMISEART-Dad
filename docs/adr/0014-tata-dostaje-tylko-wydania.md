@@ -95,7 +95,11 @@ zamiast każdej naprawy z osobna.
   (#319, #324). Powiadomienie o naprawie miało przycisk zawsze; #323 je
   usunęło. Powiadomienie o nowej wersji ocenia ostatnią odpowiedź GitHuba, więc
   bez sieci zostaje takie, jakie było. Odpowiedź `Masz najnowszą wersję.`
-  zostaje na uśpiony tag (wyżej) i na każdego klienta HTTP.
+  zostaje na uśpiony tag (wyżej) i na każdego klienta HTTP. Dotyczy
+  najnowszego Wydania, które Centrum znało w jej chwili: gdy pozna inne
+  (pamięć Konfiguracji i Powiadomień, do której trafia też każda odpowiedź z
+  Diagnozy), odpowiedź znika, więc przy przycisku nowszego Wydania jej nie ma
+  (#373).
 
 ### Ochrona przed tagiem założonym ręcznie
 
