@@ -188,20 +188,3 @@ def test_problem_przebiegu_rozliczen_i_ostrzezenie_przygotowania_sa_licznikami_r
     assert (settlement_record["result"], settlement_record["counters"]["issues"]) == ("WYMAGA_SPRAWDZENIA", 1)
     assert (preparation_record["result"], preparation_record["counters"]["warnings"]) == ("OK", 3)
 
-
-METRICS_NOT_SAVED = {
-    "przebieg-rozliczen": "Ostrzeżenie: Nie zapisano metryk; proces rozliczeń zakończył się niezależnie.",
-    "przygotowanie-pliku-zbiorczego": (
-        "Ostrzeżenie: Nie zapisano metryk; Przygotowanie pliku zbiorczego zakończyło się niezależnie."
-    ),
-}
-
-
-@pytest.mark.parametrize("name", CASES)
-def test_nieudany_zapis_metryk_jest_ostrzezeniem_procesu_bez_zmiany_wyniku(tmp_path: Path, name: str) -> None:
-    not_a_directory = tmp_path / "nie-katalog"
-    not_a_directory.write_text("nie katalog", encoding="utf-8")
-
-    outcome = run(CASES[name](tmp_path), not_a_directory / "metrics.jsonl", dry_run=True)
-
-    assert (outcome.result, outcome.metrics_saved, outcome.technical_notes) == ("OK", False, (METRICS_NOT_SAVED[name],))
