@@ -8,7 +8,7 @@ Komunikatem dla taty, a wynik nie zawiera danych klientów.
 
 Ten moduł sekwencjonuje cztery etapy i jako jedyny tłumaczy fakty planu na ostrzeżenia, fakt wyniku
 (``quantities_to_complete``) i Decyzję taty o niepełnym okresie, o którą pyta między Planowaniem a Zapisywaniem.
-Odczyt Rejestru zleceń jest w ``preparation_register``, wybór zleceń okresu i reguły zleceń w ``preparation_plan``,
+Sprawdzanie i odczyt Rejestru zleceń przez czytniki są w ``input_checks``, wybór zleceń okresu i reguły zleceń w ``preparation_plan``,
 Ilości usług zleceń w ``quantity_rules`` (wyznaczane w Planowaniu, więc podgląd bez zapisu ma te same ostrzeżenia
 ilości co zapis), a wzorce i zapis plików okresu w ``preparation_files``.
 """
@@ -22,19 +22,16 @@ from pathlib import Path
 import time
 from types import MappingProxyType
 
-from . import TOOL_ROOT, preparation_files, preparation_plan, preparation_register
+from . import TOOL_ROOT, input_checks, preparation_files, preparation_plan
 from . import preparation_messages as messages
 from .decision import Conversation, Decision
 from .domain import ProgressObserver, ProgressPhase
+from .input_checks import FILE_READERS, Readers
 from .message import Message, StopError
-from .period_folder import PeriodFolder, PeriodFolderInaccessible, PeriodFolderLookupError, locate_period_folder
 from .phase_runner import PhaseRunner
 from .preparation_files import CollectiveFilePlan
 from .preparation_plan import IncompletePeriod, Plan
 from .quantity_rules import WEEKDAY_LABELS
-from .settlement_period import SettlementPeriod, parse_period_token
-from .workbook_files import WorkbookError
-from .worker_config import WorkerConfigError, load_worker_mapping
 
 __all__ = [
     "PreparationSummary",
@@ -85,22 +82,6 @@ def default_collective_template_path() -> Path:
     """Wzorzec pliku zbiorczego w katalogu konfiguracji obok Wzorca rozliczenia pracownika."""
 
     return TOOL_ROOT / "config" / "Wzorzec pliku zbiorczego.xlsx"
-
-
-def _parse_period(token: str) -> SettlementPeriod:
-    try:
-        return parse_period_token(token)
-    except ValueError as exc:
-        raise StopError(messages.invalid_period_token(token)) from exc
-
-
-def _locate_period_folder(periods_directory: Path, period: SettlementPeriod) -> PeriodFolder:
-    try:
-        return locate_period_folder(periods_directory, period)
-    except PeriodFolderLookupError as exc:
-        raise StopError(messages.period_folder_lookup_problem(exc)) from exc
-    except PeriodFolderInaccessible as exc:
-        raise StopError(messages.folder_inaccessible(exc.folder)) from exc
 
 
 def _incomplete_period_warning(register_path: Path, plan: Plan, incomplete: IncompletePeriod) -> Message:
@@ -162,6 +143,7 @@ def prepare_collective_file(
     observer: ProgressObserver | None = None,
     conversation: Conversation | None = None,
     clock: Callable[[], float] = time.perf_counter,
+    readers: Readers = FILE_READERS,
 ) -> PreparationSummary:
     """Tworzy w Folderze okresu razem Rozliczenie wewnętrzne i Plik zbiorczy.
 
@@ -180,7 +162,7 @@ def prepare_collective_file(
     ``StopError`` bez zapisu, z podpowiedzią zgody tego rozmówcy. Czas
     czekania na Decyzję nie wlicza się do czasów etapów. Bez rozmowy
     Przygotowanie o nic nie pyta. ``clock`` to zegar w sekundach, z którego
-    liczone są czasy etapów.
+    liczone są czasy etapów. ``readers`` czytają Rejestr zleceń i wzorce w Sprawdzaniu i Odczycie danych.
     """
 
     phases = PhaseRunner(observer, clock=clock)
@@ -190,31 +172,19 @@ def prepare_collective_file(
     internal_template = (internal_template_path or default_internal_template_path()).expanduser().resolve()
     collective_template = (collective_template_path or default_collective_template_path()).expanduser().resolve()
 
-    def check_inputs() -> tuple[preparation_files.PeriodFiles, dict[str, str]]:
-        settlement_period = _parse_period(period)
-        preparation_register.ensure_register_available(register_path)
-        try:
-            preparation_files.check_internal_template(internal_template)
-            preparation_files.check_collective_template(collective_template)
-        except WorkbookError as error:
-            raise StopError(messages.template_unusable(error)) from error
-        if not periods_directory.is_dir():
-            raise StopError(messages.periods_directory_missing(periods_directory))
-        files = preparation_files.PeriodFiles(
+    files, worker_mapping = phases.check(
+        lambda: input_checks.check_preparation(
+            register_path,
+            periods_directory,
+            period,
+            config_path,
             internal_template=internal_template,
             collective_template=collective_template,
-            folder=_locate_period_folder(periods_directory, settlement_period),
+            readers=readers,
         )
-        preparation_files.ensure_period_files_absent(files)
-        try:
-            worker_mapping = load_worker_mapping(config_path)
-        except WorkerConfigError as exc:
-            raise StopError(messages.worker_config_problem(config_path, exc)) from exc
-        return files, worker_mapping
-
-    files, worker_mapping = phases.check(check_inputs)
+    )
     folder = files.folder
-    register = phases.read(lambda: preparation_register.read_register(register_path, folder.period))
+    register = phases.read(lambda: input_checks.read_register(register_path, folder.period, readers))
 
     def plan_orders() -> tuple[Plan, CollectiveFilePlan, list[Message]]:
         plan = preparation_plan.plan_period_orders(register_path, register, folder.period, config_path, worker_mapping)

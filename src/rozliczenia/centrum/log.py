@@ -161,6 +161,11 @@ class CentrumLog:
         named = {} if file is None else {"plik": file}
         self._write("skrzynka-czeka", etykieta=label, okres=_period(period), przyczyna=cause, **named)
 
+    def box_post_dropped(self, *, label: str, file: str, number: int) -> None:
+        """Plik kolejki Skrzynki Zgłoszeń usunięty bez wysyłki: issue ``number``, do którego szedł, zniknęło."""
+
+        self._write("skrzynka-porzucono", etykieta=label, plik=file, numer=number)
+
     def box_post_unreadable(self, *, file: str) -> None:
         """Pliku kolejki Skrzynki Zgłoszeń nie da się odczytać (uszkodzony, nieznany schemat); zostaje. Tylko nazwa."""
 

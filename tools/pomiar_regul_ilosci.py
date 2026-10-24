@@ -32,10 +32,10 @@ from rozliczenia.quantity_check import compared_columns
 from rozliczenia.quantity_rules import (
     WEEKDAY_LABELS,
     FromDescription,
+    OrderContent,
     QuantityColumn,
     RuleResult,
     ServiceQuantities,
-    WeekTime,
     WithoutRule,
     evaluate,
 )
@@ -54,7 +54,7 @@ class Row:
     """Wiersz danych z datą: treść po filtrze prywatności, wynik reguł i kolumny, które Kontrola w nim porównuje."""
 
     order: OrderFacts
-    started: WeekTime
+    content: OrderContent
     result: RuleResult
     compared: tuple[QuantityColumn, ...]
 
@@ -74,10 +74,11 @@ class Row:
         return {letter: entry for letter, entry in self.order.quantities.items() if letter not in self.compared}
 
     def context(self) -> dict[QuantityColumn, str]:
-        day = WEEKDAY_LABELS[self.started.weekday]
-        slot = day if self.started.weekday >= 5 else f"{day} {'od' if self.started.at >= _LATE else 'przed'} 17:00"
-        activities = f"CZYNNOŚCI {'z liczbą' if _DIGIT.search(self.order.activities) else 'bez liczby'}"
-        words = self.order.contract.casefold().split()
+        started = self.content.started
+        day = WEEKDAY_LABELS[started.weekday]
+        slot = day if started.weekday >= 5 else f"{day} {'od' if started.at >= _LATE else 'przed'} 17:00"
+        activities = f"CZYNNOŚCI {'z liczbą' if _DIGIT.search(self.content.activities) else 'bez liczby'}"
+        words = self.content.contract.casefold().split()
         contract = "puste" if not words else words[0] if _SHORT_WORD.fullmatch(words[0]) else "inne"
         last_drop = f"Y taty {'≠' if self.order.quantity('Y') != 0 else '='} 0"
         return {
@@ -100,12 +101,12 @@ def rows(path: Path) -> tuple[list[Row], int]:
     measured: list[Row] = []
     undated = 0
     for order in orders:
-        content = order.content()
+        content = order.content
         if content is None:
             undated += 1
             continue
         result = evaluate(content)
-        measured.append(Row(order, content.started, result, compared_columns(result)))
+        measured.append(Row(order, content, result, compared_columns(result)))
     return measured, undated
 
 
@@ -135,7 +136,7 @@ def report(name: str, measured: list[Row], undated: int) -> list[str]:
             kind = "z regułą" if isinstance(row.result, ServiceQuantities) else "bez reguły"
             depends_on = row.context()
             context = tuple(sorted({depends_on[column] for column, _, _ in found if column in depends_on}))
-            classes[(kind, found, context)][row.order.devices] += 1
+            classes[(kind, found, context)][row.content.devices] += 1
     lines.append(f"-- klasy rozbieżności: {len(classes)}")
     for (kind, found, context), texts in sorted(classes.items(), key=lambda item: -item[1].total()):
         columns = "; ".join(f"{column}: reguła {ruled}, tata {tata}" for column, ruled, tata in found)
@@ -166,7 +167,7 @@ def _counts(values: Mapping[str, object]) -> str:
 def _groups(group: list[Row]) -> list[str]:
     by_text: dict[str, Counter[str]] = defaultdict(Counter)
     for row in group:
-        by_text[row.order.devices][_counts(row.beyond())] += 1
+        by_text[row.content.devices][_counts(row.beyond())] += 1
     return [
         f"{entries.total()}× {text!r} | " + ", ".join(f"{filled} → {count}" for filled, count in entries.most_common())
         for text, entries in sorted(by_text.items(), key=lambda item: -item[1].total())

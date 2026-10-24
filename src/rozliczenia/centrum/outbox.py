@@ -6,9 +6,10 @@ etykieta i tytuł, jak Uwaga taty) albo do issue o znanym numerze (``KnownIssue`
 JSON w ``config/zgloszenia/kolejka/`` (poza Gitem, poza plikami ``Zgłoszenie *.md``, które tata może przesłać
 Maksowi), potem jeden wątek w tle wysyła wszystkie pliki po kolei i usuwa wysłane. Porażka (brak klucza, odmowa,
 brak sieci) zostawia plik bez Komunikatu; wątek rusza znów przy starcie Centrum (``resume``) i po każdej nowej
-wysyłce. Wysłany plik dostaje znacznik dostarczenia, zanim zniknie, więc plik, którego nie da się usunąć, nie idzie
-drugi raz. Przerwanie między wysłaniem a znacznikiem powtarza wysyłkę (co najmniej raz, decyzja 12). Treść nigdy
-nie trafia do dziennika Centrum: tylko etykieta, okres, numer issue i przyczyna czekania (decyzja 13).
+wysyłce. Plik do ``KnownIssue``, którego skrzynka już nie ma, kolejka porzuca z linią dziennika (#402). Wysłany plik
+dostaje znacznik dostarczenia, zanim zniknie, więc plik, którego nie da się usunąć, nie idzie drugi raz. Przerwanie
+między wysłaniem a znacznikiem powtarza wysyłkę (co najmniej raz, decyzja 12). Treść nigdy nie trafia do dziennika
+Centrum: tylko etykieta, okres, numer issue i przyczyna czekania (decyzja 13).
 
 Issue okresu kolejka znajduje po wierszu rozpoznawczym przy każdej próbie wysyłki i dopisuje do niego części jako
 komentarze. Bez niego zakłada nowe issue: pierwsza część (albo nagłówek) jest jego treścią, kolejne komentarzami.
@@ -316,7 +317,14 @@ class Delivered:
     comments: tuple[Commented, ...]
 
 
-def _deliver(post: Post, box: ReportBox, key: str) -> Delivered | Refused | Rejected | Unreachable:
+@dataclass(frozen=True)
+class Gone:
+    """Skrzynka działa, ale nie ma już issue ``number`` (Maks je usunął): wysyłka do niego nigdy nie przejdzie."""
+
+    number: int
+
+
+def _deliver(post: Post, box: ReportBox, key: str) -> Delivered | Gone | Refused | Rejected | Unreachable:
     match post.target:
         case PeriodThread() as thread:
             return _deliver_to_period(post, thread, box, key)
@@ -342,18 +350,18 @@ def _deliver_new_issue(
 
 def _deliver_to_known(
     post: Post, known: KnownIssue, box: ReportBox, key: str
-) -> Delivered | Refused | Rejected | Unreachable:
+) -> Delivered | Gone | Refused | Rejected | Unreachable:
     """Każda część jako komentarz do issue ``known.number``, jeśli skrzynka je ma (otwarte albo zamknięte).
 
-    Komentarz do issue, które Maks usunął, to 404, czyli odmowa, która zatrzymałaby całą kolejkę; issue, którego
-    skrzynka nie ma, to odmowa tej treści.
+    Komentarz do issue, które Maks usunął, to 404, czyli odmowa, która zatrzymałaby całą kolejkę, więc kolejka
+    najpierw pyta o issue z etykietą. Gdy lista przyszła bez tego numeru, issue nie ma (``Gone``).
     """
 
     found = box.labelled_issues(known.label, include_closed=True, key=key)
     if isinstance(found, Refused | Unreachable):
         return found
     if all(issue.number != known.number for issue in found):
-        return Rejected()
+        return Gone(known.number)
     return _comment_all(known.number, post.parts, box, key)
 
 
@@ -562,6 +570,10 @@ class Outbox:
                 continue
             label, period = post.target.label, post.period
             outcome = None if key is None else _deliver(post, self._box, key)
+            if isinstance(outcome, Gone):
+                self._log.box_post_dropped(label=label, file=path.name, number=outcome.number)
+                self._remove(path)
+                continue
             if not isinstance(outcome, Delivered):
                 cause, then = _waiting(outcome)
                 if then == "stop":

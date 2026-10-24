@@ -1,4 +1,5 @@
 import * as React from "react"
+import { cn } from "cn"
 import {
   CircleCheckIcon,
   CircleDashedIcon,
@@ -36,6 +37,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { Disclosure } from "@/components/disclosure"
 import { ThreePartMessage } from "@/components/three-part-message"
 import { WriteAboutRun } from "@/components/write-to-maks"
+import { useChangeEntrance } from "@/lib/content-entrance"
 import { seconds } from "@/lib/format"
 import { useRuns } from "@/lib/runs"
 import { openAndConfirm } from "@/pages/periods/open-period-path"
@@ -122,7 +124,7 @@ export function RunCard({
               aria-label={`${phase.phase}: ${PHASE_STATE_LABELS[phase.state]}`}
             >
               <span className="flex items-center gap-2 text-sm font-medium [&_svg]:size-4">
-                {PHASE_ICONS[phase.state]}
+                <PhaseIcon state={phase.state} />
                 <span data-pending={phase.state === "pending"} className="data-[pending=true]:text-muted-foreground">
                   {phase.phase}
                 </span>
@@ -167,6 +169,17 @@ export function RunCard({
         ) : null}
       </CardContent>
     </Card>
+  )
+}
+
+/** Ikona stanu etapu. Ikona stanu, który zmienił się na oczach taty, wchodzi `podmiana`; zastana stoi. */
+function PhaseIcon({ state }: { state: PhaseProgress["state"] }) {
+  const entrance = useChangeEntrance(state, "podmiana")
+
+  return (
+    <span key={state} className={cn("flex", entrance)}>
+      {PHASE_ICONS[state]}
+    </span>
   )
 }
 

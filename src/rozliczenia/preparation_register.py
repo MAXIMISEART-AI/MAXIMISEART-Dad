@@ -3,9 +3,8 @@
 Rejestr jest tylko czytany, przez moduł skoroszytu. Arkusze ze zleceniami są rozpoznawane po komplecie
 wymaganych nagłówków w pierwszym wierszu, a wartości, wyróżnienia i Hiperłącza
 komórek są zwracane w kolejności ``COLUMNS``. Dla okresu czytane są tylko wiersze
-od pierwszego do ostatniego, którego data może leżeć w okresie. Moduł wewnętrzny Przygotowania pliku
-zbiorczego; operacją publiczną pozostaje
-``collective_preparation.prepare_collective_file()``.
+od pierwszego do ostatniego, którego data może leżeć w okresie. ``read_register`` to produkcyjny czytnik
+Rejestru dla ``input_checks.Readers``, który tłumaczy jego ``WorkbookError``.
 """
 
 from __future__ import annotations
@@ -21,7 +20,7 @@ from . import preparation_messages as messages
 from . import workbook_files
 from .message import StopError
 from .settlement_period import SettlementPeriod
-from .workbook_files import DataRow, ReadWorkbook, WorkbookError, header_columns, is_blank
+from .workbook_files import DataRow, ReadWorkbook, header_columns, is_blank
 from .worker_config import normalize_text
 
 
@@ -95,31 +94,19 @@ def cell_value(row: DataRow, column: Column) -> object:
     return row.values[COLUMNS.index(column)]
 
 
-def ensure_register_available(register_path: Path) -> None:
-    """Rejestr istnieje i nie jest otwarty w Excelu."""
-
-    try:
-        workbook_files.ensure_available(register_path)
-    except WorkbookError as error:
-        raise StopError(messages.register_unusable(error)) from error
-
-
 def read_register(register_path: Path, period: SettlementPeriod | None = None) -> list[RegisterSheet]:
-    """Arkusze ze zleceniami; zatrzymanie, gdy Rejestru nie da się odczytać albo nie ma nagłówków.
+    """Arkusze ze zleceniami; ``WorkbookError``, gdy Rejestru nie da się odczytać, i zatrzymanie, gdy nie ma nagłówków.
 
     Z ``period`` arkusz ma tylko wiersze od pierwszego do ostatniego, którego data
     może leżeć w okresie: Planowanie szuka zleceń okresu i wierszy bez daty tylko
     między pierwszym a ostatnim zleceniem okresu. Bez ``period`` ma wszystkie wiersze.
     """
 
-    try:
-        content = workbook_files.workbook_content(register_path)
-        if period is None:
-            with workbook_files.read_workbook(register_path, content) as workbook:
-                return _read_register_sheets(workbook, _order_sheet_positions(register_path, workbook))
-        return list(_period_sheets(register_path, content, period))
-    except WorkbookError as error:
-        raise StopError(messages.register_unusable(error)) from error
+    content = workbook_files.workbook_content(register_path)
+    if period is None:
+        with workbook_files.read_workbook(register_path, content) as workbook:
+            return _read_register_sheets(workbook, _order_sheet_positions(register_path, workbook))
+    return list(_period_sheets(register_path, content, period))
 
 
 # Centrum robi Podgląd, a potem RUN tego samego okresu w jednym procesie. Arkusze okresu zależą tylko od bajtów

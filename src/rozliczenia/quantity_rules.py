@@ -1,7 +1,9 @@
 """Reguły ilości: Ilości usług z treści zlecenia (ADR 0012).
 
 Jedyną operacją jest ``evaluate()``. Moduł nie zna skoroszytów, Komunikatów ani Centrum rozliczeń, bo używają go
-Przygotowanie pliku zbiorczego i Kontrola ilości.
+Przygotowanie pliku zbiorczego (Wiersz danych Rejestru zleceń) i Kontrola ilości (Wiersz danych Pliku zbiorczego).
+Oba dają mu wartości komórek, a treść zlecenia robi z nich tylko ``OrderContent.of``, więc świeżo przygotowany
+Plik zbiorczy daje Kontroli ilości te same Ilości usług, które Przygotowanie w nim zapisało (ADR 0013).
 
 ``URZĄDZENIA`` są czytane jako składniki po normalizacji: małe litery, przecinki jak spacje, zwinięte spacje,
 bez ``xg`` (także doklejonego, ``nokia zteXG``). Składnik może mieć krotność ``n*`` (``3*fut``, ``2* fut``).
@@ -62,10 +64,6 @@ class WeekTime:
     weekday: int
     at: time
 
-    @classmethod
-    def of(cls, started: datetime) -> WeekTime:
-        return cls(started.weekday(), started.time().replace(second=0, microsecond=0))
-
 
 # Skrót dnia tygodnia (indeks jak ``WeekTime.weekday``, 0 to poniedziałek) w liczbach zleceń na dzień i w Kontroli ilości.
 WEEKDAY_LABELS: Final = ("pon", "wt", "śr", "czw", "pt", "sob", "niedz")
@@ -73,16 +71,27 @@ WEEKDAY_LABELS: Final = ("pon", "wt", "śr", "czw", "pt", "sob", "niedz")
 
 @dataclass(frozen=True)
 class OrderContent:
-    """Treść zlecenia, z której Reguły ilości wyznaczają Ilości usług: surowe wartości komórek i pora zlecenia."""
+    """Treść zlecenia, z której Reguły ilości wyznaczają Ilości usług: tekst komórek i pora zlecenia."""
 
-    contract: object
-    """``UMOWA``."""
-    devices: object
-    """``URZĄDZENIA``."""
-    activities: object
-    """``CZYNNOŚCI``."""
+    contract: str
+    """``UMOWA``; pusta komórka to ``""``."""
+    devices: str
+    """``URZĄDZENIA``, dokładny tekst."""
+    activities: str
+    """``CZYNNOŚCI`` (kolumna wejścia, nigdy ``CZYNNOŚCI ZREALIZOWANE``)."""
     started: WeekTime
     """``DATA``: dzień tygodnia i godzina początku zlecenia."""
+
+    @classmethod
+    def of(cls, contract: object, devices: object, activities: object, started: datetime) -> OrderContent:
+        """Treść zlecenia z wartości komórek Wiersza danych i daty z ``DATA``: komórka jako tekst, pusta to ``""``."""
+
+        return cls(
+            _cell_text(contract),
+            _cell_text(devices),
+            _cell_text(activities),
+            WeekTime(started.weekday(), started.time().replace(second=0, microsecond=0)),
+        )
 
 
 @dataclass(frozen=True)
@@ -192,13 +201,17 @@ def evaluate(order: OrderContent) -> RuleResult:
     return ServiceQuantities(_nonzero({**quantities, **_device_quantities(components, _pieces(order.activities))}))
 
 
-def _words(devices: object) -> list[str]:
-    text = "" if devices is None else str(devices).casefold().replace("xg", "")
+def _cell_text(value: object) -> str:
+    return "" if value is None else str(value)
+
+
+def _words(devices: str) -> list[str]:
+    text = devices.casefold().replace("xg", "")
     return [word for word in _SEPARATORS.split(_MULTIPLIER.sub("*", text)) if word]
 
 
-def _first_word(contract: object) -> str:
-    words = ("" if contract is None else str(contract)).casefold().split()
+def _first_word(contract: str) -> str:
+    words = contract.casefold().split()
     return words[0] if words else ""
 
 
@@ -207,10 +220,10 @@ def _is_late(started: WeekTime) -> bool:
     return late_from is not None and started.at >= late_from
 
 
-def _pieces(activities: object) -> int:
+def _pieces(activities: str) -> int:
     """Liczba sztuk z ``CZYNNOŚCI`` (``6 szt``, ``7szt``); bez liczby 1."""
 
-    counted = _PIECES.search("" if activities is None else str(activities))
+    counted = _PIECES.search(activities)
     return int(counted[1]) if counted else 1
 
 

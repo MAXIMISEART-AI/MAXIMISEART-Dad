@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+import html
 import json
 from pathlib import Path
 import re
@@ -14,6 +15,7 @@ import urllib.request
 from playwright.sync_api import Locator, Page, Request, ViewportSize, expect
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
+from drive import kontrola_ilosci
 from drive.common import PAGES, Run, current_run, ensure_files_set, error_toasts, finished_result, history_rows
 from drive.metryki import _local
 
@@ -35,9 +37,13 @@ SMALL_SCREEN: ViewportSize = {"width": 1366, "height": 768}
 BOX_PACING_MS = 1500
 ABOUT_RUN = "Napisz do Maksa o tym Uruchomieniu"
 PINNED = ("Podgląd każe sprawdzić okres", "Nie wiem, którego Wykonawcę mam dopisać.")
+# Uwagi pinned to previews whose Logi the skrzynka rejected or that never reached the queue. Each has its own title,
+# because powiadomienia finds the newest Uwaga by it.
+REJECTED = ("Podgląd po odrzuconych Logach", "Proszę spojrzeć na ten podgląd.")
+NO_LOGS = ("Podgląd bez Logów", "")
 LOGS_LABEL = "logi-uruchomienia"
 LOGS_LINK = re.compile(r"^\[Logi Uruchomienia\]\((.*)\)$", re.MULTILINE)
-MARKDOWN_LINK = re.compile(r"\[([^\]\n]+)\]\([^)\s]+\)")
+MARKDOWN_LINK = re.compile(r"\[([^\]\n]+)\]\(([^)\s]+)\)")
 MODES = {"DRY-RUN": "podgląd", "RUN": "zapis"}
 NO_RUNS = "Nie ma jeszcze Uruchomień z Centrum."
 NOT_IN_HISTORY = "Tego Uruchomienia nie ma w historii Centrum. Wybierz inne albo wyślij Uwagę ogólną."
@@ -579,6 +585,7 @@ def _drive_pinned(run: Run, page: Page, config: Path, box: Path) -> None:
     _not_in_history(run, page, period)
     if was_dark:
         _theme(page, "ciemny")
+    _drive_missing_logs(run, page, config, box, period)
 
 
 def _laptop(run: Run, page: Page, about: Locator, target: str) -> None:
@@ -660,3 +667,157 @@ def _not_in_history(run: Run, page: Page, period: str) -> None:
     expect(send).to_be_enabled()
     page.keyboard.press("Escape")
     expect(dialog).to_have_count(0)
+
+
+def _waiting_logs(run_id: str) -> str:
+    return f"Logi Uruchomienia: w drodze (Uruchomienie {run_id})"
+
+
+def _queue_files(config: Path, label: str, run_id: str) -> list[Path]:
+    return sorted((config / "zgloszenia" / "kolejka").glob(f"*-{label}-{run_id[:8]}.json"))
+
+
+def _preview(run: Run, page: Page, period: str, name: str) -> str:
+    """A new `Podgląd bez zapisu` of Przebieg rozliczeń from tab Uruchomienie; its run id."""
+
+    page.goto(run.url + "#/uruchomienia")
+    page.get_by_role("tab", name="Uruchomienie", exact=True).click()
+    if current_run(run, f"{name}-przed")["state"] == "finished":
+        page.get_by_role("button", name="Nowe Uruchomienie procesu", exact=True).click()
+    page.get_by_role("radio", name="Przebieg rozliczeń").click()
+    expect(page.get_by_role("combobox", name="Okres")).to_contain_text(period)
+    page.get_by_role("button", name="Podgląd bez zapisu", exact=True).click()
+    expect(page.get_by_label("Wynik")).to_contain_text("Podgląd wymaga sprawdzenia · nic nie zapisano")
+    finished_result(run, name)
+    return str(json.loads((run.evidence / "api" / f"{name}.json").read_text(encoding="utf-8"))["run"]["id"])
+
+
+def _send_pinned(run: Run, page: Page, box: Path, run_id: str, note: tuple[str, str], name: str) -> tuple[str, dict[str, Any]]:
+    """Dad sends ``note`` from the finished card; the body „Maks dostanie” showed and the new skrzynka issue."""
+
+    page.get_by_role("region", name="Podgląd na żywo").get_by_role("button", name=ABOUT_RUN, exact=True).click()
+    dialog, _ = _opened_about(run, page, run_id, f"uwaga-uruchomienia-{name}")
+    _write(dialog, *note)
+    draft = _draft(run, *note, f"uwaga-szkic-{name}", run_id=run_id)
+    _shows(run, dialog.get_by_role("figure", name="Co dostanie Maks", exact=True), draft, "„Maks dostanie” shows the draft pinned to the preview")
+    run.check(draft["body"].endswith("\n" + _waiting_logs(run_id)), "the draft says the preview's Logi are on their way")
+    issues_before = len(_issues(box))
+    dialog.get_by_role("button", name="Wyślij", exact=True).click()
+    expect(dialog.get_by_role("status")).to_have_text(SENT, timeout=15_000)
+    expect(error_toasts(page)).to_have_count(0)
+    new = _issues(box)[issues_before:]
+    run.check(
+        [issue["title"] for issue in new] == [draft["title"]], "the skrzynka has the pinned Uwaga as one new uwaga-taty issue"
+    )
+    _close(dialog)
+    return draft["body"], new[0]
+
+
+def _issue(box: Path, number: object) -> dict[str, Any]:
+    issue = json.loads((box / f"{number}.json").read_text(encoding="utf-8"))
+    assert isinstance(issue, dict)
+    return issue
+
+
+def _as_maks_sees(run: Run, page: Page, issue: dict[str, Any], name: str) -> None:
+    """The skrzynka issue as GitHub shows it to Maks, each Markdown link as its text, for the screenshot."""
+
+    print(f"  harness: the drive shows skrzynka issue #{issue['number']} the way GitHub shows it to Maks", flush=True)
+
+    def shown(text: str) -> str:
+        return MARKDOWN_LINK.sub(r'<a href="\2">\1</a>', html.escape(text, quote=False)).replace("\n", "<br>")
+
+    comments = "".join(f'<div class="komentarz">{shown(comment)}</div>' for comment in issue.get("comments", []))
+    maks = page.context.new_page()
+    try:
+        maks.set_content(
+            '<html lang="pl"><body style="font: 15px/1.5 system-ui; max-width: 760px; margin: 32px auto">'
+            "<style>.komentarz { border: 1px solid #d0d7de; border-radius: 6px; padding: 8px 12px; margin-top: 12px }</style>"
+            f"<h1>{html.escape(issue['title'])} #{issue['number']}</h1><p>{' '.join(issue['labels'])}</p>"
+            f'<div class="komentarz">{shown(issue["body"])}</div>{comments}</body></html>'
+        )
+        run.capture(maks, name)
+    finally:
+        maks.close()
+
+
+def _drive_missing_logs(run: Run, page: Page, config: Path, box: Path, period: str) -> None:
+    run.step(FEATURE, "uwaga-logi-odrzucone")
+    rejecting = box / f"odrzuca-{LOGS_LABEL}"
+    rejection = f"skrzynka-czeka etykieta={LOGS_LABEL} okres={period} przyczyna=odmowa-tresci"
+    rejections = _log(run).count(rejection)
+    print("  harness: the skrzynka rejects the content of Logi Uruchomienia, as GitHub rejects a body too long", flush=True)
+    rejecting.touch()
+    try:
+        run_id = _preview(run, page, period, "uwaga-podglad-logi-odrzucone")
+        run.wait_for(
+            lambda: _log(run).count(rejection) == rejections + 1, "the Centrum log says the skrzynka rejected the preview's Logi"
+        )
+        run.check(len(_queue_files(config, LOGS_LABEL, run_id)) == 1, "the rejected Logi wait in the queue")
+        body, issue = _send_pinned(run, page, box, run_id, REJECTED, "logi-odrzucone")
+        rejected_line = (
+            f"Logi Uruchomienia: nie dotarły, Skrzynka odrzuciła ich treść (Uruchomienie {run_id}). "
+            "Odnośnik przyjdzie w komentarzu, gdy dotrą."
+        )
+        run.check(
+            issue["body"] == body.removesuffix(_waiting_logs(run_id)) + rejected_line,
+            "the sent Uwaga says its Logi did not arrive because the skrzynka rejected them, with the Uruchomienie's id",
+        )
+        run.wait_for(
+            lambda: [
+                json.loads(path.read_text(encoding="utf-8"))["target"] for path in _queue_files(config, LABEL, run_id)
+            ]
+            == [{"kind": "known_issue", "label": LABEL, "number": issue["number"]}],
+            "a comment to the Uwaga's issue waits in the queue for the rejected Logi",
+        )
+        run.check(_issue(box, issue["number"]).get("comments", []) == [], "while the skrzynka rejects the Logi, the Uwaga has no comment")
+        _as_maks_sees(run, page, _issue(box, issue["number"]), "198-uwaga-logi-odrzucone")
+    finally:
+        rejecting.unlink(missing_ok=True)
+
+    run.step(FEATURE, "uwaga-logi-dotarly")
+    kontrola_ilosci._close(run, page)
+    kontrola_ilosci._start(run, "uwaga-start-logi")
+    run.wait_for(
+        lambda: _queue_files(config, LOGS_LABEL, run_id) == _queue_files(config, LABEL, run_id) == [],
+        "at the start the skrzynka took the Logi and then the comment",
+        timeout_s=30,
+    )
+    logs = _logs_comment(box, run_id)
+    run.check(logs is not None, "the preview's Logi reached the skrzynka after the start")
+    sent = _issue(box, issue["number"])
+    run.check(
+        sent.get("comments", []) == [f"[Logi Uruchomienia]({logs}) dotarły do Skrzynki po tej Uwadze (Uruchomienie {run_id})."],
+        "the Uwaga's issue got exactly one comment, linking the first comment of the Logi",
+    )
+    _as_maks_sees(run, page, sent, "199-uwaga-logi-dotarly")
+
+    run.step(FEATURE, "uwaga-logi-nie-powstaly")
+    key_file = config / "zgloszenia-klucz.txt"
+    key = key_file.read_text(encoding="utf-8")
+    print("  harness: without the key the preview's Logi wait in the queue", flush=True)
+    key_file.unlink()
+    try:
+        page.reload()
+        missing = _preview(run, page, period, "uwaga-podglad-bez-logow")
+        run.wait_for(lambda: len(_queue_files(config, LOGS_LABEL, missing)) == 1, "the preview's Logi wait in the queue")
+    finally:
+        key_file.write_text(key, encoding="utf-8")
+    print("  harness: Maks writes the key again; the Logi file leaves the queue, as when Centrum could not write it", flush=True)
+    [logs_file] = _queue_files(config, LOGS_LABEL, missing)
+    logs_text = logs_file.read_bytes()
+    logs_file.unlink()
+    try:
+        body, issue = _send_pinned(run, page, box, missing, NO_LOGS, "bez-logow")
+        run.check(
+            issue["body"]
+            == body.removesuffix(_waiting_logs(missing))
+            + f"Logi Uruchomienia: nie powstały albo nie da się ich wysłać (Uruchomienie {missing})",
+            "the sent Uwaga says its Logi were not made or cannot be sent, with the Uruchomienie's id",
+        )
+        run.wait_for(lambda: _queue_files(config, LABEL, missing) == [], "nothing of the Uwaga waits in the queue")
+        run.check(_issue(box, issue["number"]).get("comments", []) == [], "an Uwaga whose Logi were never queued gets no comment")
+        _as_maks_sees(run, page, issue, "200-uwaga-logi-nie-powstaly")
+    finally:
+        print("  harness: the Logi file goes back to the queue, so logi-uruchomienia finds every Uruchomienie's Logi in the skrzynka", flush=True)
+        logs_file.write_bytes(logs_text)

@@ -2,7 +2,8 @@
 
 To jedyny typ z treścią komórek Pliku zbiorczego, który przeżywa silnik Przebiegu rozliczeń, i jedyne miejsce,
 które wylicza dozwolone kolumny: UMOWA, URZĄDZENIA i CZYNNOŚCI (po nagłówku z wiersza 17, pod którym zapisuje je
-Przygotowanie), dzień tygodnia i godzina z DATA oraz N:AP (po pozycji, jak kopiuje je Przebieg). Adres, numery
+Przygotowanie), dzień tygodnia i godzina z DATA oraz N:AP (po pozycji, jak kopiuje je Przebieg). Treść zlecenia
+robią z komórek Reguły ilości (``OrderContent.of``), tak samo jak z Rejestru zleceń w Przygotowaniu. Adres, numery
 zlecenia i umowy, Wykonawca, data dzienna, CZYNNOŚCI ZREALIZOWANE i reszta A:AT nie mają pola, więc nie da się ich
 wysłać przez ten typ. Tekst wpisany przez tatę w komórce ilości też nie przechodzi: zostaje z niego „nieliczbowa”.
 """
@@ -17,7 +18,7 @@ from typing import Final, Literal
 from openpyxl.utils import get_column_letter
 
 from .preparation_register import ACTIVITIES, CONTRACT, DATE, DEVICES, Column
-from .quantity_rules import OrderContent, WeekTime
+from .quantity_rules import OrderContent
 from .workbook_files import QUANTITY_COLUMNS, cell_datetime, is_blank
 from .worker_config import normalize_text
 
@@ -33,26 +34,13 @@ _INPUTS: Final[tuple[Column, ...]] = (CONTRACT, DEVICES, ACTIVITIES, DATE)
 class OrderFacts:
     """Wiersz danych po filtrze prywatności."""
 
-    contract: str
-    """``UMOWA``; pusta komórka to ``""``."""
-    devices: str
-    """``URZĄDZENIA``, dokładny tekst."""
-    activities: str
-    """``CZYNNOŚCI`` (kolumna wejścia, nigdy ``CZYNNOŚCI ZREALIZOWANE``)."""
-    time: WeekTime | None
-    """Dzień tygodnia i godzina z ``DATA``; ``None``, gdy ``DATA`` nie jest datą."""
+    content: OrderContent | None
+    """Treść zlecenia dla Reguł ilości; ``None``, gdy ``DATA`` nie jest datą."""
     quantities: Mapping[str, TataValue]
     """Litera kolumny N:AP → ilość taty, tylko różna od 0."""
 
     def quantity(self, column: str) -> TataValue:
         return self.quantities.get(column, 0)
-
-    def content(self) -> OrderContent | None:
-        """Treść zlecenia dla Reguł ilości; ``None`` bez dnia tygodnia i godziny."""
-
-        if self.time is None:
-            return None
-        return OrderContent(contract=self.contract, devices=self.devices, activities=self.activities, started=self.time)
 
 
 @dataclass(frozen=True)
@@ -78,11 +66,7 @@ def collective_orders(header: Mapping[str, int], rows: Sequence[Sequence[object]
     contract, devices, activities, started = (header[name] for name in names)
     return tuple(
         OrderFacts(
-            contract=_text(row[contract - 1]),
-            devices=_text(row[devices - 1]),
-            activities=_text(row[activities - 1]),
-            time=_week_time(row[started - 1]),
-            quantities=_quantities(row),
+            _content(row[contract - 1], row[devices - 1], row[activities - 1], row[started - 1]), _quantities(row)
         )
         for row in rows
     )
@@ -118,13 +102,9 @@ def _number_text(text: str) -> TataValue:
     return int(number) if number.is_integer() else NON_NUMERIC
 
 
-def _text(value: object) -> str:
-    return "" if value is None else str(value)
-
-
-def _week_time(value: object) -> WeekTime | None:
-    started = cell_datetime(value)
-    return None if started is None else WeekTime.of(started)
+def _content(contract: object, devices: object, activities: object, date_cell: object) -> OrderContent | None:
+    started = cell_datetime(date_cell)
+    return None if started is None else OrderContent.of(contract, devices, activities, started)
 
 
 def _quantities(row: Sequence[object]) -> dict[str, TataValue]:

@@ -158,6 +158,14 @@
       opacity 200ms var(--ease-out),
       translate 200ms var(--ease-out);
   }
+  /* Ikona stanu po zmianie: przezroczystość i skala od 0,9, 200 ms ease-out. Skala siedzi na obudowie ikony,
+     więc nie walczy z obrotem spinnera. Każdy stan to nowy element (`key`), więc druga zmiana w ciągu 200 ms
+     zaczyna wejście od nowa. */
+  .podmiana {
+    transition:
+      opacity 200ms var(--ease-out),
+      scale 200ms var(--ease-out);
+  }
   /* Treść po szkielecie: sama przezroczystość, 150 ms. */
   .pojawienie {
     transition: opacity 150ms var(--ease-out);
@@ -190,6 +198,10 @@
   .wejscie {
     opacity: 0;
     translate: 0 6px;
+  }
+  .podmiana {
+    opacity: 0;
+    scale: 0.9;
   }
   .pojawienie {
     opacity: 0;
@@ -225,6 +237,10 @@
     transition: opacity 200ms var(--ease-out);
     translate: none;
   }
+  .podmiana {
+    transition: opacity 200ms var(--ease-out);
+    scale: none;
+  }
   [data-slot="progress-indicator"][data-indeterminate] {
     animation: none !important;
     width: 100% !important;
@@ -232,6 +248,11 @@
   }
   [data-slot="toast"] {
     transition-property: opacity !important;
+  }
+  /* Wysokość od razu pełna (`auto` zamiast pomiaru Base UI), więc zwijany panel widać, gdy przenika. */
+  [data-slot="collapsible-content"] {
+    transition-property: opacity;
+    height: auto;
   }
   [data-slot="sidebar-gap"],
   [data-slot="sidebar-container"] {

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import datetime, timedelta
 import itertools
 import json
@@ -11,7 +12,8 @@ from typing import Any, NoReturn
 
 import pytest
 
-from rozliczenia import preparation_process, preparation_register
+from rozliczenia import preparation_process
+from rozliczenia.input_checks import FILE_READERS
 from rozliczenia.telemetry import MetricsStore, metric_record
 from rozliczenia.centrum import contract, run_view
 
@@ -22,7 +24,7 @@ from tests.fixtures.preparation import (
     incomplete_period_rows,
 )
 from tests.fixtures.centrum import centrum as bare_centrum
-from tests.fixtures.centrum_processes import TODAY, PreparingCentrum, preparing_centrum
+from tests.fixtures.centrum_processes import TODAY, PreparingCentrum, Surroundings, preparing_centrum
 from tests.fixtures.centrum import finished_view, phase_states, run_events, views_until
 
 # Podsumowanie wyniku na domyślnym syntetycznym Rejestrze zleceń, takie samo w podglądzie i przy Uruchom.
@@ -325,15 +327,11 @@ def test_nienadpisywanie_zatrzymuje_bez_zmiany_istniejacego_pliku_okresu(tmp_pat
     assert (record["completed"], record["result"]) == (False, "BLAD_KRYTYCZNY")
 
 
-def test_nieoczekiwany_wyjatek_pokazuje_trzy_czesci_bez_tekstu_wyjatku_i_danych_klientow(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    centrum = preparing_centrum(tmp_path)
-
-    def fail_unexpectedly(*args: object, **kwargs: object) -> NoReturn:
+def test_nieoczekiwany_wyjatek_pokazuje_trzy_czesci_bez_tekstu_wyjatku_i_danych_klientow(tmp_path: Path) -> None:
+    def fail_unexpectedly(*args: object) -> NoReturn:
         raise RuntimeError("nieprzewidziany błąd przy SYN-001")
 
-    monkeypatch.setattr(preparation_register, "read_register", fail_unexpectedly)
+    centrum = preparing_centrum(tmp_path, surroundings=Surroundings(readers=replace(FILE_READERS, register=fail_unexpectedly)))
 
     centrum.start(dry_run=False)
     view = finished_view(centrum.client)

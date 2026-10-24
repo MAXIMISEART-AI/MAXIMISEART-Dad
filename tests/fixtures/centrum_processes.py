@@ -28,6 +28,7 @@ from rozliczenia.centrum.tool_freshness import GitHubReleases, ToolFreshness
 from rozliczenia.centrum.tool_update import ToolClone
 from rozliczenia.decision import Conversation
 from rozliczenia.domain import ProgressObserver
+from rozliczenia.input_checks import FILE_READERS, Readers
 from rozliczenia.process_run import Finished, Process, ProcessInputs
 
 from tests.fixtures.centrum import (
@@ -86,7 +87,7 @@ class Engines:
 
 @dataclass
 class Surroundings:
-    """GitHub, OneDrive, skrzynka Zgłoszeń i zegar widziane z komputera taty.
+    """GitHub, OneDrive, skrzynka Zgłoszeń, zegar i czytniki plików taty widziane z komputera taty.
 
     ``onedrive=None`` to prawdziwy odczyt atrybutów tego systemu. ``tool`` to
     narzędzie jako prawdziwy klon z lokalnym „origin” zamiast GitHuba: wtedy
@@ -99,7 +100,7 @@ class Surroundings:
     ``guardian_failure`` opiekun nie wystartuje: wywołuje ją i rzuca ``OSError``.
     ``report_search_deadline_s`` to limit, po którym Diagnoza przestaje czekać na skrzynkę Zgłoszeń.
     ``release_unanswered`` to GitHub, który przy ``tool`` nie odpowiada o najnowsze Wydanie, chociaż klon dalej
-    pobiera z „origin”.
+    pobiera z „origin”. ``readers`` czytają Rejestr zleceń i Wzorce w Uruchomieniu procesu, Diagnozie i Konfiguracji.
     """
 
     github: FakeGitHub = field(default_factory=FakeGitHub)
@@ -113,6 +114,7 @@ class Surroundings:
     guardian_failure: Callable[[], None] | None = None
     report_search_deadline_s: float = SEARCH_DEADLINE_S
     release_unanswered: bool = False
+    readers: Readers = FILE_READERS
 
     def tool_freshness(self) -> ToolFreshness:
         tool = self.tool
@@ -172,6 +174,7 @@ def _client(
         report_search_deadline_s=surroundings.report_search_deadline_s,
         tool_update=surroundings.tool_update(),
         guardian=surroundings.guardian,
+        readers=surroundings.readers,
     )
     return TestClient(app, base_url=CENTRUM, headers={"Origin": CENTRUM})
 
@@ -282,7 +285,11 @@ class SettlingCentrum:
 
 
 def settling_centrum(
-    tmp_path: Path, *, include_unmapped: bool = False, dad_layout: bool = False
+    tmp_path: Path,
+    *,
+    include_unmapped: bool = False,
+    dad_layout: bool = False,
+    surroundings: Surroundings | None = None,
 ) -> SettlingCentrum:
     """Centrum z zapamiętanym folderem okresów, w którym okres ma tylko syntetyczny Plik zbiorczy.
 
@@ -304,7 +311,7 @@ def settling_centrum(
         worker_template=worker_template,
     )
     engines = Engines(_metrics(tmp_path))
-    surroundings = Surroundings()
+    surroundings = surroundings or Surroundings()
     client = _client(tmp_path, FakePlatform(chosen_folders=[periods_directory]), configuration, engines, surroundings)
     client.post("/api/settings/periods-directory/choose")
     log_path = tmp_path / "logs" / "centrum-rozliczen.log"

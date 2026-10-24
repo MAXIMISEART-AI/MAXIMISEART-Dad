@@ -131,7 +131,7 @@ export function DecisionDialog({
               aria-hidden
             />
           </CollapsibleTrigger>
-          <CollapsibleContent className="mt-2 flex flex-col gap-1.5 text-foreground/80 transition-opacity duration-150 data-[starting-style]:opacity-0 data-[ending-style]:opacity-0">
+          <CollapsibleContent className="flex flex-col gap-1.5 pt-2 text-foreground/80">
             <span className="flex gap-2">
               <MapPinIcon className="mt-1 size-3.5 shrink-0 text-muted-foreground" aria-label="Gdzie" />
               {message.where}

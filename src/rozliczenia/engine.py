@@ -6,28 +6,20 @@ from collections import defaultdict
 from dataclasses import dataclass, replace
 from pathlib import Path
 
-from . import collective_file, settlement_files, settlement_messages, workbook_files
+from . import collective_file, input_checks, settlement_files, settlement_messages
 from .domain import ProgressObserver, SettlementSummary, WorkerResult
+from .input_checks import FILE_READERS, Readers
 from .message import Message, StopError
 from .order_facts import CollectiveOrders
-from .period_folder import PeriodFolder, PeriodFolderError
 from .phase_runner import PhaseRunner
-from .workbook_files import DataRow, Layout, TemplateFile, WorkbookError
-from .worker_config import WorkerConfigError, load_worker_mapping, normalize_text
+from .workbook_files import DataRow, WorkbookError
+from .worker_config import normalize_text
 
 
 def default_worker_template_path() -> Path:
     """Wskazuje wspólny Wzorzec rozliczenia pracownika w katalogu konfiguracji."""
 
     return Path(__file__).resolve().parents[2] / "config" / "Wzorzec rozliczenia pracownika.xlsx"
-
-
-def check_worker_template(template_path: Path) -> TemplateFile:
-    """Sprawdzanie Wzorca rozliczenia pracownika: Wzorzec, z którego Zapisywanie tworzy pliki, albo ``WorkbookError``."""
-
-    template = TemplateFile(template_path, Layout.WORKER_SETTLEMENT)
-    template.check()
-    return template
 
 
 def _read_source_rows(source_path: Path) -> tuple[dict[str, list[DataRow]], list[int], CollectiveOrders]:
@@ -90,6 +82,7 @@ def run_settlements(
     dry_run: bool = False,
     worker_template_path: Path | None = None,
     observer: ProgressObserver | None = None,
+    readers: Readers = FILE_READERS,
 ) -> SettlementSummary:
     """Uruchamia pełny proces z ochroną przed błędną lokalizacją i duplikacją.
 
@@ -97,7 +90,8 @@ def run_settlements(
     jednego Wykonawcy; pętlę po nich ze zdarzeniami Wykonawców prowadzi
     sekwencer etapów. Konfiguracja wykonawców jest w
     ``worker_config``, a folder tymczasowy, Nienadpisywanie i publikacja
-    Folderu rozliczeń pracowników w ``settlement_files``.
+    Folderu rozliczeń pracowników w ``settlement_files``, a Sprawdzanie Wzorca czytnikami ``readers``
+    w ``input_checks``.
     """
 
     phases = PhaseRunner(observer)
@@ -105,27 +99,9 @@ def run_settlements(
     config_path = config_path.expanduser().resolve()
     worker_template_path = (worker_template_path or default_worker_template_path()).expanduser().resolve()
 
-    def check_inputs() -> tuple[PeriodFolder, dict[str, str], TemplateFile]:
-        try:
-            workbook_files.ensure_available(source_path)
-        except WorkbookError as error:
-            raise StopError(settlement_messages.collective_file_unusable(error)) from error
-        try:
-            folder = PeriodFolder.from_collective_file(source_path)
-        except PeriodFolderError as exc:
-            raise StopError(settlement_messages.collective_file_invalid(source_path, exc.message)) from exc
-        settlement_files.ensure_worker_settlements_absent(folder.worker_settlements)
-        try:
-            mapping = load_worker_mapping(config_path)
-        except WorkerConfigError as exc:
-            raise StopError(settlement_messages.worker_config_problem(config_path, exc)) from exc
-        try:
-            worker_template = check_worker_template(worker_template_path)
-        except WorkbookError as error:
-            raise StopError(settlement_messages.worker_template_unusable(error)) from error
-        return folder, mapping, worker_template
-
-    folder, mapping, worker_template = phases.check(check_inputs)
+    folder, mapping, worker_template = phases.check(
+        lambda: input_checks.check_settlement(source_path, config_path, worker_template_path, readers)
+    )
     target_directory = folder.worker_settlements
     worker_names = list(mapping.values())
     rows_by_worker, without_worker, orders = phases.read(

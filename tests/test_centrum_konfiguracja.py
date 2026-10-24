@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date
 from pathlib import Path
-from typing import Any
+from typing import Any, NoReturn
 
 import pytest
 from fastapi.testclient import TestClient
@@ -16,6 +16,8 @@ from rozliczenia.centrum.app import create_app
 from rozliczenia.centrum.configuration import ConfigurationFiles
 from rozliczenia.centrum.log import CentrumLog
 from rozliczenia.centrum.shutdown import Shutdown
+from rozliczenia.input_checks import FILE_READERS, Readers
+from rozliczenia.workbook_files import Problem, TemplateFile, WorkbookError
 from tests.fixtures.preparation import write_collective_template, write_internal_template
 from tests.fixtures.centrum import CENTRUM, TOOL_COMMIT, FakeGitHub, FakePlatform
 from tests.fixtures.workbooks import cut_sheet_after_data_rows
@@ -39,7 +41,7 @@ class Configured:
     files: ConfigurationFiles
 
 
-def configured(tmp_path: Path, github: FakeGitHub | None = None) -> Configured:
+def configured(tmp_path: Path, github: FakeGitHub | None = None, readers: Readers = FILE_READERS) -> Configured:
     """Centrum z syntetycznym katalogiem konfiguracji: wszystkie trzy Wzorce i konfiguracja wykonawców."""
 
     config = tmp_path / "config"
@@ -59,6 +61,7 @@ def configured(tmp_path: Path, github: FakeGitHub | None = None) -> Configured:
         shutdown=Shutdown(log),
         configuration_files=files,
         tool_freshness=(github or FakeGitHub()).freshness(),
+        readers=readers,
     )
     return Configured(TestClient(app, base_url=CENTRUM, headers={"Origin": CENTRUM}), files)
 
@@ -75,6 +78,36 @@ def templates_by_file(configuration: dict[str, Any]) -> dict[str, dict[str, Any]
     templates = configuration["templates"]
     assert isinstance(templates, list)
     return {template["file_name"]: template for template in templates}
+
+
+def test_wzorce_sprawdza_czytnik_wzorcow_procesu(tmp_path: Path) -> None:
+    def open_in_excel(template: TemplateFile) -> NoReturn:
+        raise WorkbookError(template.path, Problem.OPEN_IN_EXCEL)
+
+    app = configured(tmp_path, readers=replace(FILE_READERS, template=open_in_excel))
+
+    templates = templates_by_file(read_configuration(app))
+    assert {name: template["problem"] for name, template in templates.items()} == {
+        INTERNAL: "open_in_excel",
+        COLLECTIVE: "open_in_excel",
+        WORKER: "open_in_excel",
+    }
+
+
+def test_niezmieniony_wzorzec_jest_sprawdzany_raz_a_brakujacy_przy_kazdym_odczycie(tmp_path: Path) -> None:
+    checked: list[str] = []
+
+    def counting(template: TemplateFile) -> None:
+        checked.append(template.path.name)
+        FILE_READERS.template(template)
+
+    app = configured(tmp_path, readers=replace(FILE_READERS, template=counting))
+    app.files.worker_template.unlink()
+
+    read_configuration(app)
+    read_configuration(app)
+
+    assert sorted(checked) == sorted([INTERNAL, COLLECTIVE, WORKER, WORKER])
 
 
 def test_wszystkie_trzy_wzorce_sa_na_miejscu_i_czytelne(tmp_path: Path) -> None:
