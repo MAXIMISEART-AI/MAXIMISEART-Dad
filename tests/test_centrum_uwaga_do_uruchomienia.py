@@ -188,3 +188,22 @@ def test_okno_uwagi_pokazuje_szesc_najnowszych_uruchomien_z_centrum_i_starsze_za
     assert picked() == newest
     assert picked(selected="starsze-7") == [*newest, "starsze-7"]
     assert picked(selected="starsze-3") == picked(selected="nieznane") == newest
+
+
+def test_dwie_uwagi_przypiete_do_roznych_uruchomien_dostaja_odnosniki_do_swoich_logow(tmp_path: Path) -> None:
+    centrum = settling_centrum(tmp_path)
+    first = run_to_end(centrum, dry_run=True)["run"]["id"]
+    second = run_to_end(centrum, dry_run=True)["run"]["id"]
+    assert wait_for(lambda: len(queued(centrum, "logi-uruchomienia")) == 2)
+    for run_id in (first, second):
+        sent = centrum.client.post("/api/dad-notes", json={"title": run_id, "run_id": run_id})
+        assert sent.json() == {"state": "waiting"}
+
+    write_key(centrum)
+    centrum.restart()
+    with centrum.client:
+        assert box(centrum).wait_until(lambda fake: len(fake.issues_with("uwaga-taty")) == 2)
+        links = {run_id: logs_comment(centrum, run_id) for run_id in (first, second)}
+
+    footers = {issue.title: issue.body.splitlines()[-1] for issue in box(centrum).issues_with("uwaga-taty")}
+    assert footers == {run_id: f"[Logi Uruchomienia]({links[run_id]})" for run_id in (first, second)}
