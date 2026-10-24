@@ -40,8 +40,9 @@ about 10 minutes, so start it as a background command and read its last line:
 ```
 
 The workflow `.github/workflows/verify-centrum-na-windowsie.yml` also runs by itself on every pull request and push
-to `main` that touches the files in the description. A dispatch needs the workflow on `main`; for a branch, open a PR
-and pass its run with `--run` (`gh run list --workflow verify-centrum-na-windowsie.yml --branch <branch>`).
+to `main` that touches the files in the description. A dispatch needs the workflow on `main` and then runs any pushed
+branch (`--ref`, default the current one) with that branch's skill. To wait for a PR's own run instead, pass it with
+`--run` (`gh run list --workflow verify-centrum-na-windowsie.yml --branch <branch>`).
 
 On a Windows machine (a disposable one: the run installs `requirements.txt` into this Python, as Dad's
 installation does), from the repository root, with the `dev` extras and Chromium installed

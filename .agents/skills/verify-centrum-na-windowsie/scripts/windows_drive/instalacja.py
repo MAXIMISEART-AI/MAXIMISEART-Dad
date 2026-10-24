@@ -73,11 +73,12 @@ def drive(run: Run) -> None:
         check=False,
         timeout=300,
     )
-    print(f"  README: {clone.stdout.strip()} {clone.stderr.strip()}".rstrip(), flush=True)
+    said = [line.strip() for line in (clone.stdout + clone.stderr).splitlines() if line.strip()]
+    print(f"  README: {' | '.join(said)}", flush=True)
     run.check(clone.returncode == 0 and (run.tool / ".git").is_dir(), "README's clone and choice of the Wydanie run in PowerShell")
     run.check(run.git("rev-parse", "HEAD") == versions["first"], "the tool stands on the newest Wydanie (the first version), not on main")
     run.check(run.git("branch", "--show-current") == "main", "the clone is on main")
-    run.check(run.git("remote", "get-url", "origin") == GITHUB_REPOSITORY, "origin is the tool's GitHub address")
+    run.check(run.git("config", "--get", "remote.origin.url") == GITHUB_REPOSITORY, "origin is the tool's GitHub address")
     run.check(" " in str(run.tool) and not str(run.tool).isascii(), f"the tool's folder has a space and a Polish letter: {run.tool}")
 
     run.step(FEATURE, "pliki-taty")
