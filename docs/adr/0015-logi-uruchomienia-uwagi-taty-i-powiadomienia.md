@@ -51,8 +51,9 @@ co stało się z tym, co wysłał.
   odrzucają zły token okresu, zanim Uruchomienie wystartuje, więc każde ma
   okres. Diagnoza dopisuje swój wynik do pliku Logów ostatniego Uruchomienia
   tej pracy Centrum i wysyła całe Logi jako kolejny komentarz, a Zgłoszenie ma
-  wiersz z odnośnikiem do Logów swojego Uruchomienia, gdy już doszły, a
-  inaczej „jeszcze niewysłane” z identyfikatorem Uruchomienia.
+  wiersz z odnośnikiem do Logów swojego Uruchomienia, gdy doszły przed
+  Diagnozą, a inaczej „jeszcze niewysłane” z identyfikatorem Uruchomienia.
+  Logi, które dojdą później, Zgłoszenia nie zmieniają.
 - **Kolejka Skrzynki Zgłoszeń**, wspólna dla Kontroli ilości, Logów i Uwag,
   rusza przy starcie Centrum i po każdej nowej wysyłce. Brak sieci, brak
   klucza i odmowa klucza albo dostępu (401, 403, 404) kończą przejście jedną
@@ -83,14 +84,14 @@ co stało się z tym, co wysłał.
 - **Uwaga taty** to tytuł i opcjonalna treść, pisane w oknie otwieranym ikoną
   obok dzwonka w każdym widoku, ogólne albo przypięte do jednego Uruchomienia
   procesu. Każda to osobne issue z etykietą `uwaga-taty`. Tata widzi w oknie
-  dokładnie to, co wyśle; bez sieci Uwaga czeka w kolejce z jednym zdaniem
-  dla taty, bez Komunikatu. Uwaga przypięta niesie okres, proces, tryb, wynik
-  i datę Uruchomienia, wersję narzędzia z chwili pisania Uwagi oraz odnośnik
-  do Logów Uruchomienia. Gdy Logi jeszcze czekają w kolejce, kolejka wstawia
-  odnośnik tuż przed wysłaniem Uwagi, jeśli Logi zdążyły dojść do Skrzynki;
-  inaczej Uwaga niesie „w drodze” z identyfikatorem Uruchomienia. Wysyłka jest
-  co najmniej raz: zerwane połączenie po utworzeniu issue może dać drugie
-  issue.
+  dokładnie to, co wyśle, poza linią Logów opisaną niżej; bez sieci Uwaga czeka
+  w kolejce z jednym zdaniem dla taty, bez Komunikatu. Uwaga przypięta niesie
+  okres, proces, tryb, wynik i datę Uruchomienia, wersję narzędzia z chwili
+  pisania Uwagi oraz odnośnik do Logów Uruchomienia. Gdy Logi jeszcze czekają w
+  kolejce, kolejka wstawia odnośnik tuż przed wysłaniem Uwagi, jeśli Logi
+  zdążyły dojść do Skrzynki; inaczej Uwaga niesie „w drodze” z identyfikatorem
+  Uruchomienia. Wysyłka jest co najmniej raz: zerwane połączenie po utworzeniu
+  issue może dać drugie issue.
 - **Powiadomienia** to osobny widok otwierany dzwonkiem, z trzema rodzajami:
   nowa wersja, Uwaga i Zgłoszenie. Wejście do widoku oznacza wszystkie jako
   przeczytane. Sprawę zamkniętą przez Maksa przed Wydaniem Powiadomienie nazywa
@@ -103,12 +104,12 @@ co stało się z tym, co wysłał.
   przycisk Aktualizacji narzędzia, ten sam co w Konfiguracji i Diagnozie
   (`offers_update`). Z Wydań kropkę zapala tylko najnowsze Wydanie na `main` i
   tylko wtedy, gdy jest nowsze od wersji taty; starsze stoją na liście jako
-  historia, a Wydania spoza `main` nie dają karty. Kropkę zapalają też sprawy,
-  które Maks rozwiązał albo przeczytał. Centrum sprawdza Wydania i stan spraw
-  przy starcie i najwyżej raz na 10 minut jednym sprawdzaniem; bez sieci nie ma
-  nowych Powiadomień ani Komunikatu. Pierwsza karta nowej wersji pojawi się z
-  pierwszym Wydaniem opublikowanym przez narzędzie Wydań, bo goły tag bez GitHub
-  Release nie ma notki.
+  historia, a Wydania wyższe od najnowszego na `main` nie dają karty. Kropkę
+  zapalają też sprawy, które Maks rozwiązał albo przeczytał. Centrum sprawdza
+  Wydania i stan spraw przy starcie i najwyżej raz na 10 minut jednym
+  sprawdzaniem; bez sieci nie ma nowych Powiadomień ani Komunikatu. Pierwsza
+  karta nowej wersji pojawi się z pierwszym Wydaniem opublikowanym przez
+  narzędzie Wydań, bo goły tag bez GitHub Release nie ma notki.
 
 ## Odrzucone warianty
 
