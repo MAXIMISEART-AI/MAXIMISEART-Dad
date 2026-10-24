@@ -4,6 +4,8 @@ Każda fabryka zwraca Komunikat (``message.Message``) w trzech częściach: co s
 stało, gdzie, co zrobić. Zatrzymanie to ``raise StopError(fabryka(...))``.
 Części nie zawierają pełnych ścieżek ani treści wierszy: wskazują tylko nazwę
 pliku, folder okresu, kolumnę, numer wiersza albo Wykonawcę z konfiguracji wykonawców.
+Wyjątek (ADR 0015): ``unmapped_worker`` i ``unmapped_worker_warning`` podają w „co się
+stało” identyfikator z kolumny WYKONAWCA spoza konfiguracji, bez numeru wiersza.
 """
 
 from __future__ import annotations
