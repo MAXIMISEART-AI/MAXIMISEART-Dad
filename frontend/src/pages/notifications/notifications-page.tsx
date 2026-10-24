@@ -1,6 +1,8 @@
 import * as React from "react"
 import { cn } from "cn"
 import {
+  CheckIcon,
+  CircleArrowUpIcon,
   CircleCheckIcon,
   ClockIcon,
   EyeIcon,
@@ -12,6 +14,7 @@ import {
 
 import type { Notification } from "@/api/centrum"
 import { PageHeader } from "@/components/page-header"
+import { ToolUpdateButton, ToolUpdateStatus } from "@/components/tool-update"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Card } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -21,16 +24,23 @@ import { useNotifications } from "@/lib/notifications"
 
 type Kind = Notification["kind"]
 
-type CaseState = Notification["state"]
+type Release = Extract<Notification, { kind: "nowa_wersja" }>
 
-// Kolor rodzaju z palety motywu: niebieski Uwaga, pomarańczowy Zgłoszenie (zielony zostaje dla nowej wersji).
+type Case = Exclude<Notification, Release>
+
+type CaseState = Case["state"]
+
+// Kolor rodzaju z palety motywu: zielony nowa wersja, niebieski Uwaga, pomarańczowy Zgłoszenie.
 const KINDS: Record<Kind, { tag: string; color: string; icon: LucideIcon }> = {
+  nowa_wersja: { tag: "Nowa wersja", color: "var(--chart-3)", icon: CircleArrowUpIcon },
   uwaga: { tag: "Uwaga", color: "var(--chart-1)", icon: MessageSquareTextIcon },
   zgloszenie: { tag: "Zgłoszenie", color: "var(--chart-2)", icon: LifeBuoyIcon },
 }
 
+const SOLVED: Record<Release["solved"][number]["kind"], string> = { uwaga: "Uwaga", zgloszenie: "Zgłoszenie" }
+
 // Uwaga jest rodzaju żeńskiego, Zgłoszenie nijakiego.
-const STATES: Record<CaseState, { text: Record<Kind, string>; icon: LucideIcon; tone: string }> = {
+const STATES: Record<CaseState, { text: Record<Case["kind"], string>; icon: LucideIcon; tone: string }> = {
   wyslana: {
     text: { uwaga: "Wysłana do Maksa.", zgloszenie: "Wysłane do Maksa." },
     icon: SendIcon,
@@ -55,7 +65,8 @@ const STATES: Record<CaseState, { text: Record<Kind, string>; icon: LucideIcon; 
 
 /**
  * Widok Powiadomienia, otwierany dzwonkiem. Wejście oznacza wszystkie jako przeczytane, więc kropka na dzwonku
- * gaśnie od razu; wiersze, które były nowe, zachowują kropkę i jasne tło do wyjścia z widoku.
+ * gaśnie od razu; wiersze, które były nowe, zachowują kropkę i jasne tło do wyjścia z widoku. Nowa wersja, do której
+ * Centrum proponuje aktualizację, stoi w osobnej karcie nad listą; po aktualizacji wraca do listy jako historia.
  */
 export function NotificationsPage() {
   const { notifications, markRead } = useNotifications()
@@ -80,6 +91,8 @@ export function NotificationsPage() {
   }, [unread, markRead])
 
   const fresh = visit.fresh
+  const pinned = data?.items.find((item): item is Release => item.kind === "nowa_wersja" && item.update_offered)
+  const listed = data?.items.filter((item) => item !== pinned) ?? []
 
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-6">
@@ -91,14 +104,19 @@ export function NotificationsPage() {
           <AlertDescription>{notifications.message}</AlertDescription>
         </Alert>
       ) : null}
-      {data === null ? null : (
+      {pinned === undefined ? null : (
+        <Card className={cn(entrance, "gap-0 p-0")} role="region" aria-label={title(pinned)}>
+          <Row notification={pinned} fresh={fresh.has(pinned.id)} />
+        </Card>
+      )}
+      {data === null || (pinned !== undefined && listed.length === 0) ? null : (
         <Card className={cn(entrance, "gap-0 p-0")} aria-label="Powiadomienia" role="list">
-          {data.items.length === 0 ? (
+          {listed.length === 0 ? (
             <p className="px-5 py-4 text-sm text-muted-foreground">
               Tu zobaczysz, co Maks zrobił z Twoimi Uwagami i Zgłoszeniami.
             </p>
           ) : (
-            data.items.map((item) => <Row key={item.id} notification={item} fresh={fresh.has(item.id)} />)
+            listed.map((item) => <Row key={item.id} notification={item} fresh={fresh.has(item.id)} listed />)
           )}
         </Card>
       )}
@@ -106,18 +124,24 @@ export function NotificationsPage() {
   )
 }
 
-function name(notification: Notification): string {
-  return notification.kind === "uwaga" ? notification.title : notification.what
+function title(notification: Notification): string {
+  switch (notification.kind) {
+    case "nowa_wersja":
+      return `Nowa wersja ${notification.version}`
+    case "uwaga":
+      return notification.title
+    case "zgloszenie":
+      return notification.what
+  }
 }
 
-function Row({ notification, fresh }: { notification: Notification; fresh: boolean }) {
+function Row({ notification, fresh, listed }: { notification: Notification; fresh: boolean; listed?: boolean }) {
   const kind = KINDS[notification.kind]
-  const state = STATES[notification.state]
 
   return (
     <article
-      role="listitem"
-      aria-label={`${kind.tag}: ${name(notification)}`}
+      role={listed ? "listitem" : undefined}
+      aria-label={notification.kind === "nowa_wersja" ? title(notification) : `${kind.tag}: ${title(notification)}`}
       data-fresh={fresh}
       className="grid grid-cols-[auto_1fr_auto] items-start gap-x-4 border-t px-5 py-4 first:border-t-0 data-[fresh=true]:bg-muted/40"
     >
@@ -130,7 +154,7 @@ function Row({ notification, fresh }: { notification: Notification; fresh: boole
       </span>
       <div className="flex min-w-0 flex-col gap-1">
         <h2 className="text-sm font-medium text-pretty break-words">
-          {name(notification)}
+          {title(notification)}
           {fresh ? (
             <span
               className="ml-2 inline-block size-1.5 rounded-full align-middle"
@@ -139,10 +163,7 @@ function Row({ notification, fresh }: { notification: Notification; fresh: boole
             />
           ) : null}
         </h2>
-        <p className="flex items-center gap-1.5 text-sm text-muted-foreground">
-          <state.icon className={`size-3.5 shrink-0 ${state.tone}`} aria-hidden />
-          {state.text[notification.kind]}
-        </p>
+        {notification.kind === "nowa_wersja" ? <ReleaseBody release={notification} /> : <CaseState notification={notification} />}
       </div>
       <div className="flex flex-col items-end gap-1.5 pt-0.5">
         <span className="inline-flex h-5 items-center gap-1.5 rounded-full border px-2 text-xs font-medium whitespace-nowrap">
@@ -154,6 +175,45 @@ function Row({ notification, fresh }: { notification: Notification; fresh: boole
         </time>
       </div>
     </article>
+  )
+}
+
+function CaseState({ notification }: { notification: Case }) {
+  const state = STATES[notification.state]
+
+  return (
+    <p className="flex items-center gap-1.5 text-sm text-muted-foreground">
+      <state.icon className={`size-3.5 shrink-0 ${state.tone}`} aria-hidden />
+      {state.text[notification.kind]}
+    </p>
+  )
+}
+
+/**
+ * Notka „Co nowego”, sprawy taty, które Wydanie rozwiązuje, i przycisk aktualizacji, gdy Centrum go proponuje
+ * (`update_offered`, ta sama reguła co w Konfiguracji) ze stanem aktualizacji pod nim.
+ */
+function ReleaseBody({ release }: { release: Release }) {
+  return (
+    <div className="flex flex-col gap-3">
+      <p className="text-sm text-pretty whitespace-pre-line text-muted-foreground">{release.summary}</p>
+      {release.solved.length === 0 ? null : (
+        <ul aria-label="Rozwiązane sprawy" className="flex flex-col gap-1 text-sm">
+          {release.solved.map((item) => (
+            <li key={`${item.kind}-${item.title}`} className="flex items-start gap-2 break-words">
+              <CheckIcon className="mt-0.5 size-3.5 shrink-0 text-success" aria-hidden />
+              {`${SOLVED[item.kind]}: ${item.title}`}
+            </li>
+          ))}
+        </ul>
+      )}
+      {release.update_offered ? (
+        <div className="flex flex-col items-start gap-3">
+          <ToolUpdateButton primary size="sm" />
+          <ToolUpdateStatus />
+        </div>
+      ) : null}
+    </div>
   )
 }
 

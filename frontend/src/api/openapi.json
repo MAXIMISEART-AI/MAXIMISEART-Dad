@@ -1928,11 +1928,15 @@
                 },
                 {
                   "$ref": "#/components/schemas/ReportNotification"
+                },
+                {
+                  "$ref": "#/components/schemas/ReleaseNotification"
                 }
               ],
               "discriminator": {
                 "propertyName": "kind",
                 "mapping": {
+                  "nowa_wersja": "#/components/schemas/ReleaseNotification",
                   "uwaga": "#/components/schemas/DadNoteNotification",
                   "zgloszenie": "#/components/schemas/ReportNotification"
                 }
@@ -2583,6 +2587,61 @@
         ],
         "title": "RecentResults",
         "description": "Wyniki Uruchomień procesu obu procesów z ostatnich ``weeks`` tygodni."
+      },
+      "ReleaseNotification": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "At"
+          },
+          "unread": {
+            "type": "boolean",
+            "title": "Unread"
+          },
+          "kind": {
+            "type": "string",
+            "const": "nowa_wersja",
+            "title": "Kind"
+          },
+          "version": {
+            "type": "string",
+            "title": "Version"
+          },
+          "summary": {
+            "type": "string",
+            "title": "Summary"
+          },
+          "solved": {
+            "items": {
+              "$ref": "#/components/schemas/SolvedCase"
+            },
+            "type": "array",
+            "title": "Solved"
+          },
+          "update_offered": {
+            "type": "boolean",
+            "title": "Update Offered"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "at",
+          "unread",
+          "kind",
+          "version",
+          "summary",
+          "solved",
+          "update_offered"
+        ],
+        "title": "ReleaseNotification",
+        "description": "Powiadomienie o nowej wersji: numer Wydania (``0.2.0``), notka „Co nowego”, sprawy taty, które rozwiązuje, i\nczy Centrum proponuje Aktualizację narzędzia (``tool_freshness.offers_update``, tylko przy najnowszym Wydaniu)."
       },
       "ReportDraft": {
         "properties": {
@@ -3249,6 +3308,30 @@
           "theme"
         ],
         "title": "Settings"
+      },
+      "SolvedCase": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "uwaga",
+              "zgloszenie"
+            ],
+            "title": "Kind"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "kind",
+          "title"
+        ],
+        "title": "SolvedCase",
+        "description": "Sprawa wysłana z tego komputera, którą Wydanie rozwiązuje: Uwaga taty nazwana tytułem, Zgłoszenie jego\n„Co się stało”."
       },
       "TemplateProblem": {
         "properties": {
