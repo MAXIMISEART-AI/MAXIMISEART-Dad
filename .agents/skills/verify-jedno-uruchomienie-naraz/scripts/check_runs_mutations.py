@@ -22,7 +22,7 @@ EXPLORER = ".agents/skills/verify-jedno-uruchomienie-naraz/scripts/explore_runs.
 MUTATIONS = (
     Mutation(
         "sprawdzenie i zajęcie w RunHost.start pod dwiema blokadami",
-        (Edit(RUNS, "            run = _Run(self, prepared)\n", "        with self._lock:\n            run = _Run(self, prepared)\n"),),
+        (Edit(RUNS, "            run = _Run(self, prepared, self._stops)\n", "        with self._lock:\n            run = _Run(self, prepared, self._stops)\n"),),
         (EXPLORER, "--scope", "dwie-karty"),
         "dwie karty „Uruchom” prowadzą dwa Uruchomienia naraz na tym samym Folderze okresu",
         "URUCHOMIENIA: NOWE NARUSZENIE",
@@ -36,7 +36,7 @@ MUTATIONS = (
     ),
     Mutation(
         "ended ustawione na początku _Run.work",
-        (Edit(RUNS, "        prepared = self._prepared\n        stop: Stop | None\n", "        prepared = self._prepared\n        self.ended = True\n        stop: Stop | None\n"),),
+        (Edit(RUNS, "        prepared = self._prepared\n        outcome: Outcome[Shown[Any]] | None = None\n", "        prepared = self._prepared\n        self.ended = True\n        outcome: Outcome[Shown[Any]] | None = None\n"),),
         (EXPLORER, "--scope", "zamknij-w-trakcie"),
         "Centrum zamyka się w trakcie silnika i kolejne „Uruchom” startuje drugie Uruchomienie",
         "URUCHOMIENIA: NOWE NARUSZENIE",
@@ -46,8 +46,8 @@ MUTATIONS = (
         (
             Edit(
                 RUNS,
-                "        self._host.after(ended)\n        self._host.finished(self, result)\n        self.ended = True\n",
-                "        self._host.finished(self, result)\n        self.ended = True\n        self._host.after(ended)\n",
+                "        self._host.after(ended)\n        self._host.finished(ended)\n        self.ended = True\n",
+                "        self._host.finished(ended)\n        self.ended = True\n        self._host.after(ended)\n",
             ),
         ),
         (EXPLORER, "--scope", "zamknij-w-trakcie"),
