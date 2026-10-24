@@ -115,7 +115,8 @@ export type Closing = {
  * Konfiguracja tylko do odczytu, wyliczana z katalogu konfiguracji przy każdym odczycie.
  *
  * ``version`` jest ``None``, gdy narzędzie nie leży w klonie Gita; ``freshness`` to Aktualność tej wersji
- * względem `main` na GitHubie, sprawdzana jak w Diagnozie.
+ * względem najnowszego Wydania na GitHubie (ADR 0014), sprawdzana jak w Diagnozie. ``update_offered`` mówi,
+ * czy Konfiguracja proponuje Aktualizację narzędzia: tylko przy nowszym Wydaniu (``tool_freshness.offers_update``).
  */
 export type Configuration = {
     version: ToolVersion | null;
@@ -123,6 +124,10 @@ export type Configuration = {
      * Freshness
      */
     freshness: 'current' | 'newer' | 'not_checked';
+    /**
+     * Update Offered
+     */
+    update_offered: boolean;
     /**
      * Templates
      */
