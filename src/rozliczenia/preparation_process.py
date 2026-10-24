@@ -18,6 +18,7 @@ from .collective_preparation import (
 )
 from .decision import Conversation
 from .domain import ProgressObserver
+from .input_checks import FILE_READERS, Readers
 from .process_run import Finished, Process
 from .worker_config import default_config_path
 
@@ -34,7 +35,7 @@ def default_metrics_path() -> Path:
 
 @dataclass(frozen=True)
 class PreparationInputs:
-    """Wejście procesu Przygotowania pliku zbiorczego, gotowe przed startem silnika."""
+    """Wejście procesu Przygotowania pliku zbiorczego, gotowe przed startem silnika, z czytnikami plików taty."""
 
     register_path: Path
     periods_directory: Path
@@ -43,6 +44,7 @@ class PreparationInputs:
     config_path: Path = field(default_factory=default_config_path)
     internal_template_path: Path = field(default_factory=default_internal_template_path)
     collective_template_path: Path = field(default_factory=default_collective_template_path)
+    readers: Readers = FILE_READERS
 
 
 def _execute(inputs: PreparationInputs, observer: ProgressObserver, conversation: Conversation) -> PreparationSummary:
@@ -56,6 +58,7 @@ def _execute(inputs: PreparationInputs, observer: ProgressObserver, conversation
         dry_run=inputs.dry_run,
         observer=observer,
         conversation=conversation,
+        readers=inputs.readers,
     )
 
 

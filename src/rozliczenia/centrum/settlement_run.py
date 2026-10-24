@@ -22,6 +22,7 @@ from rozliczenia.domain import SettlementSummary
 from rozliczenia.settings import SettingsStore
 from rozliczenia.period_folder import PeriodStatus, collective_file_name, period_status_label
 from rozliczenia.settlement_period import SettlementPeriod, last_complete_period
+from rozliczenia.input_checks import Readers
 from rozliczenia.process_run import Process
 from rozliczenia.settlement_process import SettlementInputs
 from rozliczenia.telemetry import MetricsStore
@@ -39,6 +40,7 @@ class SettlementEntry:
     configuration: ConfigurationFiles
     process: Process[SettlementInputs, SettlementSummary]
     today: Callable[[], date]
+    readers: Readers
 
     @property
     def key(self) -> contract.ProcessKey:
@@ -76,6 +78,7 @@ class SettlementEntry:
             dry_run=request.dry_run,
             config_path=self.configuration.worker_config,
             worker_template_path=self.configuration.worker_template,
+            readers=self.readers,
         )
 
         return PreparedRun(

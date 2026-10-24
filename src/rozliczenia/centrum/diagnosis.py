@@ -30,7 +30,7 @@ from functools import cached_property
 from pathlib import Path
 from typing import Final, Literal
 
-from rozliczenia import preparation_messages, preparation_register, settlement_messages, workbook_files
+from rozliczenia import input_checks, preparation_messages, settlement_messages, workbook_files
 from rozliczenia.centrum import contract, diagnosis_messages
 from rozliczenia.centrum.diagnosis_messages import NEWER_TOOL_VERSION
 from rozliczenia.centrum.cloud_files import CloudFiles
@@ -38,7 +38,8 @@ from rozliczenia.centrum.configuration import ConfigurationFiles, Template, work
 from rozliczenia.centrum.log import CentrumLog, event_of
 from rozliczenia.centrum.tool_freshness import ToolFreshness, offers_update
 from rozliczenia.centrum.version import short_commit
-from rozliczenia.message import Message, StopError
+from rozliczenia.input_checks import Readers
+from rozliczenia.message import Message
 from rozliczenia.period_folder import (
     PeriodFolder,
     PeriodFolderInaccessible,
@@ -194,10 +195,11 @@ def files_of_process(
 
 @dataclass(frozen=True)
 class _Computer(_ProcessFiles):
-    """Komputer taty w chwili Diagnozy: pliki procesu Zatrzymania, dziennik i granice poza plikami taty."""
+    """Komputer taty w chwili Diagnozy: pliki procesu Zatrzymania, dziennik, granice poza plikami taty i czytniki procesu."""
 
     log: CentrumLog
     surroundings: Surroundings
+    readers: Readers
 
     @cached_property
     def log_entries(self) -> tuple[str, ...]:
@@ -302,12 +304,9 @@ def _register(computer: _Computer, label: str) -> list[CheckResult]:
     register = computer.settings.existing_register
     if register is None:
         return [CheckResult.not_checked(label, "Rejestru zleceń nie ma na miejscu.")]
-    try:
-        # Przez moduł, jak proces: Diagnoza trafia na ten sam odczyt, także podmieniony hakiem awarii weryfikacji.
-        preparation_register.ensure_register_available(register)
-        preparation_register.read_register(register)
-    except StopError as stop:
-        return [CheckResult.failed(label, stop.message)]
+    problem = input_checks.register_problem(register, computer.readers)
+    if problem is not None:
+        return [CheckResult.failed(label, problem)]
     return [CheckResult.passed(label, "Nie jest otwarty w Excelu, otwiera się i ma wymagane nagłówki.")]
 
 
@@ -328,7 +327,7 @@ def _templates(computer: _Computer, label: str) -> list[CheckResult]:
 
 def _template_check(template: Template) -> _CheckRun:
     def check(computer: _Computer, label: str) -> list[CheckResult]:
-        problem = template.problem()
+        problem = template.problem(computer.readers)
         if problem is None:
             return [CheckResult.passed(label, f"{template.path.name} przechodzi Sprawdzanie.")]
         return [CheckResult.failed(label, problem)]
@@ -444,10 +443,11 @@ def diagnose(
     configuration: ConfigurationFiles,
     log: CentrumLog,
     surroundings: Surroundings,
+    readers: Readers,
 ) -> Diagnosis:
-    """Wszystkie sprawdzenia procesu ``process`` dla tokenu okresu ``period``, tylko do odczytu."""
+    """Wszystkie sprawdzenia procesu ``process`` dla tokenu okresu ``period``, tylko do odczytu, czytnikami procesu."""
 
-    computer = _Computer(process, parse_period_token(period), settings, configuration, log, surroundings)
+    computer = _Computer(process, parse_period_token(period), settings, configuration, log, surroundings, readers)
     checks: list[CheckResult] = []
     for check in _CHECKS[process]:
         checks.extend(check.results(computer))

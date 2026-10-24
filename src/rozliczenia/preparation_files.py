@@ -1,10 +1,10 @@
 """Wzorce i pliki okresu w Przygotowaniu pliku zbiorczego.
 
-Moduł sprawdza oba wzorce (Sprawdzanie), ocenia, czy zlecenia zmieszczą się we wzorcach, i podaje fakty o wierszach
-Pliku zbiorczego (Planowanie), a potem zapisuje Rozliczenie wewnętrzne oraz Plik zbiorczy razem do Folderu okresu
-(Zapisywanie). Sprawdzanie zgłasza problem ze wzorcem jako ``WorkbookError``, który tłumaczy wejście (Przygotowanie
-albo Konfiguracja Centrum rozliczeń); Planowanie i Zapisywanie zatrzymują się ``StopError``. Moduł wewnętrzny
-Przygotowania pliku zbiorczego; operacją publiczną pozostaje ``collective_preparation.prepare_collective_file()``.
+Moduł podaje oba wzorce z kolumnami Rejestru zleceń (``period_template``, sprawdzane w ``input_checks``), ocenia,
+czy zlecenia zmieszczą się we wzorcach, i podaje fakty o wierszach Pliku zbiorczego (Planowanie), a potem zapisuje
+Rozliczenie wewnętrzne oraz Plik zbiorczy razem do Folderu okresu (Zapisywanie). Planowanie i Zapisywanie
+zatrzymują się ``StopError``. Moduł wewnętrzny Przygotowania pliku zbiorczego; operacją publiczną pozostaje
+``collective_preparation.prepare_collective_file()``.
 """
 
 from __future__ import annotations
@@ -48,18 +48,6 @@ class PeriodFiles:
         """Rozliczenie wewnętrzne i Plik zbiorczy, w kolejności publikacji."""
 
         return (self.folder.internal_settlement.name, self.folder.collective_file.name)
-
-
-def check_internal_template(template_path: Path) -> None:
-    """Wzorzec rozliczenia wewnętrznego istnieje, nie jest otwarty, daje się odczytać i ma nagłówki; inaczej ``WorkbookError``."""
-
-    _template(template_path, Layout.INTERNAL_SETTLEMENT).check()
-
-
-def check_collective_template(template_path: Path) -> None:
-    """Wzorzec pliku zbiorczego jak ``check_internal_template`` i z WYKONAWCA w H17."""
-
-    _template(template_path, Layout.COLLECTIVE_FILE).check()
 
 
 def ensure_period_files_absent(files: PeriodFiles) -> None:
@@ -108,8 +96,8 @@ def plan_period_files(
     """Planowanie: zlecenia zmieszczą się we wzorcach; scalone komórki w ich wierszach są zatrzymaniem."""
 
     with _template_stops():
-        _template(files.internal_template, Layout.INTERNAL_SETTLEMENT).plan(order_count)
-        collective = _template(files.collective_template, Layout.COLLECTIVE_FILE).plan(len(collective_rows))
+        period_template(files.internal_template, Layout.INTERNAL_SETTLEMENT).plan(order_count)
+        collective = period_template(files.collective_template, Layout.COLLECTIVE_FILE).plan(len(collective_rows))
     numbered = list(zip(collective.data_rows, collective_rows, strict=True))
     return CollectiveFilePlan(
         successful_count=len(collective_rows),
@@ -162,7 +150,7 @@ def write_period_files(
         raise StopError(messages.write_failed(folder.directory)) from exc
 
 
-def _template(template_path: Path, layout: Layout) -> TemplateFile:
+def period_template(template_path: Path, layout: Layout) -> TemplateFile:
     """Wzorzec pliku okresu z kolumnami ``COLUMNS`` pod ich nagłówkami docelowymi."""
 
     return TemplateFile(template_path, layout, [column.target_header for column in COLUMNS])
@@ -182,7 +170,7 @@ def _write_period_file(template_path: Path, layout: Layout, target: Path, rows: 
     """Plik z Wzorca z Wierszami danych od pierwszego Wiersza danych (ADR 0008)."""
 
     with _template_stops():
-        _template(template_path, layout).create(target, rows)
+        period_template(template_path, layout).create(target, rows)
 
 
 def _with_quantities(row: CollectiveRow) -> DataRow:
