@@ -14,12 +14,16 @@ wyjątków ani klucza Zgłoszenie nie ma (ADR 0007).
 
 Źródło Zgłoszenia (Zatrzymanie w ``stops``, nieudana Aktualizacja narzędzia w
 ``tool_updates``) trzyma jego uchwyt (``ReportHandle``): uchwyt zamraża podgląd,
-a „Wyślij do Maksa” wysyła dokładnie ten podgląd, najwyżej raz na uchwyt.
+a „Wyślij do Maksa” kładzie dokładnie ten podgląd w kolejce Skrzynki Zgłoszeń,
+najwyżej raz na uchwyt. Bez sieci albo klucza Zgłoszenie czeka w kolejce i
+wychodzi samo; Komunikat jest tylko wtedy, gdy nie da się zapisać pliku kolejki.
 """
 
 from __future__ import annotations
 
 import threading
+import uuid
+import weakref
 from collections.abc import Callable
 from dataclasses import astuple, dataclass
 from datetime import datetime, timezone
@@ -29,13 +33,13 @@ from typing import Final, Literal
 
 from rozliczenia.call_trace import CallTrace
 from rozliczenia.centrum import contract, report_messages
-from rozliczenia.centrum.atomic_file import replace_atomically
 from rozliczenia.centrum.dad_cases import REPORT, Case, DadCases
 from rozliczenia.centrum.deadline import within
 from rozliczenia.centrum.diagnosis import Diagnosis
 from rozliczenia.centrum.keyed_box import KeyedBox, NoKey
 from rozliczenia.centrum.log import CentrumLog
-from rozliczenia.centrum.report_box import FindOutcome, Refused, SendOutcome, Sent
+from rozliczenia.centrum.outbox import DELIVERY_WAIT_S, Outbox, Post, ReportIssue
+from rozliczenia.centrum.report_box import FindOutcome
 from rozliczenia.centrum.tool_freshness import CommitSource
 from rozliczenia.centrum.tool_update import UpdateResult
 from rozliczenia.message import Message
@@ -108,11 +112,8 @@ class StopReport:
     logs: str | None
 
     @property
-    def file_name(self) -> str:
-        return f"Zgłoszenie {self.stop.message.code} {self.run.period}.md"
-
-    def logged(self, log: CentrumLog) -> _ReportLog:
-        return _ReportLog.of_run(log, self.run.process, self.run.period)
+    def period(self) -> str:
+        return self.run.period
 
     def report(self, *, commit: str | None, previous: int | None) -> Report:
         run, message, diagnosis = self.run, self.stop.message, self.diagnosis
@@ -163,11 +164,8 @@ class UpdateReport:
         return cls(result, message, tuple(log.recent(_UPDATE_LOG_ENTRIES)), ProblemFingerprint.of_tool_update(message))
 
     @property
-    def file_name(self) -> str:
-        return f"Zgłoszenie {self.message.code} aktualizacja.md"
-
-    def logged(self, log: CentrumLog) -> _ReportLog:
-        return _ReportLog.of_update(log)
+    def period(self) -> None:
+        return None
 
     def report(self, *, commit: str | None, previous: int | None) -> Report:
         result, fingerprint = self.result, self.fingerprint.digest
@@ -190,10 +188,13 @@ class UpdateReport:
         return _report(self.message, lines, fingerprint)
 
 
+_FINGERPRINT_PREFIX: Final = "- Odcisk problemu: "
+
+
 def fingerprint_line(fingerprint: str) -> str:
     """Wiersz treści Zgłoszenia z odciskiem problemu, po którym Centrum znajduje otwarte Zgłoszenie w skrzynce."""
 
-    return f"- Odcisk problemu: {fingerprint}"
+    return f"{_FINGERPRINT_PREFIX}{fingerprint}"
 
 
 def _message_lines(message: Message) -> list[str]:
@@ -254,41 +255,20 @@ def _cell(text: str) -> str:
     return text.replace("|", "\\|")
 
 
-@dataclass(frozen=True)
-class _ReportLog:
-    """Wpisy dziennika Centrum o wysyłce jednego podglądu: z Uruchomienia albo z Aktualizacji narzędzia."""
 
-    sent: Callable[[int], None]
-    waiting: Callable[[int], None]
-    saved: Callable[[str], None]
-    not_saved: Callable[[str], None]
 
-    @classmethod
-    def of_run(cls, log: CentrumLog, process: str, period: str) -> _ReportLog:
-        return cls(
-            sent=lambda number: log.report_sent(process=process, period=period, number=number),
-            waiting=lambda number: log.report_waiting(process=process, period=period, number=number),
-            saved=lambda code: log.report_saved(process=process, period=period, code=code),
-            not_saved=lambda cause: log.report_not_saved(process=process, period=period, cause=cause),
-        )
+def _unframed(_number: int, _count: int, text: str) -> str:
+    """Części Zgłoszenia bez nagłówków: issue i komentarze to razem dokładnie podgląd."""
 
-    @classmethod
-    def of_update(cls, log: CentrumLog) -> _ReportLog:
-        return cls(
-            sent=lambda number: log.update_report_sent(number=number),
-            waiting=lambda number: log.update_report_waiting(number=number),
-            saved=lambda code: log.update_report_saved(code=code),
-            not_saved=lambda cause: log.update_report_not_saved(cause=cause),
-        )
+    return text
 
 
 @dataclass(frozen=True)
 class _Preview:
-    """Zamrożony podgląd Zgłoszenia, jego wpisy w dzienniku i nazwa pliku na wypadek nieudanej wysyłki."""
+    """Zamrożony podgląd Zgłoszenia i token okresu jego źródła (``None``: Aktualizacja narzędzia) do dziennika kolejki."""
 
     report: Report
-    file_name: str
-    logged: _ReportLog
+    period: str | None
 
     @property
     def view(self) -> contract.ReportDraft:
@@ -307,11 +287,11 @@ class ReportHandle:
     """Zgłoszenie jednego problemu z jednego źródła (Zatrzymanie, nieudana Aktualizacja narzędzia), od podglądu do wysyłki.
 
     ``prepare`` zamraża podgląd i pyta skrzynkę Zgłoszeń w tle o otwarte Zgłoszenie tego problemu, a ``send``
-    wysyła ostatni podgląd najwyżej raz; drugie kliknięcie w trakcie wysyłki czeka na jej wynik. Po każdej
-    odpowiedzi skrzynki i każdej wysyłce nowy stan dostaje ``shown`` właściciela. Odpowiedź na pytanie sprzed
-    wysyłki przepada, bo stan to już wynik wysyłki. ``shown`` biegnie pod blokadą uchwytu, więc dostaje stany w
-    kolejności ich zmian, i nie woła uchwytu. Właściciel, który pokazuje stan dopiero po odpowiedzi skrzynki,
-    czeka na nią przez ``wait_for_box``.
+    kładzie ostatni podgląd w kolejce Skrzynki najwyżej raz; drugie kliknięcie w trakcie wysyłki czeka na jej wynik.
+    Po każdej odpowiedzi skrzynki, każdej wysyłce i dostarczeniu z kolejki nowy stan dostaje ``shown`` właściciela.
+    Odpowiedź na pytanie sprzed wysyłki przepada, bo stan to już wynik wysyłki. ``shown`` biegnie pod blokadą
+    uchwytu, więc dostaje stany w kolejności ich zmian, i nie woła uchwytu. Właściciel, który pokazuje stan dopiero
+    po odpowiedzi skrzynki, czeka na nią przez ``wait_for_box``.
     """
 
     def __init__(self, reports: Reports, fingerprint: str, shown: ReportShown | None) -> None:
@@ -327,7 +307,7 @@ class ReportHandle:
 
     @property
     def state(self) -> contract.ReportState:
-        """Ostatni znany stan: czeka na naprawę, gotowe do wysłania, wysłane albo zapisane w pliku."""
+        """Ostatni znany stan: gotowe do wysłania, wysłane, czeka na naprawę, czeka w kolejce albo niezapisane."""
 
         with self._changed:
             return self._state
@@ -359,12 +339,12 @@ class ReportHandle:
         self._reports._ask_box(self._fingerprint)
         with self._changed:
             if sends == self._sends:
-                self._show(self._state if self._sent else self._reports._state_of(self._fingerprint))
+                self._show(self._state if self._done else self._reports._state_of(self._fingerprint))
 
     def send(self) -> contract.ReportState:
-        """Wysyła ostatni podgląd, chyba że już wysłany albo skrzynka ma otwarte Zgłoszenie tego problemu.
+        """Kładzie ostatni podgląd w kolejce Skrzynki i czeka na nią chwilę, chyba że już wysłany albo czeka w kolejce.
 
-        Gdy wysyłka się nie uda, zapisuje Zgłoszenie w pliku i mówi, co dalej. ``NoPreview``, gdy podglądu nie ma.
+        ``NoPreview``, gdy podglądu nie ma.
         """
 
         with self._changed:
@@ -373,24 +353,36 @@ class ReportHandle:
             preview = self._preview
             if preview is None:
                 raise NoPreview
-            if self._sent:
+            if self._done:
                 return self._state
             self._sending = True
             self._sends += 1
-        state: contract.ReportState | None = None
         try:
-            state = self._reports._deliver(preview)
-            return state
-        finally:
+            state = self._reports._queue(preview)
+        except BaseException:
             with self._changed:
                 self._sending = False
-                if state is not None:
-                    self._show(state)
                 self._changed.notify_all()
+            raise
+        with self._changed:
+            self._sending = False
+            # Dostarczenie mogło przyjść tuż po końcu czekania, zanim uchwyt pokazał „czeka w kolejce”.
+            if isinstance(state, contract.ReportQueued) and not self._reports._pending(self._fingerprint):
+                state = contract.ReportSent(state="sent")
+            self._show(state)
+            self._changed.notify_all()
+            return state
+
+    def _delivered(self) -> None:
+        """Kolejka dostarczyła Zgłoszenie tego problemu: „czeka w kolejce” zmienia się w „wysłane”."""
+
+        with self._changed:
+            if isinstance(self._state, contract.ReportQueued):
+                self._show(contract.ReportSent(state="sent"))
 
     @property
-    def _sent(self) -> bool:
-        return isinstance(self._state, contract.ReportSent)
+    def _done(self) -> bool:
+        return isinstance(self._state, contract.ReportSent | contract.ReportQueued)
 
     def _show(self, state: contract.ReportState) -> None:
         self._state = state
@@ -399,20 +391,20 @@ class ReportHandle:
 
 
 class Reports:
-    """Zgłoszenia z tego komputera: uchwyt Zgłoszenia każdego źródła, wysyłka i stan wysłanych.
+    """Zgłoszenia z tego komputera: uchwyt Zgłoszenia każdego źródła, wysyłka przez kolejkę Skrzynki i sprawy.
 
-    Klucz i niewysłane Zgłoszenia leżą w katalogu konfiguracji obok Ustawień
-    taty, poza Gitem, a wysłane są Sprawami taty. Jeden problem ma jedno otwarte Zgłoszenie:
-    podgląd i wysyłka pytają skrzynkę o otwarte Zgłoszenie z tym samym odciskiem,
-    a gdy jest, nowe nie powstaje. Bez odpowiedzi skrzynki (brak klucza albo
-    sieci) problem wysłany z tego komputera czeka na naprawę.
+    „Wyślij do Maksa” zapisuje sprawę bez numeru, kładzie zamrożony podgląd w kolejce jako ``ReportIssue`` i czeka na
+    skrzynkę najwyżej ``DELIVERY_WAIT_S``. Numer issue dopisuje ``delivered`` (``Outbox.on_delivered``), także po
+    następnym starcie Centrum, i oddaje stan „wysłane” każdemu żywemu uchwytowi tego problemu. Jeden problem ma jedno
+    otwarte Zgłoszenie: podgląd pyta skrzynkę o otwarte Zgłoszenie z tym odciskiem, kolejka przejmuje je zamiast
+    zakładać nowe, a problem, którego Zgłoszenie czeka w kolejce, nie trafia do niej drugi raz.
     """
 
     def __init__(
         self,
         config_directory: Path,
         box: KeyedBox,
-        log: CentrumLog,
+        outbox: Outbox,
         commit: CommitSource,
         cases: DadCases,
         *,
@@ -420,14 +412,15 @@ class Reports:
     ) -> None:
         self._commit = commit
         self._search_deadline_s = search_deadline_s
-        self._unsent = config_directory / UNSENT_DIRECTORY
         self._cases = cases
+        self._queue_directory = outbox.directory
         self._box = box
-        self._log = log
+        self._outbox = outbox
         # Blokada chroni tylko stan w pamięci; pytania do skrzynki idą bez niej.
         self._lock = threading.Lock()
         # Ostatnia odpowiedź skrzynki w tej pracy Centrum: odcisk problemu → numer otwartego Zgłoszenia albo None.
         self._open: dict[str, int | None] = {}
+        self._handles: dict[str, weakref.WeakSet[ReportHandle]] = {}
 
     def handle(self, fingerprint: ProblemFingerprint, *, shown: ReportShown | None = None) -> ReportHandle:
         """Uchwyt Zgłoszenia problemu ``fingerprint`` bez podglądu; stan bez pytania skrzynki.
@@ -435,68 +428,78 @@ class Reports:
         ``shown`` dostaje każdy nowy stan; właściciel, który czyta ``ReportHandle.state`` sam, go nie podaje.
         """
 
-        return ReportHandle(self, fingerprint.digest, shown)
+        handle = ReportHandle(self, fingerprint.digest, shown)
+        with self._lock:
+            self._handles.setdefault(fingerprint.digest, weakref.WeakSet()).add(handle)
+        return handle
+
+    def delivered(self, post: Post, number: int) -> None:
+        """Kolejka dostarczyła wysyłkę (``Outbox.on_delivered``): sprawa Zgłoszenia dostaje numer issue.
+
+        Wysyłki innych celów pomija.
+        """
+
+        if not isinstance(post.target, ReportIssue):
+            return
+        fingerprint = post.target.line.removeprefix(_FINGERPRINT_PREFIX)
+        if not self._cases.numbered(REPORT, fingerprint, number):
+            return
+        with self._lock:
+            self._open[fingerprint] = number
+            handles = list(self._handles.get(fingerprint, ()))
+        for handle in handles:
+            handle._delivered()
 
     def _preview(self, source: StopReport | UpdateReport) -> _Preview:
         fingerprint = source.fingerprint.digest
-        previous = self._cases.find(REPORT, fingerprint)
-        report = source.report(commit=self._commit(), previous=previous.number if previous else None)
-        return _Preview(report, source.file_name, source.logged(self._log))
+        sent = [case.number for case in self._cases.all() if case.kind == REPORT and case.id == fingerprint]
+        previous = next((number for number in reversed(sent) if number is not None), None)
+        return _Preview(source.report(commit=self._commit(), previous=previous), source.period)
 
-    def _deliver(self, preview: _Preview) -> contract.ReportState:
-        """Wysyła ``preview``, gdy skrzynka nie ma otwartego Zgłoszenia tego problemu; inaczej zapisuje plik."""
+    def _queue(self, preview: _Preview) -> contract.ReportState:
+        """Zapisuje sprawę i kładzie ``preview`` w kolejce Skrzynki, chyba że ten problem już w niej czeka."""
 
-        found = self._find_open(preview.report.fingerprint)
-        if isinstance(found, int):
-            with self._lock:
-                self._open[preview.report.fingerprint] = found
-            preview.logged.waiting(found)
-            return contract.ReportWaiting(state="waiting")
-        outcome: SendOutcome | NoKey = (
-            self._box.open_issue(REPORT.label, preview.report.title, preview.report.body) if found is None else found
+        fingerprint = preview.report.fingerprint
+        if self._pending(fingerprint):
+            return self._queued()
+        case = Case(REPORT, fingerprint, preview.report.what, self._commit(), datetime.now(timezone.utc), number=None)
+        # Własny identyfikator wysyłki: odcisk wraca po zamknięciu, a kolejka czeka na dostarczenie po identyfikatorze.
+        post = Post.of(
+            ReportIssue(fingerprint_line(fingerprint), preview.report.title),
+            period=preview.period,
+            run_id=uuid.uuid4().hex,
+            blocks=[preview.report.body],
+            frame=_unframed,
         )
-        saved = self._unsent / preview.file_name
-        if isinstance(outcome, Sent):
-            with self._lock:
-                self._cases.add(
-                    Case(
-                        REPORT,
-                        preview.report.fingerprint,
-                        preview.report.what,
-                        self._commit(),
-                        datetime.now(timezone.utc),
-                        outcome.number,
-                    )
-                )
-                self._open[preview.report.fingerprint] = outcome.number
-            preview.logged.sent(outcome.number)
-            try:
-                saved.unlink(missing_ok=True)
-            except OSError as failure:  # np. plik otwarty w Windows: zostaje w folderze, Zgłoszenie i tak wysłane
-                self._log.unexpected_failure(failure, where="usunięcie niewysłanego Zgłoszenia")
-            return contract.ReportSent(state="sent")
-        unsent = (
-            report_messages.key_missing(saved)
-            if isinstance(outcome, NoKey)
-            else report_messages.key_refused(saved)
-            if isinstance(outcome, Refused)
-            else report_messages.box_unreachable(saved)
-        )
+        self._cases.add(case)
+        queued = False
         try:
-            replace_atomically(saved, f"# {preview.report.title}\n\n{preview.report.body}")
-        except OSError as failure:  # np. folder Zgłoszeń niedostępny: treść zostaje tylko w podglądzie Diagnozy
-            self._log.unexpected_failure(failure, where="zapis niewysłanego Zgłoszenia")
-            preview.logged.not_saved(unsent.code)
-            message = report_messages.not_saved(self._unsent)
-            return contract.ReportSaved(state="saved", message=contract.Message.of(message))
-        preview.logged.saved(unsent.code)
-        return contract.ReportSaved(state="saved", message=contract.Message.of(unsent))
+            queued = self._outbox.post(post)
+        finally:
+            if not queued:  # sprawa bez pliku kolejki czekałaby wiecznie, a tata nie mógłby kliknąć jeszcze raz
+                self._cases.withdraw(case)
+        if not queued:
+            message = report_messages.not_queued(self._queue_directory)
+            return contract.ReportNotQueued(state="not_queued", message=contract.Message.of(message))
+        if self._outbox.wait_delivered(post.run_id, REPORT.label, timeout_s=DELIVERY_WAIT_S):
+            return contract.ReportSent(state="sent")
+        return self._queued()
+
+    def _queued(self) -> contract.ReportQueued:
+        """Zgłoszenie czeka w kolejce: na klucz, gdy go nie ma albo Skrzynka go odrzuciła, a inaczej na internet."""
+
+        waits_for: Literal["internet", "key"] = "key" if self._box.judge(wait_s=0) in ("missing", "refused") else "internet"
+        return contract.ReportQueued(state="queued", waits_for=waits_for)
+
+    def _pending(self, fingerprint: str) -> bool:
+        latest = self._cases.find(REPORT, fingerprint)
+        return latest is not None and latest.number is None
 
     def _ask_box(self, fingerprint: str) -> None:
         """Pyta skrzynkę o otwarte Zgłoszenie problemu; bez klucza albo odpowiedzi zostaje to, co już wiadomo.
 
         Brak odpowiedzi w ``search_deadline_s`` (u taty ``SEARCH_DEADLINE_S``) to brak odpowiedzi: spóźniona
-        przepada, a wysyłka i tak pyta skrzynkę, zanim założy Zgłoszenie.
+        przepada, a kolejka i tak szuka otwartego Zgłoszenia, zanim założy nowe.
         """
 
         answer = within(self._search_deadline_s, lambda: (self._find_open(fingerprint),), name="skrzynka-szukaj")
@@ -511,14 +514,17 @@ class Reports:
         return self._box.find_issue(REPORT.label, fingerprint_line(fingerprint), include_closed=False)
 
     def _state_of(self, fingerprint: str) -> contract.ReportState:
-        """Odpowiedź skrzynki z tej pracy Centrum, a bez niej ostatni znany stan wysłanego Zgłoszenia.
+        """Sprawa czekająca w kolejce, potem odpowiedź skrzynki z tej pracy Centrum, a bez niej ostatnia wysłana sprawa.
 
         Zgłoszenie, o którym wiadomo, że Maks je zamknął, nie czeka na naprawę.
         """
 
-        if fingerprint in self._open:
-            waiting = self._open[fingerprint] is not None
-        else:
-            sent = self._cases.find(REPORT, fingerprint)
-            waiting = sent is not None and sent.closure is None
+        latest = self._cases.find(REPORT, fingerprint)
+        if latest is not None and latest.number is None:
+            return self._queued()
+        with self._lock:
+            known = fingerprint in self._open
+            waiting = self._open.get(fingerprint) is not None
+        if not known:
+            waiting = latest is not None and latest.closure is None
         return contract.ReportWaiting(state="waiting") if waiting else contract.ReportReady(state="ready")

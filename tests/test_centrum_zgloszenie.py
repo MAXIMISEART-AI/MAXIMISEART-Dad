@@ -5,6 +5,7 @@ from __future__ import annotations
 import codecs
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
+import json
 import re
 import shutil
 import threading
@@ -16,6 +17,7 @@ import pytest
 
 from rozliczenia.input_checks import FILE_READERS
 from rozliczenia.centrum.dad_cases import DAD_CASES_FILE
+from rozliczenia.centrum.outbox import RETRY_S
 from rozliczenia.centrum.report_box import Refused, Unreachable
 from rozliczenia.centrum.reports import SEARCH_DEADLINE_S
 
@@ -27,6 +29,7 @@ from tests.fixtures.centrum_processes import (
     run_to_end,
     stopped_for_maks,
 )
+from tests.fixtures.potomne import wait_for
 from tests.fixtures.preparation import PERIOD
 
 KEY = "github_pat_SYNTETYCZNY_KLUCZ_ZGLOSZEN"
@@ -66,7 +69,7 @@ def test_wyslane_zgloszenie_jest_dokladnie_podgladem_z_diagnozy(tmp_path: Path) 
     [report] = centrum.surroundings.report_box.sent
     assert {"title": report.title, "body": report.body} == preview
     assert centrum.surroundings.report_box.keys == [KEY]
-    assert f"zgloszenie-wyslane proces=preparation okres={PERIOD} numer=1" in centrum.log_path.read_text(encoding="utf-8")
+    assert f"skrzynka-wyslano etykieta=zgloszenie okres={PERIOD} numer=1" in centrum.log_path.read_text(encoding="utf-8")
 
 
 @pytest.mark.parametrize(
@@ -221,53 +224,92 @@ def test_zatrzymanie_z_komunikatem_procesu_nie_ma_sladu_wywolan(tmp_path: Path) 
     assert trace_section(report["body"]) == []
 
 
-def unsent_files(centrum: PreparingCentrum) -> dict[str, str]:
-    directory = centrum.tmp_path / "config" / "zgloszenia"
-    return {path.name: path.read_text(encoding="utf-8") for path in sorted(directory.glob("*.md"))}
+def queued_reports(centrum: PreparingCentrum) -> list[dict[str, Any]]:
+    """Pliki Zgłoszeń w kolejce Skrzynki (bez Logów Uruchomienia, które czekają obok)."""
+
+    directory = centrum.tmp_path / "config" / "zgloszenia" / "kolejka"
+    return [json.loads(path.read_text(encoding="utf-8")) for path in sorted(directory.glob("*-zgloszenie-*.json"))]
 
 
-def test_bez_klucza_zgloszenie_zatrzymania_zostaje_w_pliku_z_kodem_i_okresem(tmp_path: Path) -> None:
+def cases(centrum: PreparingCentrum) -> list[dict[str, Any]]:
+    return dad_cases(centrum.tmp_path / "config", "zgloszenie")
+
+
+FOR_KEY = {"state": "queued", "waits_for": "key"}
+FOR_INTERNET = {"state": "queued", "waits_for": "internet"}
+
+
+def test_bez_klucza_zgloszenie_zatrzymania_czeka_w_kolejce_z_trescia_podgladu_bez_pliku_md(tmp_path: Path) -> None:
     centrum = preparing_centrum(tmp_path)
     run_id = stopped_for_maks(centrum)
     preview = diagnose(centrum, run_id)["report"]
 
-    saved = send(centrum, run_id)
+    queued = send(centrum, run_id)
 
-    name = f"Zgłoszenie BLAD_PLANU {PERIOD}.md"
-    assert saved == {
-        "state": "saved",
-        "message": {
-            "what": "Nie wysłano Zgłoszenia: na tym komputerze nie ma klucza do Zgłoszeń.",
-            "where": f"plik {name}, folder zgloszenia",
-            "action": "Prześlij ten plik Maksowi mailem. Gdy Maks wpisze klucz do Zgłoszeń, kliknij „Spróbuj ponownie”.",
-        },
-    }
-    assert unsent_files(centrum) == {name: f"# {preview['title']}\n\n{preview['body']}"}
+    assert queued == FOR_KEY
+    [post] = queued_reports(centrum)
+    assert (post["target"]["title"], "".join(post["parts"]), post["period"]) == (preview["title"], preview["body"], PERIOD)
+    assert [path.name for path in (tmp_path / "config" / "zgloszenia").iterdir()] == ["kolejka"]
     assert centrum.surroundings.report_box.sent == []
-    log = centrum.log_path.read_text(encoding="utf-8")
-    assert f"zgloszenie-zapisane proces=preparation okres={PERIOD} kod=ZGLOSZENIE_BEZ_KLUCZA" in log
-    assert current_report(centrum) == saved
+    assert [case["number"] for case in cases(centrum)] == [None]
+    assert f"skrzynka-w-kolejce etykieta=zgloszenie okres={PERIOD}" in centrum.log_path.read_text(encoding="utf-8")
+    assert current_report(centrum) == queued
 
 
-def test_zgloszenie_ktorego_nie_da_sie_ani_wyslac_ani_zapisac_w_pliku_daje_komunikat(tmp_path: Path) -> None:
+def test_zgloszenie_zatrzymania_bez_sieci_wysyla_sie_samo_po_powrocie_sieci(tmp_path: Path) -> None:
+    centrum = preparing_centrum(tmp_path)
+    with_key(centrum)
+    box = centrum.surroundings.report_box
+    box.search_failure = Unreachable()
+    run_id = stopped_for_maks(centrum)
+    preview = diagnose(centrum, run_id)["report"]
+
+    queued = send(centrum, run_id)
+    box.search_failure = None
+    centrum.surroundings.clock.advance(RETRY_S)
+
+    assert queued == FOR_INTERNET
+    assert box.wait_until(lambda box: len(box.sent) == 1)
+    assert [{"title": report.title, "body": report.body} for report in box.sent] == [preview]
+    assert report_becomes(centrum, {"state": "sent"}) == {"state": "sent"}
+    assert [case["number"] for case in cases(centrum)] == [1]
+
+
+def test_zgloszenie_z_kolejki_wychodzi_po_restarcie_centrum_z_numerem_w_stanie_wyslanych(tmp_path: Path) -> None:
     centrum = preparing_centrum(tmp_path)
     run_id = stopped_for_maks(centrum)
     diagnose(centrum, run_id)
-    shutil.rmtree(tmp_path / "config" / "zgloszenia")  # Logi Uruchomienia w kolejce
-    (tmp_path / "config" / "zgloszenia").write_text("", encoding="utf-8")  # plik zamiast folderu: zapis się nie uda
+    assert send(centrum, run_id) == FOR_KEY
+    with_key(centrum)
+
+    centrum.restart()
+    with centrum.client:
+        assert centrum.surroundings.report_box.wait_until(lambda box: len(box.sent) == 1)
+        assert wait_for(lambda: [case["number"] for case in cases(centrum)] == [1])
+
+    assert queued_reports(centrum) == []
+
+
+def test_zgloszenie_ktorego_nie_da_sie_zapisac_w_kolejce_daje_komunikat(tmp_path: Path) -> None:
+    centrum = preparing_centrum(tmp_path)
+    run_id = stopped_for_maks(centrum)
+    diagnose(centrum, run_id)
+    queue = tmp_path / "config" / "zgloszenia" / "kolejka"
+    shutil.rmtree(queue)  # Logi Uruchomienia w kolejce
+    queue.write_text("", encoding="utf-8")  # plik zamiast folderu: zapis się nie uda
 
     state = send(centrum, run_id)
 
     assert state == {
-        "state": "saved",
+        "state": "not_queued",
         "message": {
-            "what": "Nie wysłano Zgłoszenia i nie udało się zapisać go w pliku na tym komputerze.",
-            "where": "folder zgloszenia",
-            "action": "Rozwiń „Co zostanie wysłane”, skopiuj treść i prześlij ją Maksowi mailem.",
+            "what": "Nie udało się zapisać Zgłoszenia na tym komputerze, więc nie pójdzie do Maksa.",
+            "where": "folder kolejka",
+            "action": "Kliknij „Spróbuj ponownie”. Jeśli to nie pomoże, rozwiń „Co zostanie wysłane”, skopiuj treść i "
+            "prześlij ją Maksowi mailem.",
         },
     }
-    log = centrum.log_path.read_text(encoding="utf-8")
-    assert f"zgloszenie-niezapisane proces=preparation okres={PERIOD} przyczyna=ZGLOSZENIE_BEZ_KLUCZA" in log
+    assert cases(centrum) == []
 
 
 def current_report(centrum: PreparingCentrum) -> object:
@@ -410,8 +452,9 @@ def test_kolejne_uruchomienie_z_otwartym_zgloszeniem_tego_problemu_czeka_na_napr
 
     assert current_report(centrum) == WAITING
     diagnose(centrum, again)
-    assert (current_report(centrum), send(centrum, again)) == (WAITING, WAITING)
-    assert len(centrum.surroundings.report_box.sent) == 1
+    assert current_report(centrum) == WAITING
+    assert send(centrum, again) == {"state": "sent"}  # kolejka przejmuje otwarte Zgłoszenie zamiast zakładać drugie
+    assert (len(centrum.surroundings.report_box.sent), [case["number"] for case in cases(centrum)]) == (1, [1])
 
 
 def test_diagnoza_nie_czeka_na_skrzynke_a_jej_odpowiedz_o_otwartym_zgloszeniu_trafia_na_karte(tmp_path: Path) -> None:
@@ -439,9 +482,8 @@ def test_diagnoza_nie_czeka_na_skrzynke_a_jej_odpowiedz_o_otwartym_zgloszeniu_tr
 
     assert (box_answered, while_box_silent) == (False, {"state": "ready"})
     assert report_becomes(centrum, WAITING) == WAITING
-    assert send(centrum, again) == WAITING
+    assert send(centrum, again) == {"state": "sent"}
     assert len(centrum.surroundings.report_box.sent) == 1
-    assert f"zgloszenie-czeka proces=preparation okres={PERIOD} numer=1" in centrum.log_path.read_text(encoding="utf-8")
 
 
 def test_zgloszenie_zamkniete_wedlug_powiadomien_nie_czeka_juz_po_restarcie(tmp_path: Path) -> None:
@@ -487,6 +529,7 @@ def test_dwa_klikniecia_w_trakcie_wysylki_daja_jedno_zgloszenie_a_centrum_odpowi
             box.search_hold.set()
         answers = [click.result(timeout=10) for click in clicks]
 
-    assert during_send.json() == {"unread": 0, "items": []}
+    notifications = during_send.json()
+    assert (notifications["unread"], [item["state"] for item in notifications["items"]]) == (0, ["czeka_na_internet"])
     assert answers == [{"state": "sent"}, {"state": "sent"}]
     assert len(box.sent) == 1

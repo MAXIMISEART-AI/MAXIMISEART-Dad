@@ -435,7 +435,7 @@ class ReportReady(_Model):
 
 
 class ReportSent(_Model):
-    """Zgłoszenie tego problemu wysłano w tym Uruchomieniu; czeka na naprawę."""
+    """Zgłoszenie tego problemu wysłano z tego uchwytu (albo kolejka dostarczyła je później); czeka na naprawę."""
 
     state: Literal["sent"]
 
@@ -446,18 +446,24 @@ class ReportWaiting(_Model):
     state: Literal["waiting"]
 
 
-class ReportSaved(_Model):
-    """Zgłoszenia nie wysłano (brak klucza, odmowa albo brak połączenia); zwykle czeka w pliku na tym komputerze.
+class ReportQueued(_Model):
+    """Zgłoszenie czeka w kolejce Skrzynki na tym komputerze i wyjdzie samo; ``waits_for``: na internet albo na klucz
+    do Zgłoszeń od Maksa (brak klucza albo klucz, którego Skrzynka odmówiła)."""
 
-    ``message`` mówi, który plik przesłać Maksowi mailem i kiedy spróbować ponownie, a gdy i zapis pliku
-    się nie udał (pliku nie ma), że treść trzeba przesłać z podglądu.
-    """
+    state: Literal["queued"]
+    waits_for: Literal["internet", "key"]
 
-    state: Literal["saved"]
+
+class ReportNotQueued(_Model):
+    """Zgłoszenia nie udało się zapisać w kolejce, więc nic go nie wyśle; ``message`` mówi, co zrobić."""
+
+    state: Literal["not_queued"]
     message: Message
 
 
-ReportState = Annotated[ReportReady | ReportSent | ReportWaiting | ReportSaved, Field(discriminator="state")]
+ReportState = Annotated[
+    ReportReady | ReportSent | ReportWaiting | ReportQueued | ReportNotQueued, Field(discriminator="state")
+]
 
 
 # Rodzaj Zatrzymania: ``for_tata`` usuwa tata sam według Komunikatu, ``for_maks`` każe przekazać Komunikat

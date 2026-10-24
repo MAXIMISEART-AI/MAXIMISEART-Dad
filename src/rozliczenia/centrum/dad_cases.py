@@ -2,9 +2,10 @@
 
 Sprawa ma rodzaj (``NOTE``, ``REPORT``), który mówi, pod jaką etykietą leży w Skrzynce Zgłoszeń i jak nazywa ją
 słownik, numer issue i ostatnie znane zamknięcie przez Maksa. Uwaga taty jest sprawą od „Wyślij” i bez numeru czeka
-w kolejce Skrzynki, dopóki ``delivered`` nie dopisze numeru; Zgłoszenie idzie do skrzynki wprost (ADR 0007), więc
-jest sprawą od razu z numerem. Stan sprawy (``Case.state``) wynika tylko z tabeli ``_STATES``. ``ask_box`` pyta
-skrzynkę o zamknięcie otwartych spraw, raz na rodzaj, który je ma.
+w kolejce Skrzynki, dopóki ``delivered`` nie dopisze numeru. Zgłoszenie też idzie kolejką (ADR 0007), ale jego
+``id`` to odcisk problemu, który wraca po zamknięciu, więc numer dopisuje ``numbered`` tylko czekającej sprawie.
+Stan sprawy (``Case.state``) wynika tylko z tabeli ``_STATES``. ``ask_box`` pyta skrzynkę o zamknięcie otwartych
+spraw, raz na rodzaj, który je ma.
 
 Stan leży w ``config/sprawy-taty.json`` poza Gitem. Dopóki tego pliku nie ma, Sprawy taty czytają pliki sprzed
 jednego magazynu (``OLD_FILES``), które mogą leżeć u taty, a pierwszy zapis przenosi ich wpisy do nowego pliku;
@@ -129,6 +130,35 @@ class DadCases:
         """Usuwa sprawę, której kolejka nie przyjęła: tata wyśle ją jeszcze raz jako nową."""
 
         self._change(lambda cases: [case for case in cases if not (case.kind == kind and case.id == case_id)])
+
+    def withdraw(self, case: Case) -> None:
+        """Usuwa tę jedną sprawę, której wysyłki kolejka nie zapisała; wcześniejsze sprawy o tym ``id`` zostają."""
+
+        self._change(lambda cases: [known for known in cases if known != case])
+
+    def numbered(self, kind: CaseKind, case_id: str, number: int) -> bool:
+        """Numer issue dla czekającej sprawy ``kind`` o ``case_id``; ``False``, gdy żadna taka nie czeka.
+
+        Gdy inna sprawa tego rodzaju ma już ten numer (wysyłka przejęła otwarte Zgłoszenie znane z tego komputera),
+        czekająca znika, bo jedno issue to jedna sprawa i jedno Powiadomienie. Ten sam numer drugi raz to ``False``.
+        """
+
+        found: list[Case] = []
+
+        def change(cases: list[Case]) -> list[Case]:
+            pending = next(
+                (case for case in reversed(cases) if case.kind == kind and case.id == case_id and case.number is None),
+                None,
+            )
+            if pending is None:
+                return cases
+            found.append(pending)
+            if any(case.kind == kind and case.number == number for case in cases):
+                return [case for case in cases if case is not pending]
+            return [replace(case, number=number) if case is pending else case for case in cases]
+
+        self._change(change)
+        return bool(found)
 
     def delivered(self, post: Post, number: int) -> None:
         """Dopisuje numer issue sprawie z wysyłki, którą przyjęła skrzynka; wysyłki, które nie są sprawą, pomija."""

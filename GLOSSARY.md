@@ -330,6 +330,8 @@ Komunikat. Niczego nie zmienia ani nie naprawia.
 Komunikat Zatrzymania razem z wynikiem Diagnozy, wysłany z Centrum rozliczeń
 do Maksa. Jeden odcisk problemu ma najwyżej jedno otwarte Zgłoszenie; gdy Maks
 je zamknie, a problem wraca, powstaje nowe z odnośnikiem do poprzedniego.
+Zgłoszenie, które nie może od razu wyjść (brak internetu albo klucza), czeka na
+komputerze taty i wychodzi samo.
 
 ## Logi Uruchomienia
 
@@ -358,7 +360,7 @@ Miejsce, do którego trafiają Zgłoszenia, Kontrole ilości, Logi Uruchomienia 
 Uwagi taty i w którym Maks je zamyka: prywatne repozytorium Zgłoszeń. Centrum
 pyta ją o otwarte Zgłoszenie odcisku problemu, o otwarte issue Kontroli ilości
 okresu, o issue Logów Uruchomienia okresu (także zamknięte) i o stan wysłanych
-Zgłoszeń.
+Zgłoszeń. Z jej odpowiedzi Centrum wie, czy przyjmuje klucz taty.
 _Avoid_: issue tracker, publiczne issue
 
 ## Kontrola ilości

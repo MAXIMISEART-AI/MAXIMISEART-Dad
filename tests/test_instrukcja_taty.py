@@ -110,9 +110,12 @@ CATALOGS = {
         DIAGNOSIS_SAMPLES,
         hidden_folders=ABOVE_CONFIG | {"Dane", "INEA"},
     ),
-    # Zgłoszenie wskazuje plik w folderze zgloszenia, więc folder config nad nim nie jest widoczny.
+    # Zgłoszenie wskazuje folder kolejki, więc folderów config i zgloszenia nad nim nie widać.
     "zgloszenie": Catalog(
-        report_messages, "### Zgłoszenie → co zrobić", REPORT_SAMPLES, hidden_folders=ABOVE_CONFIG | {"config"}
+        report_messages,
+        "### Zgłoszenie → co zrobić",
+        REPORT_SAMPLES,
+        hidden_folders=ABOVE_CONFIG | {"config", "zgloszenia"},
     ),
     "aktualizacja-narzedzia": Catalog(
         update_messages, "### Aktualizacja narzędzia → co zrobić", UPDATE_SAMPLES

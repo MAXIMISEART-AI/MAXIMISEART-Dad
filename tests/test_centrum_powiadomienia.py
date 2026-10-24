@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+import json
 from pathlib import Path
 import threading
 import time
@@ -11,13 +12,16 @@ from typing import Any
 import pytest
 
 from rozliczenia.centrum.notifications import CHECK_WAIT_S
+from rozliczenia.centrum.outbox import RETRY_S
 from rozliczenia.centrum.release_notes import DadCase, ReleaseNotes, render
-from rozliczenia.centrum.dad_cases import NOTE, REPORT
+from rozliczenia.centrum.dad_cases import DAD_CASES_FILE, NOTE, REPORT
 from rozliczenia.centrum.report_box import CloseReason, Refused, Unreachable
 from rozliczenia.centrum.tool_freshness import PublishedRelease
 from rozliczenia.centrum.tool_update import Release
 
+from tests.fixtures.centrum import TOOL_COMMIT
 from tests.fixtures.centrum_processes import PreparingCentrum, preparing_centrum, stopped_for_maks
+from tests.fixtures.potomne import wait_for
 
 KEY = "github_pat_SYNTETYCZNY_KLUCZ_ZGLOSZEN"
 NOTE_TITLE = "Plik zbiorczy otwiera się długo"
@@ -443,3 +447,85 @@ def test_github_jest_pytany_o_wydania_przy_starcie_i_najwyzej_raz_na_10_minut_ws
         assert [item["version"] for item in new_versions(centrum)] == ["0.2.0"]
         centrum.client.get("/api/configuration")
         assert (github.asked, github.asked_published) == (2, 2)
+
+
+def queued_report(centrum: PreparingCentrum) -> str:
+    """Zgłoszenie „do Maksa”, które czeka w kolejce Skrzynki (bez klucza); zwraca jego „Co się stało”."""
+
+    run_id = stopped_for_maks(centrum)
+    diagnosis = centrum.client.post(f"/api/runs/{run_id}/diagnosis").json()
+    assert centrum.client.post(f"/api/runs/{run_id}/report").json() == {"state": "queued", "waits_for": "key"}
+    what: str = diagnosis["report"]["title"].split(": ", 1)[1]
+    return what
+
+
+def delivered_from_queue(centrum: PreparingCentrum) -> int:
+    """Maks wpisuje klucz, kolejka budzi się po minucie i dostarcza Zgłoszenie; zwraca numer jego issue."""
+
+    with_key(centrum)
+    box = centrum.surroundings.report_box
+    centrum.surroundings.clock.advance(RETRY_S)
+    assert box.wait_until(lambda box: len(box.sent) == 1)
+    number = box.sent[0].number
+    assert wait_for(lambda: '"number": ' + str(number) in sent_reports_text(centrum))
+    return number
+
+
+def sent_reports_text(centrum: PreparingCentrum) -> str:
+    return (centrum.tmp_path / "config" / DAD_CASES_FILE).read_text(encoding="utf-8")
+
+
+def test_zgloszenie_w_kolejce_czeka_na_internet_a_po_dostarczeniu_jest_wyslane_bez_kropki(tmp_path: Path) -> None:
+    centrum = preparing_centrum(tmp_path)
+    what = queued_report(centrum)
+    waiting = notifications(centrum)
+
+    number = delivered_from_queue(centrum)
+
+    assert [(item["what"], item["state"], item["unread"]) for item in waiting["items"]] == [
+        (what, "czeka_na_internet", False)
+    ]
+    [item] = notifications(centrum)["items"]
+    assert (item["id"], item["state"], item["unread"]) == (f"zgloszenie-{number}-wyslana", "wyslana", False)
+
+
+def test_wydanie_rozwiazuje_zgloszenie_wyslane_z_kolejki(tmp_path: Path) -> None:
+    centrum = preparing_centrum(tmp_path)
+    what = queued_report(centrum)
+    number = delivered_from_queue(centrum)
+    cases = (DadCase(number, "Tytuł z Release", REPORT.label),)
+    release_on_main(centrum, "v0.2.0", NEW_COMMIT, published("v0.2.0", render(ReleaseNotes(SUMMARY, cases))))
+    centrum.surroundings.clock.advance(minutes=10)
+
+    [version] = new_versions(centrum)
+
+    assert version["solved"] == [{"kind": "zgloszenie", "title": what}]
+
+
+def test_zgloszenie_wyslane_przed_kolejka_zostaje_przeczytane(tmp_path: Path) -> None:
+    centrum = preparing_centrum(tmp_path)
+    config = tmp_path / "config"
+    (config / "zgloszenia-wyslane.json").write_text(
+        json.dumps(
+            [
+                {
+                    "fingerprint": "0123456789abcdef",
+                    "number": 12,
+                    "commit": TOOL_COMMIT,
+                    "what": "Nie znaleziono wzorca.",
+                    "sent_at": "2026-10-19T08:00:00+00:00",
+                    "closure": {"reason": "completed", "at": CLOSED_AT.isoformat()},
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (config / "powiadomienia.json").write_text(
+        json.dumps({"schema_version": 1, "przeczytane": ["zgloszenie-12-rozwiazana"]}), encoding="utf-8"
+    )
+    centrum.restart()
+
+    answer = notifications(centrum)
+
+    assert [(item["id"], item["unread"]) for item in answer["items"]] == [("zgloszenie-12-rozwiazana", False)]
+    assert answer["unread"] == 0

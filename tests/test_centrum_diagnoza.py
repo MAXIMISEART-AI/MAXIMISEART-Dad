@@ -424,7 +424,7 @@ def test_nieoczekiwany_wyjatek_ktory_wraca_w_diagnozie_zostawia_sprawdzenie_nies
     assert check_states(diagnosis)["Dziennik Centrum rozliczeń"] == "passed"
     assert (diagnosis["explanation"], diagnosis["next_action"]) == (NOT_FOUND, "report")
     assert 'nieoczekiwany-wyjatek typ=RuntimeError miejsce="Diagnoza: Rejestr zleceń"' in diagnosis["report"]["body"]
-    assert (report.status_code, report.json()["state"]) == (200, "saved")
+    assert (report.status_code, report.json()["state"]) == (200, "queued")
 
 
 def test_nieoczekiwany_wyjatek_czytnika_wzorca_w_przebiegu_wraca_w_jego_diagnozie(tmp_path: Path) -> None:

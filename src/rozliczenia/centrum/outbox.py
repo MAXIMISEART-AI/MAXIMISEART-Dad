@@ -1,16 +1,16 @@
 """Kolejka Skrzynki Zgłoszeń: Kontrole ilości, Logi Uruchomienia, Uwagi taty i Zgłoszenia, które Centrum wysyła w tle.
 
-Każda wysyłka (``Post``) to gotowy tekst skierowany do issue okresu (``PeriodThread``: etykieta, wiersz
-rozpoznawczy na początku treści issue, tytuł i co z issue, które Maks zamknął), do nowego issue (``NewIssue``:
-etykieta i tytuł, jak Uwaga taty), do issue o znanym numerze (``KnownIssue``) albo do jednego otwartego Zgłoszenia
-problemu (``ReportIssue``: wiersz odcisku problemu w treści i tytuł). Najpierw trafia do własnego pliku
-JSON w ``config/zgloszenia/kolejka/`` (poza Gitem, poza plikami ``Zgłoszenie *.md``, które tata może przesłać
-Maksowi), potem jeden wątek w tle wysyła wszystkie pliki po kolei i usuwa wysłane. Porażka (brak klucza, odmowa,
-brak sieci) zostawia plik bez Komunikatu; wątek rusza znów sam po ``RETRY_S``, przy starcie Centrum (``resume``) i
-po każdej nowej wysyłce. Plik do ``KnownIssue``, którego skrzynka już nie ma, kolejka porzuca z linią dziennika (#402). Wysłany plik
-dostaje znacznik dostarczenia, zanim zniknie, więc plik, którego nie da się usunąć, nie idzie drugi raz. Przerwanie
-między wysłaniem a znacznikiem powtarza wysyłkę (co najmniej raz, decyzja 12). Treść nigdy nie trafia do dziennika
-Centrum: tylko etykieta, okres, numer issue i przyczyna czekania (decyzja 13).
+Każda wysyłka (``Post``) to gotowy tekst skierowany do issue okresu (``PeriodThread``: etykieta, wiersz rozpoznawczy
+na początku treści issue, tytuł i co z issue, które Maks zamknął), do nowego issue (``NewIssue``: etykieta i tytuł,
+jak Uwaga taty), do issue o znanym numerze (``KnownIssue``) albo do jednego otwartego Zgłoszenia problemu
+(``ReportIssue``: wiersz odcisku problemu w treści i tytuł). Najpierw trafia do własnego pliku JSON w
+``config/zgloszenia/kolejka/`` (poza Gitem), potem jeden wątek w tle wysyła wszystkie pliki po kolei i usuwa
+wysłane. Porażka (brak klucza, odmowa, brak sieci) zostawia plik bez Komunikatu; wątek rusza znów sam po
+``RETRY_S``, przy starcie Centrum (``resume``) i po każdej nowej wysyłce. Plik do ``KnownIssue``, którego skrzynka
+już nie ma, kolejka porzuca z linią dziennika (#402). Wysłany plik dostaje znacznik dostarczenia, zanim zniknie,
+więc plik, którego nie da się usunąć, nie idzie drugi raz. Przerwanie między wysłaniem a znacznikiem powtarza
+wysyłkę (co najmniej raz, decyzja 12). Treść nigdy nie trafia do dziennika Centrum: tylko etykieta, okres, numer
+issue i przyczyna czekania (decyzja 13).
 
 Issue okresu kolejka znajduje po wierszu rozpoznawczym przy każdej próbie wysyłki i dopisuje do niego części jako
 komentarze. Bez niego zakłada nowe issue: pierwsza część (albo nagłówek) jest jego treścią, kolejne komentarzami.
@@ -42,7 +42,6 @@ from rozliczenia.centrum.keyed_box import KeyedBox, NoKey
 from rozliczenia.centrum.log import CentrumLog, WaitingCause
 from rozliczenia.centrum.report_box import (
     COMMENT_LIMIT,
-    REPORT_LABEL,
     Commented,
     Label,
     Refused,
@@ -59,11 +58,15 @@ SCHEMA_VERSION: Final = 2
 _PERIOD_THREAD_SCHEMA: Final = 1
 # Miejsce w komentarzu na nagłówek części i wiersz rozpoznawczy, ponad tekst bloków.
 _FRAME_RESERVE: Final = 2_000
+# Etykieta Zgłoszenia jak ``dad_cases.REPORT``, który sam zależy od kolejki.
+_REPORT_LABEL: Final[Label] = "zgloszenie"
 # Po przejściu, które stanęło na przyczynie dla całej kolejki (brak sieci, brak klucza, odmowa klucza), kolejka
 # próbuje znowu po minucie. Odrzucony klucz nie kosztuje przy tym zapytania: ``KeyedBox`` odpowiada ``Refused`` bez
 # sieci przez kwadrans, a brak klucza to odczyt pliku. Nieudana próba DNS raz na minutę nic nie kosztuje, a dłuższa
 # przerwa opóźniłaby wysyłkę po powrocie sieci.
 RETRY_S: Final = 60.0
+# Tyle „Wyślij” Uwagi taty i „Wyślij do Maksa” czekają na skrzynkę, zanim powiedzą, że wysyłka czeka w kolejce.
+DELIVERY_WAIT_S: Final = 5.0
 
 Frame = Callable[[int, int, str], str]
 """Komentarz części ``k`` z ``n`` z jej tekstu."""
@@ -115,7 +118,7 @@ class ReportIssue:
 
     @property
     def label(self) -> Label:
-        return REPORT_LABEL
+        return _REPORT_LABEL
 
 
 Target = PeriodThread | NewIssue | KnownIssue | ReportIssue
@@ -247,7 +250,7 @@ def _target(entry: dict[str, Any], kind: object) -> Target | None:
     if kind == "known_issue":
         return KnownIssue(entry["label"], entry["number"]) if type(entry["number"]) is int else None
     if kind == "report_issue":
-        return ReportIssue(_string(entry["line"]), _string(entry["title"])) if entry["label"] == REPORT_LABEL else None
+        return ReportIssue(_string(entry["line"]), _string(entry["title"])) if entry["label"] == _REPORT_LABEL else None
     if kind != "period_thread" or entry["closed"] not in _CLOSED:
         return None
     return PeriodThread(entry["label"], _string(entry["line"]), entry["closed"], _string(entry["title"]))
@@ -531,6 +534,10 @@ class Outbox:
                 with suppress(OSError):
                     leftover.unlink()
         self.send_in_background()
+
+    @property
+    def directory(self) -> Path:
+        return self._directory
 
     def close(self) -> None:
         """Przy zamknięciu Centrum: nastawione budzenie już nie rusza wysyłki (inna kolejka może przejąć folder)."""

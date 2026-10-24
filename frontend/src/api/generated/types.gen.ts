@@ -1056,6 +1056,19 @@ export type ReportDraft = {
 };
 
 /**
+ * ReportNotQueued
+ *
+ * Zgłoszenia nie udało się zapisać w kolejce, więc nic go nie wyśle; ``message`` mówi, co zrobić.
+ */
+export type ReportNotQueued = {
+    /**
+     * State
+     */
+    state: 'not_queued';
+    message: Message;
+};
+
+/**
  * ReportNotification
  *
  * Powiadomienie o Zgłoszeniu, nazwanym „Co się stało” jego Komunikatu, bez kodu.
@@ -1088,6 +1101,23 @@ export type ReportNotification = {
 };
 
 /**
+ * ReportQueued
+ *
+ * Zgłoszenie czeka w kolejce Skrzynki na tym komputerze i wyjdzie samo; ``waits_for``: na internet albo na klucz
+ * do Zgłoszeń od Maksa (brak klucza albo klucz, którego Skrzynka odmówiła).
+ */
+export type ReportQueued = {
+    /**
+     * State
+     */
+    state: 'queued';
+    /**
+     * Waits For
+     */
+    waits_for: 'internet' | 'key';
+};
+
+/**
  * ReportReady
  *
  * Zgłoszenia tego problemu jeszcze nie wysłano; „Wyślij do Maksa” wyśle podgląd z Diagnozy.
@@ -1100,25 +1130,9 @@ export type ReportReady = {
 };
 
 /**
- * ReportSaved
- *
- * Zgłoszenia nie wysłano (brak klucza, odmowa albo brak połączenia); zwykle czeka w pliku na tym komputerze.
- *
- * ``message`` mówi, który plik przesłać Maksowi mailem i kiedy spróbować ponownie, a gdy i zapis pliku
- * się nie udał (pliku nie ma), że treść trzeba przesłać z podglądu.
- */
-export type ReportSaved = {
-    /**
-     * State
-     */
-    state: 'saved';
-    message: Message;
-};
-
-/**
  * ReportSent
  *
- * Zgłoszenie tego problemu wysłano w tym Uruchomieniu; czeka na naprawę.
+ * Zgłoszenie tego problemu wysłano z tego uchwytu (albo kolejka dostarczyła je później); czeka na naprawę.
  */
 export type ReportSent = {
     /**
@@ -1313,8 +1327,10 @@ export type RunOutcome = {
     } & ReportSent) | ({
         state: 'waiting';
     } & ReportWaiting) | ({
-        state: 'saved';
-    } & ReportSaved) | null;
+        state: 'queued';
+    } & ReportQueued) | ({
+        state: 'not_queued';
+    } & ReportNotQueued) | null;
     /**
      * Stops
      */
@@ -1531,8 +1547,10 @@ export type ToolUpdateFailed = {
     } & ReportSent) | ({
         state: 'waiting';
     } & ReportWaiting) | ({
-        state: 'saved';
-    } & ReportSaved);
+        state: 'queued';
+    } & ReportQueued) | ({
+        state: 'not_queued';
+    } & ReportNotQueued);
     draft: ReportDraft;
 };
 
@@ -2205,8 +2223,10 @@ export type ReportRunResponses = {
     } & ReportSent) | ({
         state: 'waiting';
     } & ReportWaiting) | ({
-        state: 'saved';
-    } & ReportSaved);
+        state: 'queued';
+    } & ReportQueued) | ({
+        state: 'not_queued';
+    } & ReportNotQueued);
 };
 
 export type ReportRunResponse = ReportRunResponses[keyof ReportRunResponses];
@@ -2403,8 +2423,10 @@ export type ReportToolUpdateResponses = {
     } & ReportSent) | ({
         state: 'waiting';
     } & ReportWaiting) | ({
-        state: 'saved';
-    } & ReportSaved);
+        state: 'queued';
+    } & ReportQueued) | ({
+        state: 'not_queued';
+    } & ReportNotQueued);
 };
 
 export type ReportToolUpdateResponse = ReportToolUpdateResponses[keyof ReportToolUpdateResponses];

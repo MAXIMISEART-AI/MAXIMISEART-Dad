@@ -103,46 +103,6 @@ class CentrumLog:
 
         self._write("diagnoza", proces=process, okres=period, przyczyna=cause)
 
-    def report_sent(self, *, process: str, period: str, number: int) -> None:
-        """Zgłoszenie do Maksa przyjęte przez skrzynkę Zgłoszeń jako issue ``number``; bez treści i klucza."""
-
-        self._write("zgloszenie-wyslane", proces=process, okres=period, numer=number)
-
-    def report_waiting(self, *, process: str, period: str, number: int) -> None:
-        """Zgłoszenia nie wysłano, bo skrzynka ma już otwarte Zgłoszenie ``number`` tego samego problemu."""
-
-        self._write("zgloszenie-czeka", proces=process, okres=period, numer=number)
-
-    def report_saved(self, *, process: str, period: str, code: str) -> None:
-        """Zgłoszenia nie wysłano i czeka w pliku; ``code`` to kod Komunikatu przyczyny."""
-
-        self._write("zgloszenie-zapisane", proces=process, okres=period, kod=code)
-
-    def report_not_saved(self, *, process: str, period: str, cause: str) -> None:
-        """Zgłoszenia nie wysłano ani nie zapisano w pliku; ``cause`` to kod Komunikatu, dlaczego nie wysłano."""
-
-        self._write("zgloszenie-niezapisane", proces=process, okres=period, przyczyna=cause)
-
-    def update_report_sent(self, *, number: int) -> None:
-        """Zgłoszenie nieudanej Aktualizacji narzędzia przyjęte przez skrzynkę Zgłoszeń jako issue ``number``."""
-
-        self._write("zgloszenie-wyslane", z=_UPDATE, numer=number)
-
-    def update_report_waiting(self, *, number: int) -> None:
-        """Zgłoszenia aktualizacji nie wysłano, bo skrzynka ma już otwarte Zgłoszenie ``number`` tego problemu."""
-
-        self._write("zgloszenie-czeka", z=_UPDATE, numer=number)
-
-    def update_report_saved(self, *, code: str) -> None:
-        """Zgłoszenia aktualizacji nie wysłano i czeka w pliku; ``code`` to kod Komunikatu przyczyny."""
-
-        self._write("zgloszenie-zapisane", z=_UPDATE, kod=code)
-
-    def update_report_not_saved(self, *, cause: str) -> None:
-        """Zgłoszenia aktualizacji nie wysłano ani nie zapisano w pliku; ``cause``: dlaczego nie wysłano."""
-
-        self._write("zgloszenie-niezapisane", z=_UPDATE, przyczyna=cause)
-
     def box_post_queued(self, *, label: str, period: str | None) -> None:
         """Wysyłka w tle (np. Kontrola ilości) czeka w kolejce Skrzynki Zgłoszeń; bez treści."""
 

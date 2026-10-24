@@ -19,10 +19,13 @@ from typing import Any
 import pytest
 
 from rozliczenia.centrum.dad_cases import DAD_CASES_FILE
+from rozliczenia.centrum.outbox import RETRY_S
+from rozliczenia.centrum.report_box import Unreachable
 from rozliczenia.centrum.tool_update import NEW_VERSION_FAILED, RESULT_FILE, UPDATED, ToolClone, UpdateResult, write_result
 
 from tests.fixtures.centrum import NO_RELEASE, views_until
 from tests.fixtures.centrum_processes import PreparingCentrum, Surroundings, preparing_centrum, stopped_for_maks
+from tests.fixtures.potomne import wait_for
 from tests.fixtures.preparation import PERIOD, incomplete_period_rows
 from tests.fixtures.tool_clone import (
     NEW_REQUIREMENTS,
@@ -599,7 +602,7 @@ def test_zgloszenie_nieudanej_aktualizacji_ma_te_same_fakty_co_dziennik(tmp_path
     assert log_block.startswith("\n```text\n") and log_block.endswith(f"\n{started}\n{finished}\n```\n")
     assert re.search(r"fatal|error:|hint:|proba-maksa|origin\.git", body) is None
     assert centrum.client.get("/api/tool-update").json()["report"] == {"state": "sent"}
-    assert "zgloszenie-wyslane z=aktualizacja numer=1" in centrum.log_path.read_text(encoding="utf-8")
+    assert "skrzynka-wyslano etykieta=zgloszenie okres=bez-okresu numer=1" in centrum.log_path.read_text(encoding="utf-8")
 
 
 def update_with_slow_box(centrum: PreparingCentrum) -> dict[str, Any]:
@@ -657,8 +660,27 @@ def test_nieudana_aktualizacja_ze_zgloszeniem_otwartym_w_skrzynce_karta_od_razu_
         again = update_with_slow_box(centrum)
         state = send_report(centrum)
 
-    assert (again["state"], again["report"], state) == ("failed", {"state": "waiting"}, {"state": "waiting"})
+    # Przycisku nie ma; wysyłka z API przejmuje otwarte Zgłoszenie zamiast zakładać drugie.
+    assert (again["state"], again["report"], state) == ("failed", {"state": "waiting"}, {"state": "sent"})
     assert len(box.sent) == 1
+
+
+def test_zgloszenie_nieudanej_aktualizacji_bez_sieci_czeka_w_kolejce_i_wychodzi_samo(tmp_path: Path) -> None:
+    centrum, repository = updating_centrum(tmp_path)
+    with_key(centrum)
+    box = centrum.surroundings.report_box
+    box.search_failure = Unreachable()
+    repository.publish({"src/narzedzie.py": "WERSJA = 2\n"})
+    with github_out_of_reach(repository):
+        preview = update_until_done(centrum)["draft"]
+        state = send_report(centrum)
+    box.search_failure = None
+    centrum.surroundings.clock.advance(RETRY_S)
+
+    assert state == {"state": "queued", "waits_for": "internet"}
+    assert box.wait_until(lambda box: len(box.sent) == 1)
+    assert [{"title": report.title, "body": report.body} for report in box.sent] == [preview]
+    assert wait_for(lambda: centrum.client.get("/api/tool-update").json()["report"] == {"state": "sent"})
 
 
 def test_zgloszenie_bez_nieudanej_aktualizacji_jest_odrzucone(tmp_path: Path) -> None:

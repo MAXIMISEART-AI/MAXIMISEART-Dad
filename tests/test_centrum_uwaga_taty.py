@@ -9,8 +9,7 @@ from typing import Any
 
 import pytest
 
-from rozliczenia.centrum.dad_notes import DELIVERY_WAIT_S
-from rozliczenia.centrum.outbox import RETRY_S
+from rozliczenia.centrum.outbox import DELIVERY_WAIT_S, RETRY_S
 from rozliczenia.centrum.report_box import Refused, SendOutcome, Unreachable
 
 from tests.fixtures.centrum import TOOL_COMMIT, Centrum, FakeIssue, centrum, dad_cases

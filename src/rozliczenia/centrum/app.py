@@ -39,7 +39,7 @@ from rozliczenia.centrum.period_board import periods_router
 from rozliczenia.centrum.platform import Platform
 from rozliczenia.centrum.keyed_box import KeyedBox, read_report_key
 from rozliczenia.centrum.report_box import GitHubReportBox, ReportBox
-from rozliczenia.centrum.outbox import ADDRESSES_FILE, QUEUE_DIRECTORY, Outbox
+from rozliczenia.centrum.outbox import ADDRESSES_FILE, QUEUE_DIRECTORY, Outbox, Post
 from rozliczenia.centrum.quantity_check_run import QuantityCheckAfterRun
 from rozliczenia.centrum.reports import SEARCH_DEADLINE_S, UNSENT_DIRECTORY, Reports
 from rozliczenia.centrum.preparation_run import PreparationEntry
@@ -172,11 +172,12 @@ def create_app(
         cloud_files or CloudFiles.of_system(),
         lambda: box.judge(wait_s=report_search_deadline_s),
     )
-    reports = Reports(
-        config, box, log, surroundings.tool_freshness.local, cases, search_deadline_s=report_search_deadline_s
-    )
-    # Kontrola ilości, Logi Uruchomienia i Uwagi taty: w kolejce obok niewysłanych Zgłoszeń, wysyłane w tle
-    # (ADR 0013, 0015); numer issue Uwagi trafia do Spraw taty.
+    # Kontrola ilości, Logi Uruchomienia, Uwagi taty i Zgłoszenia: w kolejce Skrzynki, wysyłane w tle (ADR 0007, 0013,
+    # 0015); numer issue Uwagi albo Zgłoszenia trafia do jego Sprawy taty.
+
+    def delivered(post: Post, number: int) -> None:
+        after_delivery(post, number, cases, outbox)
+        reports.delivered(post, number)
 
     def run_logs_address(run_id: str) -> str | None:
         return outbox.delivered(run_id, RUN_LOGS_LABEL)
@@ -189,9 +190,12 @@ def create_app(
         box,
         log,
         clock=clock,
-        on_delivered=lambda post, number: after_delivery(post, number, cases, outbox),
+        on_delivered=delivered,
         prepare=lambda post: with_logs(post, cases, run_logs_address, run_logs_rejected),
         addresses=config / ADDRESSES_FILE,
+    )
+    reports = Reports(
+        config, box, outbox, surroundings.tool_freshness.local, cases, search_deadline_s=report_search_deadline_s
     )
     # Powiadomienia o Uwagach taty, wysłanych Zgłoszeniach i Wydaniach; przeczytane obok Ustawień taty (ADR 0015).
     notifications = Notifications(

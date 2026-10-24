@@ -28,12 +28,10 @@ from fastapi import APIRouter
 
 from rozliczenia.centrum import contract
 from rozliczenia.centrum.dad_cases import NOTE, Case, DadCases
-from rozliczenia.centrum.outbox import KnownIssue, NewIssue, Outbox, Post
+from rozliczenia.centrum.outbox import DELIVERY_WAIT_S, KnownIssue, NewIssue, Outbox, Post
 from rozliczenia.centrum.tool_freshness import CommitSource
 from rozliczenia.centrum.version import version_label
 
-# Tyle „Wyślij” czeka na skrzynkę, zanim powie tacie, że Uwaga czeka w kolejce.
-DELIVERY_WAIT_S: Final = 5.0
 RECENT_RUNS: Final = 6
 _NOT_QUEUED: Final = "Uwaga się nie zapisała i nie pójdzie do Maksa. Spróbuj wysłać ją jeszcze raz."
 _UNKNOWN_RUN: Final = (

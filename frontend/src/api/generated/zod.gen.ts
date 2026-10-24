@@ -546,6 +546,16 @@ export const zDiagnosis = z.object({
 });
 
 /**
+ * ReportNotQueued
+ *
+ * Zgłoszenia nie udało się zapisać w kolejce, więc nic go nie wyśle; ``message`` mówi, co zrobić.
+ */
+export const zReportNotQueued = z.object({
+    state: z.literal('not_queued'),
+    message: zMessage
+});
+
+/**
  * ReportNotification
  *
  * Powiadomienie o Zgłoszeniu, nazwanym „Co się stało” jego Komunikatu, bez kodu.
@@ -565,6 +575,17 @@ export const zReportNotification = z.object({
 });
 
 /**
+ * ReportQueued
+ *
+ * Zgłoszenie czeka w kolejce Skrzynki na tym komputerze i wyjdzie samo; ``waits_for``: na internet albo na klucz
+ * do Zgłoszeń od Maksa (brak klucza albo klucz, którego Skrzynka odmówiła).
+ */
+export const zReportQueued = z.object({
+    state: z.literal('queued'),
+    waits_for: z.enum(['internet', 'key'])
+});
+
+/**
  * ReportReady
  *
  * Zgłoszenia tego problemu jeszcze nie wysłano; „Wyślij do Maksa” wyśle podgląd z Diagnozy.
@@ -574,22 +595,9 @@ export const zReportReady = z.object({
 });
 
 /**
- * ReportSaved
- *
- * Zgłoszenia nie wysłano (brak klucza, odmowa albo brak połączenia); zwykle czeka w pliku na tym komputerze.
- *
- * ``message`` mówi, który plik przesłać Maksowi mailem i kiedy spróbować ponownie, a gdy i zapis pliku
- * się nie udał (pliku nie ma), że treść trzeba przesłać z podglądu.
- */
-export const zReportSaved = z.object({
-    state: z.literal('saved'),
-    message: zMessage
-});
-
-/**
  * ReportSent
  *
- * Zgłoszenie tego problemu wysłano w tym Uruchomieniu; czeka na naprawę.
+ * Zgłoszenie tego problemu wysłano z tego uchwytu (albo kolejka dostarczyła je później); czeka na naprawę.
  */
 export const zReportSent = z.object({
     state: z.literal('sent')
@@ -838,7 +846,8 @@ export const zToolUpdateFailed = z.object({
         zReportReady,
         zReportSent,
         zReportWaiting,
-        zReportSaved
+        zReportQueued,
+        zReportNotQueued
     ]),
     draft: zReportDraft
 });
@@ -998,7 +1007,8 @@ export const zRunOutcome = z.object({
         zReportReady,
         zReportSent,
         zReportWaiting,
-        zReportSaved
+        zReportQueued,
+        zReportNotQueued
     ]).nullable(),
     stops: z.array(zMessage),
     warnings: z.array(zMessage),
@@ -1234,7 +1244,8 @@ export const zReportRunResponse = z.discriminatedUnion('state', [
     zReportReady,
     zReportSent,
     zReportWaiting,
-    zReportSaved
+    zReportQueued,
+    zReportNotQueued
 ]);
 
 /**
@@ -1299,7 +1310,8 @@ export const zReportToolUpdateResponse = z.discriminatedUnion('state', [
     zReportReady,
     zReportSent,
     zReportWaiting,
-    zReportSaved
+    zReportQueued,
+    zReportNotQueued
 ]);
 
 export const zRecordViewTimingBody = zViewTiming;

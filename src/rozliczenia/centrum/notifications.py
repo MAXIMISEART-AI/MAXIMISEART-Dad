@@ -1,7 +1,7 @@
 """Powiadomienia (ADR 0015): co stało się z Uwagami taty i Zgłoszeniami wysłanymi z tego komputera i nowe Wydania.
 
-Sprawa taty to Uwaga taty albo wysłane Zgłoszenie (``DadCases``); jej stan w Powiadomieniu to ``Case.state``.
-Powiadomienie to sprawa w jednym stanie, więc nowy stan to nowe Powiadomienie. Nowe są tylko stany, które dał Maks (rozwiązana, przeczytana); wysłanie i czekanie w kolejce
+Sprawa taty to Uwaga taty albo Zgłoszenie (``DadCases``); bez numeru issue czeka w kolejce Skrzynki, a jej stan w
+Powiadomieniu to ``Case.state``. Powiadomienie to sprawa w jednym stanie, więc nowy stan to nowe Powiadomienie. Nowe są tylko stany, które dał Maks (rozwiązana, przeczytana); wysłanie i czekanie w kolejce
 to czynność taty i kropki na dzwonku nie zapala.
 
 Powiadomienie o nowej wersji to opublikowane Wydanie (GitHub Release) o numerze nie wyższym od najnowszego Wydania na
@@ -250,7 +250,8 @@ class Notifications:
             return contract.DadNoteNotification(
                 kind="uwaga", id=notification_id, at=at, unread=unread, title=case.title, state=state
             )
-        notification_id = f"zgloszenie-{case.number}-{state}"
+        # Zgłoszenie w kolejce nie ma jeszcze numeru; jego odcisk wystarcza, bo problem czeka w kolejce najwyżej raz.
+        notification_id = f"zgloszenie-{case.id if case.number is None else case.number}-{state}"
         unread = self._unread(notification_id, state)
         return contract.ReportNotification(
             kind="zgloszenie", id=notification_id, at=at, unread=unread, what=case.title, state=state
