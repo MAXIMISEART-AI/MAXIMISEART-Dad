@@ -3,7 +3,7 @@ import { FolderSearchIcon, FolderXIcon } from "lucide-react"
 
 import { getMetrics, getPeriodBoard, type Metrics, type PeriodBoard } from "@/api/centrum"
 import { PageHeader } from "@/components/page-header"
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import { LoadFailure } from "@/components/load-failure"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader } from "@/components/ui/card"
 import {
@@ -38,7 +38,7 @@ export function PeriodsPage() {
 
 /** Tablica okresów i metryki czytają się od razu, razem z Ustawieniami taty, a nie po kolei po nich. */
 function PeriodsContent() {
-  const { settings } = useSettings()
+  const { settings, reload: reloadSettings } = useSettings()
   const { resource: board, reload } = useResource(getPeriodBoard)
   const { resource: metrics } = useResource(getMetrics)
   const entrance = useContentEntrance(settings.state === "loading")
@@ -46,7 +46,9 @@ function PeriodsContent() {
   return (
     <>
       {settings.state === "loading" ? <PeriodsSkeleton /> : null}
-      {settings.state === "failed" ? <Failure message={settings.message} /> : null}
+      {settings.state === "failed" ? (
+        <LoadFailure what="okresów" message={settings.message} reload={reloadSettings} />
+      ) : null}
       {settings.state === "ready" ? (
         <div className={cn(entrance, "flex flex-col gap-6")}>
           <PeriodBoardSection board={board} metrics={metrics} reload={reload} />
@@ -64,13 +66,13 @@ function PeriodBoardSection({
 }: {
   board: Resource<PeriodBoard>
   metrics: Resource<Metrics>
-  reload: () => void
+  reload: () => Promise<void>
 }) {
   switch (board.state) {
     case "loading":
       return <PeriodsSkeleton />
     case "failed":
-      return <Failure message={board.message} />
+      return <LoadFailure what="okresów" message={board.message} reload={reload} />
     case "ready":
       return <BoardContent board={board.data} metrics={metrics} reload={reload} />
     default: {
@@ -150,15 +152,6 @@ function ChoosePeriodsDirectory() {
       {picker === "periods_directory" ? <Spinner data-icon="inline-start" /> : null}
       {picker === "periods_directory" ? "Czekam na wybór…" : "Wskaż folder okresów"}
     </Button>
-  )
-}
-
-function Failure({ message }: { message: string }) {
-  return (
-    <Alert variant="destructive" className="wejscie">
-      <AlertTitle>Nie udało się odczytać okresów</AlertTitle>
-      <AlertDescription>{message}</AlertDescription>
-    </Alert>
   )
 }
 

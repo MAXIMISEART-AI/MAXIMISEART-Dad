@@ -3,7 +3,7 @@ import { HistoryIcon, PlayIcon } from "lucide-react"
 
 import { getMetrics, getRunSetup, type ProcessSetup, type RunView } from "@/api/centrum"
 import { PageHeader } from "@/components/page-header"
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import { LoadFailure } from "@/components/load-failure"
 import { Card, CardContent, CardHeader } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -60,19 +60,14 @@ export function RunsPage() {
 }
 
 function RunHistory() {
-  const { resource: metrics } = useResource(getMetrics)
+  const { resource: metrics, reload } = useResource(getMetrics)
   const entrance = useContentEntrance(metrics.state === "loading")
 
   switch (metrics.state) {
     case "loading":
       return <Skeleton className="h-64 w-full" aria-label="Wczytywanie historii" />
     case "failed":
-      return (
-        <Alert variant="destructive" className="wejscie">
-          <AlertTitle>Nie udało się odczytać historii</AlertTitle>
-          <AlertDescription>{metrics.message}</AlertDescription>
-        </Alert>
-      )
+      return <LoadFailure what="historii" message={metrics.message} reload={reload} />
     case "ready":
       return (
         <div className={entrance}>
@@ -108,12 +103,7 @@ function RunsContent() {
   }
 
   if (setup.state === "failed") {
-    return (
-      <Alert variant="destructive" className="wejscie">
-        <AlertTitle>Nie udało się odczytać Uruchomień</AlertTitle>
-        <AlertDescription>{setup.message}</AlertDescription>
-      </Alert>
-    )
+    return <LoadFailure what="Uruchomień" message={setup.message} reload={reload} />
   }
 
   return <RunOrSetup view={view} processes={setup.data.processes} entrance={entrance} />

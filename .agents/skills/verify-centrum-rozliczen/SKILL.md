@@ -24,7 +24,7 @@ py -3 .agents\skills\verify-centrum-rozliczen\scripts\run_centrum_verification.p
 ```
 
 `--feature ustawienia`, `--feature tablica-okresow`, `--feature uklad-folderow-taty`, `--feature konfiguracja`, `--feature aktualizacja`,
-`--feature metryki`, `--feature przygotowanie-pliku-zbiorczego`,
+`--feature metryki`, `--feature blad-odczytu`, `--feature przygotowanie-pliku-zbiorczego`,
 `--feature przebieg-rozliczen`, `--feature kontrola-ilosci`, `--feature diagnoza`, `--feature aktualnosc-i-onedrive`, `--feature zgloszenie`, `--feature uwaga-taty`, `--feature logi-uruchomienia`, `--feature powiadomienia`, `--feature pomiar-u-taty`, or `--feature start-i-zamykanie` drives one
 feature; the default `all` drives every feature in `features/README.md`, ending
 with `start-i-zamykanie`, which closes Centrum through its own button. In `all`,
@@ -153,8 +153,8 @@ Proof standards:
   stand-ins for Dad's computer.
   Harness steps are labelled in `drive.txt`: Gotowość, where the drive
   edits the Plik zbiorczy instead of Excel, the Szablony pacing, a server
-  unreachable for one read, a picker held open like Dad's native window,
-  and a stream that delivers late.
+  unreachable for one read, a re-read held on its way, a picker held open
+  like Dad's native window, and a stream that delivers late.
 - Look at the screenshots after a UI change; a passing run does not judge
   visual quality.
 - Evidence holds synthetic paths only. The self-test fails if the fixture's

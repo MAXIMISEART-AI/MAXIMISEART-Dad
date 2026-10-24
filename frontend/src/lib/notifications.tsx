@@ -10,6 +10,8 @@ type NotificationsValue = {
    * po niej przynosi to, co odpowiedź skrzynki mogła zmienić w międzyczasie (zastąpiony odczyt przepada).
    */
   markRead: (ids: ReadonlyArray<string>) => void
+  /** Odczyt od nowa, np. po „Spróbuj ponownie”. */
+  reload: () => Promise<void>
 }
 
 const NotificationsContext = React.createContext<NotificationsValue | null>(null)
@@ -40,7 +42,7 @@ export function NotificationsProvider({ page, children }: { page: string; childr
     [replace, reload]
   )
 
-  const value = React.useMemo(() => ({ notifications: resource, markRead }), [resource, markRead])
+  const value = React.useMemo(() => ({ notifications: resource, markRead, reload }), [resource, markRead, reload])
 
   return <NotificationsContext.Provider value={value}>{children}</NotificationsContext.Provider>
 }

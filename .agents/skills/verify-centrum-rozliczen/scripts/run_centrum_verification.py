@@ -96,6 +96,17 @@ REQUIRED_SCREENSHOTS = {
         "28-metryki-wykres-szczegoly-ciemny.png",
         "29-metryki-wykres-szczegoly-jasny.png",
     ),
+    "blad-odczytu": (
+        "140-blad-odczytu-ustawienia.png",
+        "142-blad-odczytu-tablica.png",
+        "143-blad-odczytu-uruchomienia.png",
+        "144-blad-odczytu-historia.png",
+        "145-blad-odczytu-metryki.png",
+        "146-blad-odczytu-konfiguracja.png",
+        "141-blad-odczytu-ponowny-odczyt.png",
+        "147-blad-odczytu-powiadomienia.png",
+        "148-blad-odczytu-uwaga.png",
+    ),
     "przygotowanie-pliku-zbiorczego": (
         "30-przygotowanie-nowe-uruchomienie.png",
         "31-przygotowanie-podglad.png",
