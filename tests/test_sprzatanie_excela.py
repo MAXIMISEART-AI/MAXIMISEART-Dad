@@ -8,11 +8,12 @@ gdzie zadanie CI ``mutations`` uruchamia ``check_excel_cleanup_mutations.py``.
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 import importlib
 import io
 import json
 from pathlib import Path
+import subprocess
 import sys
 from types import ModuleType
 
@@ -36,6 +37,8 @@ class FakeExcel:
         self.dialog = False
         self.rss_mb = 2400
         self.closed: list[str] = []
+        self.end_error: Exception | None = None
+        self.running_after_end_error = True
 
     def open_paths(self, timeout: int = 10) -> list[str]:
         if self.dialog:
@@ -52,10 +55,15 @@ class FakeExcel:
         assert "to quit" in script, f"the fake Excel answers only quit, not {script!r}"
         if self.dialog:
             raise self.excel.ExcelDialog("Excel refuses AppleScript calls (-1708)")
+        if self.end_error is not None:
+            raise self.end_error
         self.running = False
         return ""
 
     def terminate(self, process_id: int) -> bool:
+        if self.end_error is not None:
+            self.running = self.running_after_end_error
+            raise self.end_error
         self.running, self.dialog, self.workbooks = False, False, []
         return True
 
@@ -187,6 +195,50 @@ def test_run_zapisuje_pamiec_excela_przed_i_po(
     observed = json.loads((_evidence(tmp_path) / "excel.json").read_text(encoding="utf-8"))
     assert (observed["excel_rss_mb_before"], observed["excel_rss_mb_after"]) == (2400, 3000), observed
     assert (observed["excel_workbooks_before"], observed["excel_workbooks_after"]) == (1, 1), observed
+
+
+@pytest.mark.parametrize("error", ["ExcelDialog", "ExcelError"])
+def test_nieudane_zamkniecie_excela_jest_notatka_sprzatania_a_nie_tracebackiem(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, excel: FakeExcel, error: str
+) -> None:
+    excel.running = True
+    excel.end_error = getattr(excel.excel, error)("Excel did not answer within 60 s (-1712)")
+
+    code, output = _run(tmp_path, monkeypatch, excel)
+
+    cleanup = (_evidence(tmp_path) / "cleanup.txt").read_text(encoding="utf-8")
+    observed = json.loads((_evidence(tmp_path) / "excel.json").read_text(encoding="utf-8"))
+    assert code == 0 and _verdict(output).startswith("VERIFY OK"), output
+    assert f"excel_quit_failed={error}" in cleanup and "scratch_removed=true" in cleanup, cleanup
+    assert (observed["excel_rss_mb_after"], observed["excel_workbooks_after"]) == (3000, 0), observed
+
+
+@pytest.mark.parametrize(
+    ("error", "excel_ended"),
+    [
+        pytest.param(
+            lambda excel: excel.ExcelDialog("Excel did not answer within 90 s of starting"), False, id="ExcelDialog"
+        ),
+        pytest.param(lambda excel: ProcessLookupError(3, "No such process"), True, id="ProcessLookupError"),
+        pytest.param(lambda excel: subprocess.CalledProcessError(1, ["open", "-g"]), False, id="CalledProcessError"),
+    ],
+)
+def test_nieudane_zatrzymanie_excela_z_oknem_dialogowym_konczy_run_linia_verify(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    excel: FakeExcel,
+    error: Callable[[ModuleType], Exception],
+    excel_ended: bool,
+) -> None:
+    excel.end_error, excel.running_after_end_error = error(excel.excel), not excel_ended
+
+    code, output = _run(tmp_path, monkeypatch, excel, dialog=True)
+
+    cleanup = (_evidence(tmp_path) / "cleanup.txt").read_text(encoding="utf-8")
+    assert code == 1 and _verdict(output).startswith("VERIFY FAIL"), output
+    assert f"excel_quit_failed={type(excel.end_error).__name__}" in cleanup, cleanup
+    assert ("desk_kept=" in cleanup) is not excel_ended, cleanup
+    assert ("scratch_removed=true" in cleanup) is excel_ended, cleanup
 
 
 def test_okno_dialogowe_na_starcie_konczy_run_przed_praca(
