@@ -42,7 +42,7 @@ from drive import (
 )
 from drive.common import DAD_TIME_ZONE, DriveFailure, Run
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "tools"))
+sys.path[:0] = [str(Path(__file__).resolve().parents[4] / folder) for folder in ("tools",)]
 
 from skrypt_skilla import Parser
 

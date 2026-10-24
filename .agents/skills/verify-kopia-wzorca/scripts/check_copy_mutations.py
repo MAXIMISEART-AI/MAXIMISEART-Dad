@@ -11,10 +11,9 @@ from __future__ import annotations
 from pathlib import Path
 import sys
 
-REPO_ROOT = Path(__file__).resolve().parents[4]
-sys.path.insert(0, str(REPO_ROOT / "tools"))
+sys.path[:0] = [str(Path(__file__).resolve().parents[4] / folder) for folder in ("tools",)]
 
-from mutacje import Edit, Mutation, check_all  # noqa: E402
+from mutacje import Edit, Mutation, check_all
 
 VERIFIED = Path("src/rozliczenia/template_copy.py")
 ROW_LOOK = Path("src/rozliczenia/row_look.py")

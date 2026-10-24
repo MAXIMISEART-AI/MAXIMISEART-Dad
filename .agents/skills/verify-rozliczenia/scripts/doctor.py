@@ -13,13 +13,13 @@ from openpyxl.worksheet.worksheet import Worksheet
 
 SCRIPT = Path(__file__).resolve()
 REPO_ROOT = SCRIPT.parents[4]
-sys.path[:0] = [str(REPO_ROOT / "src"), str(REPO_ROOT / "tools")]
+sys.path[:0] = [str(Path(__file__).resolve().parents[4] / folder) for folder in ("src", "tools")]
 
-from rozliczenia.worker_config import load_worker_mapping  # noqa: E402
-from skrypt_skilla import Parser  # noqa: E402
-from rozliczenia.period_folder import PeriodFolder, PeriodFolderError  # noqa: E402
-from rozliczenia.engine import check_worker_template  # noqa: E402
-from rozliczenia.workbook_files import WorkbookError  # noqa: E402
+from rozliczenia.worker_config import load_worker_mapping
+from skrypt_skilla import Parser
+from rozliczenia.period_folder import PeriodFolder, PeriodFolderError
+from rozliczenia.engine import check_worker_template
+from rozliczenia.workbook_files import WorkbookError
 
 
 def _check(root: Path, expected_version: str) -> tuple[str, int]:

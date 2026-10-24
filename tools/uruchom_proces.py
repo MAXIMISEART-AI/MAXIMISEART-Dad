@@ -47,18 +47,17 @@ from typing import Literal, NoReturn, TypeVar
 
 from pydantic import BaseModel, ConfigDict
 
-ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "src"))
+sys.path[:0] = [str(Path(__file__).resolve().parents[1] / folder) for folder in ("src",)]
 
-from rozliczenia import preparation_process, settlement_process  # noqa: E402
-from rozliczenia.centrum import contract, run_view  # noqa: E402
-from rozliczenia.centrum.configuration import ConfigurationFiles  # noqa: E402
-from rozliczenia.decision import Decision  # noqa: E402
-from rozliczenia.message import Message  # noqa: E402
-from rozliczenia.preparation_process import PreparationInputs  # noqa: E402
-from rozliczenia.process_run import Finished, Process, ProcessInputs, run_process  # noqa: E402
-from rozliczenia.progress import ProgressSnapshot  # noqa: E402
-from rozliczenia.settlement_process import SettlementInputs  # noqa: E402
+from rozliczenia import preparation_process, settlement_process
+from rozliczenia.centrum import contract, run_view
+from rozliczenia.centrum.configuration import ConfigurationFiles
+from rozliczenia.decision import Decision
+from rozliczenia.message import Message
+from rozliczenia.preparation_process import PreparationInputs
+from rozliczenia.process_run import Finished, Process, ProcessInputs, run_process
+from rozliczenia.progress import ProgressSnapshot
+from rozliczenia.settlement_process import SettlementInputs
 
 InputsT = TypeVar("InputsT", bound=ProcessInputs)
 SummaryT = TypeVar("SummaryT")

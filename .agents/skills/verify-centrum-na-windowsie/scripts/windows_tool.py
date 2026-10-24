@@ -28,13 +28,12 @@ from typing import Any
 
 SCRIPTS = Path(__file__).resolve().parent
 REPO_ROOT = SCRIPTS.parents[3]
-sys.path.insert(0, str(SCRIPTS.parent.parent / "verify-centrum-rozliczen" / "scripts"))
-sys.path[:0] = [str(REPO_ROOT / "src"), str(REPO_ROOT / "tools")]
+sys.path[:0] = [str(Path(__file__).resolve().parents[4] / folder) for folder in ("src", "tools", ".agents/skills/verify-centrum-rozliczen/scripts")]
 
-import create_centrum_fixture  # noqa: E402
-from rozliczenia.centrum.launcher import DEFAULT_PORT  # noqa: E402
-from rozliczenia.centrum.tool_update import GITHUB_REPOSITORY  # noqa: E402
-from skrypt_skilla import create_run_root  # noqa: E402
+import create_centrum_fixture
+from rozliczenia.centrum.launcher import DEFAULT_PORT
+from rozliczenia.centrum.tool_update import GITHUB_REPOSITORY
+from skrypt_skilla import create_run_root
 
 PORT = DEFAULT_PORT
 URL = f"http://127.0.0.1:{PORT}/"

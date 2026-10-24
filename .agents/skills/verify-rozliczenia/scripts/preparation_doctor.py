@@ -15,14 +15,14 @@ from openpyxl import load_workbook
 
 SCRIPT = Path(__file__).resolve()
 REPO_ROOT = SCRIPT.parents[4]
-sys.path[:0] = [str(REPO_ROOT / "src"), str(REPO_ROOT / "tools")]
+sys.path[:0] = [str(Path(__file__).resolve().parents[4] / folder) for folder in ("src", "tools")]
 
-from rozliczenia.worker_config import load_worker_mapping  # noqa: E402
-from rozliczenia.message import StopError  # noqa: E402
-from rozliczenia.settlement_period import parse_period_token  # noqa: E402
-from rozliczenia.engine import check_worker_template  # noqa: E402
-from rozliczenia.workbook_files import WorkbookError, is_open_in_excel  # noqa: E402
-from skrypt_skilla import Parser  # noqa: E402
+from rozliczenia.worker_config import load_worker_mapping
+from rozliczenia.message import StopError
+from rozliczenia.settlement_period import parse_period_token
+from rozliczenia.engine import check_worker_template
+from rozliczenia.workbook_files import WorkbookError, is_open_in_excel
+from skrypt_skilla import Parser
 
 
 PERIOD = "08_14_09_2026"

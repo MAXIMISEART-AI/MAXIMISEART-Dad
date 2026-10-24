@@ -101,17 +101,15 @@ import threading
 import time
 from typing import Any
 
-REPO_ROOT = Path(__file__).resolve().parents[4]
-sys.path.insert(0, str(REPO_ROOT / "src"))
-sys.path.insert(0, str(REPO_ROOT / "tools"))
+sys.path[:0] = [str(Path(__file__).resolve().parents[4] / folder) for folder in ("src", "tools")]
 
-from rozliczenia import preparation_process, preparation_register, settlement_process  # noqa: E402
-from rozliczenia.centrum.app import create_app  # noqa: E402
-from rozliczenia.centrum.cloud_files import CloudFiles  # noqa: E402
-from rozliczenia.centrum.configuration import ConfigurationFiles  # noqa: E402
-from rozliczenia.centrum.log import CentrumLog  # noqa: E402
-from rozliczenia.centrum.processes import Processes  # noqa: E402
-from rozliczenia.centrum.report_box import (  # noqa: E402
+from rozliczenia import preparation_process, preparation_register, settlement_process
+from rozliczenia.centrum.app import create_app
+from rozliczenia.centrum.cloud_files import CloudFiles
+from rozliczenia.centrum.configuration import ConfigurationFiles
+from rozliczenia.centrum.log import CentrumLog
+from rozliczenia.centrum.processes import Processes
+from rozliczenia.centrum.report_box import (
     CommentOutcome,
     Commented,
     Issue,
@@ -124,14 +122,14 @@ from rozliczenia.centrum.report_box import (  # noqa: E402
     StatesOutcome,
     Unreachable,
 )
-from rozliczenia.centrum.launcher import listen_locally  # noqa: E402
-from rozliczenia.centrum.server import serve  # noqa: E402
-from rozliczenia.centrum.shutdown import Shutdown  # noqa: E402
-from rozliczenia.centrum.tool_freshness import GitHubReleases, ToolFreshness  # noqa: E402
-from rozliczenia.centrum.tool_update import ToolClone, find_git, pip_install  # noqa: E402
-from rozliczenia.centrum.version import commit_since, tool_commit  # noqa: E402
-from rozliczenia.workbook_files import DataRow, TemplateFile  # noqa: E402
-from skrypt_skilla import Parser  # noqa: E402
+from rozliczenia.centrum.launcher import listen_locally
+from rozliczenia.centrum.server import serve
+from rozliczenia.centrum.shutdown import Shutdown
+from rozliczenia.centrum.tool_freshness import GitHubReleases, ToolFreshness
+from rozliczenia.centrum.tool_update import ToolClone, find_git, pip_install
+from rozliczenia.centrum.version import commit_since, tool_commit
+from rozliczenia.workbook_files import DataRow, TemplateFile
+from skrypt_skilla import Parser
 
 
 class ScriptedPlatform:

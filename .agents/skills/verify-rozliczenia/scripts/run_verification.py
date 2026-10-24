@@ -24,9 +24,9 @@ PREPARATION_TEMPLATE_NAMES = ("Wzorzec rozliczenia wewnętrznego.xlsx", "Wzorzec
 WORKER_TEMPLATE_NAME = "Wzorzec rozliczenia pracownika.xlsx"
 HELPER_DIRECTORY = Path(".agents") / "skills" / "verify-rozliczenia" / "scripts"
 PROCESS_SCRIPT = str(Path("tools") / "uruchom_proces.py")
-sys.path.insert(0, str(REPO_ROOT / "tools"))
+sys.path[:0] = [str(Path(__file__).resolve().parents[4] / folder) for folder in ("tools",)]
 
-from skrypt_skilla import SKIPPED, Parser, new_run  # noqa: E402
+from skrypt_skilla import SKIPPED, Parser, new_run
 
 
 @dataclass(frozen=True)

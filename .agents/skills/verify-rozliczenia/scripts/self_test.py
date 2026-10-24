@@ -16,9 +16,9 @@ REPO_ROOT = SCRIPT.parents[4]
 FEATURES_ROOT = SKILL_ROOT / "features"
 SCRIPTS_ROOT = SKILL_ROOT / "scripts"
 HELPER_REFERENCE = re.compile(r"scripts[\\/]([A-Za-z0-9_.-]+\.py)")
-sys.path.insert(0, str(REPO_ROOT / "tools"))
+sys.path[:0] = [str(Path(__file__).resolve().parents[4] / folder) for folder in ("tools",)]
 
-from skrypt_skilla import Parser, create_run_root, new_run  # noqa: E402
+from skrypt_skilla import Parser, create_run_root, new_run
 
 REQUIRED_FRONTMATTER = ("name", "description")
 REQUIRED_MAP_HEADINGS = (

@@ -21,7 +21,7 @@ SCRIPT = Path(__file__).resolve()
 SKILL_ROOT = SCRIPT.parents[1]
 FEATURES_ROOT = SKILL_ROOT / "features"
 SCRIPTS_ROOT = SKILL_ROOT / "scripts"
-TOOLS_ROOT = SKILL_ROOT.parents[2] / "tools"
+sys.path[:0] = [str(Path(__file__).resolve().parents[4] / folder) for folder in ("tools",)]
 HELPER_REFERENCE = re.compile(r"scripts[\\/]([A-Za-z0-9_.-]+\.py)")
 REQUIRED_MAP_HEADINGS = (
     "# Centrum rozliczeń verification map",
@@ -78,7 +78,6 @@ def _check_feature_map(errors: list[str]) -> None:
 def _check_performance_gate(errors: list[str]) -> None:
     """The ``wydajnosc`` gate decides on made-up medians and API requests the way features/wydajnosc.md says."""
 
-    sys.path.insert(0, str(SCRIPTS_ROOT))
     from drive.wydajnosc import Measured, compare, over_budget
 
     scenario, requests = "okresy/zimny-start", ["GET /api/settings", "GET /api/periods"]
@@ -122,7 +121,6 @@ def _check_machine_lock(errors: list[str]) -> None:
     import tempfile
     import threading
 
-    sys.path.insert(0, str(TOOLS_ROOT))
     from quiet_machine import MachineBusy, QuietMachine
 
     def held(attempt: Any) -> bool:

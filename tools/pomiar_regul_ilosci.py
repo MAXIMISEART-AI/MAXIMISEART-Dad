@@ -24,13 +24,12 @@ from pathlib import Path
 import re
 import sys
 
-ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "src"))
+sys.path[:0] = [str(Path(__file__).resolve().parents[1] / folder) for folder in ("src",)]
 
-from rozliczenia.collective_file import read_data_rows  # noqa: E402
-from rozliczenia.order_facts import N_AP, MissingHeaders, OrderFacts, TataValue  # noqa: E402
-from rozliczenia.quantity_check import compared_columns  # noqa: E402
-from rozliczenia.quantity_rules import (  # noqa: E402
+from rozliczenia.collective_file import read_data_rows
+from rozliczenia.order_facts import N_AP, MissingHeaders, OrderFacts, TataValue
+from rozliczenia.quantity_check import compared_columns
+from rozliczenia.quantity_rules import (
     WEEKDAY_LABELS,
     FromDescription,
     QuantityColumn,

@@ -36,16 +36,15 @@ from xml.sax.saxutils import escape
 import yaml
 from openpyxl.utils import get_column_letter
 
-ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "src"))
+sys.path[:0] = [str(Path(__file__).resolve().parents[1] / folder) for folder in ("src",)]
 
-from rozliczenia.collective_preparation import (  # noqa: E402
+from rozliczenia.collective_preparation import (
     default_collective_template_path,
     default_internal_template_path,
 )
-from rozliczenia.engine import default_worker_template_path  # noqa: E402
-from rozliczenia.workbook_files import DATA_ROW_COLUMNS, FIRST_DATA_ROW, HEADER_ROW, QUANTITY_COLUMNS  # noqa: E402
-from rozliczenia.worker_config import default_config_path  # noqa: E402
+from rozliczenia.engine import default_worker_template_path
+from rozliczenia.workbook_files import DATA_ROW_COLUMNS, FIRST_DATA_ROW, HEADER_ROW, QUANTITY_COLUMNS
+from rozliczenia.worker_config import default_config_path
 
 # Nazwy, pod którymi Wzorce i Konfiguracja wykonawców leżą w ``config``: te same, których szukają procesy.
 WORKER_TEMPLATE = default_worker_template_path().name

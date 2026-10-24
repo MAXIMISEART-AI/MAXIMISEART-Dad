@@ -14,10 +14,9 @@ import sys
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
-sys.path.insert(0, str(REPO_ROOT))
-sys.path.insert(0, str(REPO_ROOT / "src"))
+sys.path[:0] = [str(Path(__file__).resolve().parents[4] / folder) for folder in ("src", ".")]
 
-from tests import test_ilosci_uslug as conformance  # noqa: E402
+from tests import test_ilosci_uslug as conformance
 
 TEST = conformance.test_plik_zbiorczy_ma_ilosci_uslug_z_kazdej_linii_instrukcji_taty
 

@@ -20,9 +20,9 @@ import sys
 import time
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
-sys.path.insert(0, str(REPO_ROOT / "tools"))
+sys.path[:0] = [str(Path(__file__).resolve().parents[4] / folder) for folder in ("tools",)]
 
-from skrypt_skilla import Parser  # noqa: E402
+from skrypt_skilla import Parser
 
 WORKFLOW = "verify-centrum-na-windowsie.yml"
 
