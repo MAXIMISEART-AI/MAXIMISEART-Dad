@@ -93,5 +93,11 @@ def test_swiezo_przygotowany_plik_zbiorczy_daje_kontrole_ilosci_bez_roznic(tmp_p
     result = quantity_check.check(settlement.orders)
 
     assert isinstance(result, quantity_check.QuantityCheck)
-    assert (result.rows, result.undated) == (len(ORDER_CONTENTS), 0)
+    assert (result.rows, result.compared, result.from_description, result.unruled_rows, result.undated) == (
+        16,
+        9,
+        3,
+        4,
+        0,
+    )
     assert result.difference_count == 0
