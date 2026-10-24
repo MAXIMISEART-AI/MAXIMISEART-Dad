@@ -28,6 +28,7 @@ from tests.fixtures.centrum_processes import (
     stopped_for_maks,
 )
 from tests.fixtures.potomne import wait_for
+from tests.fixtures.preparation import INTERNAL_SETTLEMENT_NAME
 from tests.fixtures.settlement import PERIOD
 
 KEY = "github_pat_SYNTETYCZNY_KLUCZ_ZGLOSZEN"
@@ -316,19 +317,105 @@ def test_diagnoza_z_innym_wynikiem_niz_ostatnio_wyslana_doklada_komentarz_logow(
     thread_with(centrum, comments=4)
     centrum.surroundings.github.release = None
     offline = diagnose(centrum, run_id)
+    thread_with(centrum, comments=5)
+    centrum.surroundings.github.tool_commit = None
+    without_git = diagnose(centrum, run_id)
 
-    thread = thread_with(centrum, comments=5)
+    thread = thread_with(centrum, comments=6)
     labels = ("Wzorzec rozliczenia pracownika", "Aktualność narzędzia")
-    states = [tuple(check_state(shown, label) for label in labels) for shown in (passing, broken, fixed, offline)]
-    assert states == [("passed", "passed"), ("failed", "passed"), ("passed", "passed"), ("passed", "not_checked")]
+    shown = (passing, broken, fixed, offline, without_git)
+    states = [tuple(check_state(diagnosis, label) for label in labels) for diagnosis in shown]
+    assert states == [
+        ("passed", "passed"),
+        ("failed", "passed"),
+        ("passed", "passed"),
+        ("passed", "not_checked"),
+        ("passed", "not_checked"),
+    ]
+    assert check_detail(offline, labels[1]) != check_detail(without_git, labels[1])
     logged = [json.loads(sent_json([comment]))["diagnosis"] for comment in thread.comments[1:]]
     assert [tuple(check_state(diagnosis, label) for label in labels) for diagnosis in logged] == states
+    assert [check_detail(diagnosis, labels[1]) for diagnosis in logged[-2:]] == [
+        check_detail(diagnosis, labels[1]) for diagnosis in shown[-2:]
+    ]
+    assert sent_json([thread.comments[-1]]) == local_logs(centrum, run_id)
+
+
+def test_to_samo_wyjasnienie_o_innym_pliku_okresu_doklada_komentarz_logow(tmp_path: Path) -> None:
+    centrum = watched_centrum(tmp_path)
+    run_id = unexpected_exception(centrum)
+    thread_with(centrum, comments=1)
+    collective = centrum.collective_file.with_name(f"~${centrum.collective_file.name}")
+    collective.write_bytes(b"")
+    first = diagnose(centrum, run_id)
+    thread_with(centrum, comments=2)
+
+    collective.unlink()
+    (centrum.period_directory / f"~${INTERNAL_SETTLEMENT_NAME}").write_bytes(b"")
+    second = diagnose(centrum, run_id)
+
+    thread = thread_with(centrum, comments=3)
+    shown = [diagnosis["explanation"]["where"] for diagnosis in (first, second)]
+    assert shown[0] != shown[1]
+    logged = [json.loads(sent_json([comment]))["diagnosis"]["explanation"] for comment in thread.comments[1:]]
+    assert [(explanation["code"], explanation["where"]) for explanation in logged] == [
+        ("PLIK_OKRESU_OTWARTY", where) for where in shown
+    ]
+
+
+def test_inna_wada_sprawdzenia_za_tym_samym_wyjasnieniem_doklada_komentarz_logow(tmp_path: Path) -> None:
+    centrum = watched_centrum(tmp_path)
+    run_id = unexpected_exception(centrum)
+    thread_with(centrum, comments=1)
+    centrum.configuration.worker_template.write_bytes(b"to nie jest skoroszyt")
+    workers = centrum.configuration.worker_config
+    workers.write_bytes("wykonawcy: [".encode())
+    not_yaml = diagnose(centrum, run_id)
+    thread_with(centrum, comments=2)
+
+    workers.write_bytes("wykonawcy: ż".encode("cp1250"))
+    not_utf8 = diagnose(centrum, run_id)
+
+    thread = thread_with(centrum, comments=3)
+    label = "Konfiguracja wykonawców"
+    assert [diagnosis["explanation"] for diagnosis in (not_yaml, not_utf8)] == [not_yaml["explanation"]] * 2
+    assert check_detail(not_yaml, label) != check_detail(not_utf8, label)
+    logged = [json.loads(sent_json([comment]))["diagnosis"] for comment in thread.comments[1:]]
+    checks = [next(check for check in diagnosis["checks"] if check["label"] == label) for diagnosis in logged]
+    assert [(check["code"], check["detail"]) for check in checks] == [
+        ("ZLA_KONFIGURACJA_WYKONAWCOW", check_detail(diagnosis, label)) for diagnosis in (not_yaml, not_utf8)
+    ]
+
+
+def test_plik_logow_ktory_nie_powstal_przy_diagnozie_powstaje_przy_nastepnej_z_tym_samym_wynikiem(
+    tmp_path: Path,
+) -> None:
+    centrum = watched_centrum(tmp_path)
+    run_id = unexpected_exception(centrum)
+    thread_with(centrum, comments=1)
+    [path] = (centrum.log_path.parent / "uruchomienia").glob(f"*-{run_id}.json")
+    blocked = path.with_name(path.name + ".tmp")
+    blocked.mkdir()
+    diagnose(centrum, run_id)
+    thread_with(centrum, comments=2)
+    assert json.loads(local_logs(centrum, run_id))["diagnosis"] is None
+
+    blocked.rmdir()
+    diagnose(centrum, run_id)
+
+    thread = thread_with(centrum, comments=3)
+    assert json.loads(local_logs(centrum, run_id))["diagnosis"] is not None
     assert sent_json([thread.comments[-1]]) == local_logs(centrum, run_id)
 
 
 def check_state(diagnosis: dict[str, Any], label: str) -> str:
     [state] = [check["state"] for check in diagnosis["checks"] if check["label"] == label]
     return str(state)
+
+
+def check_detail(diagnosis: dict[str, Any], label: str) -> str:
+    [detail] = [check["detail"] for check in diagnosis["checks"] if check["label"] == label]
+    return str(detail)
 
 
 def test_wyslane_zgloszenie_prowadzi_do_komentarza_logow_swojego_uruchomienia(tmp_path: Path) -> None:
