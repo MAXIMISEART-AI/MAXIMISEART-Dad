@@ -75,6 +75,17 @@ COUNTED = (
 )
 
 
+@pytest.fixture(autouse=True)
+def wspolny_cache_mypy(tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Mypy repozytoriów testu dzieli cache workera: typeshed i biblioteki nie są sprawdzane na nowo w każdym teście.
+
+    Pliki repozytorium mają w każdym teście inną ścieżkę, więc mypy sprawdza je od nowa. Krok dla Windows ma własne
+    ``--cache-dir`` w repozytorium testu i zmienna go nie dotyczy.
+    """
+
+    monkeypatch.setenv("MYPY_CACHE_DIR", str(tmp_path_factory.getbasetemp() / "mypy-szybko"))
+
+
 def _structure_stubs(body: str) -> dict[str, str]:
     stubs: dict[str, str] = {}
     for node in szybko.STRUCTURE:
