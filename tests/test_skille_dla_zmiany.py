@@ -40,7 +40,7 @@ def _repo(root: Path, files: dict[str, str] = REPO) -> str:
         (root / name).parent.mkdir(parents=True, exist_ok=True)
         (root / name).write_text(text, encoding="utf-8")
     (root / "tools").mkdir(exist_ok=True)
-    for name in ("skille_dla_zmiany.py", "mutacje_skilli.py", "potomne.py"):
+    for name in ("skille_dla_zmiany.py", "mutacje_skilli.py", "potomne.py", "szybko.py", "ci_lokalnie.py", "mutacje.py"):
         shutil.copy(TOOLS / name, root / "tools" / name)
     git(root, "init", "--quiet")
     return commit(root, "baza")
@@ -123,6 +123,55 @@ def test_zmiana_tylko_w_bazie_po_rozgalezieniu_nie_wskazuje_skilla(tmp_path: Pat
     git(tmp_path, "checkout", "--quiet", "praca")
 
     assert _skills(_run(tmp_path, moved)) == ["verify-a"]
+
+
+EXECUTED = {
+    **REPO,
+    ".agents/skills/verify-c/SKILL.md": "---\nname: verify-c\ndescription: c\npilnuje:\n  - docs/c.md\n---\n",
+    ".agents/skills/verify-c/scripts/run_c.py": (
+        "from pathlib import Path\nimport pomocnik\nimport produkt\n\n"
+        'ROOT = Path(__file__).resolve().parents[4]\nSCRIPT = ROOT / "tools" / "uruchamiany.py"\n'
+    ),
+    ".agents/skills/verify-c/scripts/check_c_mutations.py": "import tylko_mutacje\n",
+    "tools/pomocnik.py": "import glebszy\n",
+    "tools/glebszy.py": "G = 1\n",
+    "tools/uruchamiany.py": "import od_uruchamianego\n",
+    "tools/od_uruchamianego.py": "U = 1\n",
+    "tools/tylko_mutacje.py": "M = 1\n",
+    "src/produkt.py": "P = 1\n",
+    "docs/c.md": "c\n",
+}
+
+
+@pytest.mark.parametrize(
+    ("changed", "skills"),
+    [
+        ("tools/pomocnik.py", ["verify-c"]),
+        ("tools/glebszy.py", ["verify-c"]),
+        ("tools/uruchamiany.py", ["verify-c"]),
+        ("tools/od_uruchamianego.py", ["verify-c"]),
+        ("tools/tylko_mutacje.py", []),
+        ("src/produkt.py", []),
+    ],
+)
+def test_plik_spoza_src_ktory_wykonuja_skrypty_skilla_wskazuje_skill(tmp_path: Path, changed: str, skills: list[str]) -> None:
+    base = _repo(tmp_path, EXECUTED)
+    _append(tmp_path, changed)
+    commit(tmp_path, "zmiana")
+
+    result = _run(tmp_path, base)
+
+    assert _skills(result) == skills
+    assert result.stdout.splitlines()[:-1] == [f"verify-c: {changed} (wykonują go skrypty skilla)" for _ in skills]
+
+
+def test_skill_ktorego_skryptu_nie_da_sie_sparsowac_obowiazuje_zawsze(tmp_path: Path) -> None:
+    base = _repo(tmp_path, {**EXECUTED, ".agents/skills/verify-c/scripts/run_c.py": "def zepsuty(:\n"})
+
+    result = _run(tmp_path, base)
+
+    assert _skills(result) == ["verify-c"]
+    assert result.stdout.splitlines()[0].startswith("verify-c: .agents/skills/verify-c/scripts/run_c.py się nie parsuje, więc skill obowiązuje zawsze")
 
 
 def test_skill_bez_pilnuje_albo_z_nieczytelnym_pilnuje_obowiazuje_zawsze(tmp_path: Path) -> None:

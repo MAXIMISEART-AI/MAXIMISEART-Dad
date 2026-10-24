@@ -8,7 +8,6 @@ jego interfejsie. Żaden test nie łączy się z siecią.
 from __future__ import annotations
 
 from collections.abc import Callable
-import os
 from pathlib import Path
 import re
 import shutil
@@ -30,6 +29,7 @@ from rozliczenia.centrum.tool_update import (
     read_result,
 )
 
+from tests.fixtures.git_config import computer_git_config
 from tests.fixtures.potomne import beating
 from tests.fixtures.tool_clone import (
     FIRST_VERSION,
@@ -42,12 +42,6 @@ from tests.fixtures.tool_clone import (
     tool_repository,
     unreachable_origin,
 )
-
-
-@pytest.fixture(autouse=True)
-def git_bez_konfiguracji_komputera_testow(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("GIT_CONFIG_GLOBAL", os.devnull)
-    monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
 
 
 @pytest.fixture
@@ -332,10 +326,8 @@ def credential_helper_that_waits(tmp_path: Path) -> Path:
     helper.write_text(
         f"import pathlib, time\npathlib.Path({str(asked)!r}).touch()\ntime.sleep(60)\n", encoding="utf-8"
     )
-    config = tmp_path / "gitconfig"
     command = f"!'{Path(sys.executable).as_posix()}' '{helper.as_posix()}'"
-    config.write_text(f'[credential]\n\thelper = "{command}"\n', encoding="utf-8")
-    return config
+    return computer_git_config(tmp_path / "gitconfig", f'[credential]\n\thelper = "{command}"\n')
 
 
 def test_github_proszacy_o_logowanie_konczy_sie_od_razu_bez_pytania_a_klon_zostaje_bez_zmian(

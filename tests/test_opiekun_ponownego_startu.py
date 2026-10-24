@@ -36,12 +36,6 @@ from rozliczenia.centrum.tool_update import (
 from tests.fixtures.tool_clone import FIRST_VERSION, ToolRepository, centrum_tool_repository, tool_repository
 
 
-@pytest.fixture(autouse=True)
-def git_bez_konfiguracji_komputera_testow(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("GIT_CONFIG_GLOBAL", os.devnull)
-    monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
-
-
 def _free_port() -> int:
     with socket.socket() as probe:
         probe.bind(("127.0.0.1", 0))

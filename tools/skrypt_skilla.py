@@ -11,6 +11,9 @@ Skrypt skilla bierze te argumenty tylko z ``Parser`` (pilnuje tego ``tests/test_
 Katalog runu zakłada ``create_run_root`` ze znacznikiem ``.katalog-runu``. Sprzątanie i kroki, które piszą do runu,
 wymagają znacznika albo pustego katalogu, więc literówka w ``--root`` nie skasuje ani nie zmieni cudzego katalogu.
 Sprzątanie usuwa znacznik ostatni, więc po przerwanym sprzątaniu następne wciąż rozpozna run.
+
+Runner, który nic nie sprawdził (``VERIFY SKIP``), kończy się kodem ``SKIPPED``, a nie ``0``, więc pominięcie
+nie wygląda dla wywołującego jak dowód.
 """
 
 from __future__ import annotations
@@ -28,6 +31,7 @@ from typing import Any
 VERIFICATION = Path(__file__).resolve().parents[1] / ".verification"
 MARKER = ".katalog-runu"
 EVERY = "all"
+SKIPPED = 3
 
 
 class RunRootError(ValueError):

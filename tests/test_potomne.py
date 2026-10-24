@@ -89,6 +89,50 @@ def test_wnuk_uruchomiony_zanim_narzedzie_wroci_ze_startu_polecenia_ginie_z_drze
     assert not beating(beats)
 
 
+if sys.platform == "win32":
+    import ctypes
+
+    def _ctrl_c(handle: object) -> int:
+        raise KeyboardInterrupt
+
+    def _access_denied(handle: object) -> int:
+        return -0x3FFFFFDE  # STATUS_ACCESS_DENIED
+
+    @pytest.mark.parametrize(
+        ("resume", "error"),
+        [(_ctrl_c, KeyboardInterrupt), (_access_denied, PermissionError)],
+        ids=["ctrl-c-przed-wznowieniem", "wznowienie-odmowione"],
+    )
+    def test_polecenie_niewznowione_w_job_object_ginie_zamiast_zostac_wstrzymane(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch, resume: Callable[[object], int], error: type[BaseException]
+    ) -> None:
+        started: list[subprocess.Popen[str]] = []
+        start, load = subprocess.Popen, ctypes.WinDLL
+
+        def recorded(*args: Any, **kwargs: Any) -> subprocess.Popen[str]:
+            started.append(start(*args, **kwargs))
+            return started[-1]
+
+        class Ntdll:
+            def __getattr__(self, name: str) -> Any:
+                return getattr(load("ntdll"), name)
+
+            def NtResumeProcess(self, handle: object) -> int:  # noqa: N802 - nazwa funkcji WinAPI
+                return resume(handle)
+
+        monkeypatch.setattr(subprocess, "Popen", recorded)
+        monkeypatch.setattr(ctypes, "WinDLL", lambda name, **kwargs: Ntdll() if name == "ntdll" else load(name, **kwargs))
+        try:
+            with pytest.raises(error):
+                potomne.run([sys.executable, "-c", "pass"], cwd=tmp_path)
+        finally:
+            left = [process for process in started if process.poll() is None]
+            for process in left:
+                process.kill()
+
+        assert (len(started), left) == (1, [])
+
+
 def test_stop_konczy_trwajace_polecenie_a_nowe_nie_biegnie(tmp_path: Path) -> None:
     beats, marker = tmp_path / "wnuk-zyje", tmp_path / "nowe-polecenie"
     stop = threading.Event()
@@ -358,6 +402,11 @@ LAUNCHES = frozenset(
         *(f"subprocess.{name}" for name in ("run", "Popen", "call", "check_call", "check_output", "getoutput", "getstatusoutput")),
         "os.system",
         "os.popen",
+        *(f"os.{name}" for name in ("spawnl", "spawnle", "spawnlp", "spawnlpe", "spawnv", "spawnve", "spawnvp", "spawnvpe")),
+        "os.posix_spawn",
+        "os.posix_spawnp",
+        "asyncio.create_subprocess_exec",
+        "asyncio.create_subprocess_shell",
     }
 )
 Function = ast.FunctionDef | ast.AsyncFunctionDef
