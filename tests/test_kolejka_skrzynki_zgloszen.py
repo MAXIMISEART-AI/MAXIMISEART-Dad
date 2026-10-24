@@ -251,6 +251,11 @@ def test_tresc_ktorej_skrzynka_odmawia_zostaje_w_kolejce_a_nastepna_wychodzi_w_t
         f"skrzynka-czeka etykieta=kontrola-ilosci okres=08_14_09_2026 przyczyna=odmowa plik={refused}" in queue.log()
     )
     assert "brak-sieci" not in queue.log()
+    for passes in (2, 3):
+        queue.outbox.send_in_background()
+        assert wait_for(lambda: len(queue.waiting_at_pass) == passes)
+    assert queue.files() == [refused]
+    assert queue.log().count("przyczyna=odmowa") == 1
 
     queue.restarted().resume()
 
@@ -278,7 +283,7 @@ def test_gdy_skrzynka_odmawia_szukania_issue_okresu_wysylka_czeka_w_pliku_bez_no
 
     queue.outbox.post(post(["treść\n"]))
 
-    assert wait_for(lambda: "przyczyna=odmowa" in queue.log())
+    assert wait_for(lambda: "przyczyna=odmowa-klucza" in queue.log())
     assert len(queue.files()) == 1
     assert (queue.box.issues, queue.box.keys) == ([], [])
 
