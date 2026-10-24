@@ -18,6 +18,7 @@ narzędzi benchmarku w ``tools/``, żeby nie powtarzały układu.
 
 from __future__ import annotations
 
+import os
 import zipfile
 import zlib
 from collections.abc import Iterator, Mapping, Sequence
@@ -194,9 +195,12 @@ class DataRow:
 
 
 def is_open_in_excel(path: Path) -> bool:
-    """Rozpoznaje skoroszyt otwarty w desktopowym Excelu po pliku blokady ``~$…``."""
+    """Rozpoznaje skoroszyt otwarty w desktopowym Excelu po pliku blokady ``~$…``.
 
-    return path.with_name(f"~${path.name}").exists()
+    W folderze bez dostępu blokady nie widać; niedostępny skoroszyt zgłasza jego odczyt (``ensure_available``).
+    """
+
+    return os.path.exists(path.with_name(f"~${path.name}"))
 
 
 def ensure_available(path: Path) -> None:

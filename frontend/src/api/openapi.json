@@ -2191,6 +2191,13 @@
               }
             ],
             "title": "Collective File"
+          },
+          "open_in_excel": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Open In Excel"
           }
         },
         "additionalProperties": false,
@@ -2202,7 +2209,8 @@
           "status_label",
           "last_complete",
           "previewed",
-          "collective_file"
+          "collective_file",
+          "open_in_excel"
         ],
         "title": "PeriodChoice",
         "description": "Okres do wyboru przy starcie, ze Statusem okresu wyliczonym z plików."

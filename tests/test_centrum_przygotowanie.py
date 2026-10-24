@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 import itertools
 import json
 from pathlib import Path
+import sys
 import time
 from typing import Any, NoReturn
 
@@ -467,6 +468,54 @@ def test_awaria_adaptera_po_rdzeniu_trafia_do_dziennika_bez_tekstu_wyjatku(
     assert "SYN-" not in log
     [record] = centrum.metric_records()
     assert (record["mode"], record["result"]) == ("DRY-RUN", "OK")
+
+
+def test_karta_startu_mowi_ktore_pliki_przygotowania_sa_otwarte_w_excelu_az_do_ich_zamkniecia(tmp_path: Path) -> None:
+    centrum = preparing_centrum(tmp_path)
+    fixture = centrum.fixture
+    worker_template = tmp_path / "config" / "Wzorzec rozliczenia pracownika.xlsx"
+    workbooks = (fixture.register_path, fixture.internal_template_path, fixture.collective_template_path, worker_template)
+    locks = [path.with_name(f"~${path.name}") for path in workbooks]
+
+    def open_in_excel() -> set[tuple[str, ...]]:
+        setup, _settlement = centrum.client.get("/api/runs/setup").json()["processes"]
+        return {tuple(choice["open_in_excel"]) for choice in setup["periods"]}
+
+    for lock in locks:
+        lock.touch()
+    opened = open_in_excel()
+    for lock in locks:
+        lock.unlink()
+
+    assert opened == {
+        (
+            "Rejestr zleceń jest otwarty w Excelu. Zapisz go i zamknij.",
+            "Wzorzec rozliczenia wewnętrznego jest otwarty w Excelu. Zamknij go bez zapisywania zmian.",
+            "Wzorzec pliku zbiorczego jest otwarty w Excelu. Zamknij go bez zapisywania zmian.",
+        )
+    }
+    assert open_in_excel() == {()}
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="chmod w Windows zmienia tylko atrybut „tylko do odczytu”")
+def test_rejestr_zlecen_w_folderze_bez_dostepu_nie_psuje_karty_startu(tmp_path: Path) -> None:
+    centrum = bare_centrum(tmp_path, today=TODAY)
+    folder = tmp_path / "OneDrive"
+    folder.mkdir()
+    register = folder / "ZLECENIA INTERMAX OD 08_11_2021.xlsx"
+    register.touch()
+    register.with_name(f"~${register.name}").touch()
+    centrum.platform.chosen_files.append(register)
+    centrum.client.post("/api/settings/register/choose")
+    folder.chmod(0)
+    try:
+        answer = centrum.client.get("/api/runs/setup")
+    finally:
+        folder.chmod(0o755)
+
+    assert answer.status_code == 200
+    setup, _settlement = answer.json()["processes"]
+    assert {tuple(choice["open_in_excel"]) for choice in setup["periods"]} == {()}
 
 
 def test_bez_wskazanego_rejestru_zlecen_uruchomienie_jest_odrzucone(tmp_path: Path) -> None:

@@ -290,6 +290,8 @@ class PeriodChoice(_Model):
     previewed: bool
     # Nazwa Pliku zbiorczego okresu, gdy proces go czyta (Przebieg rozliczeń); tata go nie wskazuje.
     collective_file: str | None
+    # Zdania o skoroszytach wejściowych procesu otwartych w Excelu: najpierw plik danych, potem Wzorce.
+    open_in_excel: list[str]
 
 
 class ProcessSetup(_Model):

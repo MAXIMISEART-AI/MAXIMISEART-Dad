@@ -329,6 +329,37 @@ def test_wybor_okresu_to_okresy_z_przygotowanym_plikiem_zbiorczym(tmp_path: Path
     ]
 
 
+def test_karta_startu_mowi_ktore_pliki_przebiegu_sa_otwarte_w_excelu_az_do_ich_zamkniecia(tmp_path: Path) -> None:
+    centrum = settling_centrum(tmp_path, dad_layout=True)
+    older = centrum.period_parent / "01_07_09_2026"
+    older.mkdir()
+    (older / "Rozliczenie 01_07_09_2026 - zbiorcze.xlsx").touch()
+    configuration = centrum.configuration
+    workbooks = (
+        centrum.collective_file,
+        configuration.worker_template,
+        configuration.internal_template,
+        configuration.collective_template,
+    )
+    locks = [path.with_name(f"~${path.name}") for path in workbooks]
+
+    def open_in_excel() -> dict[str, list[str]]:
+        return {choice["token"]: choice["open_in_excel"] for choice in settlement_setup(centrum.client)["periods"]}
+
+    for lock in locks:
+        lock.touch()
+    opened = open_in_excel()
+    for lock in locks:
+        lock.unlink()
+
+    template_open = "Wzorzec rozliczenia pracownika jest otwarty w Excelu. Zamknij go bez zapisywania zmian."
+    assert opened == {
+        PERIOD: ["Plik zbiorczy jest otwarty w Excelu. Zapisz go i zamknij.", template_open],
+        "01_07_09_2026": [template_open],
+    }
+    assert open_in_excel() == {PERIOD: [], "01_07_09_2026": []}
+
+
 def test_bez_okresu_z_plikiem_zbiorczym_przebieg_mowi_czego_brakuje(tmp_path: Path) -> None:
     centrum = settling_centrum(tmp_path)
     (centrum.period_directory / SOURCE_NAME).unlink()
