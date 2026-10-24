@@ -1,8 +1,8 @@
 """Kolejka Skrzynki Zgłoszeń: Kontrole ilości, Logi Uruchomienia (#320) i Uwagi taty, które Centrum wysyła w tle.
 
 Każda wysyłka (``Post``) to gotowy tekst skierowany do issue okresu (``PeriodThread``: etykieta, wiersz
-rozpoznawczy na początku treści issue, tytuł i co z issue, które Maks zamknął) albo do nowego issue (``NewIssue``:
-etykieta i tytuł, jak Uwaga taty). Najpierw trafia do własnego pliku
+rozpoznawczy na początku treści issue, tytuł i co z issue, które Maks zamknął), do nowego issue (``NewIssue``:
+etykieta i tytuł, jak Uwaga taty) albo do issue o znanym numerze (``KnownIssue``). Najpierw trafia do własnego pliku
 JSON w ``config/zgloszenia/kolejka/`` (poza Gitem, poza plikami ``Zgłoszenie *.md``, które tata może przesłać
 Maksowi), potem jeden wątek w tle wysyła wszystkie pliki po kolei i usuwa wysłane. Porażka (brak klucza, odmowa,
 brak sieci) zostawia plik bez Komunikatu; wątek rusza znów przy starcie Centrum (``resume``) i po każdej nowej
@@ -18,7 +18,8 @@ dostaje numer issue przez ``on_delivered`` i może poczekać na dostarczenie prz
 Adres pierwszego komentarza każdej dostarczonej wysyłki (np. Logów Uruchomienia, do których prowadzi przypięta
 Uwaga taty) kolejka dopisuje do pliku ``addresses`` i wczytuje przy następnym starcie Centrum, więc ``delivered``
 zna też wysyłki poprzednich prac Centrum. Tuż przed wysłaniem wysyłka przechodzi przez ``prepare``: Uwaga taty
-uzupełnia w nim odnośnik do Logów, które skrzynka przyjęła po jej zapisaniu.
+uzupełnia w nim odnośnik do Logów, które skrzynka przyjęła po jej zapisaniu, a wysyłka, która czeka na inną
+(odnośnik do Logów odrzuconych w tej pracy Centrum), zostaje w kolejce do następnego przejścia.
 """
 
 from __future__ import annotations
@@ -84,7 +85,15 @@ class NewIssue:
     title: str
 
 
-Target = PeriodThread | NewIssue
+@dataclass(frozen=True)
+class KnownIssue:
+    """Komentarze do issue o znanym numerze (odnośnik do Logów dopisany do issue Uwagi taty)."""
+
+    label: Label
+    number: int
+
+
+Target = PeriodThread | NewIssue | KnownIssue
 """Dokąd w Skrzynce Zgłoszeń idzie wysyłka; dostarczenie rozróżnia cele przez ``match``."""
 
 
@@ -129,7 +138,10 @@ class Post:
         return cls(target, period, run_id, header, parts)
 
     def opening(self) -> tuple[str, tuple[str, ...]]:
-        """Treść nowego issue (nagłówek albo część 1, w issue okresu po wierszu rozpoznawczym) i komentarze po nim."""
+        """Treść nowego issue (nagłówek albo część 1, w issue okresu po wierszu rozpoznawczym) i komentarze po nim.
+
+        ``KnownIssue`` nie zakłada issue: pusta treść, a wszystkie części to komentarze.
+        """
 
         if self.header is None:
             first, comments = (self.parts[0], self.parts[1:]) if self.parts else ("", ())
@@ -140,6 +152,8 @@ class Post:
                 return f"{line}\n\n{first}", comments
             case NewIssue():
                 return first, comments
+            case KnownIssue():
+                return "", self.parts
             case _:
                 assert_never(self.target)
 
@@ -175,7 +189,7 @@ def _queue_text(post: Post, *, delivered_parts: int) -> str:
     )
 
 
-def _target_json(target: Target) -> dict[str, str]:
+def _target_json(target: Target) -> dict[str, str | int]:
     match target:
         case PeriodThread():
             return {
@@ -187,6 +201,8 @@ def _target_json(target: Target) -> dict[str, str]:
             }
         case NewIssue():
             return {"kind": "new_issue", "label": target.label, "title": target.title}
+        case KnownIssue():
+            return {"kind": "known_issue", "label": target.label, "number": target.number}
         case _:
             assert_never(target)
 
@@ -198,6 +214,8 @@ def _target(entry: dict[str, Any], kind: object) -> Target | None:
         return None
     if kind == "new_issue":
         return NewIssue(entry["label"], _string(entry["title"]))
+    if kind == "known_issue":
+        return KnownIssue(entry["label"], entry["number"]) if type(entry["number"]) is int else None
     if kind != "period_thread" or entry["closed"] not in _CLOSED:
         return None
     return PeriodThread(entry["label"], _string(entry["line"]), entry["closed"], _string(entry["title"]))
@@ -304,6 +322,8 @@ def _deliver(post: Post, box: ReportBox, key: str) -> Delivered | Refused | Reje
             return _deliver_to_period(post, thread, box, key)
         case NewIssue() as issue:
             return _deliver_new_issue(post, issue, box, key)
+        case KnownIssue() as known:
+            return _deliver_to_known(post, known, box, key)
         case _:
             assert_never(post.target)
 
@@ -318,6 +338,23 @@ def _deliver_new_issue(
     if not isinstance(opened, Sent):
         return opened
     return _comment_all(opened.number, comments, box, key)
+
+
+def _deliver_to_known(
+    post: Post, known: KnownIssue, box: ReportBox, key: str
+) -> Delivered | Refused | Rejected | Unreachable:
+    """Każda część jako komentarz do issue ``known.number``, jeśli skrzynka je ma (otwarte albo zamknięte).
+
+    Komentarz do issue, które Maks usunął, to 404, czyli odmowa, która zatrzymałaby całą kolejkę; issue, którego
+    skrzynka nie ma, to odmowa tej treści.
+    """
+
+    found = box.labelled_issues(known.label, include_closed=True, key=key)
+    if isinstance(found, Refused | Unreachable):
+        return found
+    if all(issue.number != known.number for issue in found):
+        return Rejected()
+    return _comment_all(known.number, post.parts, box, key)
 
 
 def _deliver_to_period(
@@ -383,7 +420,8 @@ class Outbox:
     ``skrzynka-kolejka``), więc pliki nie potrzebują blokady. Blokada chroni tylko to, czy wątek już biegnie, i
     adresy dostarczonych wysyłek; zbiory nazw plików i plik ``addresses`` zna tylko ten jeden wątek.
     ``on_delivered`` dostaje każdą wysyłkę przyjętą przez skrzynkę i numer jej issue, w wątku wysyłki, zanim plik
-    dostanie znacznik. ``prepare`` dostaje wysyłkę z pliku tuż przed wysłaniem i zwraca tę, która pójdzie.
+    dostanie znacznik. ``prepare`` dostaje wysyłkę z pliku tuż przed wysłaniem i zwraca tę, która pójdzie, albo
+    ``None``: wysyłka czeka na inną i zostaje w kolejce do następnego przejścia.
     """
 
     def __init__(
@@ -394,7 +432,7 @@ class Outbox:
         log: CentrumLog,
         *,
         on_delivered: Callable[[Post, int], None] = lambda _post, _number: None,
-        prepare: Callable[[Post], Post] = lambda post: post,
+        prepare: Callable[[Post], Post | None] = lambda post: post,
         addresses: Path | None = None,
     ) -> None:
         self._directory = directory
@@ -405,7 +443,7 @@ class Outbox:
         self._prepare = prepare
         self._addresses = addresses
         self._sequence = itertools.count(1)
-        self._lock = threading.Lock()  # tylko _draining, _again i _first_comments; nigdy na czas skrzynki ani pliku
+        self._lock = threading.Lock()  # _draining, _again, _first_comments, _rejected_posts; nie na czas skrzynki
         self._changed = threading.Condition(self._lock)
         self._draining = False
         self._again = False
@@ -413,6 +451,7 @@ class Outbox:
         self._undeleted: set[str] = set()  # wysłane w tej pracy Centrum, usunięcie się nie udało i jest w dzienniku
         self._unreadable: set[str] = set()  # nieczytelne, już w dzienniku tej pracy Centrum
         self._rejected: set[str] = set()  # treść odrzucona przez skrzynkę, w dzienniku; następna próba po starcie
+        self._rejected_posts: set[tuple[str, Label]] = set()  # run_id i etykieta plików z _rejected
 
     def resume(self) -> None:
         """Przy starcie Centrum: usuwa pozostałości urwanego zapisu i wysyła w tle wszystko, co czeka.
@@ -438,6 +477,12 @@ class Outbox:
 
         with self._lock:
             return self._first_comments.get((run_id, label))
+
+    def rejected(self, run_id: str, label: Label) -> bool:
+        """Skrzynka odrzuciła w tej pracy Centrum treść wysyłki ``label`` z ``run_id``; plik czeka na następny start."""
+
+        with self._lock:
+            return (run_id, label) in self._rejected_posts
 
     def wait_delivered(self, run_id: str, label: Label, *, timeout_s: float) -> bool:
         """Czeka najwyżej ``timeout_s``, aż skrzynka przyjmie wysyłkę ``label`` z ``run_id`` w tej pracy Centrum.
@@ -513,6 +558,8 @@ class Outbox:
                 self._remove(path)
                 continue
             post = self._prepare(queued.post)
+            if post is None:
+                continue
             label, period = post.target.label, post.period
             outcome = None if key is None else _deliver(post, self._box, key)
             if not isinstance(outcome, Delivered):
@@ -521,6 +568,8 @@ class Outbox:
                     self._log.box_post_waiting(label=label, period=period, cause=cause)
                     return
                 self._rejected.add(path.name)
+                with self._lock:
+                    self._rejected_posts.add((post.run_id, label))
                 self._log.box_post_waiting(label=label, period=period, cause=cause, file=path.name)
                 continue
             self._log.box_post_sent(label=label, period=period, number=outcome.number)

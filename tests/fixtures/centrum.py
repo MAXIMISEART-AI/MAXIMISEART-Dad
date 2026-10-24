@@ -105,7 +105,7 @@ class FakeReportBox:
     Issue etykiet z ``background`` to ruch w tle, którego test nie ogląda (np. Logi Uruchomienia w testach
     Zgłoszeń): skrzynka przyjmuje je jak działający GitHub w ``background_issues``, z numerami od
     ``BACKGROUND_NUMBERS`` (GitHub też nie numeruje issue bez przerw), bez ``keys``, przygotowanych wyników,
-    wstrzymań i porażek.
+    wstrzymań i porażek; jedyny wyjątek to ``background_comment_outcomes``, przygotowane wyniki ich komentarzy.
     """
 
     outcomes: list[SendOutcome] = field(default_factory=list)
@@ -121,6 +121,7 @@ class FakeReportBox:
     comment_outcomes: list[CommentOutcome] = field(default_factory=list)
     background: frozenset[Label] = frozenset()
     background_issues: list[FakeIssue] = field(default_factory=list)
+    background_comment_outcomes: list[CommentOutcome] = field(default_factory=list)
     _changed: threading.Condition = field(default_factory=threading.Condition)
 
     def wait_until(self, condition: Callable[[FakeReportBox], bool], seconds: float = 30) -> bool:
@@ -159,6 +160,8 @@ class FakeReportBox:
         with self._changed:
             behind = next((issue for issue in self.background_issues if issue.number == number), None)
             if behind is not None:
+                if self.background_comment_outcomes:
+                    return self.background_comment_outcomes.pop(0)
                 behind.comments.append(body)
                 self._changed.notify_all()
                 position = len(behind.comments)
