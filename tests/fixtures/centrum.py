@@ -101,7 +101,8 @@ class FakeReportBox:
     ``search_hold`` to skrzynka, która na pytanie o issue z etykietą odpowiada
     dopiero, gdy test ją puści (``set``), jak GitHub bez sieci; ``searching``
     mówi, że takie pytanie już trwa. ``open_hold`` i ``opening`` robią to samo
-    z zakładaniem issue, a ``comment_outcomes`` to przygotowane wyniki komentarzy.
+    z zakładaniem issue, a ``comment_outcomes`` to przygotowane wyniki komentarzy. ``lost_answers`` to tyle
+    następnych zakładanych issue, które skrzynka zakłada, ale odpowiedź się urywa (``Unreachable``).
     ``wait_until`` czeka na wysyłkę w tle.
 
     Issue etykiet z ``background`` to ruch w tle, którego test nie ogląda (np. Logi Uruchomienia w testach
@@ -121,6 +122,7 @@ class FakeReportBox:
     open_hold: threading.Event | None = None
     opening: threading.Event = field(default_factory=threading.Event)
     comment_outcomes: list[CommentOutcome] = field(default_factory=list)
+    lost_answers: int = 0
     background: frozenset[Label] = frozenset()
     background_issues: list[FakeIssue] = field(default_factory=list)
     background_comment_outcomes: list[CommentOutcome] = field(default_factory=list)
@@ -155,6 +157,9 @@ class FakeReportBox:
             outcome = self.outcomes.pop(0) if self.outcomes else Sent(number=len(self.issues) + 1)
             if isinstance(outcome, Sent):
                 self.issues.append(FakeIssue(outcome.number, label, title, body))
+                if self.lost_answers:
+                    self.lost_answers -= 1
+                    outcome = Unreachable()
             self._changed.notify_all()
         return outcome
 

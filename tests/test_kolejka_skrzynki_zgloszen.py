@@ -15,7 +15,7 @@ import pytest
 
 from rozliczenia.centrum.keyed_box import REFUSED_KEPT_S, KeyedBox
 from rozliczenia.centrum.log import CentrumLog
-from rozliczenia.centrum.outbox import RETRY_S, Frame, Outbox, PeriodThread, Post
+from rozliczenia.centrum.outbox import RETRY_S, Frame, Outbox, PeriodThread, Post, ReportIssue
 from rozliczenia.centrum.report_box import COMMENT_LIMIT, Refused, Rejected, Unreachable
 
 from tests.fixtures.centrum import FakeIssue, FakeReportBox
@@ -48,7 +48,10 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class Queue:
-    """Kolejka na folderze w ``tmp_path`` ze skrzynką ``box`` i kluczem ``key`` (``None``: bez klucza)."""
+    """Kolejka na folderze w ``tmp_path`` ze skrzynką ``box`` i kluczem ``key`` (``None``: bez klucza).
+
+    ``delivered`` to Uruchomienie i numer issue każdej wysyłki, którą przyjęła skrzynka (``on_delivered``).
+    """
 
     def __init__(self, tmp_path: Path, box: FakeReportBox, key: str | None = KEY) -> None:
         self.directory = tmp_path / "config" / "zgloszenia" / "kolejka"
@@ -56,13 +59,20 @@ class Queue:
         self.box = box
         self.key = key
         self.clock = ManualClock()
+        self.delivered: list[tuple[str, int]] = []
         self.outbox = self.restarted()
 
     def restarted(self) -> Outbox:
         """Kolejka nowego startu Centrum na tym samym folderze."""
 
         keyed = KeyedBox(self.box, lambda: self.key, clock=self.clock)
-        return Outbox(self.directory, keyed, CentrumLog(self.log_path), clock=self.clock)
+        return Outbox(
+            self.directory,
+            keyed,
+            CentrumLog(self.log_path),
+            clock=self.clock,
+            on_delivered=lambda post, number: self.delivered.append((post.run_id, number)),
+        )
 
     def passed(self) -> None:
         """Czeka, aż przejście kolejki, które właśnie ruszyło (``resume``, ``send_in_background``), się skończy."""
@@ -511,3 +521,89 @@ def test_po_wyslaniu_kolejka_zna_adres_pierwszego_komentarza_uruchomienia(tmp_pa
     )
     assert queue.outbox.delivered(RUN_ID, "kontrola-ilosci") is None
     assert queue.outbox.delivered("inne-uruchomienie", "logi-uruchomienia") is None
+
+
+FINGERPRINT_LINE = "- Odcisk problemu: 0123456789abcdef"
+REPORT = ReportIssue(FINGERPRINT_LINE, "BRAK_WZORCA: Nie znaleziono wzorca.")
+REPORT_BODY = f"Zgłoszenie z Centrum rozliczeń.\n\n## Narzędzie\n\n{FINGERPRINT_LINE}\n"
+
+
+def report(body: str = REPORT_BODY, *, run_id: str = RUN_ID) -> Post:
+    return Post.of(REPORT, period="08_14_09_2026", run_id=run_id, blocks=[body], frame=unframed)
+
+
+def test_zgloszenie_to_issue_z_trescia_podgladu_bez_dopisanego_wiersza(tmp_path: Path) -> None:
+    queue = Queue(tmp_path, FakeReportBox())
+
+    queue.outbox.post(report())
+
+    assert queue.box.wait_until(lambda box: len(box.sent) == 1)
+    [issue] = queue.box.sent
+    assert (issue.title, issue.body, issue.comments) == (REPORT.title, REPORT_BODY, [])
+    assert wait_for(lambda: queue.files() == [])
+
+
+def test_zgloszenie_przejmuje_otwarte_issue_tego_odcisku_bez_nowego_i_bez_komentarza(tmp_path: Path) -> None:
+    other = FakeIssue(3, "zgloszenie", "inny problem", "- Odcisk problemu: fedcba9876543210\n")
+    open_report = FakeIssue(7, "zgloszenie", REPORT.title, REPORT_BODY)
+    queue = Queue(tmp_path, FakeReportBox(issues=[other, open_report]))
+
+    queue.outbox.post(report())
+
+    assert wait_for(lambda: queue.files() == [])
+    assert queue.delivered == [(RUN_ID, 7)]
+    assert (queue.box.issues, open_report.comments, queue.box.keys) == ([other, open_report], [], [])
+
+
+def test_zamkniete_zgloszenie_tego_odcisku_nie_jest_przejete(tmp_path: Path) -> None:
+    closed = FakeIssue(7, "zgloszenie", REPORT.title, REPORT_BODY)
+    box = FakeReportBox(issues=[closed])
+    box.close(7)
+    queue = Queue(tmp_path, box)
+
+    queue.outbox.post(report())
+
+    assert queue.box.wait_until(lambda box: len(box.sent) == 2)
+    assert queue.box.sent[1].body == REPORT_BODY
+
+
+def test_zerwane_polaczenie_po_zalozeniu_zgloszenia_nie_daje_drugiego_zgloszenia(tmp_path: Path) -> None:
+    queue = Queue(tmp_path, FakeReportBox(lost_answers=1))
+
+    queue.outbox.post(report())
+    queue.passed()
+    assert len(queue.files()) == 1
+    queue.clock.advance(RETRY_S)
+
+    assert wait_for(lambda: queue.files() == [])
+    assert [issue.body for issue in queue.box.sent] == [REPORT_BODY]
+
+
+def test_dluga_tresc_zgloszenia_idzie_w_issue_i_komentarzach_bez_ramek(tmp_path: Path) -> None:
+    queue = Queue(tmp_path, FakeReportBox())
+    long_body = REPORT_BODY + "x" * 70_000
+
+    queue.outbox.post(report(long_body))
+
+    assert queue.box.wait_until(lambda box: len(box.sent) == 1 and len(box.sent[0].comments) == 1)
+    [issue] = queue.box.sent
+    assert issue.body + "".join(issue.comments) == long_body
+
+
+def test_zgloszenie_bez_wiersza_odcisku_w_tresci_issue_to_blad_programu() -> None:
+    with pytest.raises(ValueError, match="odcisku problemu"):
+        report("Zgłoszenie bez odcisku.\n")
+
+
+def test_plik_zgloszenia_zapisany_w_kolejce_wychodzi_po_starcie(tmp_path: Path) -> None:
+    queue = Queue(tmp_path, FakeReportBox(), key=None)
+    queue.outbox.post(report())
+    queue.passed()
+    [waiting] = queue.files()
+    assert f"-zgloszenie-{RUN_ID[:8]}.json" in waiting
+
+    queue.key = KEY
+    queue.restarted().resume()
+
+    assert queue.box.wait_until(lambda box: len(box.sent) == 1)
+    assert (queue.box.sent[0].title, queue.box.sent[0].body) == (REPORT.title, REPORT_BODY)

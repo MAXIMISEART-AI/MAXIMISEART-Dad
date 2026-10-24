@@ -1,8 +1,9 @@
-"""Kolejka Skrzynki Zgłoszeń: Kontrole ilości, Logi Uruchomienia (#320) i Uwagi taty, które Centrum wysyła w tle.
+"""Kolejka Skrzynki Zgłoszeń: Kontrole ilości, Logi Uruchomienia, Uwagi taty i Zgłoszenia, które Centrum wysyła w tle.
 
 Każda wysyłka (``Post``) to gotowy tekst skierowany do issue okresu (``PeriodThread``: etykieta, wiersz
 rozpoznawczy na początku treści issue, tytuł i co z issue, które Maks zamknął), do nowego issue (``NewIssue``:
-etykieta i tytuł, jak Uwaga taty) albo do issue o znanym numerze (``KnownIssue``). Najpierw trafia do własnego pliku
+etykieta i tytuł, jak Uwaga taty), do issue o znanym numerze (``KnownIssue``) albo do jednego otwartego Zgłoszenia
+problemu (``ReportIssue``: wiersz odcisku problemu w treści i tytuł). Najpierw trafia do własnego pliku
 JSON w ``config/zgloszenia/kolejka/`` (poza Gitem, poza plikami ``Zgłoszenie *.md``, które tata może przesłać
 Maksowi), potem jeden wątek w tle wysyła wszystkie pliki po kolei i usuwa wysłane. Porażka (brak klucza, odmowa,
 brak sieci) zostawia plik bez Komunikatu; wątek rusza znów sam po ``RETRY_S``, przy starcie Centrum (``resume``) i
@@ -39,7 +40,16 @@ from rozliczenia.centrum.atomic_file import replace_atomically
 from rozliczenia.centrum.clock import Clock
 from rozliczenia.centrum.keyed_box import KeyedBox, NoKey
 from rozliczenia.centrum.log import CentrumLog, WaitingCause
-from rozliczenia.centrum.report_box import COMMENT_LIMIT, Commented, Label, Refused, Rejected, Sent, Unreachable
+from rozliczenia.centrum.report_box import (
+    COMMENT_LIMIT,
+    REPORT_LABEL,
+    Commented,
+    Label,
+    Refused,
+    Rejected,
+    Sent,
+    Unreachable,
+)
 
 QUEUE_DIRECTORY: Final = "kolejka"
 # Poza ``config/zgloszenia``: weryfikacja Kontroli ilości sprawdza, że jest tam tylko kolejka.
@@ -91,7 +101,24 @@ class KnownIssue:
     number: int
 
 
-Target = PeriodThread | NewIssue | KnownIssue
+@dataclass(frozen=True)
+class ReportIssue:
+    """Zgłoszenie: jedno otwarte issue z etykietą ``zgloszenie`` na odcisk problemu (``line``: jego wiersz w treści).
+
+    Dostarczenie szuka otwartego Zgłoszenia z tym wierszem. Gdy jest (założyła je przerwana próba tej wysyłki, inny
+    komputer albo wcześniejsze Zgłoszenie, którego Centrum jeszcze nie znało), wysyłka je przejmuje bez nowego issue i
+    bez komentarza. Bez niego zakłada issue z ``title`` i częścią 1, a resztę części dopisuje komentarzami.
+    """
+
+    line: str
+    title: str
+
+    @property
+    def label(self) -> Label:
+        return REPORT_LABEL
+
+
+Target = PeriodThread | NewIssue | KnownIssue | ReportIssue
 """Dokąd w Skrzynce Zgłoszeń idzie wysyłka; dostarczenie rozróżnia cele przez ``match``."""
 
 
@@ -114,6 +141,9 @@ class Post:
         body, comments = self.opening()
         if not self.parts or any(len(text) > COMMENT_LIMIT for text in (body, *comments)):
             raise ValueError("Wysyłka musi mieć części mieszczące się w komentarzu Skrzynki Zgłoszeń.")
+        # Przerwaną wysyłkę Zgłoszenia następna próba znajduje po tym wierszu; bez niego założyłaby drugie issue.
+        if isinstance(self.target, ReportIssue) and self.target.line not in body.splitlines():
+            raise ValueError("Treść nowego issue Zgłoszenia musi mieć wiersz odcisku problemu.")
 
     @classmethod
     def of(
@@ -148,7 +178,7 @@ class Post:
         match self.target:
             case PeriodThread(line=line):
                 return f"{line}\n\n{first}", comments
-            case NewIssue():
+            case NewIssue() | ReportIssue():
                 return first, comments
             case KnownIssue():
                 return "", self.parts
@@ -201,6 +231,8 @@ def _target_json(target: Target) -> dict[str, str | int]:
             return {"kind": "new_issue", "label": target.label, "title": target.title}
         case KnownIssue():
             return {"kind": "known_issue", "label": target.label, "number": target.number}
+        case ReportIssue():
+            return {"kind": "report_issue", "label": target.label, "line": target.line, "title": target.title}
         case _:
             assert_never(target)
 
@@ -214,6 +246,8 @@ def _target(entry: dict[str, Any], kind: object) -> Target | None:
         return NewIssue(entry["label"], _string(entry["title"]))
     if kind == "known_issue":
         return KnownIssue(entry["label"], entry["number"]) if type(entry["number"]) is int else None
+    if kind == "report_issue":
+        return ReportIssue(_string(entry["line"]), _string(entry["title"])) if entry["label"] == REPORT_LABEL else None
     if kind != "period_thread" or entry["closed"] not in _CLOSED:
         return None
     return PeriodThread(entry["label"], _string(entry["line"]), entry["closed"], _string(entry["title"]))
@@ -333,6 +367,8 @@ def _deliver(post: Post, box: KeyedBox) -> Delivered | Gone | Failure:
             return _deliver_new_issue(post, issue, box)
         case KnownIssue() as known:
             return _deliver_to_known(post, known, box)
+        case ReportIssue() as report:
+            return _deliver_report(post, report, box)
         case _:
             assert_never(post.target)
 
@@ -342,6 +378,25 @@ def _deliver_new_issue(post: Post, issue: NewIssue, box: KeyedBox) -> Delivered 
 
     body, comments = post.opening()
     opened = box.open_issue(issue.label, issue.title, body)
+    if not isinstance(opened, Sent):
+        return opened
+    return _comment_all(opened.number, comments, box)
+
+
+def _deliver_report(post: Post, report: ReportIssue, box: KeyedBox) -> Delivered | Failure:
+    """Otwarte Zgłoszenie z tym odciskiem albo nowe issue z częścią 1 i komentarze z resztą.
+
+    Ponowna próba po przerwaniu między założeniem issue a znacznikiem dostarczenia znajduje issue założone przez
+    pierwszą i je przejmuje, więc jeden problem ma jedno otwarte Zgłoszenie także wtedy.
+    """
+
+    found = box.find_issue(report.label, report.line, include_closed=False)
+    if isinstance(found, Refused | Unreachable | NoKey):
+        return found
+    if found is not None:
+        return Delivered(found, ())
+    body, comments = post.opening()
+    opened = box.open_issue(report.label, report.title, body)
     if not isinstance(opened, Sent):
         return opened
     return _comment_all(opened.number, comments, box)
