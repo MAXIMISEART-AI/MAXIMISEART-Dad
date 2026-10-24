@@ -404,7 +404,7 @@ def _logs_comment(box: Path, run_id: str) -> str | None:
         if thread["labels"] == [LOGS_LABEL]:
             for index, comment in enumerate(thread.get("comments", []), start=1):
                 if f"- Uruchomienie: {run_id}," in comment:
-                    return f"{path.as_uri()}#komentarz-{index}"
+                    return f"skrzynka-zgloszen/{path.name}#komentarz-{index}"
     return None
 
 
