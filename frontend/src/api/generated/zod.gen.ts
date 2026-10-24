@@ -565,16 +565,6 @@ export const zReportNotification = z.object({
 });
 
 /**
- * Notifications
- *
- * Powiadomienia od najnowszego i liczba nieprzeczytanych (kropka na dzwonku).
- */
-export const zNotifications = z.object({
-    unread: z.int(),
-    items: z.array(z.union([zDadNoteNotification, zReportNotification]))
-});
-
-/**
  * ReportReady
  *
  * Zgłoszenia tego problemu jeszcze nie wysłano; „Wyślij do Maksa” wyśle podgląd z Diagnozy.
@@ -752,6 +742,48 @@ export const zSettings = z.object({
  */
 export const zChoice = z.object({
     settings: zSettings
+});
+
+/**
+ * SolvedCase
+ *
+ * Sprawa wysłana z tego komputera, którą Wydanie rozwiązuje: Uwaga taty nazwana tytułem, Zgłoszenie jego
+ * „Co się stało”.
+ */
+export const zSolvedCase = z.object({
+    kind: z.enum(['uwaga', 'zgloszenie']),
+    title: z.string()
+});
+
+/**
+ * ReleaseNotification
+ *
+ * Powiadomienie o nowej wersji: numer Wydania (``0.2.0``), notka „Co nowego”, sprawy taty, które rozwiązuje, i
+ * czy Centrum proponuje Aktualizację narzędzia (``tool_freshness.offers_update``, tylko przy najnowszym Wydaniu).
+ */
+export const zReleaseNotification = z.object({
+    id: z.string(),
+    at: z.iso.datetime(),
+    unread: z.boolean(),
+    kind: z.literal('nowa_wersja'),
+    version: z.string(),
+    summary: z.string(),
+    solved: z.array(zSolvedCase),
+    update_offered: z.boolean()
+});
+
+/**
+ * Notifications
+ *
+ * Powiadomienia od najnowszego i liczba nieprzeczytanych (kropka na dzwonku).
+ */
+export const zNotifications = z.object({
+    unread: z.int(),
+    items: z.array(z.union([
+        zDadNoteNotification,
+        zReportNotification,
+        zReleaseNotification
+    ]))
 });
 
 /**
