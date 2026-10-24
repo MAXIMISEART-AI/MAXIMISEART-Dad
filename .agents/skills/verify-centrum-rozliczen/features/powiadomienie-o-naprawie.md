@@ -11,7 +11,7 @@ pinned instead.
 
 ## Sub-features
 
-- `naprawa-czeka`: Dad updates the tool and sends the Zgłoszenie of the other problem (the missing Plik zbiorczy Wzorzec) from it, so the closed Zgłoszenie 1 of `zgloszenie`, sent from the older tool, does not count; entering Okresy asks the skrzynka once; the Zgłoszenie is open, so `GET /api/reports/repair` is `{"repaired": false}` and there is no notice; a second read within 10 minutes asks nothing.
+- `naprawa-czeka`: Dad updates the tool and sends the Zgłoszenie of the other problem (the missing Plik zbiorczy Wzorzec) from it, so the closed first Zgłoszenie of `zgloszenie`, sent from the older tool, does not count; entering Okresy asks the skrzynka once; the Zgłoszenie is open, so `GET /api/reports/repair` is `{"repaired": false}` and there is no notice; a second read within 10 minutes asks nothing.
 - `naprawa-brak-sieci`: after Maks closes the Zgłoszenie in the skrzynka, Okresy within 10 minutes shows the last known state without asking; 10 minutes later without network it asks, gets nothing, and shows no notice and no alert.
 - `naprawa-powiadomienie`: with network again, 10 minutes later the status `Maks naprawił zgłoszony problem.` with an enabled `Zaktualizuj narzędzie` is on Okresy; `config/zgloszenia-wyslane.json` keeps `state` `closed`.
 - `naprawa-po-aktualizacji`: with another tool commit (Dad updated the tool) the notice is gone and the closed Zgłoszenie is not asked about again.

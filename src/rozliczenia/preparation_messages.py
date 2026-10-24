@@ -17,24 +17,31 @@ from dataclasses import dataclass
 from datetime import date
 from itertools import groupby
 from pathlib import Path
-from typing import Final
+from typing import Final, assert_never
 
 from .message import REPORT_TO_MAINTAINER, Message, file_label, folder_label
 from .period_folder import PeriodFolderLookupError, month_folder_label
+from .quantity_rules import DESCRIPTION_COLUMNS
 from .workbook_files import WORKER_HEADER
+from .workbook_files import MergedCells, MissingHeader, Problem, WorkbookError
 from .worker_config import WorkerConfigError
 
-# Kody czytane poza katalogiem: decyzja o niepełnym okresie i problemy Wzorców w Konfiguracji Centrum.
+# Kod czytany poza katalogiem: decyzja o niepełnym okresie. Kody Wzorców czyta tylko ten katalog.
 INCOMPLETE_PERIOD = "NIEPELNY_OKRES"
 TEMPLATE_MISSING = "BRAK_WZORCA"
 TEMPLATE_OPEN_IN_EXCEL = "WZORZEC_OTWARTY"
+# Ostrzeżenia ilości: tylko z ich powodu zapisany Plik zbiorczy wymaga sprawdzenia, więc skrypty, które czekają
+# na Przygotowanie bez uwag, przyjmują taki wynik.
+UNKNOWN_DEVICES = "NIEZNANE_URZADZENIA"
+ROWS_FROM_DESCRIPTION = "WIERSZE_Z_OPISU"
+COLUMNS_FROM_DESCRIPTION = "KOLUMNY_Z_OPISU"
+QUANTITY_WARNINGS: Final = frozenset({UNKNOWN_DEVICES, ROWS_FROM_DESCRIPTION, COLUMNS_FROM_DESCRIPTION})
 
 # Napisy Decyzji taty o niepełnym okresie; jej Komunikat to ``incomplete_period``, odmowa ``incomplete_period_refused``.
 INCOMPLETE_PERIOD_TITLE: Final = "Ostrzeżenie: niepełny okres"
 INCOMPLETE_PERIOD_QUESTION: Final = "Kontynuować mimo niepełnego okresu?"
 # Liczby zleceń na dzień okresu, w Decyzji i w podsumowaniu; etykieta dnia to np. „wt 08.09.2026”.
 ORDERS_PER_DAY: Final = "Zlecenia na dzień"
-WEEKDAY_LABELS: Final = ("pon", "wt", "śr", "czw", "pt", "sob", "niedz")
 
 
 def period_file_exists(period_directory: Path, filename: str) -> Message:
@@ -80,7 +87,35 @@ def worker_config_problem(config_path: Path, error: WorkerConfigError) -> Messag
     )
 
 
-def template_missing(template_path: Path) -> Message:
+def template_unusable(template_path: Path, error: WorkbookError) -> Message:
+    """Wzorzec rozliczenia wewnętrznego albo Wzorzec pliku zbiorczego, którego nie da się użyć; ``error`` mówi dlaczego."""
+
+    match error.problem:
+        case Problem.MISSING:
+            return _template_missing(template_path)
+        case Problem.OPEN_IN_EXCEL:
+            return _template_open_in_excel(template_path)
+        case Problem.INACCESSIBLE:
+            return _template_inaccessible(template_path)
+        case Problem.UNREADABLE | Problem.HAS_DATA:
+            return _template_unreadable(template_path)
+        case Problem.LAYOUT:
+            match error.fault:
+                case MissingHeader(sheet=sheet, found_in=str(column)):
+                    return _template_with_worker_outside_h(template_path, sheet, column)
+                case MissingHeader(sheet=sheet, row=row, header=header):
+                    return _template_without_header(template_path, sheet, row, header)
+                case MergedCells(sheet=sheet, cells=cells):
+                    return _template_with_merged_cells(template_path, sheet, cells)
+                case None:
+                    return _template_unreadable(template_path)
+                case _:
+                    assert_never(error.fault)
+        case _:
+            assert_never(error.problem)
+
+
+def _template_missing(template_path: Path) -> Message:
     """Wzorzec rozliczenia wewnętrznego albo Wzorzec pliku zbiorczego nie istnieje."""
 
     return Message(
@@ -91,7 +126,7 @@ def template_missing(template_path: Path) -> Message:
     )
 
 
-def template_open_in_excel(template_path: Path) -> Message:
+def _template_open_in_excel(template_path: Path) -> Message:
     """Wzorzec ma obok plik blokady Excela ``~$…``; narzędzie go nie usuwa."""
 
     return Message(
@@ -106,7 +141,23 @@ def template_open_in_excel(template_path: Path) -> Message:
     )
 
 
-def template_unreadable(template_path: Path) -> Message:
+def _template_inaccessible(template_path: Path) -> Message:
+    """System nie oddał bajtów wzorca (np. plik zajęty przez inny program albo folder bez dostępu); to nie uszkodzenie.
+
+    Wzorce leżą w ``config`` na dysku C, więc tata rzadko sam usunie przyczynę: Komunikat idzie do Maksa.
+    """
+
+    return Message(
+        code="NIEDOSTEPNY_WZORZEC",
+        what=(
+            "Nie można teraz odczytać wzorca. Plik może być zajęty przez inny program. Nie utworzono żadnego pliku."
+        ),
+        where=file_label(template_path),
+        action=REPORT_TO_MAINTAINER,
+    )
+
+
+def _template_unreadable(template_path: Path) -> Message:
     """Wzorzec nie daje się odczytać jako skoroszyt .xlsx."""
 
     return Message(
@@ -120,7 +171,7 @@ def template_unreadable(template_path: Path) -> Message:
     )
 
 
-def template_without_header(template_path: Path, sheet: str, row: int, header: str) -> Message:
+def _template_without_header(template_path: Path, sheet: str, row: int, header: str) -> Message:
     """Wzorzec nie ma oczekiwanego nagłówka, więc nie wiadomo, gdzie wpisać zlecenia."""
 
     return Message(
@@ -134,7 +185,7 @@ def template_without_header(template_path: Path, sheet: str, row: int, header: s
     )
 
 
-def template_with_worker_outside_h(template_path: Path, sheet: str, column: str) -> Message:
+def _template_with_worker_outside_h(template_path: Path, sheet: str, column: str) -> Message:
     """Wzorzec pliku zbiorczego ma WYKONAWCA poza H17, a Przebieg rozliczeń czyta Wykonawcę z H17."""
 
     worker_column = WORKER_HEADER.column
@@ -150,7 +201,7 @@ def template_with_worker_outside_h(template_path: Path, sheet: str, column: str)
     )
 
 
-def template_with_merged_cells(template_path: Path, sheet: str, cell_range: str) -> Message:
+def _template_with_merged_cells(template_path: Path, sheet: str, cell_range: str) -> Message:
     """Komórki wzorca, do których trafiają zlecenia, są scalone."""
 
     return Message(
@@ -164,6 +215,22 @@ def template_with_merged_cells(template_path: Path, sheet: str, cell_range: str)
     )
 
 
+def register_unusable(register_path: Path, error: WorkbookError) -> Message:
+    """Rejestr zleceń, którego nie da się użyć; ``error`` mówi dlaczego."""
+
+    match error.problem:
+        case Problem.MISSING:
+            return register_missing(register_path)
+        case Problem.OPEN_IN_EXCEL:
+            return _register_open_in_excel(register_path)
+        case Problem.INACCESSIBLE:
+            return _register_inaccessible(register_path)
+        case Problem.UNREADABLE | Problem.LAYOUT | Problem.HAS_DATA:
+            return _register_unreadable(register_path)
+        case _:
+            assert_never(error.problem)
+
+
 def register_missing(register_path: Path) -> Message:
     """Rejestr zleceń nie istnieje pod wskazaną ścieżką."""
 
@@ -175,7 +242,7 @@ def register_missing(register_path: Path) -> Message:
     )
 
 
-def register_open_in_excel(register_path: Path) -> Message:
+def _register_open_in_excel(register_path: Path) -> Message:
     """Rejestr zleceń ma obok plik blokady Excela ``~$…``; narzędzie go nie usuwa."""
 
     return Message(
@@ -190,7 +257,7 @@ def register_open_in_excel(register_path: Path) -> Message:
     )
 
 
-def register_inaccessible(register_path: Path) -> Message:
+def _register_inaccessible(register_path: Path) -> Message:
     """System nie oddał bajtów Rejestru zleceń (np. zajęty przez inny program albo OneDrive bez sieci); to nie uszkodzenie."""
 
     return Message(
@@ -207,7 +274,7 @@ def register_inaccessible(register_path: Path) -> Message:
     )
 
 
-def register_unreadable(register_path: Path) -> Message:
+def _register_unreadable(register_path: Path) -> Message:
     """Rejestr zleceń nie daje się odczytać jako skoroszyt .xlsx."""
 
     return Message(
@@ -349,7 +416,7 @@ _LISTED_ROWS = 10
 
 
 def _rows_label(row_numbers: Sequence[int]) -> str:
-    """Numery wierszy Rejestru; przy długiej liście tylko pierwsze i liczba pozostałych."""
+    """Numery wierszy; przy długiej liście tylko pierwsze i liczba pozostałych."""
 
     if len(row_numbers) == 1:
         return f"wiersz {row_numbers[0]}"
@@ -517,6 +584,55 @@ def too_few_zero_rows(
         action=(
             "Uzupełnij ilości w tych wierszach ręcznie. Jeśli zdarza się to często, przekaż to "
             "osobie utrzymującej narzędzie, żeby dodała wiersze z zerami we Wzorcu pliku zbiorczego."
+        ),
+    )
+
+
+def unknown_devices(collective_filename: str, row_numbers: Sequence[int]) -> Message:
+    """Ostrzeżenie: Reguły ilości nie znają składnika ``URZĄDZENIA``, więc wiersz ma tylko ilości od niego niezależne."""
+
+    return Message(
+        code=UNKNOWN_DEVICES,
+        what=(
+            "Narzędzie nie zna urządzenia z kolumny URZĄDZENIA, więc w tych wierszach Pliku zbiorczego wpisało "
+            "tylko ilości niezależne od urządzeń (V, T i N)."
+        ),
+        where=f"plik {collective_filename}, {_rows_label(row_numbers)}",
+        action=(
+            "Uzupełnij pozostałe ilości w tych wierszach ręcznie przed Przebiegiem rozliczeń. Jeśli to nowe "
+            "urządzenie, które będzie wracać, powiedz o nim osobie utrzymującej narzędzie."
+        ),
+    )
+
+
+def rows_from_description(collective_filename: str, row_numbers: Sequence[int]) -> Message:
+    """Ostrzeżenie: wiersze rozliczane z opisu (prewencja, niedostępność usług, puste ``URZĄDZENIA``) bez ilości."""
+
+    return Message(
+        code=ROWS_FROM_DESCRIPTION,
+        what=(
+            "Te wiersze Pliku zbiorczego rozlicza się z opisu technika (prewencja, niedostępność usług albo puste "
+            "URZĄDZENIA), więc narzędzie nie wpisało w nich żadnych ilości."
+        ),
+        where=f"plik {collective_filename}, {_rows_label(row_numbers)}",
+        action=(
+            "Wpisz ilości w tych wierszach według opisu technika w CZYNNOŚCI ZREALIZOWANE przed Przebiegiem "
+            "rozliczeń."
+        ),
+    )
+
+
+def columns_from_description(collective_filename: str) -> Message:
+    """Ostrzeżenie zawsze po Planowaniu: kolumn z opisu technika Reguły ilości nie wypełniają."""
+
+    columns = ", ".join(DESCRIPTION_COLUMNS[:-1]) + f" i {DESCRIPTION_COLUMNS[-1]}"
+    return Message(
+        code=COLUMNS_FROM_DESCRIPTION,
+        what="Ilości, które wynikają z opisu technika (CZYNNOŚCI ZREALIZOWANE), narzędzie zostawia do uzupełnienia.",
+        where=f"plik {collective_filename}, kolumny {columns}",
+        action=(
+            "Przejrzyj opis technika w każdym wierszu Pliku zbiorczego i uzupełnij ilości w tych kolumnach przed "
+            "Przebiegiem rozliczeń."
         ),
     )
 

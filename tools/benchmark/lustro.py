@@ -60,6 +60,9 @@ MONTH_FOLDER = "10_Październik_2026"
 
 
 REGISTER_NAME = "ZLECENIA INTERMAX OD 08_11_2021.xlsx"
+# Kody wyjścia Skryptu dla maszyn, po których Plik zbiorczy lustra powstał: OK i wynik wymagający sprawdzenia, którym
+# Przygotowanie kończy zapis tylko z powodu ostrzeżeń ilości (preparation_process._finished).
+_PREPARED_EXITS = (0, 2)
 
 
 # Zmiana sposobu generowania lustra zmienia jego odcisk, więc stare lustro nie zostanie użyte.
@@ -230,7 +233,7 @@ def _fill_entries(collective_file: Path) -> None:
     """Gotowość lustra: tata wpisuje ilości i obciążenia w ``N:AT`` każdego Wiersza danych Pliku zbiorczego."""
 
     rng = random.Random(SEED)
-    data_rows = [row.number for row in read_data_rows(collective_file)]
+    data_rows = [row.number for row in read_data_rows(collective_file).rows]
     workbook = load_workbook(collective_file)
     try:
         sheet = workbook.active
@@ -307,7 +310,7 @@ def ensure_mirror(
                 ],
                 mirrors / "ostatni-blad-przygotowania.txt",
             )
-        if preparation.exit_code != 0:
+        if preparation.exit_code not in _PREPARED_EXITS:
             raise BenchmarkError(
                 f"Przygotowanie pliku zbiorczego lustra zakończyło się kodem {preparation.exit_code}; "
                 f"wyjście w {mirrors / 'ostatni-blad-przygotowania.txt'}."

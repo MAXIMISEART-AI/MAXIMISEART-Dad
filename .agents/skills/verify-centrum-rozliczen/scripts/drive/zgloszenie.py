@@ -58,7 +58,10 @@ def _report_state(run: Run, name: str) -> object:
 
 
 def _issues(box: Path) -> list[dict[str, object]]:
-    return [json.loads(path.read_text(encoding="utf-8")) for path in sorted(box.glob("*.json"))]
+    """Zgłoszenia in the skrzynka by number; a Kontrola ilości from features/kontrola-ilosci.md takes numbers too."""
+
+    issues = [json.loads(path.read_text(encoding="utf-8")) for path in box.glob("*.json")]
+    return sorted((issue for issue in issues if issue["labels"] == ["zgloszenie"]), key=lambda issue: int(str(issue["number"])))
 
 
 def _shown_report(page: Page) -> tuple[str, str]:
@@ -137,6 +140,7 @@ def drive_report(run: Run, page: Page) -> None:
     expect(page.get_by_role("status").filter(has_text=SENT)).to_be_visible()
     expect(page.get_by_role("button", name="Spróbuj ponownie", exact=True)).to_have_count(0)
     [issue] = _issues(box)
+    number = issue["number"]
     (run.evidence / "api" / "zgloszenie-skrzynka.json").write_text(
         json.dumps(issue, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
     )
@@ -147,11 +151,11 @@ def drive_report(run: Run, page: Page) -> None:
     run.check(not unsent.exists(), "the sent Zgłoszenie no longer waits in a file")
     sent = json.loads((config / "zgloszenia-wyslane.json").read_text(encoding="utf-8"))
     run.check(
-        [entry["number"] for entry in sent] == [1] and f"- Odcisk problemu: {sent[0]['fingerprint']}" in body.splitlines(),
+        [entry["number"] for entry in sent] == [number] and f"- Odcisk problemu: {sent[0]['fingerprint']}" in body.splitlines(),
         "the local sent state keeps the fingerprint and the issue number",
     )
     log = (run.root / "logs" / "centrum-rozliczen.log").read_text(encoding="utf-8")
-    run.check(f"zgloszenie-wyslane proces=preparation okres={PERIOD} numer=1" in log, "the Centrum log records the sending")
+    run.check(f"zgloszenie-wyslane proces=preparation okres={PERIOD} numer={number}" in log, "the Centrum log records the sending")
     run.check(KEY not in log and KEY not in json.dumps(issue), "the key is neither in the log nor in the Zgłoszenie")
     run.capture(page, "64-zgloszenie-wyslane")
 
@@ -184,8 +188,10 @@ def _one_open_report(run: Run, page: Page, box: Path, config: Path) -> None:
     diagnosis = page.get_by_role("region", name="Diagnoza")
 
     run.step(FEATURE, "zgloszenie-zamkniete")
-    print("  harness: Maks closes Zgłoszenie 1 in the skrzynka Zgłoszeń", flush=True)
-    closed = box / "1.json"
+    [first] = _issues(box)
+    number = first["number"]
+    print(f"  harness: Maks closes Zgłoszenie {number} in the skrzynka Zgłoszeń", flush=True)
+    closed = box / f"{number}.json"
     closed.write_text(json.dumps({**json.loads(closed.read_text(encoding="utf-8")), "state": "closed"}), encoding="utf-8")
     _stop_for_maks(run, page, "zgloszenie-zamkniete")
     expect(page.get_by_role("status").filter(has_text=WAITING)).to_be_visible()
@@ -200,7 +206,7 @@ def _one_open_report(run: Run, page: Page, box: Path, config: Path) -> None:
     )
     diagnosis.get_by_role("button", name="Co zostanie wysłane", exact=True).click()
     title, body = _shown_report(page)
-    run.check("- Poprzednie Zgłoszenie: #1" in body.splitlines(), "the new Zgłoszenie links the previous one")
+    run.check(f"- Poprzednie Zgłoszenie: #{number}" in body.splitlines(), "the new Zgłoszenie links the previous one")
     run.capture(page, "69-zgloszenie-zamkniete-po-diagnozie")
 
     run.step(FEATURE, "zgloszenie-nowe-z-odnosnikiem")
@@ -211,12 +217,15 @@ def _one_open_report(run: Run, page: Page, box: Path, config: Path) -> None:
         json.dumps(issues, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
     )
     run.check(
-        [(issue["number"], issue["state"]) for issue in issues] == [(1, "closed"), (2, "open")]
+        [(issue["number"], issue["state"]) for issue in issues] == [(number, "closed"), (issues[-1]["number"], "open")]
         and (issues[1]["title"], issues[1]["body"]) == (title, body),
-        "the skrzynka got exactly the new preview as Zgłoszenie 2 next to the closed one",
+        "the skrzynka got exactly the new preview as a second Zgłoszenie next to the closed one",
     )
     sent = json.loads((config / "zgloszenia-wyslane.json").read_text(encoding="utf-8"))
-    run.check([entry["number"] for entry in sent] == [1, 2], "the local sent state keeps both Zgłoszenia")
+    run.check(
+        [entry["number"] for entry in sent] == [issue["number"] for issue in issues],
+        "the local sent state keeps both Zgłoszenia",
+    )
     run.capture(page, "70-zgloszenie-nowe-z-odnosnikiem")
 
     run.step(FEATURE, "zgloszenie-inny-problem")

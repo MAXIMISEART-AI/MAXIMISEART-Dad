@@ -14,6 +14,7 @@ from collections.abc import Sequence
 from datetime import datetime
 from pathlib import Path
 import threading
+from typing import Literal
 
 VIEW_TIMING_EVENT = "pomiar"
 # Pomiar przychodzi po każdym widoku, więc na jedno uruchomienie Centrum dziennik przyjmuje ich najwyżej
@@ -21,6 +22,8 @@ VIEW_TIMING_EVENT = "pomiar"
 MAX_VIEW_TIMINGS = 200
 # Wpisy o Aktualizacji narzędzia i jej Zgłoszeniach mówią, skąd są, tym samym słowem.
 _UPDATE = "aktualizacja"
+# Okres wysyłki w tle z Uruchomienia, którego okresu nie ustalono.
+_NO_PERIOD = "bez-okresu"
 
 
 class CentrumLog:
@@ -132,6 +135,28 @@ class CentrumLog:
 
         self._write("zgloszenie-niezapisane", z=_UPDATE, przyczyna=cause)
 
+    def box_post_queued(self, *, label: str, period: str | None) -> None:
+        """Wysyłka w tle (np. Kontrola ilości) czeka w kolejce Skrzynki Zgłoszeń; bez treści."""
+
+        self._write("skrzynka-w-kolejce", etykieta=label, okres=_period(period))
+
+    def box_post_sent(self, *, label: str, period: str | None, number: int) -> None:
+        """Wysyłka w tle przyjęta przez Skrzynkę Zgłoszeń w issue ``number``; bez treści i klucza."""
+
+        self._write("skrzynka-wyslano", etykieta=label, okres=_period(period), numer=number)
+
+    def box_post_waiting(
+        self, *, label: str, period: str | None, cause: Literal["brak-klucza", "odmowa", "brak-sieci"]
+    ) -> None:
+        """Wysyłka w tle zostaje w kolejce do następnej próby; ``cause``: dlaczego."""
+
+        self._write("skrzynka-czeka", etykieta=label, okres=_period(period), przyczyna=cause)
+
+    def box_post_unreadable(self, *, file: str) -> None:
+        """Pliku kolejki Skrzynki Zgłoszeń nie da się odczytać (uszkodzony, nieznany schemat); zostaje. Tylko nazwa."""
+
+        self._write("skrzynka-nieczytelny", plik=file)
+
     def view_timed(
         self,
         *,
@@ -203,3 +228,9 @@ def event_of(line: str) -> str:
 def _quoted(value: str | int) -> str:
     text = str(value)
     return f'"{text}"' if " " in text else text
+
+
+def _period(period: str | None) -> str:
+    """Token okresu wysyłki w tle; Uruchomienie bez ustalonego okresu ma ``bez-okresu``."""
+
+    return period or _NO_PERIOD

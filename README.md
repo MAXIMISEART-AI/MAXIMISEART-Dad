@@ -157,10 +157,28 @@ powstają razem albo żaden.
   starszej kopii. Oba zapisy jednej kolumny naraz to powtórzony nagłówek.
   Wzorzec z nagłówkiem w zapisie Rejestru zamiast własnego oznacza zatrzymanie.
 - Plik zbiorczy (`Rozliczenie {okres} - zbiorcze.xlsx`) zawiera każde Zlecenie
-  skuteczne w `A:K` od wiersza 18, bez przerw. Wiersze 1–17, kolumny ilości
-  `N:AP`, formuły i odwołania zewnętrzne (`xl/externalLinks/*`) zostają z wzorca.
+  skuteczne w `A:K` od wiersza 18, bez przerw, a w `N:AP` jego Ilości usług
+  według Reguł ilości (ADR 0012), tylko różne od zera i w wyglądzie komórki
+  wzorca. Pozostałe komórki `N:AP` (np. zera), wiersze 1–17, formuły i odwołania
+  zewnętrzne (`xl/externalLinks/*`) zostają z wzorca.
   openpyxl nie zapisuje wyników formuł, więc Plik zbiorczy, tak jak Szablony
   pracowników, prosi Excela o przeliczenie formuł przy otwarciu.
+- Reguły ilości czytają `URZĄDZENIA` jako składniki (`nokia zte`, `n*fut`,
+  `wifi6extra`, `usterka`, `gniazdo`). T wynika z pierwszego słowa `UMOWA`, a
+  liczba sztuk instalacji ręcznej z `CZYNNOŚCI`. Usterka od poniedziałku do
+  piątku od 17:00 i w sobotę dostaje dodatek 45 w N według `DATA`. Wiersz z
+  prewencją, niedostępnością usług albo pustymi `URZĄDZENIA` zostaje bez
+  ilości, a wiersz z nieznanym składnikiem dostaje tylko V, T i N. Oba
+  rodzaje wierszy dają ostrzeżenie z numerami wierszy Pliku zbiorczego. Każde
+  Przygotowanie przypomina też o kolumnach z opisu technika (`Y`, `AB`, `AD`,
+  `AJ`, `AK`, `AL`, `AM`), które uzupełnia tata. Dlatego zapis kończy się
+  wynikiem wymagającym sprawdzenia, a podgląd bez zapisu z tymi samymi
+  ostrzeżeniami wynikiem OK.
+- Reguły ilości są w `src/rozliczenia/quantity_rules.py`, a
+  `tests/test_ilosci_uslug.py` sprawdza je z każdą linią instrukcji taty.
+  `tools/pomiar_regul_ilosci.py` porównuje je z Plikami zbiorczymi, które
+  wypełnił tata. Uruchamia go tylko Maks na swoim Macu, a wynik to same liczby
+  i teksty `URZĄDZENIA`.
 - Wypełnienia, kolory czcionki, pogrubienia, kursywa i formaty dat przechodzą z
   Rejestru. Krój i rozmiar czcionki, szerokości kolumn, wysokości wierszy,
   nagłówek i blokada nagłówka pochodzą z wzorca. Autofiltr obejmuje nagłówek i
@@ -256,7 +274,9 @@ Na stdout trafia jeden obiekt JSON w kształcie kontraktu Centrum: wynik,
 podsumowanie z karty Uruchomienia, ostrzeżenia i Zatrzymanie z kodem
 Komunikatu, ostatni stan postępu, `Czas uruchomienia` i informacja o zapisie
 metryk. Pełny opis pól jest w opisie skryptu (`--help`). Kody wyjścia: `0` OK,
-`2` Wymaga sprawdzenia, `1` Zatrzymanie albo błędne argumenty.
+`2` Wymaga sprawdzenia, `1` Zatrzymanie albo błędne argumenty. Przygotowanie z
+zapisem kończy się kodem `2`, bo ma zawsze ostrzeżenia o ilościach do
+uzupełnienia; podgląd bez zapisu z tymi samymi ostrzeżeniami kończy się kodem `0`.
 
 ## Testy
 
@@ -390,5 +410,4 @@ automatyczne wykrywanie gotowości po samym zapisie pliku są poza zakresem.
 Poza zakresem Przygotowania pliku zbiorczego są też:
 
 - połączenie Przygotowania pliku zbiorczego i Przebiegu rozliczeń w jeden
-  proces działający w tle;
-- automatyczne uzupełnianie ilości 0/1 w kolumnach `N:AP` Pliku zbiorczego.
+  proces działający w tle.

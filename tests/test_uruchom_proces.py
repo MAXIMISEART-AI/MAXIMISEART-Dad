@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 import importlib.util
 import itertools
 import json
@@ -30,7 +31,15 @@ from tests.fixtures.preparation import (
 )
 from rozliczenia.preparation_register import read_register
 from rozliczenia.workbook_files import read_data_rows
-from tests.fixtures.settlement import PERIOD, SOURCE_NAME, link_order_numbers, make_fixture, make_preview_fixture, write_template
+from tests.fixtures.settlement import (
+    PERIOD,
+    SOURCE_NAME,
+    link_order_numbers,
+    make_fixture,
+    make_preview_fixture,
+    write_quantity_source,
+    write_template,
+)
 from tests.fixtures.workbooks import hyperlinks
 
 SCRIPT = Path(__file__).resolve().parents[1] / "tools" / "uruchom_proces.py"
@@ -111,6 +120,22 @@ def _preparation_arguments(fixture: PreparationFixture, *extra: str) -> list[str
     ]
 
 
+def test_przebieg_ze_skryptu_dla_maszyn_nie_tworzy_kontroli_ilosci(tmp_path: Path) -> None:
+    source, _target, config = make_fixture(tmp_path)
+    started = datetime(2026, 9, 9, 13, 45)
+    write_quantity_source(
+        source,
+        [{"C": "u ZNACZNIK-UMOWA", "D": "nokia ZNACZNIK-URZADZENIA", "E": "ZNACZNIK-CZYNNOSCI", "G": started, "V": 2}],
+    )
+
+    completed = _completed(*_settlement_arguments(tmp_path, source, config))
+
+    assert completed.returncode == 0, completed.stderr
+    assert [path for path in tmp_path.rglob("*") if path.name in ("zgloszenia", "kolejka")] == []
+    printed = completed.stdout + completed.stderr + (tmp_path / "metrics.jsonl").read_text(encoding="utf-8")
+    assert [marker for marker in ("ZNACZNIK-UMOWA", "ZNACZNIK-URZADZENIA", "ZNACZNIK-CZYNNOSCI") if marker in printed] == []
+
+
 def test_przebieg_rozliczen_ok_konczy_kodem_0_z_podsumowaniem_karty_uruchomienia(tmp_path: Path) -> None:
     source, target, config = make_fixture(tmp_path)
 
@@ -165,7 +190,8 @@ def test_adres_hiperlacza_z_rejestru_nie_trafia_do_wyniku_przygotowania_ani_metr
 
     outputs = [_completed(*_preparation_arguments(fixture, *mode)) for mode in (("--dry-run",), ())]
 
-    assert [completed.returncode for completed in outputs] == [0, 0]
+    # Zapis z ostrzeżeniami ilości wymaga sprawdzenia (kod 2), podgląd z tymi samymi ostrzeżeniami jest OK.
+    assert [completed.returncode for completed in outputs] == [0, 2]
     assert hyperlinks(fixture.collective_file_path) == {"F18": links[4], "F19": links[9], "F20": links[13]}
     for completed in outputs:
         assert sentinel not in completed.stdout + completed.stderr
@@ -330,7 +356,8 @@ def test_podglad_przygotowania_pliku_zbiorczego_pokazuje_plan_bez_plikow_okresu(
 
     exit_code, result = _preparation(fixture, "--dry-run")
 
-    assert (exit_code, result["result"], result["stop"], result["warnings"]) == (0, "OK", None, [])
+    assert (exit_code, result["result"], result["stop"]) == (0, "OK", None)
+    assert [warning["code"] for warning in result["warnings"]] == ["NIEZNANE_URZADZENIA", "KOLUMNY_Z_OPISU"]
     figures = {figure["label"]: figure["value"] for figure in result["summary"]["figures"]}
     assert (figures["Zlecenia okresu"], figures["Zlecenia skuteczne"]) == (4, 3)
     assert result["summary"]["files"] == [

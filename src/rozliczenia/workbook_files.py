@@ -200,6 +200,8 @@ class _Rules:
     period_file: bool
     """Plik okresu z Przygotowania: Sprawdzanie z zarysu Wzorca, wygląd w każdej zapisanej kolumnie i autofiltr
     zawsze idą razem. Inaczej Szablon pracownika: Wzorzec bez danych, sprawdzany też przed każdym plikiem."""
+    quantity_columns: range = range(0)
+    """Kolumny, do których trafiają Ilości usług Wiersza danych (``DataRow.quantities``)."""
 
 
 class Layout(Enum):
@@ -233,10 +235,12 @@ class Layout(Enum):
             data_columns=_INPUT_COLUMNS[-1],
             look_columns=_LOOK_COLUMNS[-1],
             collective_file=True,
+            quantity_columns=QUANTITY_COLUMNS,
         ),
         recalculate=True,
         look_columns=_LOOK_COLUMNS[-1],
         period_file=True,
+        quantity_columns=QUANTITY_COLUMNS,
     )
     INTERNAL_SETTLEMENT = _Rules(
         header_row=1,
@@ -267,6 +271,12 @@ class DataRow:
     number_formats: tuple[str, ...]
     """Formaty liczb komórek po pozycji; trafiają do kolumn wyglądu pliku z Wzorca."""
     hyperlinks: Mapping[int, Hyperlink] = field(default_factory=dict)
+    quantities: Mapping[int, int] = field(default_factory=dict)
+    """Ilości usług Wiersza danych Pliku zbiorczego z Przygotowania: kolumna (od 1) → liczba różna od zera.
+
+    Trafiają do komórki Wzorca z jej wyglądem, bez Wyróżnień; reszta kolumn ilości zostaje jak we Wzorcu.
+    Odczyt Pliku zbiorczego ma ilości w ``values``.
+    """
 
     @property
     def worker(self) -> _ExcelCellValue:
@@ -331,8 +341,8 @@ def _classified(path: Path, items: Iterator[_T]) -> Iterator[_T]:
         yield item
 
 
-def _open(path: Path, source: Path | IO[bytes], *, read_only: bool) -> Workbook:
-    """Skoroszyt ``path`` otwarty przez openpyxl z ``source`` (plik albo jego bajty) z klasyfikacją uszkodzeń."""
+def _open(path: Path, source: IO[bytes], *, read_only: bool) -> Workbook:
+    """Skoroszyt ``path`` otwarty przez openpyxl z jego bajtów (``_file_bytes``) z klasyfikacją uszkodzeń."""
 
     with _unreadable_as_error(path):
         if read_only:
@@ -362,13 +372,35 @@ def is_blank(value: object) -> bool:
     return value is None or (isinstance(value, str) and not value.strip())
 
 
+def cell_datetime(value: object) -> datetime | None:
+    """Data i godzina z komórki ``DATA``; data bez godziny to północ, inna treść to ``None``."""
+
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, date):
+        return datetime(value.year, value.month, value.day)
+    return None
+
+
 def header_columns(values: Sequence[object]) -> dict[str, int]:
     """Mapuje znormalizowane nagłówki na numery kolumn (od 1)."""
 
     return {normalize_text(value): column for column, value in enumerate(values, start=1) if not is_blank(value)}
 
 
-def read_data_rows(path: Path) -> list[DataRow]:
+@dataclass(frozen=True)
+class DataRows:
+    """Wiersze danych Pliku zbiorczego i nagłówki A17:K17 z tego samego odczytu.
+
+    ``header``: znormalizowany nagłówek (``header_columns``) → kolumna od 1. Przygotowanie zapisuje kolumny A:K pod
+    nagłówkami Wzorca, więc odczyt po nagłówku jest lustrem zapisu.
+    """
+
+    header: Mapping[str, int]
+    rows: list[DataRow]
+
+
+def read_data_rows(path: Path) -> DataRows:
     """Wiersze danych Pliku zbiorczego z Wyróżnieniami i Hiperłączami komórek w kolejności z pliku; plik jest tylko czytany.
 
     Wiersz bez wartości w A:K nie jest Wierszem danych i jest pomijany. Brak
@@ -414,7 +446,7 @@ def read_data_rows(path: Path) -> list[DataRow]:
             rows.append(DataRow(number, values, row_highlights, number_formats, links.row(number, values)))
     finally:
         workbook.close()
-    return rows
+    return DataRows(header_columns(header), rows)
 
 
 class _HighlightsReader:
@@ -566,8 +598,7 @@ def _read_outline(path: Path, rules: _Rules) -> _Outline:
     """
 
     ensure_available(path)
-    with _unreadable_as_error(path):
-        content = path.read_bytes()
+    content = _file_bytes(path)
     workbook = _open(path, BytesIO(content), read_only=True)
     try:
         sheet = cast(Worksheet, workbook.active)  # tylko do odczytu: ReadOnlyWorksheet
@@ -633,8 +664,10 @@ def _merged_ranges(content: bytes, sheet_title: str, cell_style_count: int) -> t
 
 @dataclass(frozen=True)
 class TemplatePlan:
-    """Planowanie Wierszy danych we Wzorcu: ile kolejnych Wierszy danych ma zera w N:AP i który wiersz jest za nimi."""
+    """Planowanie Wierszy danych we Wzorcu: wiersze, do których trafią, ile kolejnych Wierszy danych ma zera w N:AP
+    i który wiersz jest za nimi."""
 
+    data_rows: range
     zero_row_count: int
     first_row_without_zeros: int
 
@@ -692,7 +725,10 @@ class TemplateFile:
         outline = _read_outline(self.path, self._rules)
         columns = _columns(self.path, outline.title, self._rules, outline.header, self._headers)
         _ensure_unmerged(self.path, outline.title, outline.merged_ranges, self._rules, columns, row_count)
-        return TemplatePlan(outline.zero_row_count, self._rules.first_data_row + outline.zero_row_count)
+        first_row = self._rules.first_data_row
+        return TemplatePlan(
+            range(first_row, first_row + row_count), outline.zero_row_count, first_row + outline.zero_row_count
+        )
 
     def create(self, target: Path, rows: Sequence[DataRow]) -> None:
         """Zapisuje atomowo pod ``target`` plik z Wzorca z ``rows`` od pierwszego Wiersza danych.
@@ -731,8 +767,7 @@ class TemplateFile:
         ensure_available(self.path)
         if self.path.suffix.lower() not in _WORKBOOK_SUFFIXES:
             raise WorkbookError(self.path, Problem.UNREADABLE)
-        with _unreadable_as_error(self.path):
-            content = self.path.read_bytes()
+        content = _file_bytes(self.path)
         if content != self._content:
             self._content = content
             self._copy = None
@@ -828,7 +863,7 @@ def _ensure_unmerged(
     if row_count == 0:
         return
     first_row, last_row = rules.first_data_row, rules.first_data_row + row_count - 1
-    last_column = _last_written_column(rules, columns)
+    last_column = max(_last_written_column(rules, columns), rules.quantity_columns.stop - 1)
     for merged in merged_ranges:
         if merged.min_row <= last_row and merged.max_row >= first_row and merged.min_col <= last_column:
             raise WorkbookError(path, Problem.LAYOUT, MergedCells(sheet, merged.coord))
@@ -854,6 +889,7 @@ def _placed(rows: Sequence[DataRow], columns: Sequence[int]) -> Sequence[DataRow
             tuple(row.highlights[index] for index in order),
             tuple(row.number_formats[index] for index in order),
             {columns[position - 1]: link for position, link in row.hyperlinks.items()},
+            row.quantities,
         )
         for row in rows
     ]
@@ -892,6 +928,8 @@ def _write_rows(sheet: Worksheet, rules: _Rules, rows: Sequence[DataRow], column
             else:
                 cell.font = highlights.font_over(cast(Font, copy(cell.font)))
                 cell.fill = highlights.fill_over(cast(Fill, copy(cell.fill)))
+        for column, quantity in row.quantities.items():
+            sheet.cell(number, column).value = quantity
     if rules.period_file:
         _set_autofilter(sheet, rules.header_row, len(rows))
 
