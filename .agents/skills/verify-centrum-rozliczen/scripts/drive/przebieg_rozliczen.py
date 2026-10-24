@@ -21,6 +21,7 @@ from drive.common import (
     last_opened_is,
     period_files,
     period_row,
+    start_card_warns_while_open,
 )
 from drive.przygotowanie_pliku_zbiorczego import drive_preparation
 
@@ -106,6 +107,17 @@ def drive_settlement(run: Run, page: Page) -> None:
         "only periods with Status Plik zbiorczy przygotowany are offered; the Plik zbiorczy follows from the period",
     )
     run.capture(page, "40-przebieg-nowe-uruchomienie")
+
+    run.step(feature, "przebieg-plik-zbiorczy-otwarty-w-excelu")
+    start_card_warns_while_open(
+        run,
+        page,
+        process="settlement",
+        workbook=collective_file,
+        warning="Plik zbiorczy jest otwarty w Excelu. Zapisz go i zamknij.",
+        name="przebieg-plik-zbiorczy",
+        shots=("4a-przebieg-plik-zbiorczy-otwarty-w-excelu", "4b-przebieg-plik-zbiorczy-zamkniety"),
+    )
 
     run.step(feature, "przebieg-podglad")
     page.goto(run.url)

@@ -22,6 +22,7 @@ from drive.common import (
     period_row,
     sent_requests,
     settle,
+    start_card_warns_while_open,
 )
 
 # An older period with no successful DRY-RUN in the fixture's metrics; its confirmation keeps the no-preview warning.
@@ -98,6 +99,17 @@ def drive_preparation(run: Run, page: Page) -> None:
         "the server preselects the last complete period and nothing is missing",
     )
     run.capture(page, "30-przygotowanie-nowe-uruchomienie")
+
+    run.step(feature, "przygotowanie-rejestr-otwarty-w-excelu")
+    start_card_warns_while_open(
+        run,
+        page,
+        process="preparation",
+        workbook=Path(run.fixture["order_register"]),
+        warning="Rejestr zleceń jest otwarty w Excelu. Zapisz go i zamknij.",
+        name="przygotowanie-rejestr",
+        shots=("3b-przygotowanie-rejestr-otwarty-w-excelu", "3c-przygotowanie-rejestr-zamkniety"),
+    )
 
     run.step(feature, "przygotowanie-podglad")
     page.goto(run.url)
