@@ -78,7 +78,7 @@ function DadNoteForm({ close }: { close: () => void }) {
   }
 
   return (
-    <form onSubmit={send} className="flex flex-col gap-5">
+    <form onSubmit={send} className="flex min-h-0 flex-col gap-5">
       <DialogHeader>
         <DialogTitle>Napisz do Maksa</DialogTitle>
       </DialogHeader>
@@ -158,7 +158,7 @@ function Preview({ draft }: { draft: DadNoteDraft | null }) {
   const title = draft?.title ?? ""
 
   return (
-    <figure aria-label="Co dostanie Maks" className="flex flex-col gap-1 rounded-lg bg-muted/50 p-3 text-sm">
+    <figure aria-label="Co dostanie Maks" className="flex min-h-0 flex-col gap-1 overflow-y-auto rounded-lg bg-muted/50 p-3 text-sm">
       <figcaption className="text-xs text-muted-foreground">Maks dostanie</figcaption>
       <p className={cn("font-medium break-words", title === "" && "text-muted-foreground/60")}>
         {title === "" ? "Tytuł" : title}
