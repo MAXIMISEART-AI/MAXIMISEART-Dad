@@ -123,6 +123,33 @@ create none.
 - Centrum never creates the `kontrola-ilosci` label; it must exist in the
   repository.
 
+## Logi Uruchomienia from Dad's computer
+
+After every Uruchomienie procesu Dad starts in Centrum, whatever the mode,
+result or ending, Centrum sends its Logi Uruchomienia by itself, in the
+background, to the same private repository
+([ADR 0015](../adr/0015-logi-uruchomienia-uwagi-taty-i-powiadomienia.md)).
+Dad does not click or see anything. The machine script sends none.
+
+- One period has one issue labelled `logi-uruchomienia`, titled
+  `Logi Uruchomienia <token>`, whose first line is the identifying line
+  `- Logi Uruchomienia okresu: <token>`. Closing it only means "reviewed up to
+  here": the next Uruchomienie of that period still comments on it.
+- Each Uruchomienie is one comment: a summary (process, `podgląd` or `zapis`,
+  period, result and ending, time, Komunikat codes, Wydanie and commit,
+  Uruchomienie id and start in UTC), then the full JSON in a `<details>` block.
+  The JSON is the file in `logs\uruchomienia\` on Dad's computer, character for
+  character. Over GitHub's 65 536 characters it continues in the next comments
+  (`Logi Uruchomienia <id>, część k/n`); concatenating the JSON blocks of the
+  parts gives the file.
+- The Logi hold no cell content, but the Komunikaty are the card's, as in a
+  Zgłoszenie: they name Wykonawcy and may quote a cell of the Rejestr zleceń
+  (`ZLE_SKUTECZNE`, `NIEZNANY_WYKONAWCA`). Treat them like a Zgłoszenie.
+- The queue, its log entries and its retries are the ones of the Kontrola
+  ilości above; the queue file of the Logi is `<time>-<n>-logi-uruchomienia-<run>.json`.
+- Centrum never creates the `logi-uruchomienia` label; it must exist in the
+  repository.
+
 ## Pull requests as a triage surface
 
 PRs as a request surface: no.

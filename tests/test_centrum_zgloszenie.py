@@ -6,6 +6,7 @@ import codecs
 from concurrent.futures import ThreadPoolExecutor
 import json
 import re
+import shutil
 import threading
 from pathlib import Path
 from typing import Any, NoReturn
@@ -259,6 +260,7 @@ def test_zgloszenie_ktorego_nie_da_sie_ani_wyslac_ani_zapisac_w_pliku_daje_komun
     centrum = preparing_centrum(tmp_path)
     run_id = stopped_for_maks(centrum)
     diagnose(centrum, run_id)
+    shutil.rmtree(tmp_path / "config" / "zgloszenia")  # Logi Uruchomienia w kolejce
     (tmp_path / "config" / "zgloszenia").write_text("", encoding="utf-8")  # plik zamiast folderu: zapis się nie uda
 
     state = send(centrum, run_id)

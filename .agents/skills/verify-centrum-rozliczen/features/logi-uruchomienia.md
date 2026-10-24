@@ -7,7 +7,10 @@ or a `zapis`, carries the card's result, ending, Rodzaj Zatrzymania, summary and
 Komunikaty in three parts with their codes, the Szablony pracowników with their
 outcome and time, the tool's commit, and the process's files by name. Dad sees
 nothing of it: no alert, toast or text on the card. No path and no workbook
-content reach the file.
+content reach the file. The same Logi wait in the queue of the skrzynka
+Zgłoszeń (`config/zgloszenia/kolejka/`, like the Kontrola ilości) and go to the
+period's issue labelled `logi-uruchomienia`, one comment per Uruchomienie: a
+summary, then the file's JSON in a `<details>` block.
 
 ## Sub-features
 
@@ -16,6 +19,7 @@ content reach the file.
 - `logi-szablony`: the file of the written Przebieg rozliczeń of `06_12_10_2026` (the card `przebieg-rozliczen` recorded) lists every Wykonawca in order with outcome `ZAPISANO`, its rows and its time; the first Szablon pracownika, paced by the harness, took at least the pacing.
 - `logi-kazde-uruchomienie`: every `uruchomienie-koniec` line of the Centrum log has exactly one file with the same process, mode, period, result and ending, in the same order, and no Uruchomienie has two.
 - `logi-bez-sladu`: Uruchomienia, also after a reload, shows nothing about the Logi; no file holds a path in the run root or the fixture's row marker; the process's files are names only.
+- `logi-w-skrzynce`: with a key, one more Podgląd bez zapisu wakes the queue and no Logi wait in it any more; the skrzynka has one issue labelled `logi-uruchomienia` per period with Uruchomienia, and every file of Logi of the run is exactly one comment in its period's issue, starting with the summary and ending with the file's JSON character for character; neither the key nor the row marker is in the skrzynka; Dad reads nothing about it.
 
 ## How to get to it (user POV)
 
@@ -35,7 +39,8 @@ Preconditions:
 - **Szablony pracowników.** The file whose `run_id` is the `run.id` of `api/przebieg-zapisane.json` equals that card (its `tool` aside) and has `templates` `[(wykonawca, "ZAPISANO", rows)]` for `fixture.json` → `workers` and `settlement.rows_per_worker`, each with an integer `duration_ms`, the first ≥ the Szablony pacing of `przebieg-rozliczen` (1500 ms).
 - **Every Uruchomienie.** The `uruchomienie-koniec` lines of `logs/centrum-rozliczen.log` (`tryb` `DRY-RUN` is `podgląd`, `RUN` is `zapis`) equal the files sorted by `started_at`, and every `run_id` is unique. In `all` this covers every Uruchomienie of the run, with the unexpected exceptions of `diagnoza`.
 - **No trace.** Reload `#/uruchomienia`: label `Zatrzymanie` is visible and the page text says nothing about the Logi. No file contains the run root or `CENTRUM-SYN-ROW`; every `environment.files[].name` has no `/` or `\`.
-- **Proof.** Screenshots `160`–`161`, `api/logi-*.json`, `state/uruchomienia/` (every file of Logi of the run, also checked by the self-test's evidence hygiene), checks in `drive.txt`.
+- **Skrzynka.** Harness: Maks writes `config/zgloszenia-klucz.txt`. The same Podgląd bez zapisu as above (`api/logi-skrzynka-podglad.json`); within 60 s no `*-logi-uruchomienia-*.json` is left in `config/zgloszenia/kolejka/`. In `<root>/skrzynka-zgloszen/` the issues labelled `logi-uruchomienia` have titles `Logi Uruchomienia <period>` and first lines `- Logi Uruchomienia okresu: <period>`, one per period of the files. The JSON in the four-backtick `json` fence at the end of each comment, over all their comments, is exactly the set of files in `logs/uruchomienia/`, each in its period's issue, and every comment starts with `**Logi Uruchomienia**: `. The drive removes the key. `api/logi-skrzynka.json` lists the issues; `api/logi-komentarz.md` is the comment of this Podgląd. Capture `162`.
+- **Proof.** Screenshots `160`–`162`, `api/logi-*.json`, `api/logi-komentarz.md`, `state/uruchomienia/` (every file of Logi of the run, also checked by the self-test's evidence hygiene), checks in `drive.txt`.
 
 ## Gotchas
 
@@ -43,4 +48,5 @@ Preconditions:
 - File names start with the start time in whole seconds; sort by `started_at` inside the file, not by name, when two Uruchomienia start in the same second.
 - The card's Komunikaty have no code; only the file has it, so the drive checks codes against the messages it knows for these runs.
 - Logi surviving a restart of Centrum is proved only in `all`: `kontrola-ilosci` restarts Centrum twice after Przebieg rozliczeń, so `logi-kazde-uruchomienie` finds the files of the Uruchomienia before those restarts. Alone, the feature does not restart; `tests/test_centrum_logi_uruchomienia.py` covers it over HTTP.
+- Every Uruchomienie queues its Logi, so before `logi-w-skrzynce` the queue holds Logi of the whole run; in `all`, the restart with a key in `kontrola-ilosci` and the key of `zgloszenie` already sent part of them. The check covers both: every file is one comment, wherever it went.
 - `tool.commit` is the commit Centrum ran when the Uruchomienie ended. In `all`, `powiadomienie-o-naprawie` pins another one (`github/tool-commit.txt`) after `przebieg-rozliczen`, so only the drive's own Uruchomienia are compared with `served_version`, and never with the clone's `HEAD`.
