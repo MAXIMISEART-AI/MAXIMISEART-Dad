@@ -66,6 +66,7 @@ They complement `GLOSSARY.md`, the ADRs, and the executable checks; they do not 
   A rule needed in the UI belongs in the engine.
 - Parse every server response and stream event at the browser boundary with the schemas generated from the server models.
   Change the contract on the server and regenerate; keep hand-written types for the UI's own state only.
+  Only `src/api/` reaches the network or calls `JSON.parse` (`npm run rules`): a new endpoint gets a function in `src/api/centrum.ts` that goes through `call` with its schema.
 - Model the UI states of an Uruchomienie procesu as one discriminated union that mirrors the progress projection's snapshot.
 - Use components from the official `@shadcn` registry and semantic theme tokens.
   Write all UI text in Polish, in the vocabulary of `GLOSSARY.md` and the user guide.
