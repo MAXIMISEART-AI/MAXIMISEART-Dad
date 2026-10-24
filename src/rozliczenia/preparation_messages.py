@@ -582,9 +582,9 @@ def too_few_zero_rows(
         ),
         where=f"plik {collective_filename}, {rows}",
         action=(
-            "Sprawdź te wiersze jak pozostałe: narzędzie wpisało w nich ilości, a puste komórki liczą się jak 0. "
-            "Jeśli zdarza się to często, przekaż to osobie utrzymującej narzędzie, żeby dodała wiersze z zerami "
-            "we Wzorcu pliku zbiorczego."
+            "Sprawdź te wiersze jak pozostałe: narzędzie wpisało w nich ilości tak samo, a puste komórki liczą się "
+            "jak 0. Jeśli zdarza się to często, przekaż to osobie utrzymującej narzędzie, żeby dodała wiersze z "
+            "zerami we Wzorcu pliku zbiorczego."
         ),
     )
 
