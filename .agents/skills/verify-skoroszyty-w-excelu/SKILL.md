@@ -203,8 +203,10 @@ or Excel ended between the check and the stop. The cleanup then says
 and still writes the evidence and removes the desk and the run root by the rules
 here. After a failed quit the run's workbooks are closed, so the note alone does
 not fail the run. The Excel that stays is like one that holds a workbook of the
-user (`excel_quit=false`). A failed stop comes with a dialog, so it usually also
-says `close_failed` and `desk_kept` and the run ends `VERIFY FAIL` as above.
+user (`excel_quit=false`). A failed stop comes with a dialog, so the cleanup
+usually also says `close_failed` and the run ends `VERIFY FAIL`. The desk then
+stays (`desk_kept`) while Excel still runs, as the next paragraph says, and goes
+when Excel has ended.
 Look at Excel. Answer a dialog if one is up, or quit Excel by hand, so it does
 not grow from run to run. Only `tests/test_sprzatanie_excela.py` proves this
 path; no real Excel failed its quit in a run yet.

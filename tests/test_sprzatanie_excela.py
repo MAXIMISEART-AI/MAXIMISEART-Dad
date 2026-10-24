@@ -38,6 +38,7 @@ class FakeExcel:
         self.rss_mb = 2400
         self.closed: list[str] = []
         self.end_error: Exception | None = None
+        self.running_after_end_error = True
 
     def open_paths(self, timeout: int = 10) -> list[str]:
         if self.dialog:
@@ -61,6 +62,7 @@ class FakeExcel:
 
     def terminate(self, process_id: int) -> bool:
         if self.end_error is not None:
+            self.running = self.running_after_end_error
             raise self.end_error
         self.running, self.dialog, self.workbooks = False, False, []
         return True
@@ -212,23 +214,31 @@ def test_nieudane_zamkniecie_excela_jest_notatka_sprzatania_a_nie_tracebackiem(
 
 
 @pytest.mark.parametrize(
-    "error",
+    ("error", "excel_ended"),
     [
-        pytest.param(lambda excel: excel.ExcelDialog("Excel did not answer within 90 s of starting"), id="ExcelDialog"),
-        pytest.param(lambda excel: ProcessLookupError(3, "No such process"), id="ProcessLookupError"),
-        pytest.param(lambda excel: subprocess.CalledProcessError(1, ["open", "-g"]), id="CalledProcessError"),
+        pytest.param(
+            lambda excel: excel.ExcelDialog("Excel did not answer within 90 s of starting"), False, id="ExcelDialog"
+        ),
+        pytest.param(lambda excel: ProcessLookupError(3, "No such process"), True, id="ProcessLookupError"),
+        pytest.param(lambda excel: subprocess.CalledProcessError(1, ["open", "-g"]), False, id="CalledProcessError"),
     ],
 )
 def test_nieudane_zatrzymanie_excela_z_oknem_dialogowym_konczy_run_linia_verify(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, excel: FakeExcel, error: Callable[[ModuleType], Exception]
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    excel: FakeExcel,
+    error: Callable[[ModuleType], Exception],
+    excel_ended: bool,
 ) -> None:
-    excel.end_error = error(excel.excel)
+    excel.end_error, excel.running_after_end_error = error(excel.excel), not excel_ended
 
     code, output = _run(tmp_path, monkeypatch, excel, dialog=True)
 
     cleanup = (_evidence(tmp_path) / "cleanup.txt").read_text(encoding="utf-8")
     assert code == 1 and _verdict(output).startswith("VERIFY FAIL"), output
-    assert f"excel_quit_failed={type(excel.end_error).__name__}" in cleanup and "desk_kept=" in cleanup, cleanup
+    assert f"excel_quit_failed={type(excel.end_error).__name__}" in cleanup, cleanup
+    assert ("desk_kept=" in cleanup) is not excel_ended, cleanup
+    assert ("scratch_removed=true" in cleanup) is excel_ended, cleanup
 
 
 def test_okno_dialogowe_na_starcie_konczy_run_przed_praca(
