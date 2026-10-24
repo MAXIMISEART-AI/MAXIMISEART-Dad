@@ -1,7 +1,8 @@
-"""Kolejka Skrzynki Zgłoszeń: Kontrole ilości (a od #320 Logi Uruchomienia), które Centrum wysyła samo i po cichu.
+"""Kolejka Skrzynki Zgłoszeń: Kontrole ilości, Logi Uruchomienia (#320) i Uwagi taty, które Centrum wysyła w tle.
 
-Każda wysyłka (``Post``) to gotowy tekst skierowany do issue okresu (``PeriodThread``): etykieta, wiersz
-rozpoznawczy na początku treści issue, tytuł i co z issue, które Maks zamknął. Najpierw trafia do własnego pliku
+Każda wysyłka (``Post``) to gotowy tekst skierowany do issue okresu (``PeriodThread``: etykieta, wiersz
+rozpoznawczy na początku treści issue, tytuł i co z issue, które Maks zamknął) albo do nowego issue (``NewIssue``:
+etykieta i tytuł, jak Uwaga taty). Najpierw trafia do własnego pliku
 JSON w ``config/zgloszenia/kolejka/`` (poza Gitem, poza plikami ``Zgłoszenie *.md``, które tata może przesłać
 Maksowi), potem jeden wątek w tle wysyła wszystkie pliki po kolei i usuwa wysłane. Porażka (brak klucza, odmowa,
 brak sieci) zostawia plik bez Komunikatu; wątek rusza znów przy starcie Centrum (``resume``) i po każdej nowej
@@ -11,6 +12,8 @@ nie trafia do dziennika Centrum: tylko etykieta, okres, numer issue i przyczyna 
 
 Issue okresu kolejka znajduje po wierszu rozpoznawczym przy każdej próbie wysyłki i dopisuje do niego części jako
 komentarze. Bez niego zakłada nowe issue: pierwsza część (albo nagłówek) jest jego treścią, kolejne komentarzami.
+``NewIssue`` zawsze zakłada nowe issue tak samo, bez wiersza rozpoznawczego. Kto czeka na wynik (Uwaga taty),
+dostaje numer issue przez ``on_delivered`` i może poczekać na dostarczenie przez ``wait_delivered``.
 """
 
 from __future__ import annotations
@@ -23,7 +26,7 @@ from contextlib import suppress
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Final, Literal, assert_never, get_args
+from typing import Any, Final, Literal, assert_never, get_args
 
 from rozliczenia.centrum.atomic_file import replace_atomically
 from rozliczenia.centrum.log import CentrumLog, WaitingCause
@@ -40,7 +43,9 @@ from rozliczenia.centrum.report_box import (
 )
 
 QUEUE_DIRECTORY: Final = "kolejka"
-SCHEMA_VERSION: Final = 1
+SCHEMA_VERSION: Final = 2
+# Pliki kolejki sprzed ``NewIssue`` (#273) mają cel w kluczu ``thread`` i zawsze jest nim issue okresu.
+_PERIOD_THREAD_SCHEMA: Final = 1
 # Miejsce w komentarzu na nagłówek części i wiersz rozpoznawczy, ponad tekst bloków.
 _FRAME_RESERVE: Final = 2_000
 
@@ -64,15 +69,24 @@ class PeriodThread:
     """Tytuł, gdy issue trzeba założyć."""
 
 
-Target = PeriodThread
+@dataclass(frozen=True)
+class NewIssue:
+    """Nowe issue przy każdej wysyłce, bez wiersza rozpoznawczego (Uwaga taty: każda to osobna sprawa)."""
+
+    label: Label
+    title: str
+
+
+Target = PeriodThread | NewIssue
 """Dokąd w Skrzynce Zgłoszeń idzie wysyłka; dostarczenie rozróżnia cele przez ``match``."""
 
 
 @dataclass(frozen=True)
 class Post:
-    """Gotowa wysyłka do issue okresu, wyrenderowana przez wersję narzędzia, która ją utworzyła.
+    """Gotowa wysyłka do Skrzynki Zgłoszeń, wyrenderowana przez wersję narzędzia, która ją utworzyła.
 
-    ``header``: treść nowego issue; ``None``: nowe issue otwiera pierwsza część (Kontrola ilości).
+    ``header``: treść nowego issue; ``None``: nowe issue otwiera pierwsza część (Kontrola ilości, Uwaga taty).
+    ``run_id`` to Uruchomienie, a dla Uwagi taty jej identyfikator.
     """
 
     target: Target
@@ -108,13 +122,19 @@ class Post:
         return cls(target, period, run_id, header, parts)
 
     def opening(self) -> tuple[str, tuple[str, ...]]:
-        """Treść nowego issue (wiersz rozpoznawczy i nagłówek albo część 1) i komentarze po jego założeniu."""
+        """Treść nowego issue (nagłówek albo część 1, w issue okresu po wierszu rozpoznawczym) i komentarze po nim."""
 
         if self.header is None:
             first, comments = (self.parts[0], self.parts[1:]) if self.parts else ("", ())
         else:
             first, comments = self.header, self.parts
-        return f"{self.target.line}\n\n{first}", comments
+        match self.target:
+            case PeriodThread(line=line):
+                return f"{line}\n\n{first}", comments
+            case NewIssue():
+                return first, comments
+            case _:
+                assert_never(self.target)
 
     def to_json(self) -> str:
         return _queue_text(self, delivered_parts=0)
@@ -140,12 +160,10 @@ class _Queued:
 
 
 def _queue_text(post: Post, *, delivered_parts: int) -> str:
-    target = post.target
     return json.dumps(
         {
             "schema_version": SCHEMA_VERSION,
-            # Klucz ze schematu 1, sprzed nazwy ``Post.target``: pliki kolejki starszych wersji czytają się dalej.
-            "thread": {"label": target.label, "line": target.line, "closed": target.closed, "title": target.title},
+            "target": _target_json(post.target),
             "period": post.period,
             "run_id": post.run_id,
             "header": post.header,
@@ -157,18 +175,50 @@ def _queue_text(post: Post, *, delivered_parts: int) -> str:
     )
 
 
+def _target_json(target: Target) -> dict[str, str]:
+    match target:
+        case PeriodThread():
+            return {
+                "kind": "period_thread",
+                "label": target.label,
+                "line": target.line,
+                "closed": target.closed,
+                "title": target.title,
+            }
+        case NewIssue():
+            return {"kind": "new_issue", "label": target.label, "title": target.title}
+        case _:
+            assert_never(target)
+
+
+def _target(entry: dict[str, Any], kind: object) -> Target | None:
+    """Cel wysyłki z pliku kolejki; nieznany rodzaj celu albo etykieta to ``None``."""
+
+    if entry["label"] not in _LABELS:
+        return None
+    if kind == "new_issue":
+        return NewIssue(entry["label"], _string(entry["title"]))
+    if kind != "period_thread" or entry["closed"] not in _CLOSED:
+        return None
+    return PeriodThread(entry["label"], _string(entry["line"]), entry["closed"], _string(entry["title"]))
+
+
 def _parse(text: str) -> _Queued | None:
     """Granica plików kolejki. ``delivered_parts`` jest opcjonalne: pliki z #273 go nie mają i nic nie dostarczyły."""
 
     try:
         document = json.loads(text)
-        thread = document["thread"]
-        if document["schema_version"] != SCHEMA_VERSION or thread["label"] not in _LABELS:
+        schema = document["schema_version"]
+        if schema == SCHEMA_VERSION:
+            target = _target(document["target"], document["target"]["kind"])
+        elif schema == _PERIOD_THREAD_SCHEMA:
+            target = _target(document["thread"], "period_thread")
+        else:
             return None
-        if thread["closed"] not in _CLOSED:
+        if target is None:
             return None
         post = Post(
-            PeriodThread(thread["label"], _string(thread["line"]), thread["closed"], _string(thread["title"])),
+            target,
             _optional_string(document["period"]),
             _string(document["run_id"]),
             _optional_string(document["header"]),
@@ -233,8 +283,22 @@ def _deliver(post: Post, box: ReportBox, key: str) -> Delivered | Refused | Reje
     match post.target:
         case PeriodThread() as thread:
             return _deliver_to_period(post, thread, box, key)
+        case NewIssue() as issue:
+            return _deliver_new_issue(post, issue, box, key)
         case _:
             assert_never(post.target)
+
+
+def _deliver_new_issue(
+    post: Post, issue: NewIssue, box: ReportBox, key: str
+) -> Delivered | Refused | Rejected | Unreachable:
+    """Nowe issue z pierwszą częścią (albo nagłówkiem) i komentarze z resztą; porażka kończy wysyłkę."""
+
+    body, comments = post.opening()
+    opened = box.open_issue(issue.label, issue.title, body, key=key)
+    if not isinstance(opened, Sent):
+        return opened
+    return _comment_all(opened.number, comments, box, key)
 
 
 def _deliver_to_period(
@@ -257,6 +321,12 @@ def _deliver_to_period(
         number = opened.number
     else:
         number, comments = found, post.parts
+    return _comment_all(number, comments, box, key)
+
+
+def _comment_all(
+    number: int, comments: Sequence[str], box: ReportBox, key: str
+) -> Delivered | Refused | Rejected | Unreachable:
     delivered: list[Commented] = []
     for comment in comments:
         answer = box.comment(number, comment, key=key)
@@ -292,16 +362,27 @@ class Outbox:
 
     Każdy plik ma jednego autora (``post``, nowa nazwa) i jednego czytelnika, który go oznacza i usuwa (wątek
     ``skrzynka-kolejka``), więc pliki nie potrzebują blokady. Blokada chroni tylko to, czy wątek już biegnie, i
-    adresy dostarczonych wysyłek; zbiory nazw plików zna tylko ten jeden wątek.
+    adresy dostarczonych wysyłek; zbiory nazw plików zna tylko ten jeden wątek. ``on_delivered`` dostaje każdą
+    wysyłkę przyjętą przez skrzynkę i numer jej issue, w wątku wysyłki, zanim plik dostanie znacznik.
     """
 
-    def __init__(self, directory: Path, box: ReportBox, key: Callable[[], str | None], log: CentrumLog) -> None:
+    def __init__(
+        self,
+        directory: Path,
+        box: ReportBox,
+        key: Callable[[], str | None],
+        log: CentrumLog,
+        *,
+        on_delivered: Callable[[Post, int], None] = lambda _post, _number: None,
+    ) -> None:
         self._directory = directory
         self._box = box
         self._key = key
         self._log = log
+        self._on_delivered = on_delivered
         self._sequence = itertools.count(1)
         self._lock = threading.Lock()  # tylko _draining, _again i _first_comments; nigdy na czas skrzynki ani pliku
+        self._changed = threading.Condition(self._lock)
         self._draining = False
         self._again = False
         self._first_comments: dict[tuple[str, Label], str | None] = {}
@@ -312,10 +393,10 @@ class Outbox:
     def resume(self) -> None:
         """Przy starcie Centrum: usuwa pozostałości urwanego zapisu i wysyła w tle wszystko, co czeka.
 
-        Woła go ``lifespan`` przed przyjęciem pierwszego zapytania HTTP. Wysyłkę tworzy tylko Uruchomienie, które
-        startuje z zapytania, a wątek wysyłki rusza dopiero tutaj, więc żaden ``*.tmp`` nie ma teraz autora: każdy
-        został po zapisie przerwanym w poprzedniej pracy Centrum (np. utrata zasilania). Plik ``.json`` obok niego,
-        jeśli jest, ma pełną treść sprzed tego zapisu. Start nie czeka na skrzynkę: pyta ją tylko wątek w tle.
+        Woła go ``lifespan`` przed przyjęciem pierwszego zapytania HTTP. Wysyłkę tworzy tylko zapytanie HTTP
+        (Uruchomienie albo „Wyślij” Uwagi taty), a wątek wysyłki rusza dopiero tutaj, więc żaden ``*.tmp`` nie ma
+        teraz autora: każdy został po zapisie przerwanym w poprzedniej pracy Centrum (np. utrata zasilania). Plik
+        ``.json`` obok niego, jeśli jest, ma pełną treść sprzed tego zapisu. Start nie czeka na skrzynkę: pyta ją tylko wątek w tle.
         """
 
         with suppress(OSError):
@@ -333,10 +414,23 @@ class Outbox:
         with self._lock:
             return self._first_comments.get((run_id, label))
 
-    def post(self, post: Post) -> None:
+    def wait_delivered(self, run_id: str, label: Label, *, timeout_s: float) -> bool:
+        """Czeka najwyżej ``timeout_s``, aż skrzynka przyjmie wysyłkę ``label`` z ``run_id`` w tej pracy Centrum.
+
+        ``False`` od razu, gdy wątek wysyłki skończył przejście kolejki bez niej (brak klucza, sieci, odmowa).
+        """
+
+        def settled() -> bool:
+            return (run_id, label) in self._first_comments or not self._draining
+
+        with self._changed:
+            self._changed.wait_for(settled, timeout_s)
+            return (run_id, label) in self._first_comments
+
+    def post(self, post: Post) -> bool:
         """Zapisuje ``post`` w nowym pliku kolejki i budzi wysyłkę w tle; nie pyta skrzynki i nie czeka na sieć.
 
-        Nieudany zapis pliku trafia do dziennika jako typ wyjątku; wysyłka przepada bez Komunikatu.
+        ``False``: pliku nie udało się zapisać (typ wyjątku jest w dzienniku) i wysyłka przepadła.
         """
 
         moment = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
@@ -345,9 +439,10 @@ class Outbox:
             replace_atomically(self._directory / name, post.to_json())
         except OSError as failure:
             self._log.unexpected_failure(failure, where="zapis wysyłki do Skrzynki Zgłoszeń")
-            return
+            return False
         self._log.box_post_queued(label=post.target.label, period=post.period)
         self.send_in_background()
+        return True
 
     def send_in_background(self) -> None:
         """Jeden wątek wysyłki naraz; wywołanie w trakcie wysyłki każe jej przejść kolejkę jeszcze raz."""
@@ -365,9 +460,10 @@ class Outbox:
                 self._send_all()
             except Exception as failure:
                 self._log.unexpected_failure(failure, where="wysyłka do Skrzynki Zgłoszeń")
-            with self._lock:
+            with self._changed:
                 if not self._again:
                     self._draining = False
+                    self._changed.notify_all()
                     return
                 self._again = False
 
@@ -403,8 +499,10 @@ class Outbox:
                 self._log.box_post_waiting(label=label, period=period, cause=cause, file=path.name)
                 continue
             self._log.box_post_sent(label=label, period=period, number=outcome.number)
-            with self._lock:
+            self._on_delivered(post, outcome.number)
+            with self._changed:
                 self._first_comments[post.run_id, label] = outcome.comments[0].url if outcome.comments else None
+                self._changed.notify_all()
             with suppress(OSError):  # bez znacznika chroni już tylko _undeleted, do końca tej pracy Centrum
                 replace_atomically(path, _queue_text(post, delivered_parts=len(post.parts)))
             self._remove(path)

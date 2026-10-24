@@ -54,6 +54,7 @@ FILES: dict[str, tuple[str, str]] = {
     "konfiguracja_wykonawcow": ("config/worker_mapping.yaml", TEXT),
     "klucz_zgloszen": ("config/zgloszenia-klucz.txt", TEXT),
     "wyslane_zgloszenia": ("config/zgloszenia-wyslane.json", TEXT),
+    "uwagi_taty": ("config/uwagi-taty.json", TEXT),
     "uruchomienia_centrum": ("config/centrum-uruchomienia.jsonl", LINES),
     "dziennik_centrum": ("logs/centrum-rozliczen.log", LINES),
     "logi_uruchomien": ("logs/uruchomienia", FOLDER),
@@ -233,11 +234,12 @@ def _build(root: Path) -> None:
         encoding="utf-8",
     )
     client = _remembering_choices(world)
+    assert client.post("/api/dad-notes", json=DAD_NOTE).json() == {"state": "waiting"}
     for process, period in (("preparation", PERIOD), ("settlement", SETTLEMENT_PERIOD)):
         started = client.post("/api/runs", json={"process": process, "period": period, "dry_run": True})
         assert started.status_code == 200, started.json()
         assert finished_view(client)["result"]["ending"] == "finished"
-    for name in ("metryki_przygotowania", "metryki_przebiegu", "uruchomienia_centrum", "dziennik_centrum"):
+    for name in ("metryki_przygotowania", "metryki_przebiegu", "uruchomienia_centrum", "dziennik_centrum", "uwagi_taty"):
         assert world.path(name).stat().st_size > 0, name
     assert len(list(world.path("logi_uruchomien").iterdir())) == 2, "Logi Uruchomienia obu podglądów"
 
@@ -318,6 +320,7 @@ def _run_with_diagnosis(client: TestClient, process: str, period: str) -> str | 
     return None
 
 
+DAD_NOTE = {"title": "Plik zbiorczy otwiera się długo", "body": "Excel myśli przy nim minutę."}
 VIEW_TIMING = {"kind": "navigation", "page": "okresy", "ready_ms": 120, "fcp_ms": None, "skeleton_ms": 40, "requests": []}
 ENTRIES: dict[str, Entry] = {
     "getSettings": _route("getSettings", "GET", "/api/settings"),
@@ -334,6 +337,8 @@ ENTRIES: dict[str, Entry] = {
     "getRepairNotice": _route("getRepairNotice", "GET", "/api/reports/repair"),
     "getToolUpdate": _route("getToolUpdate", "GET", "/api/tool-update"),
     "recordViewTiming": _route("recordViewTiming", "POST", "/api/view-timings", VIEW_TIMING),
+    "draftDadNote": _route("draftDadNote", "POST", "/api/dad-notes/draft", DAD_NOTE),
+    "sendDadNote": _route("sendDadNote", "POST", "/api/dad-notes", DAD_NOTE),
     "podglad[przygotowanie]": _process_run("preparation", PERIOD),
     "podglad[przebieg]": _process_run("settlement", SETTLEMENT_PERIOD),
     "zapis[przebieg]": _process_run("settlement", SETTLEMENT_PERIOD, saving=True),

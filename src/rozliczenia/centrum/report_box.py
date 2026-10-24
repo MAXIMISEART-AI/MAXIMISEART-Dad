@@ -4,9 +4,9 @@ Skrzynka jest wstrzykiwana do ``create_app`` obok platformy (ADR 0007). U taty
 to prywatne repozytorium Zgłoszeń na GitHubie (``GitHubReportBox``), w
 ``verify-centrum-rozliczen`` katalog plików, a w testach API fałszywa skrzynka.
 Skrzynka nie zna Centrum ani rodzajów treści: dostaje etykietę issue
-(``zgloszenie``, ``kontrola-ilosci``, ``logi-uruchomienia``), gotowy tekst i
-klucz taty, a zwraca wynik bez wyjątków. Klucz nie trafia do wyniku, dziennika
-ani issue.
+(``zgloszenie``, ``kontrola-ilosci``, ``logi-uruchomienia``, ``uwaga-taty``),
+gotowy tekst i klucz taty, a zwraca wynik bez wyjątków. Klucz nie trafia do
+wyniku, dziennika ani issue.
 
 Każda operacja zwraca wynik albo jedną z dwóch porażek: ``Refused`` (skrzynka
 odmówiła: klucz wygasł albo jest nieważny) albo ``Unreachable`` (brak sieci
@@ -31,7 +31,7 @@ from dataclasses import dataclass, field
 from typing import Final, Literal, Protocol
 
 
-Label = Literal["zgloszenie", "kontrola-ilosci", "logi-uruchomienia"]
+Label = Literal["zgloszenie", "kontrola-ilosci", "logi-uruchomienia", "uwaga-taty"]
 """Etykieta issue w Skrzynce Zgłoszeń; etykiety zakłada Maks w repozytorium Zgłoszeń, kod ich nie tworzy."""
 REPORT_LABEL: Final[Label] = "zgloszenie"
 # Najwięcej znaków (jak ``len``) w treści issue i komentarza. Dokumentacja REST GitHuba limitu nie podaje; pomiar na

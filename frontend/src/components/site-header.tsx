@@ -3,9 +3,10 @@ import { MoonIcon, SunIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { SidebarTrigger } from "@/components/ui/sidebar"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
+import { WriteToMaks } from "@/components/write-to-maks"
 import { useSettings } from "@/lib/settings"
 
-// Nagłówek bez tytułu (tytuł jest w treści strony): menu i jedna ikona motywu.
+// Nagłówek bez tytułu (tytuł jest w treści strony): menu, „Napisz do Maksa” i ikona motywu.
 export function SiteHeader() {
   const { theme, toggleTheme } = useSettings()
   const dark = theme === "dark"
@@ -14,7 +15,8 @@ export function SiteHeader() {
   return (
     <header className="flex h-(--header-height) shrink-0 items-center gap-2 px-4 lg:px-6">
       <SidebarTrigger className="-ml-1" aria-label="Pokaż lub ukryj menu" />
-      <div className="ml-auto flex items-center gap-2">
+      <div className="ml-auto flex items-center gap-1">
+        <WriteToMaks />
         <Tooltip>
           <TooltipTrigger
             render={<Button variant="ghost" size="icon" aria-label={label} onClick={toggleTheme} />}

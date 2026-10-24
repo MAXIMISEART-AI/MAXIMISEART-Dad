@@ -38,6 +38,7 @@ from drive import (
     uklad_folderow_taty,
     ustawienia,
     powiadomienie_o_naprawie,
+    uwaga_taty,
     wydajnosc,
     zgloszenie,
 )
@@ -51,8 +52,9 @@ from skrypt_skilla import Parser
 # appends to the metrics files that Metryki counts, so it runs after Metryki; Przebieg rozliczeń continues Dad's
 # path from its Plik zbiorczy, and kontrola-ilosci sends its Kontrola ilości after two restarts of Centrum; Diagnoza stops Uruchomienia of an empty Folder okresu after Dad's week, and aktualnosc-i-onedrive diagnoses one more such stop with the
 # scripted GitHub and OneDrive; zgloszenie sends one such stop to the file skrzynka Zgłoszeń, and
-# powiadomienie-o-naprawie closes that Zgłoszenie there; logi-uruchomienia matches every Uruchomienie of the week
-# with its file of Logi; pomiar-u-taty clicks through the pages with the files
+# powiadomienie-o-naprawie closes that Zgłoszenie there; uwaga-taty needs the skrzynka queue that kontrola-ilosci
+# emptied; logi-uruchomienia matches every Uruchomienie of the week with its file of Logi; pomiar-u-taty clicks
+# through the pages with the files
 # of Dad's whole week; start-i-zamykanie closes Centrum, so it stays last.
 FEATURES = (
     "ustawienia",
@@ -68,6 +70,7 @@ FEATURES = (
     "aktualnosc-i-onedrive",
     "zgloszenie",
     "powiadomienie-o-naprawie",
+    "uwaga-taty",
     "logi-uruchomienia",
     "pomiar-u-taty",
     "start-i-zamykanie",
@@ -102,6 +105,7 @@ def main(argv: list[str] | None = None) -> int:
         "aktualnosc-i-onedrive": aktualnosc_i_onedrive.drive_freshness_and_onedrive,
         "zgloszenie": zgloszenie.drive_report,
         "powiadomienie-o-naprawie": powiadomienie_o_naprawie.drive_repair_notice,
+        "uwaga-taty": uwaga_taty.drive_dad_note,
         "logi-uruchomienia": logi_uruchomienia.drive_run_logs,
         "pomiar-u-taty": pomiar_u_taty.drive_measurement,
         "start-i-zamykanie": start_i_zamykanie.drive_start_and_close,
