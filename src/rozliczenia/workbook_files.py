@@ -67,6 +67,8 @@ _UNREADABLE_WORKBOOK_ERRORS = (
     ExpatError,
 )
 
+_WORKBOOK_SUFFIXES = (".xlsx", ".xlsm", ".xltx", ".xltm")
+
 # Układ arkusza Pliku zbiorczego i Wzorców tej rodziny. Publiczne są tylko liczby, których potrzebują narzędzia
 # spoza pakietu (benchmark wpisuje ilości jak tata, generator składa syntetyczne Wzorce kształtu Wzorców taty).
 HEADER_ROW = 17
@@ -499,6 +501,15 @@ def workbook_content(path: Path) -> bytes:
     """Bajty skoroszytu, który jest na dysku i nie jest otwarty w Excelu; inaczej ``WorkbookError``."""
 
     ensure_available(path)
+    return _file_bytes(path)
+
+
+def template_content(path: Path) -> bytes:
+    """Bajty Wzorca jak ``workbook_content``, a plik bez rozszerzenia skoroszytu, który otwiera openpyxl, jest nieczytelny."""
+
+    ensure_available(path)
+    if path.suffix.lower() not in _WORKBOOK_SUFFIXES:
+        raise WorkbookError(path, Problem.UNREADABLE)
     return _file_bytes(path)
 
 

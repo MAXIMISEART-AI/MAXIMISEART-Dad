@@ -53,10 +53,10 @@ from .workbook_files import (
     WorkbookError,
     check_worker_header,
     classified,
-    ensure_available,
     header_columns,
     is_blank,
     open_workbook,
+    template_content,
     unreadable_as_error,
     workbook_content,
 )
@@ -65,8 +65,6 @@ from .workbook_save import WorkbookSaveError, save_from_template, write_atomical
 from .worker_config import normalize_text
 
 
-# Rozszerzenia skoroszytów, które otwiera openpyxl; inny plik jest nieczytelny jak przy otwieraniu przez openpyxl.
-_WORKBOOK_SUFFIXES = (".xlsx", ".xlsm", ".xltx", ".xltm")
 _INTERNAL_LOOK_COLUMNS = range(1, 14)  # A:M Rozliczenia wewnętrznego, z ``zwrot`` i ``UWAGI``
 
 
@@ -364,10 +362,7 @@ class TemplateFile:
     def _read(self) -> None:
         """Czyta bajty Wzorca; wczytany Wzorzec zostaje, jeśli plik się nie zmienił."""
 
-        ensure_available(self.path)
-        if self.path.suffix.lower() not in _WORKBOOK_SUFFIXES:
-            raise WorkbookError(self.path, Problem.UNREADABLE)
-        content = workbook_content(self.path)
+        content = template_content(self.path)
         if content != self._content:
             self._content = content
             self._copy = None

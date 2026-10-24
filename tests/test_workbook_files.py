@@ -224,6 +224,18 @@ def test_brak_pliku_przy_kazdym_otwarciu(tmp_path: Path, opening: str) -> None:
     assert raised.value.problem is Problem.MISSING
 
 
+@pytest.mark.parametrize(("exists", "problem"), [(True, Problem.UNREADABLE), (False, Problem.MISSING)], ids=["jest", "brak"])
+def test_wzorzec_rozliczenia_pracownika_bez_rozszerzenia_skoroszytu(tmp_path: Path, exists: bool, problem: Problem) -> None:
+    path = tmp_path / "Wzorzec rozliczenia pracownika.txt"
+    if exists:
+        styled_template(tmp_path / "Wzorzec.xlsx").rename(path)
+
+    with pytest.raises(WorkbookError) as raised:
+        TemplateFile.worker_settlement(path).check()
+
+    assert raised.value.problem is problem
+
+
 @pytest.mark.parametrize("opening", OPENINGS)
 def test_plik_otwarty_w_excelu_przy_kazdym_otwarciu(tmp_path: Path, opening: str) -> None:
     path = styled_template(tmp_path / "Skoroszyt.xlsx")
