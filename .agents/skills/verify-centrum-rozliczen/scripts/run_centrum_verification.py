@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from argparse import RawDescriptionHelpFormatter
 import importlib.util
+import io
 import json
 import os
 from pathlib import Path
@@ -353,6 +354,10 @@ def main(argv: list[str] | None = None) -> int:
         "--powtorzenia", type=int, help=f"wydajnosc: repetitions per scenario and profile (default {DEFAULT_REPEATS})."
     )
     args = parser.parse_args(argv)
+    # The drive's Polish output in UTF-8 whatever the code page: an English Windows pipe (1252) cannot encode it.
+    for stream in (sys.stdout, sys.stderr):
+        if isinstance(stream, io.TextIOWrapper):
+            stream.reconfigure(encoding="utf-8", errors="replace")
     performance = [] if args.baseline is None else ["--baseline", str(Path(args.baseline).resolve())]
     performance += [] if args.powtorzenia is None else ["--powtorzenia", str(args.powtorzenia)]
     machine = QuietMachine()

@@ -8,7 +8,9 @@ feature file as the recipe.
 
 - The built frontend in `src/rozliczenia/centrum/static/` matches `frontend/`
   (`npm run build` in `frontend/` after any frontend change).
-- Playwright for Python and Chromium are installed (see `SKILL.md`, Launch).
+- Playwright for Python and Chromium are installed, and on Windows `tzdata` (see `SKILL.md`, Launch).
+- The computer may run in any time zone: a check of the screen counts dates in
+  Dad's (`Europe/Warsaw`, the browser's), a check of the server's text in the computer's own.
 - `run_centrum_verification.py` created a fresh run root with
   `create_centrum_fixture.py`, `serve_centrum.py` is serving it, and
   `centrum_doctor.py` reported `DOCTOR OK`.
