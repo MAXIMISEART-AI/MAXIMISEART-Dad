@@ -73,7 +73,7 @@ def test_plik_metryk_odrzuca_zatrzymanie_bez_rodzaju_i_kodu_komunikatu(tmp_path:
     metrics_path = tmp_path / "metrics.jsonl"
     record = stopped_record(stop)
 
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="Niepoprawny rekord metryk"):
         MetricsStore(metrics_path).append(record)
     metrics_path.write_text(json.dumps(record) + "\n", encoding="utf-8")
 
@@ -81,7 +81,7 @@ def test_plik_metryk_odrzuca_zatrzymanie_bez_rodzaju_i_kodu_komunikatu(tmp_path:
 
 
 def test_plik_metryk_odrzuca_zatrzymanie_w_zakonczonym_uruchomieniu(tmp_path: Path) -> None:
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="Niepoprawny rekord metryk"):
         MetricsStore(tmp_path / "metrics.jsonl").append(
             {**completed_record(), "stop": {"kind": "for_tata", "code": "ZLE_SKUTECZNE"}}
         )
@@ -103,7 +103,7 @@ def test_plik_metryk_odrzuca_rekord_ze_sciezka(tmp_path: Path) -> None:
     record = completed_record()
     MetricsStore(metrics_path).append(record)
 
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="Niepoprawny rekord metryk"):
         MetricsStore(metrics_path).append({**record, "source_path": str(tmp_path / PERIOD)})
 
     assert MetricsStore(metrics_path).read() == [record]

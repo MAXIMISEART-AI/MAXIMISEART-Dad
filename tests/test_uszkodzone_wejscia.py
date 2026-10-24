@@ -14,7 +14,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 from functools import cached_property
-from datetime import date
+from datetime import date, datetime
 import json
 import os
 from pathlib import Path
@@ -136,7 +136,7 @@ def _inaccessible(path: Path) -> None:
     else:
         path.chmod(0)
     with pytest.raises(PermissionError):
-        os.listdir(path) if path.is_dir() else path.open("rb").close()
+        list(path.iterdir()) if path.is_dir() else path.open("rb").close()
 
 
 def _readable_again(path: Path) -> None:
@@ -415,7 +415,7 @@ def _cases() -> list[Any]:
 
 def _known(entry: str, damage: str, name: str) -> tuple[pytest.MarkDecorator, ...]:
     reason = KNOWN.get((entry, damage, name))
-    if reason is None or date.today() > KNOWN_UNTIL:
+    if reason is None or datetime.now().astimezone().date() > KNOWN_UNTIL:
         return ()
     return (pytest.mark.xfail(strict=True, reason=reason),)
 

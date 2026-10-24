@@ -8,6 +8,7 @@ import socket
 import subprocess
 import sys
 import time
+import urllib.error
 import urllib.request
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -241,7 +242,7 @@ def test_zamkniecie_z_karty_konczy_proces_centrum_i_zostawia_wpis_w_dzienniku(tm
     assert closing == {"state": "closing"}
     assert exit_code == 0
     assert _log_events(runtime) == ["start", "zamkniecie", "stop"]
-    with pytest.raises(OSError):
+    with pytest.raises(urllib.error.URLError):
         _health(port, timeout_s=0)
 
 
