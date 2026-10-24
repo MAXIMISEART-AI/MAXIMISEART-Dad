@@ -48,7 +48,9 @@ Centrum takes the newest one whose body has its exact line (the fingerprint
 line of a Zgłoszenie's problem, or the period line of a Kontrola ilości, which
 then goes into that file's ``comments``). The key is never written
 there. While
-``<root>/skrzynka-zgloszen/brak-sieci`` exists the skrzynka is unreachable.
+``<root>/skrzynka-zgloszen/brak-sieci`` exists the skrzynka is unreachable, and while
+``<root>/skrzynka-zgloszen/odrzuca-<label>`` exists it rejects the content of every new
+issue with that label and of every comment to one (``Rejected``, like GitHub's 422).
 Each question for the issues with a label, closed ones included (how
 Powiadomienia ask about Dad's sent Zgłoszenia and Uwagi), appends its label to
 ``<root>/skrzynka-zgloszen-zapytania.jsonl``. While ``<root>/pacing/skrzynka-ms.txt``
@@ -124,6 +126,7 @@ from rozliczenia.centrum.report_box import (
     IssuesOutcome,
     Label,
     Refused,
+    Rejected,
     SendOutcome,
     Sent,
     Unreachable,
@@ -180,6 +183,8 @@ class FileReportBox:
             time.sleep(int(self._pacing.read_text(encoding="utf-8")) / 1000)
         if (self._directory / "brak-sieci").exists():
             return Unreachable()
+        if self._rejects(label):
+            return Rejected()
         with self._lock:
             self._directory.mkdir(parents=True, exist_ok=True)
             number = len(list(self._directory.glob("*.json"))) + 1
@@ -203,10 +208,15 @@ class FileReportBox:
             if not path.is_file():
                 return Refused()
             issue = json.loads(path.read_text(encoding="utf-8"))
+            if self._rejects(issue["labels"][0]):
+                return Rejected()
             issue["comments"] = [*issue.get("comments", []), body]
             path.write_text(json.dumps(issue, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
             comment_id = len(issue["comments"])
         return Commented(comment_id, f"skrzynka-zgloszen/{number}.json#komentarz-{comment_id}")
+
+    def _rejects(self, label: str) -> bool:
+        return (self._directory / f"odrzuca-{label}").exists()
 
     def labelled_issues(self, label: Label, *, include_closed: bool, key: str) -> IssuesOutcome:
         if include_closed:
