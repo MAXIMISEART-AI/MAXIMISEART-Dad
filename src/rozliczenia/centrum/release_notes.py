@@ -21,10 +21,10 @@ from dataclasses import dataclass
 import re
 from typing import Final
 
-from rozliczenia.centrum import report_box
+from rozliczenia.centrum.dad_cases import KINDS
 
 # Etykieta sprawy w Skrzynce Zgłoszeń → jej rodzaj w notce.
-CASE_KINDS: Final[Mapping[str, str]] = {report_box.REPORT_LABEL: "Zgłoszenie", report_box.NOTE_LABEL: "Uwaga taty"}
+CASE_KINDS: Final[Mapping[str, str]] = {kind.label: kind.name for kind in KINDS}
 CASES_HEADING: Final = "## Rozwiązane sprawy taty"
 # Maks poprawia notkę ręcznie na GitHubie, więc nagłówek spraw może mieć inny poziom i spacje na końcu.
 _CASES_HEADING_LINE: Final = re.compile(rf"^#+[ \t]+{re.escape(CASES_HEADING.lstrip('# '))}[ \t]*$", re.MULTILINE)

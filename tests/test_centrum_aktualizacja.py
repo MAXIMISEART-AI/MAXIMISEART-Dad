@@ -19,6 +19,7 @@ from typing import Any
 
 import pytest
 
+from rozliczenia.centrum.dad_cases import DAD_CASES_FILE
 from rozliczenia.centrum.tool_update import NEW_VERSION_FAILED, RESULT_FILE, UPDATED, ToolClone, UpdateResult, write_result
 
 from tests.fixtures.centrum import NO_RELEASE, views_until
@@ -673,7 +674,7 @@ def test_nieudana_aktualizacja_ze_zgloszeniem_otwartym_w_skrzynce_karta_od_razu_
     with github_out_of_reach(repository):
         update_until_done(centrum)
         assert send_report(centrum) == {"state": "sent"}
-        (tmp_path / "config" / "zgloszenia-wyslane.json").unlink()  # jak Zgłoszenie wysłane z innego komputera
+        (tmp_path / "config" / DAD_CASES_FILE).unlink()  # jak Zgłoszenie wysłane z innego komputera
         centrum.restart()
 
         again = update_with_slow_box(centrum)

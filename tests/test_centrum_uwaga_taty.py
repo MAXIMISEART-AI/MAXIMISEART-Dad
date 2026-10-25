@@ -12,7 +12,7 @@ import pytest
 from rozliczenia.centrum.dad_notes import DELIVERY_WAIT_S
 from rozliczenia.centrum.report_box import Refused, SendOutcome, Unreachable
 
-from tests.fixtures.centrum import TOOL_COMMIT, Centrum, FakeIssue, centrum
+from tests.fixtures.centrum import TOOL_COMMIT, Centrum, FakeIssue, centrum, dad_cases
 from tests.fixtures.potomne import wait_for
 
 KEY = "github_pat_SYNTETYCZNY_KLUCZ_ZGLOSZEN"
@@ -30,15 +30,7 @@ def with_key(tmp_path: Path) -> Centrum:
 
 
 def notes(tmp_path: Path) -> list[dict[str, Any]]:
-    """Uwagi z pliku stanu u taty; bez pliku żadnych."""
-
-    path = tmp_path / "config" / "uwagi-taty.json"
-    if not path.is_file():
-        return []
-    document = json.loads(path.read_text(encoding="utf-8"))
-    assert document["schema_version"] == 1
-    entries: list[dict[str, Any]] = document["uwagi"]
-    return entries
+    return dad_cases(tmp_path / "config", "uwaga")
 
 
 def queued(tmp_path: Path) -> list[Path]:

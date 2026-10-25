@@ -1,0 +1,297 @@
+"""Sprawy taty (ADR 0015): Uwagi taty i wysłane Zgłoszenia z tego komputera, ich stan i jeden plik stanu.
+
+Sprawa ma rodzaj (``NOTE``, ``REPORT``), który mówi, pod jaką etykietą leży w Skrzynce Zgłoszeń i jak nazywa ją
+słownik, numer issue i ostatnie znane zamknięcie przez Maksa. Uwaga taty jest sprawą od „Wyślij” i bez numeru czeka
+w kolejce Skrzynki, dopóki ``delivered`` nie dopisze numeru; Zgłoszenie idzie do skrzynki wprost (ADR 0007), więc
+jest sprawą od razu z numerem. Stan sprawy (``Case.state``) wynika tylko z tabeli ``_STATES``. ``ask_box`` pyta
+skrzynkę o zamknięcie otwartych spraw, raz na rodzaj, który je ma.
+
+Stan leży w ``config/sprawy-taty.json`` poza Gitem. Dopóki tego pliku nie ma, Sprawy taty czytają pliki sprzed
+jednego magazynu (``OLD_FILES``), które mogą leżeć u taty, a pierwszy zapis przenosi ich wpisy do nowego pliku;
+stare pliki zostają nietknięte. Brak, uszkodzenie albo nieznany schemat pliku to brak spraw z tego pliku, a wpis,
+którego nie da się odczytać, jest pomijany. Plik jest czytany raz, przy starcie Centrum. Piszą do niego wysyłka
+Zgłoszenia, „Wyślij” Uwagi, wątek kolejki i sprawdzanie Powiadomień, więc każda zmiana idzie pod blokadą. Nieudany
+zapis trafia do dziennika Centrum, a sprawa zostaje w pamięci do końca pracy Centrum.
+"""
+
+from __future__ import annotations
+
+import json
+import threading
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass, replace
+from datetime import datetime
+from pathlib import Path
+from typing import Final, Literal
+
+from rozliczenia.centrum import contract
+from rozliczenia.centrum.atomic_file import replace_atomically
+from rozliczenia.centrum.log import CentrumLog
+from rozliczenia.centrum.outbox import Post
+from rozliczenia.centrum.report_box import (
+    Closure,
+    CloseReason,
+    Label,
+    Refused,
+    ReportBox,
+    Unreachable,
+    close_reason,
+    read_moment,
+)
+
+DAD_CASES_FILE: Final = "sprawy-taty.json"
+SCHEMA_VERSION: Final = 1
+OLD_REPORTS_FILE: Final = "zgloszenia-wyslane.json"
+OLD_NOTES_FILE: Final = "uwagi-taty.json"
+_OLD_NOTES_SCHEMA: Final = 1
+
+
+@dataclass(frozen=True)
+class CaseKind:
+    """Rodzaj sprawy taty: klucz w kontrakcie i pliku stanu, etykieta w Skrzynce Zgłoszeń i nazwa ze słownika."""
+
+    key: Literal["uwaga", "zgloszenie"]
+    label: Label
+    name: str
+
+
+REPORT: Final = CaseKind("zgloszenie", "zgloszenie", "Zgłoszenie")
+NOTE: Final = CaseKind("uwaga", "uwaga-taty", "Uwaga taty")
+KINDS: Final = (REPORT, NOTE)
+_BY_KEY: Final[Mapping[str, CaseKind]] = {kind.key: kind for kind in KINDS}
+
+# (czeka w kolejce, issue zamknięte, state_reason) → stan sprawy. GitHub zamyka issue bez powodu jako ``completed``,
+# a duplikat to sprawa przeczytana bez zmian.
+_STATES: Final[Mapping[tuple[bool, bool, CloseReason | None], contract.CaseState]] = {
+    (True, False, None): "czeka_na_internet",
+    (False, False, None): "wyslana",
+    (False, True, "completed"): "rozwiazana",
+    (False, True, None): "rozwiazana",
+    (False, True, "not_planned"): "przeczytana",
+    (False, True, "duplicate"): "przeczytana",
+}
+
+
+@dataclass(frozen=True)
+class Case:
+    """Sprawa taty: rodzaj, identyfikator, tytuł, commit narzędzia, czas wysłania, numer issue i zamknięcie.
+
+    ``id`` Uwagi to identyfikator jej wysyłki w kolejce, a Zgłoszenia odcisk problemu: problem, który wraca po
+    zamknięciu, ma kolejne Zgłoszenie z tym samym odciskiem. ``title`` to tytuł Uwagi albo „Co się stało”
+    Zgłoszenia. ``title`` i ``sent_at`` są ``None`` tylko we wpisach Zgłoszeń sprzed Powiadomień; taka sprawa nie daje
+    Powiadomienia. ``number`` ``None``: czeka w kolejce. ``closure`` ``None``: issue otwarte albo jeszcze nie
+    istnieje. ``run_id``: Uruchomienie, do którego tata przypiął Uwagę.
+    """
+
+    kind: CaseKind
+    id: str
+    title: str | None
+    commit: str | None
+    sent_at: datetime | None
+    number: int | None
+    closure: Closure | None = None
+    run_id: str | None = None
+
+    @property
+    def state(self) -> contract.CaseState:
+        closure = self.closure
+        return _STATES[(self.number is None, closure is not None, None if closure is None else closure.reason)]
+
+    @property
+    def open(self) -> bool:
+        """Wysłana, a Maks jeszcze jej nie zamknął."""
+
+        return self.number is not None and self.closure is None
+
+
+class DadCases:
+    """Sprawy taty z tego komputera w pliku stanu obok Ustawień taty."""
+
+    def __init__(self, config_directory: Path, log: CentrumLog) -> None:
+        self._path = config_directory / DAD_CASES_FILE
+        self._log = log
+        self._lock = threading.Lock()
+        self._cases = _load(config_directory)
+
+    def all(self) -> list[Case]:
+        with self._lock:
+            return list(self._cases)
+
+    def find(self, kind: CaseKind, case_id: str) -> Case | None:
+        """Ostatnio wysłana sprawa rodzaju ``kind`` o identyfikatorze ``case_id``."""
+
+        return next((case for case in reversed(self.all()) if case.kind == kind and case.id == case_id), None)
+
+    def add(self, case: Case) -> None:
+        self._change(lambda cases: [*cases, case])
+
+    def forget(self, kind: CaseKind, case_id: str) -> None:
+        """Usuwa sprawę, której kolejka nie przyjęła: tata wyśle ją jeszcze raz jako nową."""
+
+        self._change(lambda cases: [case for case in cases if not (case.kind == kind and case.id == case_id)])
+
+    def delivered(self, post: Post, number: int) -> None:
+        """Dopisuje numer issue sprawie z wysyłki, którą przyjęła skrzynka; wysyłki, które nie są sprawą, pomija."""
+
+        def numbered(case: Case) -> Case:
+            ours = case.kind.label == post.target.label and case.id == post.run_id
+            return replace(case, number=number) if ours else case
+
+        self._change(lambda cases: [numbered(case) for case in cases])
+
+    def ask_box(self, box: ReportBox, key: str) -> None:
+        """Pyta skrzynkę o zamknięcie spraw, raz na rodzaj z otwartymi sprawami; bez odpowiedzi zostaje, co wiadomo.
+
+        Pytanie idzie bez blokady, żeby wysyłka i „Wyślij” nie czekały na sieć. Numer issue jest jeden w całej
+        skrzynce, więc odpowiedź o jednej etykiecie nie zmienia spraw innego rodzaju.
+        """
+
+        asked = {case.kind for case in self.all() if case.open}
+        for kind in (kind for kind in KINDS if kind in asked):
+            issues = box.labelled_issues(kind.label, include_closed=True, key=key)
+            if not isinstance(issues, Refused | Unreachable):
+                self._close({issue.number: issue.closure for issue in issues})
+
+    def _close(self, closures: Mapping[int | None, Closure | None]) -> None:
+        self._change(lambda cases: [replace(case, closure=closures.get(case.number, case.closure)) for case in cases])
+
+    def _change(self, change: Callable[[list[Case]], list[Case]]) -> None:
+        """Zmienia sprawy i zapisuje plik, gdy coś się zmieniło."""
+
+        with self._lock:
+            changed = change(self._cases)
+            if changed == self._cases:
+                return
+            self._cases = changed
+            document = {"schema_version": SCHEMA_VERSION, "sprawy": [_case_json(case) for case in self._cases]}
+            try:
+                replace_atomically(self._path, json.dumps(document, ensure_ascii=False, indent=2) + "\n")
+            except OSError as failure:
+                self._log.unexpected_failure(failure, where="stan Spraw taty")
+
+
+def _load(config_directory: Path) -> list[Case]:
+    """Sprawy z pliku stanu, a bez niego z plików sprzed jednego magazynu: najpierw Zgłoszenia, potem Uwagi."""
+
+    try:
+        document = json.loads((config_directory / DAD_CASES_FILE).read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        reports = _document(config_directory / OLD_REPORTS_FILE)
+        notes = _document(config_directory / OLD_NOTES_FILE)
+        return _cases(_old_reports(reports)) + _cases(_old_notes(notes))
+    except (OSError, ValueError):  # UnicodeError to też ValueError
+        return []
+    if not isinstance(document, dict) or document.get("schema_version") != SCHEMA_VERSION:
+        return []
+    return _cases(document.get("sprawy"))
+
+
+def _document(path: Path) -> object:
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):  # UnicodeError to też ValueError
+        return None
+
+
+def _old_reports(document: object) -> object:
+    """Wpisy ``zgloszenia-wyslane.json``: lista bez schematu, sprzed Powiadomień bez „Co się stało” i czasu.
+
+    Zgłoszenie nie ma Uruchomienia, więc ``run_id`` z wpisu, którego stary czytnik nie czytał, jest pominięty.
+    """
+
+    if not isinstance(document, list):
+        return None
+    return [
+        {"kind": REPORT.key, "id": entry.get("fingerprint"), "title": entry.get("what"), **_shared(entry, "sent_at")}
+        for entry in document
+        if isinstance(entry, dict) and type(entry.get("number")) is int
+    ]
+
+
+def _old_notes(document: object) -> object:
+    """Wpisy ``uwagi-taty.json``: czas „Wyślij” w ``written_at``, a wpisy sprzed #322 bez Uruchomienia."""
+
+    if not isinstance(document, dict) or document.get("schema_version") != _OLD_NOTES_SCHEMA:
+        return None
+    entries = document.get("uwagi")
+    if not isinstance(entries, list):
+        return None
+    return [
+        {
+            "kind": NOTE.key,
+            "id": entry.get("id"),
+            "title": entry.get("title"),
+            **_shared(entry, "written_at"),
+            "run_id": entry.get("run_id"),
+        }
+        for entry in entries
+        if isinstance(entry, dict) and isinstance(entry.get("title"), str) and read_moment(entry.get("written_at"))
+    ]
+
+
+def _shared(entry: dict[str, object], sent_at: str) -> dict[str, object]:
+    """Pola, które oba stare pliki zapisywały tak samo jak nowy, i czas wysłania spod nazwy ``sent_at``."""
+
+    return {
+        "commit": entry.get("commit"),
+        "sent_at": entry.get(sent_at),
+        "number": entry.get("number"),
+        "closure": entry.get("closure"),
+    }
+
+
+def _cases(entries: object) -> list[Case]:
+    return [case for case in map(_case, entries) if case is not None] if isinstance(entries, list) else []
+
+
+def _case(entry: object) -> Case | None:
+    """Wpis pliku stanu; wpis bez znanego rodzaju albo identyfikatora albo z polem złego typu pomija.
+
+    Tytuł, który nie jest tekstem, i nieczytelny czas wysłania to ``None``: sprawa zostaje, bez Powiadomienia.
+    """
+
+    if not isinstance(entry, dict):
+        return None
+    kind, case_id, title, commit, number, run_id = (
+        entry.get(name) for name in ("kind", "id", "title", "commit", "number", "run_id")
+    )
+    if not (isinstance(kind, str) and kind in _BY_KEY and isinstance(case_id, str)):
+        return None
+    if not (
+        isinstance(commit, str | None) and isinstance(run_id, str | None) and (number is None or type(number) is int)
+    ):
+        return None
+    return Case(
+        _BY_KEY[kind],
+        case_id,
+        title if isinstance(title, str) else None,
+        commit,
+        read_moment(entry.get("sent_at")),
+        number,
+        _closure(entry.get("closure")),
+        run_id,
+    )
+
+
+def _case_json(case: Case) -> dict[str, object]:
+    closure = case.closure
+    return {
+        "kind": case.kind.key,
+        "id": case.id,
+        "title": case.title,
+        "commit": case.commit,
+        "sent_at": None if case.sent_at is None else case.sent_at.isoformat(),
+        "number": case.number,
+        "closure": None
+        if closure is None
+        else {"reason": closure.reason, "at": None if closure.at is None else closure.at.isoformat()},
+        "run_id": case.run_id,
+    }
+
+
+def _closure(value: object) -> Closure | None:
+    """Zamknięcie z pliku stanu; wszystko poza obiektem to otwarte issue, a skrzynka i tak powie, jak jest."""
+
+    if not isinstance(value, dict):
+        return None
+    return Closure(close_reason(value.get("reason")), read_moment(value.get("at")))
