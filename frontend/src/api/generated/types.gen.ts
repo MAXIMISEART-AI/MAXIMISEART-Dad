@@ -13,7 +13,7 @@ export type ApiTiming = {
     /**
      * Operation
      */
-    operation: 'getHealth' | 'getSettings' | 'chooseRegister' | 'openRegister' | 'choosePeriodsDirectory' | 'changeTheme' | 'getPeriodBoard' | 'openPeriodPath' | 'getQuantitiesToFill' | 'openWorkerSettlement' | 'getRunSetup' | 'startRun' | 'decideRun' | 'diagnoseRun' | 'reportRun' | 'getRunCard' | 'getNotifications' | 'markNotificationsRead' | 'getMetrics' | 'getConfiguration' | 'startToolUpdate' | 'getToolUpdate' | 'reportToolUpdate' | 'getDadNoteRuns' | 'draftDadNote' | 'sendDadNote' | 'closeCentrum';
+    operation: 'getHealth' | 'getSettings' | 'chooseRegister' | 'openRegister' | 'choosePeriodsDirectory' | 'changeTheme' | 'getPeriodBoard' | 'openPeriodPath' | 'getQuantitiesToFill' | 'getCollectiveFileVersion' | 'openWorkerSettlement' | 'getRunSetup' | 'startRun' | 'decideRun' | 'diagnoseRun' | 'reportRun' | 'getRunCard' | 'getNotifications' | 'markNotificationsRead' | 'getMetrics' | 'getConfiguration' | 'startToolUpdate' | 'getToolUpdate' | 'reportToolUpdate' | 'getDadNoteRuns' | 'draftDadNote' | 'sendDadNote' | 'closeCentrum';
     /**
      * Browser Ms
      */
@@ -107,6 +107,40 @@ export type Closing = {
      * State
      */
     state: 'closing';
+};
+
+/**
+ * CollectiveFileRead
+ *
+ * Odczyt Pliku zbiorczego za widokiem: znacznik zapisu przed odczytem i godzina odczytu.
+ *
+ * ``retrying``: późniejsze odczyty się nie udały, więc to ostatni dobry stan, a strona ponawia odczyt.
+ */
+export type CollectiveFileRead = {
+    /**
+     * Version
+     */
+    version: string | null;
+    /**
+     * Read At
+     */
+    read_at: string;
+    /**
+     * Retrying
+     */
+    retrying: boolean;
+};
+
+/**
+ * CollectiveFileVersion
+ *
+ * Znacznik zapisu Pliku zbiorczego (czas zmiany i rozmiar); ``None``, gdy pliku nie widać.
+ */
+export type CollectiveFileVersion = {
+    /**
+     * Version
+     */
+    version: string | null;
 };
 
 /**
@@ -1062,7 +1096,7 @@ export type Progress = {
 /**
  * QuantitiesToFillProblem
  *
- * Pliku zbiorczego nie udało się odczytać; Komunikat go nazywa.
+ * Pliku zbiorczego nie udało się odczytać; Komunikat go nazywa, a ``version`` to znacznik zapisu przed odczytem.
  */
 export type QuantitiesToFillProblem = {
     /**
@@ -1070,6 +1104,10 @@ export type QuantitiesToFillProblem = {
      */
     state: 'problem';
     message: Message;
+    /**
+     * Version
+     */
+    version: string | null;
 };
 
 /**
@@ -1082,6 +1120,7 @@ export type QuantitiesToFillReady = {
      * State
      */
     state: 'ready';
+    read: CollectiveFileRead;
     /**
      * Kinds
      */
@@ -2175,6 +2214,44 @@ export type GetPeriodBoardResponses = {
 };
 
 export type GetPeriodBoardResponse = GetPeriodBoardResponses[keyof GetPeriodBoardResponses];
+
+export type GetCollectiveFileVersionData = {
+    body?: never;
+    path: {
+        /**
+         * Token
+         */
+        token: string;
+    };
+    query?: never;
+    url: '/api/periods/{token}/collective-file-version';
+};
+
+export type GetCollectiveFileVersionErrors = {
+    /**
+     * Not Found
+     */
+    404: Problem;
+    /**
+     * Conflict
+     */
+    409: Problem;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type GetCollectiveFileVersionError = GetCollectiveFileVersionErrors[keyof GetCollectiveFileVersionErrors];
+
+export type GetCollectiveFileVersionResponses = {
+    /**
+     * Successful Response
+     */
+    200: CollectiveFileVersion;
+};
+
+export type GetCollectiveFileVersionResponse = GetCollectiveFileVersionResponses[keyof GetCollectiveFileVersionResponses];
 
 export type OpenPeriodPathData = {
     body: OpenRequest;

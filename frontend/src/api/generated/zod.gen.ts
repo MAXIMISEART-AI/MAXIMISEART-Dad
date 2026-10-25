@@ -18,6 +18,7 @@ export const zApiTiming = z.object({
         'getPeriodBoard',
         'openPeriodPath',
         'getQuantitiesToFill',
+        'getCollectiveFileVersion',
         'openWorkerSettlement',
         'getRunSetup',
         'startRun',
@@ -74,6 +75,28 @@ export const zClosedStep = z.object({
  */
 export const zClosing = z.object({
     state: z.literal('closing')
+});
+
+/**
+ * CollectiveFileRead
+ *
+ * Odczyt Pliku zbiorczego za widokiem: znacznik zapisu przed odczytem i godzina odczytu.
+ *
+ * ``retrying``: późniejsze odczyty się nie udały, więc to ostatni dobry stan, a strona ponawia odczyt.
+ */
+export const zCollectiveFileRead = z.object({
+    version: z.string().nullable(),
+    read_at: z.iso.datetime(),
+    retrying: z.boolean()
+});
+
+/**
+ * CollectiveFileVersion
+ *
+ * Znacznik zapisu Pliku zbiorczego (czas zmiany i rozmiar); ``None``, gdy pliku nie widać.
+ */
+export const zCollectiveFileVersion = z.object({
+    version: z.string().nullable()
 });
 
 /**
@@ -524,11 +547,12 @@ export const zProgress = z.object({
 /**
  * QuantitiesToFillProblem
  *
- * Pliku zbiorczego nie udało się odczytać; Komunikat go nazywa.
+ * Pliku zbiorczego nie udało się odczytać; Komunikat go nazywa, a ``version`` to znacznik zapisu przed odczytem.
  */
 export const zQuantitiesToFillProblem = z.object({
     state: z.literal('problem'),
-    message: zMessage
+    message: zMessage,
+    version: z.string().nullable()
 });
 
 /**
@@ -715,6 +739,7 @@ export const zKindToFill = z.object({
  */
 export const zQuantitiesToFillReady = z.object({
     state: z.literal('ready'),
+    read: zCollectiveFileRead,
     kinds: z.array(zKindToFill),
     description_columns: z.array(zDescriptionColumn)
 });
@@ -1314,6 +1339,15 @@ export const zGetPeriodBoardResponse = z.discriminatedUnion('state', [
     zBoardMissing,
     zBoardReady
 ]);
+
+export const zGetCollectiveFileVersionPath = z.object({
+    token: z.string()
+});
+
+/**
+ * Successful Response
+ */
+export const zGetCollectiveFileVersionResponse = zCollectiveFileVersion;
 
 export const zOpenPeriodPathBody = zOpenRequest;
 

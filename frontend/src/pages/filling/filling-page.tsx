@@ -17,8 +17,9 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { href, usePagePath } from "@/lib/address"
 import { useContentEntrance } from "@/lib/content-entrance"
+import { hourMinute } from "@/lib/format"
 import { useSettings } from "@/lib/settings"
-import { useResource } from "@/lib/use-resource"
+import { useLiveFile } from "@/lib/use-live-file"
 import { openAndConfirm } from "@/pages/periods/open-period-path"
 
 const TITLE = "Uzupełnienie pliku zbiorczego"
@@ -82,7 +83,7 @@ function OpenCollectiveFile({ token }: { token: string }) {
 }
 
 function FillingContent({ token }: { token: string }) {
-  const { resource } = useResource(quantitiesOf(token))
+  const { resource } = useLiveFile(token, quantitiesOf(token))
   const entrance = useContentEntrance(resource.state === "loading")
 
   switch (resource.state) {
@@ -112,7 +113,11 @@ function FillingContent({ token }: { token: string }) {
               <DescriptionColumns columns={found.description_columns} />
             </CardContent>
           </Card>
-          <p className="px-1 text-sm text-muted-foreground">Nie widzisz zmian? Zapisz w Excelu (Ctrl+S).</p>
+          <p className="px-1 text-sm text-muted-foreground">
+            {/* Odczyt się nie udał (OneDrive, zapis Excela): serwer niesie ostatni dobry stan, strona ponawia. */}
+            {found.read.retrying ? <span role="status">Stan z {hourMinute(found.read.read_at)}. </span> : null}
+            Nie widzisz zmian? Zapisz w Excelu (Ctrl+S).
+          </p>
         </div>
       )
     }
