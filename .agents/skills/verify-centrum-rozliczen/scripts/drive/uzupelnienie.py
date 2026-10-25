@@ -11,12 +11,12 @@ import urllib.request
 from openpyxl import load_workbook
 from openpyxl.utils import column_index_from_string
 from openpyxl.worksheet.worksheet import Worksheet
-from playwright.sync_api import Locator, Page, expect
+from playwright.sync_api import Locator, Page, Request, expect
 
 from create_centrum_fixture import PRICE_LIST
 from drive import kontrola_ilosci
 from drive.common import LAST_COMPLETE, ROW_MARKER, Run, last_opened_is, period_files, period_row
-from drive.przygotowanie_pliku_zbiorczego import drive_preparation
+from drive.przygotowanie_pliku_zbiorczego import HIDE_TAB, SHOW_TAB, drive_preparation
 
 FEATURE = "uzupelnienie"
 SUMMARY = f"#/uzupelnienie/{LAST_COMPLETE}"
@@ -155,6 +155,9 @@ def drive_result_card(run: Run, page: Page) -> None:
         collective_file.write_bytes(original)
     run.check(True, "Uzupełnij on the result card opens the same summary, and Wstecz returns to the result")
 
+    run.step(FEATURE, "uzupelnienie-wynik-na-zywo")
+    _live_result_card(run, page, filling, collective_file)
+
     run.step(FEATURE, "uzupelnienie-wynik-po-starcie")
     kontrola_ilosci._close(run, page)
     kontrola_ilosci._start(run, "uzupelnienie-start-po-zamknieciu")
@@ -166,6 +169,65 @@ def drive_result_card(run: Run, page: Page) -> None:
     expect(summary.get_by_role("heading", name="Do uzupełnienia w Excelu")).to_be_visible()
     _check_screen(run, summary, _ready(run, "uzupelnienie-wynik-po-starcie"), "on the card from Logi after a restart")
     run.capture(page, "232-uzupelnienie-wynik-po-starcie")
+
+
+# Every return to the tab the page could read on instead of its own checks of the saved version.
+WATCH_RETURNS = """() => {
+  window.__bez_przeladowania = true
+  window.__powroty = 0
+  window.addEventListener("focus", () => { window.__powroty += 1 })
+  document.addEventListener("visibilitychange", () => { window.__powroty += 1 })
+}"""
+# Longer than two of the page's 3-second version checks.
+HIDDEN_MS = 7_000
+
+
+def _live_result_card(run: Run, page: Page, filling: Locator, collective_file: Path) -> None:
+    """Excel next to Centrum: the result card shows Dad's values by itself, and asks nothing while the tab is hidden."""
+
+    asked: list[str] = []
+
+    def record(request: Request) -> None:
+        asked.append(urlsplit(request.url).path)
+
+    page.on("request", record)
+    original = collective_file.read_bytes()
+    section = filling.get_by_role("region", name=KIND_TITLES["without_rule"], exact=True)
+    try:
+        page.evaluate(WATCH_RETURNS)
+        for row in EXPECTED_ROWS["without_rule"]:
+            _write_dad_value(collective_file, row)
+        run.check(True, f"harness: Dad's values typed into column {DAD_COLUMN} of rows 18 and 20 and saved")
+        expect(section).to_contain_text("2 z 2", timeout=LIVE_TIMEOUT_MS)
+        run.check(
+            page.evaluate("() => window.__bez_przeladowania === true && window.__powroty === 0")
+            and asked.count(VERSION_API) >= 1,
+            f"the card shows 2 z 2 without a click, focus, tab switch or reload, after {asked.count(VERSION_API)} "
+            "check(s) of the saved version",
+        )
+        _check_screen(run, filling, _ready(run, "uzupelnienie-wynik-na-zywo"), "on the result card, live")
+        expect(filling).to_contain_text("Nie widzisz zmian? Zapisz w Excelu (Ctrl+S).")
+        run.check(True, "the card has the summary page's hint about saving in Excel")
+        run.capture(page, "235-uzupelnienie-wynik-na-zywo")
+
+        page.evaluate(HIDE_TAB)
+        hidden_from = len(asked)
+        page.wait_for_timeout(HIDDEN_MS)
+        hidden = asked[hidden_from:]
+        run.check(
+            VERSION_API not in hidden and API not in hidden,
+            f"with the tab hidden for {HIDDEN_MS} ms the card asks nothing about the Plik zbiorczy ({hidden})",
+        )
+        page.evaluate(SHOW_TAB)
+        with page.expect_request(lambda request: urlsplit(request.url).path == VERSION_API, timeout=LIVE_TIMEOUT_MS):
+            pass
+        run.check(True, "back in the tab the card checks the saved version again")
+    finally:
+        page.evaluate("() => { delete document.visibilityState }")
+        page.remove_listener("request", record)
+        collective_file.write_bytes(original)
+    expect(section).to_contain_text("0 z 2", timeout=LIVE_TIMEOUT_MS)
+    run.check(True, "with the file back as it was the card goes back to 0 z 2 by itself")
 
 
 def _drive_entries(run: Run, page: Page) -> None:
