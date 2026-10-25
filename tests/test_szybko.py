@@ -28,7 +28,7 @@ BY_CHANGE_ONLY = {
     ),
     "tests/test_na_scalonych_pr.py": "sprawdza narzędzie na repozytoriach testu, a nie całe repozytorium",
     "tests/test_praca_w_toku.py": "sprawdza werdykt narzędzia na repozytoriach testu, a nie całe repozytorium; trwa ok. 19 s",
-    "tests/test_szybko.py": "sprawdza samo szybko w repozytoriach testu; graf wybiera go przy zmianie tools/szybko.py i AGENTS.md",
+    "tests/test_szybko.py": "sprawdza samo szybko w repozytoriach testu; graf wybiera go przy zmianie tools/szybko.py i tabel reguł",
 }
 
 BASE_FILES = {
@@ -653,8 +653,11 @@ def test_nieznana_baza_konczy_sie_jedna_linia_wyniku(tmp_path: Path) -> None:
 
 
 def test_kazdy_test_z_tabeli_regul_w_agents_md_jest_testem_struktury_albo_ma_powod() -> None:
-    table = (ROOT / "AGENTS.md").read_text(encoding="utf-8").split("## Reguły i co ich pilnuje", 1)[1]
-    guards = [line.rsplit("|", 2)[-2] for line in table.splitlines() if line.startswith("|")]
+    """Tabele reguł to ``AGENTS.md`` i ``docs/agents/skille.md``; dokument bez nagłówka tabeli wywraca test."""
+
+    documents = (ROOT / "AGENTS.md", ROOT / "docs" / "agents" / "skille.md")
+    tables = [path.read_text(encoding="utf-8").split("## Reguły i co ich pilnuje", 1)[1] for path in documents]
+    guards = [line.rsplit("|", 2)[-2] for table in tables for line in table.splitlines() if line.startswith("|")]
     named = {path for guard in guards for path in re.findall(r"tests/test_\w+\.py", guard)}
     structure = {node.partition("::")[0] for node in szybko.STRUCTURE}
 

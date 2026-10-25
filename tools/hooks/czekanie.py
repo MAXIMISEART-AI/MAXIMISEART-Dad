@@ -18,6 +18,10 @@ Wejście, którego nie da się odczytać, też przechodzi, bo hook nie może zat
 
 Ciała heredoców (skrypt Pythona, treść commitu) i napisy ze spacją w cudzysłowach (opis commitu, wiersz logu)
 hook pomija, bo to nie są polecenia powłoki; zostawia z nich ``$(…)`` i ciało ``bash -c '…'``.
+
+Granica: inne harnessy niż Claude Code (Codex, opencode), pętlę w skrypcie uruchomionym z pliku, w Pythonie
+(``time.sleep``) albo z adresem ``gh api`` w cudzysłowie, czekanie na plik wyjścia zadania w tle i pętle, których
+wzorca hook nie zna, łapie tylko przegląd.
 Uruchamia go systemowy Python (na Macu 3.9), więc ruff sprawdza ten plik pod 3.9
 (``per-file-target-version`` w ``pyproject.toml``), a plik importuje tylko bibliotekę standardową.
 """

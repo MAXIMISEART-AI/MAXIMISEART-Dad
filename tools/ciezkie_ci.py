@@ -3,7 +3,7 @@
 Ciężkie zadania to ``change-mutations`` (``tools/mutacje_zmiany.py``) i ``mutations`` (``tools/mutacje_skilli.py``
 dla wszystkich skilli): trwają kilkanaście minut i dłużej, a CI liczy je po pushu w trzech częściach każde.
 ``tools/mutacje_zmiany.py`` i ``tools/ci_lokalnie.py`` z jednym z nich (także pełne, bez ``--tylko``) pytają
-``refusal`` przed startem i poza CI odmawiają, chyba że:
+``refusal`` przed startem i poza CI odmawiają (kod 2 i linia ``CIĘŻKIE CI ODMOWA``), chyba że:
 
 - biegną w CI (``GITHUB_ACTIONS=true``);
 - ``--odtwarzam <id runu Actions albo URL>`` wskazuje run, w którym każde z tych zadań padło i który dotyczy bieżącej
@@ -13,8 +13,9 @@ dla wszystkich skilli): trwają kilkanaście minut i dłużej, a CI liczy je po 
   cudzego PR-u, nie sprawdzenie przed pushem.
 
 Granica: ``GITHUB_ACTIONS``, ``MAXIMISEART_ODTWARZAM`` albo ``MAXIMISEART_NA_SCALONYCH_PR`` podstawione ręcznie,
-``tools/na_scalonych_pr.py --commit`` z commitem własnej gałęzi i mutacje uruchomione bez tych narzędzi (pytest z własną
-pętlą mutacji) łapie tylko przegląd.
+``tools/na_scalonych_pr.py --commit`` z commitem własnej gałęzi, pełny pytest i mutacje uruchomione bez tych narzędzi
+(pytest z własną pętlą mutacji, skrypt ``check_*_mutations.py`` wołany z ręki poza workflow skilla,
+``tools/mutacje_skilli.py`` wprost) łapie tylko przegląd.
 """
 
 from __future__ import annotations
