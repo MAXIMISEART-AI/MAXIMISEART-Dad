@@ -63,16 +63,16 @@ VERDICT = "MUTACJE OK"
 BASELINE = "PODSTAWA"
 # Najdłuższy skrypt trwał w CI na Windows 770 s; limit łapie zawieszenie, a nie wolny runner.
 LIMIT_S = 30 * 60
-# Czas skilla w zadaniu CI na windows-latest; dzieli skille na części. Skrypt mutacji: mediana 3 prób run 40062771086.
-# Podstawa ``ci``: Centrum ``--feature all`` 187 s (run 40118716583); model TLA+ (z pobraniem Javy) i eksplorator jedno
-# to szacunek z 8 s na Macu.
+# Czas skilla w zadaniu CI na windows-latest (podstawa ``ci`` i skrypt mutacji, run 40207957312, jedna próba; Centrum:
+# średnia z tego runu i run 40207090403 na main); dzieli skille na części.
 CI_TIMES_S: dict[str, float] = {
-    "verify-aktualizacja-narzedzia": 40,
-    "verify-centrum-rozliczen": 145 + 187,
-    "verify-jedno-uruchomienie-naraz": 325 + 25,
-    "verify-kopia-wzorca": 293,
-    "verify-publikacja-plikow-okresu": 97,
-    "verify-rozliczenia": 75,
+    "verify-aktualizacja-narzedzia": 20,
+    "verify-centrum-rozliczen": 259 + 575,
+    "verify-jedno-uruchomienie-naraz": 32 + 332,
+    "verify-kopia-wzorca": 181,
+    "verify-publikacja-plikow-okresu": 83,
+    "verify-rozliczenia": 61,
+    "verify-skoroszyty-w-excelu": 19,
 }
 # Pliki spoza Pythona, od których zależy przebieg mutacji w CI: biblioteki, zadanie CI, końce linii kopii.
 INFRASTRUCTURE = ("requirements.txt", ".github/workflows/ci.yml", ".gitattributes")
