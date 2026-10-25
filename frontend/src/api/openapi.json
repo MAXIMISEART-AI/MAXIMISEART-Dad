@@ -526,6 +526,84 @@
         }
       }
     },
+    "/api/periods/{token}/without-quantity": {
+      "get": {
+        "tags": [
+          "okresy"
+        ],
+        "summary": "Rows Without Quantity",
+        "description": "Wiersze bez ilości dla okna „Uruchomić z zapisem?” Przebiegu rozliczeń tego okresu.\n\nTylko na żądanie wybranego okresu, bo odczyt trwa u taty ponad sekundę. Nieudany odczyt nie blokuje startu;\nKomunikat i wpis w dzienniku daje strona Uzupełnienia, a sam Przebieg rozliczeń nazywa plik.",
+        "operationId": "getWithoutQuantity",
+        "parameters": [
+          {
+            "name": "token",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/WithoutQuantityRead"
+                    },
+                    {
+                      "$ref": "#/components/schemas/WithoutQuantityUnread"
+                    }
+                  ],
+                  "discriminator": {
+                    "propertyName": "state",
+                    "mapping": {
+                      "read": "#/components/schemas/WithoutQuantityRead",
+                      "unread": "#/components/schemas/WithoutQuantityUnread"
+                    }
+                  },
+                  "title": "Response Getwithoutquantity"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/periods/{token}/worker-settlements/open": {
       "post": {
         "tags": [
@@ -1395,6 +1473,7 @@
               "getPeriodBoard",
               "openPeriodPath",
               "getQuantitiesToFill",
+              "getWithoutQuantity",
               "openWorkerSettlement",
               "getRunSetup",
               "startRun",
@@ -2447,31 +2526,6 @@
             },
             "type": "array",
             "title": "Open In Excel"
-          },
-          "without_quantity": {
-            "anyOf": [
-              {
-                "oneOf": [
-                  {
-                    "$ref": "#/components/schemas/WithoutQuantityRead"
-                  },
-                  {
-                    "$ref": "#/components/schemas/WithoutQuantityUnread"
-                  }
-                ],
-                "discriminator": {
-                  "propertyName": "state",
-                  "mapping": {
-                    "read": "#/components/schemas/WithoutQuantityRead",
-                    "unread": "#/components/schemas/WithoutQuantityUnread"
-                  }
-                }
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Without Quantity"
           }
         },
         "additionalProperties": false,
@@ -2484,8 +2538,7 @@
           "last_complete",
           "previewed",
           "collective_file",
-          "open_in_excel",
-          "without_quantity"
+          "open_in_excel"
         ],
         "title": "PeriodChoice",
         "description": "Okres do wyboru przy starcie, ze Statusem okresu wyliczonym z plików."
@@ -4273,16 +4326,28 @@
             },
             "type": "array",
             "title": "Rows"
+          },
+          "sentence": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sentence"
           }
         },
         "additionalProperties": false,
         "type": "object",
         "required": [
           "state",
-          "rows"
+          "rows",
+          "sentence"
         ],
         "title": "WithoutQuantityRead",
-        "description": "Wiersze Ilości do uzupełnienia z listą (bez reguły, z opisu), w których tata nic jeszcze nie wpisał, rosnąco."
+        "description": "Wiersze z listą (bez reguły, z opisu), w których tata nic jeszcze nie wpisał, rosnąco.\n\n``sentence`` to zdanie okna „Uruchomić z zapisem?”, np. „3 wiersze bez ilości: 118, 203, 244”; ``None`` bez wierszy."
       },
       "WithoutQuantityUnread": {
         "properties": {

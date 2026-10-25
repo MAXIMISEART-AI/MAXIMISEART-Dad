@@ -9,7 +9,7 @@ import {
   WrenchIcon,
 } from "lucide-react"
 
-import type { Decision, DecisionAnswer, PeriodChoice } from "@/api/centrum"
+import { getWithoutQuantity, type Decision, type DecisionAnswer, type WithoutQuantity } from "@/api/centrum"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -22,6 +22,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
+import { useResource } from "@/lib/use-resource"
 import { CountTiles } from "@/pages/runs/count-tiles"
 
 /**
@@ -39,7 +40,6 @@ export function ConfirmRunDialog({
   reminder,
   confirmsReadiness,
   previewed,
-  withoutQuantity,
   onConfirm,
 }: {
   open: boolean
@@ -49,9 +49,11 @@ export function ConfirmRunDialog({
   reminder: string
   confirmsReadiness: boolean
   previewed: boolean
-  withoutQuantity: PeriodChoice["without_quantity"]
   onConfirm: () => void
 }) {
+  // Czytane, gdy karta pokazuje okres, a nie dopiero po „Uruchom”: odczyt trwa u taty ponad sekundę.
+  const withoutQuantity = useWithoutQuantity(confirmsReadiness ? period : null)
+
   return (
     <AlertDialog open={open} onOpenChange={onOpenChange}>
       <AlertDialogContent>
@@ -99,20 +101,43 @@ export function ConfirmRunDialog({
   )
 }
 
-/** „1 wiersz”, „3 wiersze”, „12 wierszy”, „22 wiersze” */
-function rowsCount(count: number): string {
-  if (count === 1) {
-    return "1 wiersz"
+type PeriodRows = { period: string; found: WithoutQuantity }
+
+const UNREAD: WithoutQuantity = { state: "unread" }
+
+const NO_PERIOD = () => Promise.resolve(null)
+
+// `useResource` pamięta ostatnie dane pod funkcją odczytu, więc każdy okres ma jedną, tę samą funkcję.
+const loads = new Map<string, () => Promise<PeriodRows | null>>()
+
+function rowsOf(period: string) {
+  let load = loads.get(period)
+
+  if (load === undefined) {
+    load = () => getWithoutQuantity(period).then((found) => ({ period, found }))
+    loads.set(period, load)
   }
 
-  const few = [2, 3, 4].includes(count % 10) && ![12, 13, 14].includes(count % 100)
+  return load
+}
 
-  return `${count} ${few ? "wiersze" : "wierszy"}`
+/**
+ * Wiersze bez ilości okresu `period`, czytane od nowa po powrocie do karty (np. z Excela); `null`, dopóki nie ma
+ * odpowiedzi dla tego okresu. Odczyt, który się nie udał, jest jak Plik zbiorczy bez odczytu.
+ */
+function useWithoutQuantity(period: string | null): WithoutQuantity | null {
+  const { resource } = useResource(period === null ? NO_PERIOD : rowsOf(period))
+
+  if (resource.state === "failed") {
+    return UNREAD
+  }
+
+  return resource.state === "ready" && resource.data?.period === period ? resource.data.found : null
 }
 
 /** Wiersze bez ilości okresu; Plik zbiorczy bez odczytu też jest wymieniony, żeby cisza nie znaczyła „nic nie zostało”. */
-function WithoutQuantityLine({ withoutQuantity }: { withoutQuantity: PeriodChoice["without_quantity"] }) {
-  if (withoutQuantity === null || (withoutQuantity.state === "read" && withoutQuantity.rows.length === 0)) {
+function WithoutQuantityLine({ withoutQuantity }: { withoutQuantity: WithoutQuantity | null }) {
+  if (withoutQuantity === null || (withoutQuantity.state === "read" && withoutQuantity.sentence === null)) {
     return null
   }
 
@@ -128,7 +153,7 @@ function WithoutQuantityLine({ withoutQuantity }: { withoutQuantity: PeriodChoic
   return (
     <span className="flex items-start gap-2 text-warning tabular-nums">
       <TriangleAlertIcon className="mt-0.5 size-4 shrink-0" aria-hidden />
-      {rowsCount(withoutQuantity.rows.length)} bez ilości: {withoutQuantity.rows.join(", ")}
+      {withoutQuantity.sentence}
     </span>
   )
 }

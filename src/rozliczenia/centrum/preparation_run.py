@@ -126,6 +126,5 @@ def _choice(
         previewed=previewed,
         collective_file=None,
         open_in_excel=open_files,
-        without_quantity=None,
     )
 

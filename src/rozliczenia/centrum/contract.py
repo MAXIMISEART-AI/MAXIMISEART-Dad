@@ -285,22 +285,6 @@ class Metrics(_Model):
 PhaseName = Literal["Sprawdzanie", "Odczyt danych", "Planowanie", "Zapisywanie"]
 
 
-class WithoutQuantityRead(_Model):
-    """Wiersze Ilości do uzupełnienia z listą (bez reguły, z opisu), w których tata nic jeszcze nie wpisał, rosnąco."""
-
-    state: Literal["read"]
-    rows: list[int]
-
-
-class WithoutQuantityUnread(_Model):
-    """Pliku zbiorczego nie udało się odczytać, więc nie wiadomo, które wiersze są bez ilości; start zostaje możliwy."""
-
-    state: Literal["unread"]
-
-
-WithoutQuantity = Annotated[WithoutQuantityRead | WithoutQuantityUnread, Field(discriminator="state")]
-
-
 class PeriodChoice(_Model):
     """Okres do wyboru przy starcie, ze Statusem okresu wyliczonym z plików."""
 
@@ -315,9 +299,6 @@ class PeriodChoice(_Model):
     collective_file: str | None
     # Zdania o skoroszytach wejściowych procesu otwartych w Excelu: najpierw plik danych, potem Wzorce.
     open_in_excel: list[str]
-    # Wiersze bez ilości z Pliku zbiorczego okresu, gdy proces go czyta (Przebieg rozliczeń); okno „Uruchomić z
-    # zapisem?” je wymienia, ale Gotowość potwierdza tata.
-    without_quantity: WithoutQuantity | None
 
 
 class ProcessSetup(_Model):
@@ -441,6 +422,26 @@ class QuantitiesToFillProblem(_Model):
 
 
 QuantitiesToFill = Annotated[QuantitiesToFillReady | QuantitiesToFillProblem, Field(discriminator="state")]
+
+
+class WithoutQuantityRead(_Model):
+    """Wiersze z listą (bez reguły, z opisu), w których tata nic jeszcze nie wpisał, rosnąco.
+
+    ``sentence`` to zdanie okna „Uruchomić z zapisem?”, np. „3 wiersze bez ilości: 118, 203, 244”; ``None`` bez wierszy.
+    """
+
+    state: Literal["read"]
+    rows: list[int]
+    sentence: str | None
+
+
+class WithoutQuantityUnread(_Model):
+    """Pliku zbiorczego nie udało się odczytać, więc nie wiadomo, które wiersze są bez ilości; start zostaje możliwy."""
+
+    state: Literal["unread"]
+
+
+WithoutQuantity = Annotated[WithoutQuantityRead | WithoutQuantityUnread, Field(discriminator="state")]
 
 
 class Count(_Model):
@@ -902,6 +903,7 @@ ApiOperation = Literal[
     "getPeriodBoard",
     "openPeriodPath",
     "getQuantitiesToFill",
+    "getWithoutQuantity",
     "openWorkerSettlement",
     "getRunSetup",
     "startRun",
