@@ -187,6 +187,7 @@ def drive_report(run: Run, page: Page) -> None:
     run.capture(page, "63-zgloszenie-konfiguracja-gotowe")
     refusing = box / "odmawia-klucza"
     print("  harness: the skrzynka refuses the key Maks writes next (an expired token)", flush=True)
+    box.mkdir(exist_ok=True)  # run alone, nothing reached the skrzynka yet
     refusing.touch()
     key_file.write_text(KEY + "_WYGASLY\n", encoding="utf-8")
     page.reload()
