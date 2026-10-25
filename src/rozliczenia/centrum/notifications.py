@@ -80,7 +80,7 @@ class ReadNotifications:
                 return
             self._read |= added
             document = {"schema_version": SCHEMA_VERSION, "przeczytane": sorted(self._read)}
-            self.file.write(json.dumps(document, ensure_ascii=False, indent=2) + "\n")
+            self.file.write(json.dumps(document, indent=2) + "\n")
 
     def _load(self) -> set[str]:
         try:

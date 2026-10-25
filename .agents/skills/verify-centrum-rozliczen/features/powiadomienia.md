@@ -72,6 +72,6 @@ Preconditions:
 - The tab reads Powiadomienia on start, on every page change and on focus; the 10-minute limit keeps these from asking again.
 - The Zgłoszenie that `zgloszenie` closed has no `state_reason`; Centrum reads it as `completed`, so it may already be new when this feature starts.
 - Never point the app at the real GitHub skrzynka; the key is synthetic.
-- Every read of Powiadomienia while a state file is held waits for its retries (under a second per file), so poll the API with a timeout instead of expecting the Komunikat on the first answer: the Komunikat names `powiadomienia.json` only after the tab has marked the closed Uwaga read.
+- Only the first failed save of a held state file waits for its retries (under a second); later reads try once. Poll the API with a timeout instead of expecting the Komunikat on the first answer: the Komunikat names `powiadomienia.json` only after the tab has marked the closed Uwaga read.
 - The Linux lock was never driven: CI drives Centrum on Windows, and root ignores a read-only folder, so there the Komunikat never shows and the step fails.
 - Run alone, the clone stands one commit behind the local origin; the Update step first makes the clone's `HEAD` the origin's only Wydanie, so the click never moves the clone.
