@@ -184,7 +184,7 @@ jobs:
           PROFIL_MATRIX: ${{ toJSON(matrix) }}
         run: |
           import json, os, pathlib, subprocess, sys, sysconfig, time
-          pathlib.Path(sysconfig.get_paths()["purelib"], "profil_ci.py").write_text('import json\nimport os\nimport time\n\nimport pytest\n\n_START = time.time()\n_WORKER = os.environ.get("PYTEST_XDIST_WORKER", "kontroler")\n_meta = {"worker": _WORKER, "pid": os.getpid(), "import": _START}\n_items = {}\n\n\ndef pytest_configure(config):\n    _meta["configure"] = time.time()\n\n\ndef pytest_collection_finish(session):\n    _meta["collected"] = time.time()\n    _meta["n_items"] = len(session.items)\n\n\n@pytest.hookimpl(hookwrapper=True)\ndef pytest_runtest_protocol(item, nextitem):\n    cpu = time.process_time()\n    start = time.time()\n    yield\n    row = _items.setdefault(item.nodeid, {})\n    row.update(t0=start, t1=time.time(), cpu=time.process_time() - cpu)\n\n\ndef pytest_runtest_logreport(report):\n    if _WORKER == "kontroler" and getattr(report, "node", None) is not None:\n        return\n    row = _items.setdefault(report.nodeid, {})\n    row[report.when] = [round(report.duration, 4), report.outcome]\n\n\ndef pytest_sessionfinish(session):\n    _meta["finish"] = time.time()\n    _meta["cpu_total"] = time.process_time()\n    folder = os.environ["PROFIL_DIR"]\n    os.makedirs(folder, exist_ok=True)\n    with open(os.path.join(folder, f"profil-{_WORKER}.json"), "w", encoding="utf-8") as out:\n        json.dump({"meta": _meta, "items": _items}, out)\n', encoding="utf-8")
+          pathlib.Path(sysconfig.get_paths()["purelib"], "profil_ci.py").write_text('import json\nimport os\nimport sys\nimport threading\nimport time\n\nimport pytest\n\n_START = time.time()\n_WORKER = os.environ.get("PYTEST_XDIST_WORKER", "kontroler")\n_meta = {"worker": _WORKER, "pid": os.getpid(), "import": _START}\n_items = {}\n\n\n_cpu = []\n\n\ndef _system_times():\n    if sys.platform == "win32":\n        import ctypes\n        idle, kernel, user = (ctypes.c_ulonglong() for _ in range(3))\n        ctypes.windll.kernel32.GetSystemTimes(ctypes.byref(idle), ctypes.byref(kernel), ctypes.byref(user))\n        return kernel.value + user.value, idle.value\n    fields = [int(x) for x in open("/proc/stat").readline().split()[1:]]\n    return sum(fields), fields[3] + fields[4]\n\n\ndef _sample():\n    total, idle = _system_times()\n    while True:\n        time.sleep(1)\n        new_total, new_idle = _system_times()\n        busy = 1 - (new_idle - idle) / max(new_total - total, 1)\n        _cpu.append((round(time.time(), 2), round(busy, 3)))\n        total, idle = new_total, new_idle\n\n\ndef pytest_configure(config):\n    _meta["configure"] = time.time()\n    if _WORKER == "kontroler":\n        threading.Thread(target=_sample, daemon=True).start()\n\n\ndef pytest_collection_finish(session):\n    _meta["collected"] = time.time()\n    _meta["n_items"] = len(session.items)\n\n\n@pytest.hookimpl(hookwrapper=True)\ndef pytest_runtest_protocol(item, nextitem):\n    cpu = time.process_time()\n    start = time.time()\n    yield\n    row = _items.setdefault(item.nodeid, {})\n    row.update(t0=start, t1=time.time(), cpu=time.process_time() - cpu)\n\n\ndef pytest_runtest_logreport(report):\n    if _WORKER == "kontroler" and getattr(report, "node", None) is not None:\n        return\n    row = _items.setdefault(report.nodeid, {})\n    row[report.when] = [round(report.duration, 4), report.outcome]\n\n\ndef pytest_sessionfinish(session):\n    _meta["finish"] = time.time()\n    _meta["cpu_total"] = time.process_time()\n    folder = os.environ["PROFIL_DIR"]\n    os.makedirs(folder, exist_ok=True)\n    with open(os.path.join(folder, f"profil-{_WORKER}.json"), "w", encoding="utf-8") as out:\n        json.dump({"meta": _meta, "items": _items, "cpu": _cpu}, out)\n', encoding="utf-8")
           folder = pathlib.Path(os.environ["PROFIL_DIR"])
           folder.mkdir(parents=True, exist_ok=True)
           spawn = []
@@ -204,6 +204,10 @@ jobs:
           except ImportError:
               meta["psutil_physical"] = None
           (folder / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
+          if sys.platform == "win32":
+              defender = subprocess.run(["powershell", "-NoProfile", "-Command", "Get-MpComputerStatus | Select-Object RealTimeProtectionEnabled,AMRunningMode,OnAccessProtectionEnabled,BehaviorMonitorEnabled | ConvertTo-Json"], capture_output=True, text=True)
+              meta["defender"] = defender.stdout.strip() or defender.stderr.strip()[:500]
+              (folder / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
           print(meta)
 
       - name: Run tests
@@ -213,12 +217,17 @@ jobs:
           if ($LASTEXITCODE -ne 0) {
             throw "Splitting the test files failed (exit code $LASTEXITCODE)"
           }
-          $env:PROFIL_DIR = "$env:RUNNER_TEMP\profil"
-          $files | Out-File "$env:PROFIL_DIR\files.txt" -Encoding utf8
-          $start = Get-Date
-          py -3 -m pytest -n auto -p profil_ci --durations=0 --junitxml="$env:PROFIL_DIR\junit.xml" $files
-          $code = $LASTEXITCODE
-          "wall_s=$(((Get-Date) - $start).TotalSeconds)" | Out-File "$env:PROFIL_DIR\wall.txt" -Encoding utf8
+          $files | Out-File "$env:RUNNER_TEMP\profil\files.txt" -Encoding utf8
+          $order = if ((${{ github.run_attempt }} % 2) -eq 1) { @(4, 8) } else { @(8, 4) }
+          $code = 0
+          foreach ($n in $order) {
+            $env:PROFIL_DIR = "$env:RUNNER_TEMP\profil\n$n"
+            New-Item -ItemType Directory -Force -Path $env:PROFIL_DIR | Out-Null
+            $start = Get-Date
+            py -3 -m pytest -n $n -p profil_ci --durations=0 --junitxml="$env:PROFIL_DIR\junit.xml" $files
+            if ($LASTEXITCODE -ne 0) { $code = $LASTEXITCODE }
+            "wall_s=$(((Get-Date) - $start).TotalSeconds)" | Out-File "$env:PROFIL_DIR\wall.txt" -Encoding utf8
+          }
           exit $code
 
       - name: '[pomiar] Collection time and imports'
