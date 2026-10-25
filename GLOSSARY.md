@@ -143,7 +143,8 @@ nie publikuje żadnego Rozliczenia pracownika.
 
 ## Rozliczenie pracownika
 
-Szablon pracownika uzupełniony wierszami tego wykonawcy z danego okresu.
+Szablon pracownika uzupełniony wierszami tego wykonawcy z danego okresu, bez
+Ilości tylko dla INEA.
 Plik jest identyfikowany nazwą `Rozliczenie {okres} - {nazwa wykonawcy}.xlsx`;
 `{okres}` to token okresu rozliczeniowego.
 
@@ -168,11 +169,20 @@ _Avoid_: styl wiersza, formatowanie wiersza
 
 ## Ilości usług
 
-Liczby w kolumnach `N:AP` Wiersza danych Pliku zbiorczego: ile razy Wykonawca
-wykonał przy zleceniu daną pozycję cennika. Wartość pozycji to jej ilość razy
-koszt z wiersza 14. Dodatek 45 zł za usterkę po 17:00 albo w sobotę tata
-zapisuje jako ilość 45 w pozycji o koszcie 1 zł.
+Liczby w kolumnach `N:AP` Wiersza danych: ile razy przy zleceniu płatna jest
+dana pozycja cennika. W Pliku zbiorczym płaci ją tacie INEA, a w Rozliczeniu
+pracownika tata Wykonawcy. Wartość pozycji to jej ilość razy koszt z wiersza 14
+tego pliku. Dodatek 45 zł za usterkę po 17:00 albo w sobotę tata zapisuje jako
+ilość 45 w pozycji o koszcie 1 zł.
 _Avoid_: cyfry, zera i jedynki, kolumny
+
+## Ilości tylko dla INEA
+
+Ilości usług z Pliku zbiorczego, które INEA płaci tacie, a Wykonawca ich nie
+wykonuje, więc nie przechodzą do Rozliczenia pracownika: `AP` w zleceniu z
+`gniazdo` w `URZĄDZENIA` i `AK` w zleceniu z `technicolor` w `URZĄDZENIA`, bez
+względu na liczbę. Należą do taty, tak jak Reguły ilości.
+_Avoid_: kasowanie jedynek, usuwanie cyfr
 
 ## Reguły ilości
 
