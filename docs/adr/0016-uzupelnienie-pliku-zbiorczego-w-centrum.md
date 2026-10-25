@@ -44,6 +44,11 @@ godzinami, z Plikiem zbiorczym otwartym w Excelu, więc strona, która wymaga za
   trwa u taty ponad sekundę. Wiersz objęty regułą nigdy tam nie trafia, bo ilości wpisało mu narzędzie.
   Nieudany odczyt nie blokuje startu: okno mówi, że wierszy nie dało się sprawdzić, a wpis w dzienniku i
   Komunikat daje strona Uzupełnienia. Gotowość dalej potwierdza tata, a Centrum nie przechowuje stanu „Gotowe”.
+- **Po Przebiegu rozliczeń (#422).** Czy Przebieg okresu się odbył, mówi Status okresu z plików Folderu okresu
+  (Rozliczenia pracowników gotowe, gdy jest Folder rozliczeń pracowników), ten sam co na Tablicy okresów i w liście
+  okresów Przebiegu; Centrum nie zapisuje go osobno. Wtedy obie strony są podglądem bez „Gotowe, rozlicz
+  pracowników”, a wiersz z listą bez wpisu taty ma stan „bez ilości” zamiast „do uzupełnienia”. Stan wiersza jest
+  jednym wyliczeniem (do uzupełnienia, zrobiony, bez ilości) z serwera, więc przeglądarka go nie składa.
 - **Niesprawdzone założenie o Autozapisie OneDrive.** Zakładamy, że Autozapis zmienia plik na dysku kilka sekund
   po wpisie taty. Test Maksa na laptopie taty się nie udał, a to, czy Windows daje czytać plik, który trzyma
   Excel, sprawdzi dopiero pierwsze wdrożenie przez wpis `uzupelnienie-odczyt-nieudany` w dzienniku. Gdy

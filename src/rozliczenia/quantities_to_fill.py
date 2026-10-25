@@ -11,6 +11,7 @@ kolumnę narzędzia, która nie robi wiersza zrobionym, a w pozostałych jako wp
 wartości z pliku nie ma, bo porównanie ich to Kontrola ilości, która zostaje dla Maksa.
 Wiersz z ``DATA``, która nie jest datą, nie ma wyniku reguł, więc nie trafia do żadnego rodzaju. Kolumny z opisu
 technika mają tylko liczbę wierszy, w których tata coś wpisał, wziętą z Kontroli ilości tych samych wierszy.
+Po Przebiegu rozliczeń okresu wiersz z listą bez wpisu taty nie czeka już na tatę: jest „bez ilości”.
 """
 
 from __future__ import annotations
@@ -84,8 +85,11 @@ class QuantityCell:
 
 class RowState(StrEnum):
     TO_FILL = "to_fill"
+    """Bez komórki ``TATA``, a Przebiegu rozliczeń okresu jeszcze nie było."""
     DONE = "done"
     """Choć jedna komórka ``TATA``."""
+    WITHOUT_QUANTITY = "without_quantity"
+    """Bez komórki ``TATA`` po Przebiegu rozliczeń okresu: wiersz został na zerach („bez ilości”)."""
 
 
 @dataclass(frozen=True)
@@ -95,10 +99,7 @@ class RowToFill:
     texts: RowTexts
     cells: tuple[QuantityCell, ...]
     """Każda kolumna ``N_AP`` po kolei."""
-
-    @property
-    def state(self) -> RowState:
-        return RowState.DONE if any(cell.source is CellSource.TATA for cell in self.cells) else RowState.TO_FILL
+    state: RowState
 
     @property
     def done(self) -> bool:
@@ -132,7 +133,9 @@ class QuantitiesToFill:
         return tuple(sorted(row.number for kind in self.kinds for row in kind.rows if not row.done))
 
 
-def quantities_to_fill(rows: Sequence[NumberedOrder]) -> QuantitiesToFill:
+def quantities_to_fill(rows: Sequence[NumberedOrder], *, settled: bool) -> QuantitiesToFill:
+    """``settled``: Przebieg rozliczeń okresu się odbył, więc wiersz bez wpisu taty jest „bez ilości”."""
+
     listed: dict[FillKind, list[RowToFill]] = {kind: [] for kind in FillKind}
     for row in rows:
         content = row.order.content
@@ -141,13 +144,22 @@ def quantities_to_fill(rows: Sequence[NumberedOrder]) -> QuantitiesToFill:
         rule = evaluate(content)
         kind = _KINDS.get(type(rule))
         if kind is not None:
-            listed[kind].append(RowToFill(row.number, row.texts, _cells(row.order, rule)))
+            listed[kind].append(_row(row, rule, settled=settled))
     control = check(tuple(row.order for row in rows))
     assert isinstance(control, QuantityCheck)  # ``check`` nie porównuje tylko przy brakujących nagłówkach
     return QuantitiesToFill(
         tuple(KindToFill(kind, tuple(found)) for kind, found in listed.items()),
         {column: control.description_filled[column] for column in DESCRIPTION_COLUMNS},
     )
+
+
+def _row(row: NumberedOrder, rule: RuleResult, *, settled: bool) -> RowToFill:
+    cells = _cells(row.order, rule)
+    if any(cell.source is CellSource.TATA for cell in cells):
+        state = RowState.DONE
+    else:
+        state = RowState.WITHOUT_QUANTITY if settled else RowState.TO_FILL
+    return RowToFill(row.number, row.texts, cells, state)
 
 
 def _cells(order: OrderFacts, rule: RuleResult) -> tuple[QuantityCell, ...]:
