@@ -28,6 +28,7 @@ from __future__ import annotations
 import argparse
 from dataclasses import dataclass
 import json
+import os
 from pathlib import Path
 import shutil
 import subprocess
@@ -189,6 +190,9 @@ def main(argv: list[str] | None = None) -> int:
     if refusal := ciezkie_ci.refusal(jobs, args.odtwarzam, root=ROOT):
         print(refusal)
         return 2
+    if args.odtwarzam:
+        # Krok ``mutacje zmiany`` to osobny proces ze strażnikiem, a run sprawdził już ten.
+        os.environ[ciezkie_ci.REPRODUCING] = args.odtwarzam
     if args.kazdy_commit:
         return _check_every_commit(args.kazdy_commit, jobs, fail_fast=args.do_pierwszego_bledu)
     complete = jobs == known

@@ -8,11 +8,13 @@ dla wszystkich skilli): trwają kilkanaście minut i dłużej, a CI liczy je po 
 - biegną w CI (``GITHUB_ACTIONS=true``);
 - ``--odtwarzam <id runu Actions albo URL>`` wskazuje run, w którym każde z tych zadań padło i który dotyczy bieżącej
   gałęzi (``headBranch`` to ona albo ``headSha`` jest przodkiem HEAD spoza ``origin/main``); ``gh run view`` to sprawdza;
+- uruchamia je krok ``tools/ci_lokalnie.py --odtwarzam``, którego run strażnik już sprawdził (``MAXIMISEART_ODTWARZAM``);
 - uruchamia je ``tools/na_scalonych_pr.py`` (``MAXIMISEART_NA_SCALONYCH_PR=1``): próba narzędzia na commicie scalenia
   cudzego PR-u, nie sprawdzenie przed pushem.
 
-Granica: ``GITHUB_ACTIONS`` albo ``MAXIMISEART_NA_SCALONYCH_PR`` podstawione ręcznie i mutacje uruchomione bez tych
-narzędzi (pytest z własną pętlą mutacji) łapie tylko przegląd.
+Granica: ``GITHUB_ACTIONS``, ``MAXIMISEART_ODTWARZAM`` albo ``MAXIMISEART_NA_SCALONYCH_PR`` podstawione ręcznie,
+``tools/na_scalonych_pr.py --commit`` z commitem własnej gałęzi i mutacje uruchomione bez tych narzędzi (pytest z własną
+pętlą mutacji) łapie tylko przegląd.
 """
 
 from __future__ import annotations
@@ -29,6 +31,8 @@ ROOT = Path(__file__).resolve().parents[1]
 # Zadanie z ``tools/ci_lokalnie.py`` i początek nazwy jego zadań w ``.github/workflows/ci.yml``.
 HEAVY = {"change-mutations": "Change mutations", "mutations": "Mutation checks"}
 FROM_MERGED_PRS = "MAXIMISEART_NA_SCALONYCH_PR"
+# Run, który sprawdził już strażnik narzędzia nadrzędnego: ``tools/ci_lokalnie.py`` przekazuje go swoim krokom.
+REPRODUCING = "MAXIMISEART_ODTWARZAM"
 
 Gh = Callable[[Sequence[str]], str]
 
@@ -56,7 +60,7 @@ def refusal(
     """Powód odmowy startu ciężkich zadań z ``jobs`` albo ``None``, gdy mogą biec."""
 
     heavy = sorted(set(jobs) & HEAVY.keys())
-    if not heavy or env.get("GITHUB_ACTIONS") == "true" or env.get(FROM_MERGED_PRS) == "1":
+    if not heavy or env.get("GITHUB_ACTIONS") == "true" or env.get(FROM_MERGED_PRS) == "1" or env.get(REPRODUCING):
         return None
     named = ", ".join(heavy)
     if reproduces is None:

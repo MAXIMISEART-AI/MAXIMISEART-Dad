@@ -26,7 +26,8 @@ sys.path.insert(0, str(ROOT / "tools"))
 
 from ciezkie_ci import HEAVY, refusal  # noqa: E402
 
-OUTSIDE_CI = {name: value for name, value in os.environ.items() if name not in ("GITHUB_ACTIONS", "MAXIMISEART_NA_SCALONYCH_PR")}
+PASSES = ("GITHUB_ACTIONS", "MAXIMISEART_NA_SCALONYCH_PR", "MAXIMISEART_ODTWARZAM")
+OUTSIDE_CI = {name: value for name, value in os.environ.items() if name not in PASSES}
 Jobs = list[dict[str, str | None]]
 RED_MUTATIONS: Jobs = [{"name": "Change mutations (2/3)", "conclusion": "failure"}, {"name": "Change mutations (1/3)", "conclusion": "success"}]
 
@@ -52,10 +53,22 @@ def _gh(head_branch: str, head_sha: str, jobs: Jobs, asked: list[Sequence[str]] 
     return gh
 
 
-def _tool(repo: Path, *arguments: str) -> subprocess.CompletedProcess[str]:
+def _tool(repo: Path, *arguments: str, env: dict[str, str] = OUTSIDE_CI) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
-        [sys.executable, *arguments], cwd=repo, env=OUTSIDE_CI, capture_output=True, text=True, encoding="utf-8", timeout=120, check=False
+        [sys.executable, *arguments], cwd=repo, env=env, capture_output=True, text=True, encoding="utf-8", timeout=120, check=False
     )
+
+
+def _with_fake_gh(tmp_path: Path, run: dict[str, object]) -> dict[str, str]:
+    """Środowisko poza CI z atrapą ``gh`` na ``PATH``, która na ``gh run view`` podaje ``run``."""
+
+    bin = tmp_path / "bin"
+    bin.mkdir()
+    (bin / "run.json").write_text(json.dumps(run), encoding="utf-8")
+    gh = bin / "gh"
+    gh.write_text(f'#!/bin/sh\ncat "{bin / "run.json"}"\n', encoding="utf-8")
+    gh.chmod(0o755)
+    return {**OUTSIDE_CI, "PATH": f"{bin}{os.pathsep}{OUTSIDE_CI['PATH']}"}
 
 
 @pytest.mark.parametrize(
@@ -99,7 +112,9 @@ def test_lekkie_zadania_biegna_poza_ci_bez_odtwarzania(tmp_path: Path, jobs: set
 
 
 @pytest.mark.parametrize(
-    "env", [{"GITHUB_ACTIONS": "true"}, {"MAXIMISEART_NA_SCALONYCH_PR": "1"}], ids=["w CI", "z tools/na_scalonych_pr.py"]
+    "env",
+    [{"GITHUB_ACTIONS": "true"}, {"MAXIMISEART_NA_SCALONYCH_PR": "1"}, {"MAXIMISEART_ODTWARZAM": "123"}],
+    ids=["w CI", "z tools/na_scalonych_pr.py", "w kroku ci_lokalnie z odtwarzaniem"],
 )
 def test_ciezkie_zadanie_w_ci_i_na_scalonych_pr_biegnie_bez_odtwarzania(tmp_path: Path, env: dict[str, str]) -> None:
     assert refusal({"change-mutations"}, None, root=tmp_path, env=env) is None
@@ -126,6 +141,34 @@ def test_odtworzenie_runu_przodka_head_z_innej_galezi_biegnie(tmp_path: Path) ->
     commit(repo, "dalej")
 
     assert refusal({"change-mutations"}, "123", root=repo, env={}, gh=_gh("inna", ancestor, RED_MUTATIONS)) is None
+
+
+def test_odtworzenie_runu_innej_galezi_na_odlaczonym_head_odmawia(tmp_path: Path) -> None:
+    """Worktree agenta bywa na odłączonym HEAD: brak bieżącej gałęzi nie zastępuje porażki tej gałęzi."""
+
+    repo = _repo(tmp_path)
+    git(repo, "checkout", "--quiet", "--detach")
+
+    refused = refusal({"change-mutations"}, "123", root=repo, env={}, gh=_gh("inna", "f" * 40, RED_MUTATIONS))
+
+    assert refused is not None and "dotyczy gałęzi inna (ffffffff), a nie bieżącej HEAD" in refused
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="atrapa gh to skrypt sh")
+@pytest.mark.parametrize("every_commit", [(), ("--kazdy-commit", "main")], ids=["checkout", "kazdy commit"])
+def test_ci_lokalnie_odtwarza_porazke_mutacji_zmiany_z_czerwonego_runu_tej_galezi(tmp_path: Path, every_commit: tuple[str, ...]) -> None:
+    """Strażnik kroku ``mutacje zmiany`` (osobny proces) przepuszcza run, który sprawdził już ``ci_lokalnie``."""
+
+    repo = _repo(tmp_path)
+    git(repo, "update-ref", "refs/remotes/origin/main", "main")
+    (repo / "plik.txt").write_text("zmiana\n", encoding="utf-8")
+    commit(repo, "zmiana")
+    env = _with_fake_gh(tmp_path, {"headBranch": "praca", "headSha": "0" * 40, "jobs": RED_MUTATIONS})
+
+    done = _tool(repo, "tools/ci_lokalnie.py", "--tylko", "change-mutations", "--odtwarzam", "123", *every_commit, env=env)
+
+    assert done.returncode == 0, done.stdout + done.stderr
+    assert "OK   mutacje zmiany" in done.stdout and "ODMOWA" not in done.stdout
 
 
 def test_odtworzenie_runu_commitu_z_main_odmawia(tmp_path: Path) -> None:
