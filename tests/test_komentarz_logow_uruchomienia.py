@@ -111,6 +111,10 @@ SUMMARY_LINES: dict[str, tuple[dict[str, Any], list[str]]] = {
         },
         ["- Diagnoza: `NIE_ZNALEZIONO_PRZYCZYNY`"],
     ),
+    "z-wydaniem": (
+        {"tool": {"wydanie": "0.10.0", "commit": "3c1d0a9e5b7f4c2d8e6a1b0f9c8d7e6a5b4c3d2e"}},
+        ["- Wydanie: 0.10.0, commit 3c1d0a9"],
+    ),
     "bez-commitu": (
         {"tool": {"wydanie": None, "commit": None}},
         ["- Wydanie: brak, commit nieznany"],
