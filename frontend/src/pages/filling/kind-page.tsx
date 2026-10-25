@@ -14,6 +14,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { href } from "@/lib/address"
 import { useContentEntrance } from "@/lib/content-entrance"
 import { useResource } from "@/lib/use-resource"
+import { AfterSettlement, afterSettlementHint } from "@/pages/filling/after-settlement"
 
 // Wygląd wiersza po jego stanie z serwera; tło przypiętych komórek jest kryjące, bo pod nimi przewijają się ilości.
 const ROWS: Record<RowState, { tint: string; label: string }> = {
@@ -21,6 +22,10 @@ const ROWS: Record<RowState, { tint: string; label: string }> = {
   done: {
     tint: "bg-[color-mix(in_oklab,var(--success)_14%,var(--card))] dark:bg-[color-mix(in_oklab,var(--success)_20%,var(--card))]",
     label: "zrobiony",
+  },
+  without_quantity: {
+    tint: "bg-[color-mix(in_oklab,var(--muted-foreground)_14%,var(--card))] text-muted-foreground",
+    label: "bez ilości",
   },
 }
 
@@ -133,10 +138,13 @@ function KindContent({ token, kind, heading, hint }: { token: string; kind: Fill
 
       return (
         <div className={cn(entrance, "flex flex-col gap-3")}>
+          {table.settled ? <AfterSettlement /> : null}
           <div className="flex items-end gap-3 px-1">
             <div className="flex flex-col gap-0.5">
               <h2 className="font-medium">{heading}</h2>
-              <p className="text-sm text-muted-foreground">{table.rows.length === 0 ? "Nie ma takich wierszy." : hint}</p>
+              <p className="text-sm text-muted-foreground">
+                {table.rows.length === 0 ? "Nie ma takich wierszy." : table.settled ? afterSettlementHint(table.rows) : hint}
+              </p>
             </div>
             {table.rows.length === 0 ? null : (
               <span className="ml-auto text-sm font-medium tabular-nums">

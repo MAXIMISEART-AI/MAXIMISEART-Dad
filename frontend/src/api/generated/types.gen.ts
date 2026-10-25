@@ -475,12 +475,18 @@ export type KindTableCell = {
  * KindTableReady
  *
  * Wiersze jednego rodzaju Ilości do uzupełnienia rosnąco po numerze; ``columns`` to N:AP po kolei.
+ *
+ * ``settled`` jak w ``QuantitiesToFillReady``.
  */
 export type KindTableReady = {
     /**
      * State
      */
     state: 'ready';
+    /**
+     * Settled
+     */
+    settled: boolean;
     kind: FillKind;
     /**
      * Columns
@@ -1168,12 +1174,19 @@ export type QuantitiesToFillProblem = {
  * QuantitiesToFillReady
  *
  * Ilości do uzupełnienia okresu przeliczone z zapisanego Pliku zbiorczego; ``kinds`` ma każdy rodzaj z listą.
+ *
+ * ``settled``: Przebieg rozliczeń okresu się odbył (Status okresu Rozliczenia pracowników gotowe), więc strona jest
+ * podglądem bez „Gotowe, rozlicz pracowników”, a wiersz bez wpisu taty jest „bez ilości”.
  */
 export type QuantitiesToFillReady = {
     /**
      * State
      */
     state: 'ready';
+    /**
+     * Settled
+     */
+    settled: boolean;
     /**
      * Kinds
      */
@@ -1386,22 +1399,19 @@ export type ResultCounts = {
 /**
  * RowState
  */
-export type RowState = 'to_fill' | 'done';
+export type RowState = 'to_fill' | 'done' | 'without_quantity';
 
 /**
  * RowToFill
  *
- * Wiersz Pliku zbiorczego z Ilościami do uzupełnienia: numer wiersza i czy tata już coś w nim wpisał.
+ * Wiersz Pliku zbiorczego z Ilościami do uzupełnienia: numer wiersza i jego stan (zrobiony, do uzupełnienia, bez ilości).
  */
 export type RowToFill = {
     /**
      * Row
      */
     row: number;
-    /**
-     * Done
-     */
-    done: boolean;
+    state: RowState;
 };
 
 /**

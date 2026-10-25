@@ -1,5 +1,13 @@
 import { cn } from "cn"
-import { ArrowLeftIcon, CalendarRangeIcon, ChevronRightIcon, CircleCheckIcon, CircleDashedIcon, FileSpreadsheetIcon } from "lucide-react"
+import {
+  ArrowLeftIcon,
+  CalendarRangeIcon,
+  ChevronRightIcon,
+  CircleCheckIcon,
+  CircleDashedIcon,
+  CircleMinusIcon,
+  FileSpreadsheetIcon,
+} from "lucide-react"
 
 import {
   getQuantitiesToFill,
@@ -8,6 +16,7 @@ import {
   type KindToFill,
   type QuantitiesToFill,
 } from "@/api/centrum"
+import type { RowState } from "@/api/generated"
 import { zFillKind } from "@/api/generated/zod.gen"
 import { PageHeader } from "@/components/page-header"
 import { ThreePartMessage } from "@/components/three-part-message"
@@ -20,6 +29,7 @@ import { href, usePagePath } from "@/lib/address"
 import { useContentEntrance } from "@/lib/content-entrance"
 import { useSettings } from "@/lib/settings"
 import { useResource } from "@/lib/use-resource"
+import { AfterSettlement, afterSettlementHint } from "@/pages/filling/after-settlement"
 import { KindPage } from "@/pages/filling/kind-page"
 import { ReadyForSettlement } from "@/pages/filling/ready-for-settlement"
 import { openAndConfirm } from "@/pages/periods/open-period-path"
@@ -29,6 +39,13 @@ const TITLE = "Uzupełnienie pliku zbiorczego"
 const KINDS: Record<FillKind, { title: string; hint: string }> = {
   without_rule: { title: "Wiersze bez reguły", hint: "Dopisz ilości poza V, T i N." },
   from_description: { title: "Wiersze z opisu", hint: "Wpisz ilości według opisu technika." },
+}
+
+// Numer wiersza w podsumowaniu po jego stanie z serwera; `label` czyta czytnik ekranu po numerze.
+const CHIPS: Record<RowState, { look: string; label: string | null }> = {
+  to_fill: { look: "bg-secondary", label: null },
+  done: { look: "text-muted-foreground line-through decoration-muted-foreground/50", label: "zrobiony" },
+  without_quantity: { look: "bg-muted text-muted-foreground", label: "bez ilości" },
 }
 
 // `useResource` pamięta ostatnie dane pod funkcją odczytu, więc każdy okres ma jedną, tę samą funkcję.
@@ -86,7 +103,6 @@ export function FillingPage() {
       />
       {/* Inny okres albo nowe pliki taty to nowy odczyt; zmiana motywu nim nie jest. */}
       <FillingContent key={`${token}/${filesVersion}`} token={token} />
-      <ReadyForSettlement token={token} />
     </>
   )
 }
@@ -118,20 +134,23 @@ function FillingContent({ token }: { token: string }) {
       const found = resource.data
 
       return found.state === "problem" ? (
-        <div className={entrance}>
+        <div className={cn(entrance, "flex flex-col gap-3")}>
           <ThreePartMessage message={found.message} kind="notice" />
+          <ReadyForSettlement token={token} />
         </div>
       ) : (
         <div className={cn(entrance, "flex flex-col gap-3")}>
+          {found.settled ? <AfterSettlement /> : null}
           <Card className="py-0">
             <CardContent className="divide-y px-0">
               {found.kinds.map((kind) => (
-                <KindSection key={kind.kind} token={token} kind={kind} />
+                <KindSection key={kind.kind} token={token} kind={kind} settled={found.settled} />
               ))}
               <DescriptionColumns columns={found.description_columns} />
             </CardContent>
           </Card>
           <p className="px-1 text-sm text-muted-foreground">Nie widzisz zmian? Zapisz w Excelu (Ctrl+S).</p>
+          {found.settled ? null : <ReadyForSettlement token={token} />}
         </div>
       )
     }
@@ -144,15 +163,20 @@ function FillingContent({ token }: { token: string }) {
   }
 }
 
-/** Rodzaj z listą: licznik „x z y” i numery wierszy; zrobiony rodzaj (także bez wierszy) jest spokojnie odhaczony. */
-function KindSection({ token, kind }: { token: string; kind: KindToFill }) {
+/**
+ * Rodzaj z listą: licznik „x z y” i numery wierszy; zrobiony rodzaj (także bez wierszy) jest spokojnie odhaczony,
+ * a po Przebiegu rozliczeń niezrobiony jest szary „bez ilości”.
+ */
+function KindSection({ token, kind, settled }: { token: string; kind: KindToFill; settled: boolean }) {
   const { title, hint } = KINDS[kind.kind]
-  const doneRows = kind.rows.filter((row) => row.done).length
+  const doneRows = kind.rows.filter((row) => row.state === "done").length
 
   return (
     <section aria-label={title} className="flex gap-3 px-6 py-5">
       {kind.done ? (
         <CircleCheckIcon className="mt-0.5 size-5 shrink-0 text-success" aria-label="Zrobione" />
+      ) : settled ? (
+        <CircleMinusIcon className="mt-0.5 size-5 shrink-0 text-muted-foreground" aria-label="Bez ilości" />
       ) : (
         <CircleDashedIcon className="mt-0.5 size-5 shrink-0 text-muted-foreground" aria-label="Do uzupełnienia" />
       )}
@@ -165,7 +189,7 @@ function KindSection({ token, kind }: { token: string; kind: KindToFill }) {
           <div className="flex flex-col gap-0.5">
             <h2 className="font-medium">{title}</h2>
             <p className="text-sm text-muted-foreground">
-              {kind.rows.length === 0 ? "Nie ma takich wierszy." : hint}
+              {kind.rows.length === 0 ? "Nie ma takich wierszy." : settled ? afterSettlementHint(kind.rows) : hint}
             </p>
           </div>
           {kind.rows.length === 0 ? null : (
@@ -179,16 +203,10 @@ function KindSection({ token, kind }: { token: string; kind: KindToFill }) {
         </a>
         {kind.rows.length === 0 ? null : (
           <ul aria-label={`Numery wierszy: ${title}`} className="flex flex-wrap gap-1.5">
-            {kind.rows.map(({ row, done }) => (
-              <li
-                key={row}
-                className={cn(
-                  "rounded-md px-1.5 py-0.5 font-mono text-xs tabular-nums",
-                  done ? "text-muted-foreground line-through decoration-muted-foreground/50" : "bg-secondary"
-                )}
-              >
+            {kind.rows.map(({ row, state }) => (
+              <li key={row} className={cn("rounded-md px-1.5 py-0.5 font-mono text-xs tabular-nums", CHIPS[state].look)}>
                 {row}
-                {done ? <span className="sr-only"> zrobiony</span> : null}
+                {CHIPS[state].label === null ? null : <span className="sr-only"> {CHIPS[state].label}</span>}
               </li>
             ))}
           </ul>
