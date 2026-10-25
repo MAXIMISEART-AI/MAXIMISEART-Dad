@@ -9,8 +9,10 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
 import json
+import os
 from pathlib import Path
 import re
+import sys
 from typing import Any, NoReturn
 
 import pytest
@@ -535,6 +537,25 @@ def test_bez_dzialajacego_gita_logi_maja_commit_narzedzia_bez_wydania(
 
     [record] = records(centrum)
     assert record["tool"] == {"wydanie": None, "commit": repository.head()}
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="program bez rozszerzenia z PATH uruchamia tylko POSIX")
+def test_bez_gita_logi_niczego_nie_uruchamiaja_po_wydanie(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    programs = tmp_path / "programy"
+    programs.mkdir()
+    started = tmp_path / "uruchomiony"
+    impostor = programs / "None"
+    impostor.write_text(f"#!/bin/sh\ntouch '{started}'\necho v9.9.9\n", encoding="utf-8")
+    impostor.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{programs}{os.pathsep}{os.environ['PATH']}")
+    repository = tool_repository(tmp_path / "repozytoria")
+    centrum = preparing_centrum(tmp_path, surroundings=Surroundings(tool=repository, find_git=lambda: None))
+
+    run_to_end(centrum, dry_run=True)
+
+    [record] = records(centrum)
+    assert record["tool"] == {"wydanie": None, "commit": repository.head()}
+    assert not started.exists()
 
 
 def test_narzedzie_poza_klonem_gita_ma_logi_bez_commitu_i_bez_wydania(tmp_path: Path) -> None:
