@@ -30,7 +30,7 @@ import urllib.request
 
 from rozliczenia import TOOL_ROOT
 from rozliczenia.centrum.deadline import within
-from rozliczenia.centrum.tool_update import Release, contains_commit, newest_on_main
+from rozliczenia.centrum.tool_update import Release, contains_commit, find_git, newest_on_main, release_at
 from rozliczenia.centrum.version import commit_since, is_commit, tool_commit
 
 CommitSource = Callable[[], str | None]
@@ -88,8 +88,9 @@ class ToolFreshness:
 
     ``local`` to commit narzędzia, z którego działa Centrum, ``since`` dzień, od
     którego narzędzie jest na tym commicie, ``release`` odpowiedź GitHuba o
-    najnowszym Wydaniu, ``published`` opublikowane Wydania z notkami, a
-    ``contains(release, local)`` mówi, czy commit narzędzia zawiera commit Wydania.
+    najnowszym Wydaniu, ``published`` opublikowane Wydania z notkami,
+    ``contains(release, local)`` mówi, czy commit narzędzia zawiera commit Wydania, a
+    ``wydanie(local)`` to Wydanie, którego tag w klonie wskazuje dokładnie commit narzędzia.
     """
 
     local: CommitSource
@@ -97,13 +98,21 @@ class ToolFreshness:
     release: ReleaseSource
     published: PublishedSource
     contains: Callable[[str, str], bool] = field(default=lambda release, local: release == local)
+    wydanie: Callable[[str], Release | None] = field(default=lambda local: None)
 
     @classmethod
     def of_system(cls) -> ToolFreshness:
         return cls.of_clone(TOOL_ROOT, github_releases, github_published)
 
     @classmethod
-    def of_clone(cls, root: Path, release: ReleaseSource, published: PublishedSource) -> ToolFreshness:
+    def of_clone(
+        cls,
+        root: Path,
+        release: ReleaseSource,
+        published: PublishedSource,
+        *,
+        find_git: Callable[[], Path | None] = find_git,
+    ) -> ToolFreshness:
         """Wersja narzędzia w ``root`` odczytana teraz, przy starcie Centrum.
 
         Klon przesunięty później (ręcznie albo przez aktualizację przed ponownym startem) nie zmienia kodu, który
@@ -118,6 +127,7 @@ class ToolFreshness:
             release=release,
             published=published,
             contains=partial(contains_commit, root),
+            wydanie=partial(release_at, root, find_git=find_git),
         )
 
     def judge(self, release: ReleaseSource | None = None) -> Judgement:

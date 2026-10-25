@@ -37,7 +37,8 @@ Preconditions:
   `Puste szablony` 1, and `worker_settlements` with each Wykonawca, output filename, his orders and `empty`
   (Kamil's 0 and empty). It requires result `OK` with no `warnings` and `Problemy` 0, or
   for `--variant unmapped` result `WYMAGA_SPRAWDZENIA` with one warning
-  `BRAK_MAPOWANIA` and `Problemy` 1, and no row value anywhere in the JSON.
+  `BRAK_MAPOWANIA` whose "Co się stało" names `unknown.synthetic`, and
+  `Problemy` 1. No row value appears anywhere else in the JSON.
 - **Check no workbook write.** `assert-dry-run.txt` confirms the target folder
   was not created and source/Wzorzec rozliczenia pracownika hashes still match the fixture manifest.
 - **Check telemetry.** `assert-dry-run.txt` reports `metrics_safe=true`: exactly

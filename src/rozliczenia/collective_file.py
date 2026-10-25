@@ -44,7 +44,7 @@ def read_data_rows(path: Path) -> CollectiveRows:
             without_worker.append(row.number)
             continue
         rows.append(row)
-    return CollectiveRows(rows, without_worker, collective_orders(read.header, [row.values for row in read.rows]))
+    return CollectiveRows(rows, without_worker, collective_orders(read.header, read.rows))
 
 
 @dataclass(frozen=True)
@@ -62,7 +62,7 @@ def read_numbered_orders(path: Path) -> NumberedOrders | MissingHeaders:
     """
 
     read = workbook_files.read_data_rows(path, despite_excel_lock=True)
-    orders = collective_orders(read.header, [row.values for row in read.rows])
+    orders = collective_orders(read.header, read.rows)
     if isinstance(orders, MissingHeaders):
         return orders
     texts = [_texts(read.header, row) for row in read.rows]

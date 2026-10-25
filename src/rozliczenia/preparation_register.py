@@ -1,8 +1,8 @@
 """Rejestr zleceń w Przygotowaniu pliku zbiorczego: dostępność i odczyt (etap Odczyt danych).
 
 Rejestr jest tylko czytany, przez moduł skoroszytu. Arkusze ze zleceniami są rozpoznawane po komplecie
-wymaganych nagłówków w pierwszym wierszu, a wartości, wyróżnienia i Hiperłącza
-komórek są zwracane w kolejności ``COLUMNS``. Dla okresu czytane są tylko wiersze
+wymaganych nagłówków w pierwszym wierszu, a komórki z wartościami, Wyróżnieniami i Hiperłączami
+są zwracane pod nagłówkiem docelowym każdej kolumny ``COLUMNS``. Dla okresu czytane są tylko wiersze
 od pierwszego do ostatniego, którego data może leżeć w okresie. ``read_register`` to produkcyjny czytnik
 Rejestru dla ``input_checks.Readers``, który tłumaczy jego ``WorkbookError``.
 """
@@ -20,7 +20,7 @@ from . import preparation_messages as messages
 from . import workbook_files
 from .message import StopError
 from .settlement_period import SettlementPeriod
-from .workbook_files import DataRow, ReadWorkbook, header_columns, is_blank
+from .workbook_files import ReadWorkbook, RegisterRow, header_columns, is_blank
 from .worker_config import normalize_text
 
 
@@ -71,6 +71,8 @@ COLUMNS: tuple[Column, ...] = (
     SUCCESSFUL,
     COMPLETED,
 )
+TARGET_HEADERS: tuple[str, ...] = tuple(column.target_header for column in COLUMNS)
+"""Nagłówki docelowe obu plików okresu, pod którymi stają komórki wiersza Rejestru."""
 
 
 @dataclass(frozen=True)
@@ -78,8 +80,8 @@ class RegisterSheet:
     """Arkusz ze zleceniami: wiersze z danymi i numery całkowicie pustych wierszy z odczytanego zakresu."""
 
     name: str
-    rows: tuple[DataRow, ...]
-    """Wiersze z danymi; pozycje w kolejności ``COLUMNS``."""
+    register_rows: tuple[RegisterRow, ...]
+    """Wiersze z danymi; komórki pod nagłówkiem docelowym."""
     empty_rows: tuple[int, ...]
     _positions: tuple[int, ...]  # numery kolumn ``COLUMNS`` w arkuszu (od 1)
 
@@ -89,10 +91,10 @@ class RegisterSheet:
         return get_column_letter(self._positions[COLUMNS.index(column)])
 
 
-def cell_value(row: DataRow, column: Column) -> object:
+def cell_value(row: RegisterRow, column: Column) -> object:
     """Wartość komórki Rejestru pod nagłówkiem ``column`` w wierszu ``row``."""
 
-    return row.values[COLUMNS.index(column)]
+    return row.cells[column.target_header].value
 
 
 def read_register(register_path: Path, period: SettlementPeriod | None = None) -> list[RegisterSheet]:
@@ -185,12 +187,13 @@ def _read_register_sheets(workbook: ReadWorkbook, positions: dict[str, list[int]
         if sheet.title not in positions:
             continue
         columns = positions[sheet.title]
-        rows: list[DataRow] = []
-        empty_rows: list[int] = []
-        for whole_row, row in sheet.data_rows(min_row=2, columns=columns):
-            if all(is_blank(cell) for cell in whole_row):
-                empty_rows.append(row.number)
-                continue
-            rows.append(row)
-        sheets.append(RegisterSheet(sheet.title, tuple(rows), tuple(empty_rows), tuple(columns)))
+        read = [
+            (all(is_blank(cell) for cell in whole_row), row)
+            for whole_row, row in sheet.data_rows(
+                min_row=2, columns={header: columns[index] for index, header in enumerate(TARGET_HEADERS)}
+            )
+        ]
+        rows = tuple(row for empty, row in read if not empty)
+        empty_rows = tuple(row.number for empty, row in read if empty)
+        sheets.append(RegisterSheet(sheet.title, rows, empty_rows, tuple(columns)))
     return sheets

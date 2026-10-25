@@ -23,8 +23,9 @@ verification never reaches GitHub and checks OneDrive on every system:
   ``<root>/github/brak-sieci`` exists there is no network. The tool is the
   run's synthetic clone ``<root>/aktualizacja/klon``: its own commit is the
   clone's ``HEAD`` (``tool_commit``) unless ``<root>/github/tool-commit.txt``
-  names another one (Dad updated the tool), and the day it is on that commit
-  comes from the clone's ``HEAD`` reflog (``commit_since``);
+  names another one (Dad updated the tool), the day it is on that commit
+  comes from the clone's ``HEAD`` reflog (``commit_since``), and its Wydanie
+  from the clone's tags on that commit (``release_at``), as in production;
 - a file whose full path is a line of ``<root>/onedrive/tylko-w-chmurze.txt``
   has the Windows attribute of a OneDrive file „tylko online”.
 
@@ -101,6 +102,7 @@ import argparse
 from collections.abc import Callable, Sequence
 from dataclasses import replace
 from datetime import date, datetime
+from functools import partial
 import json
 import os
 from pathlib import Path
@@ -136,13 +138,13 @@ from rozliczenia.centrum.launcher import listen_locally
 from rozliczenia.centrum.server import serve
 from rozliczenia.centrum.shutdown import Shutdown
 from rozliczenia.centrum.tool_freshness import GitHubReleases, PublishedRelease, ToolFreshness, parse_published
-from rozliczenia.centrum.tool_update import ToolClone, find_git, pip_install
+from rozliczenia.centrum.tool_update import ToolClone, find_git, pip_install, release_at
 from rozliczenia.centrum.version import commit_since, tool_commit
 from rozliczenia.input_checks import FILE_READERS, Readers
 from rozliczenia.preparation_register import RegisterSheet
 from rozliczenia.settlement_period import SettlementPeriod
 from rozliczenia.template_file import Route, TemplateFile
-from rozliczenia.workbook_files import DataRow
+from rozliczenia.workbook_files import DataRow, RegisterRow
 from skrypt_skilla import Parser
 
 
@@ -273,7 +275,9 @@ def _scripted_github(root: Path, clone: Path) -> ToolFreshness:
         listed = root / "github" / "wydania.json"
         return parse_published(json.loads(listed.read_text(encoding="utf-8"))) if listed.exists() else ()
 
-    return ToolFreshness(local=local_commit, since=since, release=releases, published=published)
+    return ToolFreshness(
+        local=local_commit, since=since, release=releases, published=published, wydanie=partial(release_at, clone)
+    )
 
 
 def _scripted_clock(root: Path) -> Callable[[], float]:
@@ -325,7 +329,7 @@ def _pace_worker_templates(root: Path, worker_template: Path) -> None:
     create = TemplateFile.create
     worker_template = worker_template.resolve()
 
-    def paced(template: TemplateFile, target: Path, rows: Sequence[DataRow]) -> Route:
+    def paced(template: TemplateFile, target: Path, rows: Sequence[DataRow] | Sequence[RegisterRow]) -> Route:
         pacing = root / "pacing" / "szablony-ms.txt"
         if template.path == worker_template and pacing.exists():
             time.sleep(int(pacing.read_text(encoding="utf-8")) / 1000)

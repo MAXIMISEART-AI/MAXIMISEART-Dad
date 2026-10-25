@@ -76,9 +76,16 @@ export function useResource<T>(load: Load<T>) {
     latest.current = request
 
     return load().then(
-      (data) => request === latest.current && show(request, { state: "ready", data }),
-      (failure: Error) =>
-        request === latest.current && show(request, { state: "failed", message: failureMessage(failure) })
+      (data) => {
+        if (request === latest.current) {
+          show(request, { state: "ready", data })
+        }
+      },
+      (failure: Error) => {
+        if (request === latest.current) {
+          show(request, { state: "failed", message: failureMessage(failure) })
+        }
+      }
     )
   }, [load, show])
 

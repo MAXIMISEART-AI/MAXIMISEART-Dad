@@ -96,6 +96,7 @@ WORKFLOW_VARIANTS = {
         run_exit=1,
         assertion="no-publish",
         expected_stop="NIEZNANY_WYKONAWCA",
+        expected_stop_what="spoza konfiguracji wykonawców: unknown.synthetic.",
     ),
     "preparation": WorkflowVariant(process="preparation"),
     "preparation-real-templates": WorkflowVariant(process="preparation", templates="config"),

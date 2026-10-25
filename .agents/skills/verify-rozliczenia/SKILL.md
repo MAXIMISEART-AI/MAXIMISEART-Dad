@@ -198,7 +198,8 @@ completed of total, written and empty). The default fixture plans and writes
 two mapped workbooks and one empty one with no Problemy, and its progress ends
 at three of three Szablony pracowników. The `unmapped` variant proves that the
 dry-run warns with `BRAK_MAPOWANIA` and the real run stops with
-`NIEZNANY_WYKONAWCA` and publishes nothing.
+`NIEZNANY_WYKONAWCA` and publishes nothing; both name the unknown WYKONAWCA,
+and it appears nowhere else in the result.
 
 ## Reguły ilości
 

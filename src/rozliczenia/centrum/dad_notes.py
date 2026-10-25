@@ -1,10 +1,10 @@
 """Uwaga taty (ADR 0015): treść issue, wysyłka przez kolejkę Skrzynki Zgłoszeń i stan Uwag na tym komputerze.
 
 Treść issue powstaje tylko w ``note_issue``: podgląd „Maks dostanie” i wysyłka wołają tę samą funkcję, więc tata
-widzi dokładnie to, co dostanie Maks. „Wyślij” zapisuje Uwagę bez numeru issue w ``config/uwagi-taty.json`` (poza
-Gitem), kładzie ją w kolejce Skrzynki Zgłoszeń jako osobne issue z etykietą ``uwaga-taty`` i czeka na skrzynkę
-najwyżej ``DELIVERY_WAIT_S``. Numer issue dopisuje wątek kolejki, także po następnym starcie Centrum, a zamknięcie
-issue przez Maksa sprawdzanie Powiadomień. Plik stanu ma tylko tytuł Uwagi i przypięte Uruchomienie, bez treści.
+widzi dokładnie to, co dostanie Maks. „Wyślij” zapisuje Uwagę bez numeru issue jako sprawę taty (``DadCases``),
+kładzie ją w kolejce Skrzynki Zgłoszeń jako osobne issue z etykietą ``uwaga-taty`` i czeka na skrzynkę najwyżej
+``DELIVERY_WAIT_S``. Numer issue dopisuje wątek kolejki, także po następnym starcie Centrum, a zamknięcie issue przez
+Maksa sprawdzanie Powiadomień. Sprawa ma tylko tytuł Uwagi i przypięte Uruchomienie, bez treści.
 
 Uwaga przypięta do Uruchomienia procesu z Centrum niesie w stopce jego proces, okres, tryb, wynik i datę oraz
 odnośnik do jego Logów Uruchomienia w Skrzynce. Uruchomienia do wyboru i do przypięcia pochodzą z historii metryk
@@ -18,27 +18,20 @@ tylko dostarczenie Uwagi, więc każde jej issue dostaje najwyżej jeden taki ko
 
 from __future__ import annotations
 
-import json
-import threading
 import uuid
-from collections.abc import Callable, Mapping
+from collections.abc import Callable
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Final, assert_never
 
 from fastapi import APIRouter
 
 from rozliczenia.centrum import contract
-from rozliczenia.centrum.atomic_file import replace_atomically
-from rozliczenia.centrum.log import CentrumLog
+from rozliczenia.centrum.dad_cases import NOTE, Case, DadCases
 from rozliczenia.centrum.outbox import KnownIssue, NewIssue, Outbox, Post
-from rozliczenia.centrum.report_box import NOTE_LABEL, Closure, closure_json, read_closure
 from rozliczenia.centrum.tool_freshness import CommitSource
 from rozliczenia.centrum.version import version_label
 
-DAD_NOTES_FILE: Final = "uwagi-taty.json"
-SCHEMA_VERSION: Final = 1
 # Tyle „Wyślij” czeka na skrzynkę, zanim powie tacie, że Uwaga czeka w kolejce.
 DELIVERY_WAIT_S: Final = 5.0
 RECENT_RUNS: Final = 6
@@ -110,131 +103,11 @@ def _logs_line(run_id: str, logs: str | None) -> str:
     return f"[Logi Uruchomienia]({logs})" if logs is not None else f"Logi Uruchomienia: w drodze (Uruchomienie {run_id})"
 
 
-@dataclass(frozen=True)
-class DadNote:
-    """Uwaga taty w lokalnym stanie: tytuł, commit narzędzia i czas „Wyślij”; ``number`` ``None``: czeka w kolejce.
+def _pinned_run(cases: DadCases, note_id: str) -> str | None:
+    """Uruchomienie, do którego przypięta jest Uwaga ``note_id``; ``None``: Uwaga ogólna albo nieznana."""
 
-    ``closure`` to ostatnie znane zamknięcie jej issue przez Maksa (``None``: otwarte albo jeszcze nie wysłane).
-    Wpisy sprzed #322 nie mają ``run_id``.
-    """
-
-    id: str
-    title: str
-    commit: str | None
-    written_at: datetime
-    number: int | None
-    closure: Closure | None = None
-    run_id: str | None = None
-    """Uruchomienie, do którego Uwaga jest przypięta; ``None``: Uwaga ogólna."""
-
-
-class DadNotes:
-    """Plik stanu Uwag taty obok Ustawień taty, poza Gitem.
-
-    Piszą do niego wątek zapytania „Wyślij” i wątek kolejki (numer issue), więc każdy odczyt ze zmianą idzie pod
-    blokadą. Brak, uszkodzenie albo nieznany schemat pliku to brak Uwag; nieudany zapis trafia do dziennika Centrum,
-    a Uwaga i tak idzie do Maksa.
-    """
-
-    def __init__(self, path: Path, log: CentrumLog) -> None:
-        self._path = path
-        self._log = log
-        self._lock = threading.Lock()
-
-    def add(self, note: DadNote) -> None:
-        with self._lock:
-            self._write([*self._read(), note])
-
-    def all(self) -> list[DadNote]:
-        with self._lock:
-            return self._read()
-
-    def pinned_run(self, note_id: str) -> str | None:
-        """Uruchomienie, do którego przypięta jest Uwaga ``note_id``; ``None``: Uwaga ogólna albo nieznana."""
-
-        return next((note.run_id for note in self.all() if note.id == note_id), None)
-
-    def mark(self, closures: Mapping[int, Closure | None]) -> None:
-        """Zapamiętuje zamknięcie issue ze skrzynki przy Uwagach o tych numerach."""
-
-        with self._lock:
-            notes = self._read()
-            self._write(
-                [
-                    replace(note, closure=closures.get(note.number, note.closure)) if note.number is not None else note
-                    for note in notes
-                ]
-            )
-
-    def forget(self, note_id: str) -> None:
-        """Usuwa Uwagę, której kolejka nie przyjęła: tata wyśle ją jeszcze raz jako nową."""
-
-        with self._lock:
-            self._write([note for note in self._read() if note.id != note_id])
-
-    def delivered(self, post: Post, number: int) -> None:
-        """Dopisuje numer issue Uwadze, którą przyjęła skrzynka; wysyłki innych etykiet pomija."""
-
-        if post.target.label != NOTE_LABEL:
-            return
-        with self._lock:
-            notes = self._read()
-            if any(note.id == post.run_id for note in notes):
-                self._write([replace(note, number=number) if note.id == post.run_id else note for note in notes])
-
-    def _read(self) -> list[DadNote]:
-        try:
-            document = json.loads(self._path.read_text(encoding="utf-8"))
-        except (OSError, UnicodeError, ValueError):
-            return []
-        if not isinstance(document, dict) or document.get("schema_version") != SCHEMA_VERSION:
-            return []
-        entries = document.get("uwagi")
-        return [note for note in map(_note, entries) if note is not None] if isinstance(entries, list) else []
-
-    def _write(self, notes: list[DadNote]) -> None:
-        document = {
-            "schema_version": SCHEMA_VERSION,
-            "uwagi": [
-                {
-                    "id": note.id,
-                    "title": note.title,
-                    "commit": note.commit,
-                    "written_at": note.written_at.isoformat(),
-                    "number": note.number,
-                    "closure": closure_json(note.closure),
-                    "run_id": note.run_id,
-                }
-                for note in notes
-            ],
-        }
-        try:
-            replace_atomically(self._path, json.dumps(document, ensure_ascii=False, indent=2) + "\n")
-        except OSError as failure:
-            self._log.unexpected_failure(failure, where="stan Uwag taty")
-
-
-def _note(entry: object) -> DadNote | None:
-    """Wpis pliku stanu; wpis z polem złego typu albo czasem bez strefy pomija."""
-
-    if not isinstance(entry, dict):
-        return None
-    note_id, title, commit, written_at, number, run_id = (
-        entry.get(name) for name in ("id", "title", "commit", "written_at", "number", "run_id")
-    )
-    if not (isinstance(note_id, str) and isinstance(title, str) and isinstance(written_at, str)):
-        return None
-    if not (isinstance(commit, str | None) and isinstance(run_id, str | None)) or not (
-        number is None or type(number) is int
-    ):
-        return None
-    try:
-        moment = datetime.fromisoformat(written_at)
-    except ValueError:
-        return None
-    if moment.tzinfo is None:
-        return None
-    return DadNote(note_id, title, commit, moment, number, read_closure(entry.get("closure")), run_id)
+    note = cases.find(NOTE, note_id)
+    return None if note is None else note.run_id
 
 
 def _sent_logs_line(run_id: str, logs: LogsAddress, rejected: LogsRejected) -> str:
@@ -262,7 +135,7 @@ def _logs_gone(run_id: str) -> str:
     return f"Logi Uruchomienia nie dotrą: Centrum przestało je wysyłać (Uruchomienie {run_id})."
 
 
-def with_logs(post: Post, notes: DadNotes, logs: LogsAddress, rejected: LogsRejected) -> Post | None:
+def with_logs(post: Post, cases: DadCases, logs: LogsAddress, rejected: LogsRejected) -> Post | None:
     """Wysyłka z kolejki tuż przed wysłaniem (``Outbox`` ``prepare``): Logi w Uwadze przypiętej do Uruchomienia.
 
     Uwaga, której stopka mówi, że Logi są w drodze, dostaje odnośnik albo linię, dlaczego Logów nie ma. Komentarz
@@ -271,13 +144,13 @@ def with_logs(post: Post, notes: DadNotes, logs: LogsAddress, rejected: LogsReje
     inna wysyłka idzie bez zmian.
     """
 
-    if post.target.label != NOTE_LABEL:
+    if post.target.label != NOTE.label:
         return post
     if isinstance(post.target, KnownIssue):
         if (address := logs(post.run_id)) is not None:
             return replace(post, parts=(_logs_arrived(post.run_id, address),))
         return None if rejected(post.run_id) else post
-    run_id = notes.pinned_run(post.run_id)
+    run_id = _pinned_run(cases, post.run_id)
     if run_id is None:
         return post
     first, waiting = post.parts[0], _logs_line(run_id, None)
@@ -286,19 +159,19 @@ def with_logs(post: Post, notes: DadNotes, logs: LogsAddress, rejected: LogsReje
     return replace(post, parts=(first.removesuffix(waiting) + _sent_logs_line(run_id, logs, rejected), *post.parts[1:]))
 
 
-def after_delivery(post: Post, number: int, notes: DadNotes, outbox: Outbox) -> None:
+def after_delivery(post: Post, number: int, cases: DadCases, outbox: Outbox) -> None:
     """Wysyłka przyjęta przez skrzynkę (``Outbox`` ``on_delivered``): Uwaga dostaje numer issue.
 
     Uwaga, która wyszła przed odrzuconymi Logami swojego Uruchomienia, dostaje w kolejce komentarz z odnośnikiem do
     nich, zanim jej plik dostanie znacznik dostarczenia. Nieudany zapis komentarza zostaje w dzienniku Centrum.
     """
 
-    notes.delivered(post, number)
-    if not isinstance(post.target, NewIssue) or post.target.label != NOTE_LABEL:
+    cases.delivered(post, number)
+    if not isinstance(post.target, NewIssue) or post.target.label != NOTE.label:
         return
-    run_id = notes.pinned_run(post.run_id)
+    run_id = _pinned_run(cases, post.run_id)
     if run_id is not None and post.parts[0].endswith(_rejected_logs_line(run_id)):
-        target = KnownIssue(NOTE_LABEL, number)
+        target = KnownIssue(NOTE.label, number)
         outbox.post(Post(target, period=None, run_id=run_id, header=None, parts=(_logs_gone(run_id),)))
 
 
@@ -333,7 +206,7 @@ def _pinned(run_id: str | None, history: History, logs: LogsAddress) -> PinnedRu
 
 
 def send(
-    request: contract.DadNoteRequest, notes: DadNotes, outbox: Outbox, commit: str | None, pinned: PinnedRun | None
+    request: contract.DadNoteRequest, cases: DadCases, outbox: Outbox, commit: str | None, pinned: PinnedRun | None
 ) -> contract.DadNoteState:
     """Zapisuje Uwagę, kładzie ją w kolejce i mówi, czy skrzynka przyjęła ją w ``DELIVERY_WAIT_S``.
 
@@ -342,21 +215,21 @@ def send(
 
     issue = note_issue(request.title, request.body, commit, pinned)
     run_id = None if pinned is None else pinned.run.run_id
-    note = DadNote(uuid.uuid4().hex, issue.title, commit, datetime.now(timezone.utc), number=None, run_id=run_id)
-    notes.add(note)
+    note = Case(NOTE, uuid.uuid4().hex, issue.title, commit, datetime.now(timezone.utc), number=None, run_id=run_id)
+    cases.add(note)
     queued = outbox.post(
-        Post(NewIssue(NOTE_LABEL, issue.title), period=None, run_id=note.id, header=None, parts=(issue.body,))
+        Post(NewIssue(NOTE.label, issue.title), period=None, run_id=note.id, header=None, parts=(issue.body,))
     )
     if not queued:
-        notes.forget(note.id)
+        cases.forget(NOTE, note.id)
         raise contract.Refusal(500, _NOT_QUEUED)
-    if outbox.wait_delivered(note.id, NOTE_LABEL, timeout_s=DELIVERY_WAIT_S):
+    if outbox.wait_delivered(note.id, NOTE.label, timeout_s=DELIVERY_WAIT_S):
         return contract.DadNoteSent(state="sent")
     return contract.DadNoteWaiting(state="waiting")
 
 
 def dad_notes_router(
-    notes: DadNotes, outbox: Outbox, commit: CommitSource, history: History, logs: LogsAddress
+    cases: DadCases, outbox: Outbox, commit: CommitSource, history: History, logs: LogsAddress
 ) -> APIRouter:
     router = APIRouter(prefix="/api/dad-notes", tags=["uwagi-taty"])
     refusals: dict[int | str, dict[str, object]] = {status: {"model": contract.Problem} for status in (404, 500)}
@@ -371,6 +244,6 @@ def dad_notes_router(
 
     @router.post("", operation_id="sendDadNote", responses=refusals)
     def send_note(request: contract.DadNoteRequest) -> contract.DadNoteState:
-        return send(request, notes, outbox, commit(), _pinned(request.run_id, history, logs))
+        return send(request, cases, outbox, commit(), _pinned(request.run_id, history, logs))
 
     return router

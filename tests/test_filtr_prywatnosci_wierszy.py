@@ -8,12 +8,16 @@ from __future__ import annotations
 
 from datetime import date, datetime, time
 from decimal import Decimal
+from pathlib import Path
 
 from openpyxl.utils import get_column_letter
 import pytest
 
 from rozliczenia.order_facts import NON_NUMERIC, MissingHeaders, OrderFacts, collective_orders, tata_value
 from rozliczenia.quantity_rules import OrderContent, WeekTime
+from rozliczenia.collective_file import read_data_rows
+from tests.fixtures.data_rows import data_row
+from tests.fixtures.settlement import write_quantity_source
 
 # Nagłówki A17:K17 Wzorca pliku zbiorczego po normalizacji, jak je daje odczyt Pliku zbiorczego.
 HEADER = {
@@ -41,7 +45,7 @@ def _marked_row() -> list[object]:
 
 
 def _filtered(header: dict[str, int], row: list[object]) -> OrderFacts:
-    orders = collective_orders(header, [row])
+    orders = collective_orders(header, [data_row(tuple(row))])  # type: ignore[arg-type]
     assert isinstance(orders, tuple)
     [facts] = orders
     return facts
@@ -74,7 +78,7 @@ def test_kolumny_wejscia_czytane_po_naglowku_a_nie_po_pozycji() -> None:
 def test_brak_naglowka_kolumny_wejscia_to_brak_porownania_a_nie_zgadywanie_pozycji() -> None:
     header = {name: column for name, column in HEADER.items() if name not in ("umowa", "data")}
 
-    assert collective_orders(header, [_marked_row()]) == MissingHeaders(("UMOWA", "DATA"))
+    assert collective_orders(header, [data_row(tuple(_marked_row()))]) == MissingHeaders(("UMOWA", "DATA"))  # type: ignore[arg-type]
 
 
 def test_data_bez_daty_w_komorce_daje_wiersz_bez_tresci_zlecenia() -> None:
@@ -146,3 +150,14 @@ def test_ilosci_rowne_zero_nie_sa_zapamietane() -> None:
     facts = _filtered(HEADER, row)
 
     assert facts.quantities == {"P": 2}
+
+
+def test_wiersz_danych_bez_wykonawcy_tez_przechodzi_przez_filtr(tmp_path: Path) -> None:
+    path = tmp_path / "Rozliczenie 08_14_09_2026 - zbiorcze.xlsx"
+    write_quantity_source(path, [{"V": 1}, {"H": None, "V": 2}])
+
+    read = read_data_rows(path)
+
+    assert read.without_worker == [19]
+    assert isinstance(read.orders, tuple)
+    assert [facts.quantity("V") for facts in read.orders] == [1, 2]

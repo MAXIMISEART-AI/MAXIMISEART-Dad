@@ -358,8 +358,17 @@ wersja narzędzia. Mówią wprost, czy był to podgląd, w którym nic nie
 zapisano, czy Uruchomienie z zapisem. Zostają na komputerze taty także po
 zamknięciu Centrum i trafiają same do Skrzynki Zgłoszeń, gdzie wszystkie
 Uruchomienia jednego okresu są w jednym miejscu. Nie zawierają adresów,
-numerów zleceń ani numerów umów. Tata ich nie wysyła ani nie ogląda.
+numerów zleceń ani numerów umów. Tata ich nie wysyła ani nie ogląda, ale z
+nich wraca karta Uruchomienia po starcie Centrum i w Historii.
 _Avoid_: Zgłoszenie (to Zatrzymanie z Diagnozą), dziennik Centrum, raport
+
+## Urwane Uruchomienie
+
+Uruchomienie procesu z Centrum rozliczeń, które nie doszło do wyniku, bo
+Centrum zamknęło się w jego trakcie. Nie ma Logów Uruchomienia ani rekordu
+metryk; Centrum nazywa je po następnym starcie i radzi, co sprawdzić.
+_Avoid_: Zatrzymanie (kończy się Komunikatem procesu), przerwane (tak Metryki
+nazywają Zatrzymania)
 
 ## Uwaga taty
 

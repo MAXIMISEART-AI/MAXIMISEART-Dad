@@ -48,16 +48,24 @@ def _contract_errors(error: ValidationError) -> str:
     return ", ".join(f"{'.'.join(map(str, detail['loc'])) or '<result>'} ({detail['type']})" for detail in error.errors())
 
 
-def load_result(path: Path | None, row_content: Iterable[str], errors: list[str]) -> ProcessResult | None:
-    """The result of a process step's evidence JSON as ``ProcessResult``; ``None`` after recording why not."""
+def load_result(
+    path: Path | None, row_content: Iterable[str], errors: list[str], *, naming: Iterable[str] = ()
+) -> ProcessResult | None:
+    """The result of a process step's evidence JSON as ``ProcessResult``; ``None`` after recording why not.
+
+    ``naming``: exact Komunikat texts allowed to carry a row value (an unknown WYKONAWCA identifier), nowhere else.
+    """
 
     if path is None or not path.is_file():
         errors.append("process step evidence is missing")
         return None
     text = path.read_text(encoding="utf-8")
+    raw_text = text
+    for allowed in naming:
+        text = text.replace(allowed, "").replace(json.dumps(allowed)[1:-1], "")
     if any(value in text for value in row_content):
         errors.append("process result contains row content")
-    raw = json.loads(text)["result"]
+    raw = json.loads(raw_text)["result"]
     if not isinstance(raw, dict):
         errors.append("process step printed no JSON result")
         return None

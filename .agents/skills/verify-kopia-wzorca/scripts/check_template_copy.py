@@ -75,7 +75,7 @@ from rozliczenia import workbook_files
 from rozliczenia.highlights import PLAIN, Highlights
 from rozliczenia.hyperlinks import Hyperlink
 from rozliczenia.template_file import Route, TemplateFile
-from rozliczenia.workbook_files import DataRow, ExcelRow
+from rozliczenia.workbook_files import DataCell, DataRow, ExcelRow
 from syntetyczne_wzorce import write_settlement_template
 from tests.fixtures.settlement import write_template
 from tests.fixtures.workbooks import add_external_link_fixture, refused_by_copy
@@ -414,12 +414,24 @@ def _data_row(
     links: dict[int, str] | None = None,
     number_formats: tuple[str, ...] | None = None,
 ) -> DataRow:
-    """A Wiersz danych of 46 values (A:AT); cells missing from ``marked`` have no Wyróżnienia, ``links`` maps index → address."""
+    """A Wiersz danych of 46 values (A:AT); cells missing from ``marked`` have no Wyróżnienia, ``links`` maps index → address.
 
-    cells = marked or {}
-    hyperlinks = {index + 1: Hyperlink(address) for index, address in (links or {}).items()}
-    highlights = tuple(cells.get(index, PLAIN) for index in range(DATA_COLUMNS))
-    return DataRow(FIRST_DATA_ROW, values, highlights, number_formats or _source_formats(values), hyperlinks)
+    ``number_formats`` covers the look columns A:L; the cells right of them carry the general format.
+    """
+
+    look_formats = number_formats or _source_formats(values)
+    return DataRow(
+        FIRST_DATA_ROW,
+        tuple(
+            DataCell(
+                value,
+                (marked or {}).get(index, PLAIN),
+                look_formats[index] if index < LOOK_COLUMNS else "General",
+                Hyperlink((links or {})[index]) if index in (links or {}) else None,
+            )
+            for index, value in enumerate(values)
+        ),
+    )
 
 
 # Number formats a Plik zbiorczy cell can carry: built-in ones, Dad's date format, and custom codes with quotes,
@@ -471,11 +483,11 @@ def data_rows(draw: st.DrawFn) -> DataRow:
 
 
 def _highlighted(rows: Sequence[DataRow]) -> bool:
-    return any(cell != PLAIN for row in rows for cell in row.highlights)
+    return any(cell.highlights != PLAIN for row in rows for cell in row.cells)
 
 
 def _linked(rows: Sequence[DataRow]) -> bool:
-    return any(row.hyperlinks for row in rows)
+    return any(cell.hyperlink is not None for row in rows for cell in row.cells)
 
 
 @st.composite
@@ -534,7 +546,9 @@ def _write_with_openpyxl(twin: Path, target: Path, rows: Sequence[DataRow], via_
     """The reference; it gets the text an XML reader reads (``_xml_line_ends``) only when the copy wrote the file."""
 
     if via_copy:
-        rows = [replace(row, values=tuple(_xml_line_ends(value) for value in row.values)) for row in rows]
+        rows = [
+            replace(row, cells=tuple(cell._replace(value=_xml_line_ends(cell.value)) for cell in row.cells)) for row in rows
+        ]
     if TemplateFile.worker_settlement(twin).create(target, rows) is not Route.OPENPYXL:
         raise AssertionError("bliźniak Wzorca poszedł kopią: wzorzec porównania nie jest drogą openpyxl")
 
@@ -616,7 +630,7 @@ def _look_divergences(template: Template, path: Path, rows: Sequence[DataRow]) -
             found.append(f"wiersz {number} ma zapisaną wysokość {dimension.ht}")
         for column in range(1, LOOK_COLUMNS + 1):
             cell = sheet.cell(number, column)
-            value = row.values[column - 1]
+            value, _, number_format, _ = row.cells[column - 1]
             wraps = isinstance(value, str) and ("\n" in value or "\r" in value)  # Excel czyta \r w tekście jako koniec linii
             sides = [
                 (side.style, side.color.indexed if side.color is not None else None)
@@ -628,7 +642,7 @@ def _look_divergences(template: Template, path: Path, rows: Sequence[DataRow]) -
                 sides,
                 cell.number_format,
             )
-            expected = (template.header_faces[column - 1], ("left", "center", wraps), thin, row.number_formats[column - 1])
+            expected = (template.header_faces[column - 1], ("left", "center", wraps), thin, number_format)
             if actual != expected:
                 found.append(f"{cell.coordinate} {_value_text(actual)} zamiast {_value_text(expected)}")
     workbook.close()
@@ -978,7 +992,7 @@ class Run:
                 if copy.refusal:
                     statistics.refusals[copy.refusal] += 1
                 refusal = copy.refusal or (reference.refusal if reference is not None else None)
-                if refusal and not any(is_rare(value) for row in rows for value in row.values):
+                if refusal and not any(is_rare(cell.value) for row in rows for cell in row.cells):
                     statistics.unexplained[refusal] += 1
                 statistics.max_rows = max(statistics.max_rows, len(rows))
                 if via_copy and copy.refusal is None:
@@ -1039,19 +1053,20 @@ def story(case: Case, divergences: Sequence[tuple[int, Divergence]]) -> list[str
         values = [
             f"{get_column_letter(column)}{FIRST_DATA_ROW + offset}={_value_text(value)}"
             for offset, row in enumerate(rows)
-            for column, value in enumerate(row.values, start=1)
+            for column, (value, *_) in enumerate(row.cells, start=1)
             if value is not None
         ]
         marked = [
             f"{get_column_letter(column)}{FIRST_DATA_ROW + offset} {_highlights_text(cell)}"
             for offset, row in enumerate(rows)
-            for column, cell in enumerate(row.highlights, start=1)
+            for column, (_, cell, *_) in enumerate(row.cells, start=1)
             if cell != PLAIN
         ]
         linked = [
             f"{get_column_letter(column)}{FIRST_DATA_ROW + offset}→{_value_text(link.address)}"
             for offset, row in enumerate(rows)
-            for column, link in sorted(row.hyperlinks.items())
+            for column, (*_, link) in enumerate(row.cells, start=1)
+            if link is not None
         ]
         lines.append(
             f"  {index + 1}. Rozliczenie pracownika {index}: {len(rows)} Wierszy danych (wiersze {FIRST_DATA_ROW}–{last}); "

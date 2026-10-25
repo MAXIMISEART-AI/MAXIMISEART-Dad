@@ -1,9 +1,10 @@
 """Skoroszyty na dysku: otwarcie z jedną klasyfikacją uszkodzeń, układ arkusza i odczyt Wierszy danych.
 
 Każde otwarcie skoroszytu w obu procesach przechodzi przez ten moduł: Plik
-zbiorczy (``read_data_rows``) i Rejestr zleceń (``read_workbook``) dają Wiersze
-danych z Wyróżnieniami, formatami liczb i Hiperłączami komórek (``DataRow``), a
-Wzorce czyta przez ``open_workbook`` plik z Wzorca (``template_file``). Otwarcie
+zbiorczy (``read_data_rows``) daje Wiersze danych z komórkami po kolumnie (``DataRow``), a Rejestr zleceń
+(``read_workbook``) wiersze z komórkami pod nagłówkiem docelowym (``RegisterRow``); komórka niesie wartość,
+Wyróżnienia, format liczby i Hiperłącze (``DataCell``). Wzorce czyta przez ``open_workbook`` plik z Wzorca
+(``template_file``). Otwarcie
 sprawdza dostępność i klasyfikuje każde uszkodzenie, a problem zgłasza jako
 ``WorkbookError`` z powodem, przy złym układzie z jego miejscem. Moduł nie zna
 Komunikatów: proces tłumaczy powód na Komunikat ze swojego katalogu.
@@ -31,13 +32,13 @@ from io import BytesIO
 from pathlib import Path
 import stat
 from types import MappingProxyType
-from typing import IO, Never, TypeVar, cast
+from typing import IO, NamedTuple, Never, TypeVar, cast
 from xml.etree.ElementTree import ParseError
 from xml.parsers.expat import ExpatError
 
 from openpyxl import load_workbook
 from openpyxl.cell.rich_text import CellRichText
-from openpyxl.utils import get_column_letter
+from openpyxl.utils import column_index_from_string, get_column_letter
 from openpyxl.utils.exceptions import InvalidFileException
 from openpyxl.workbook.workbook import Workbook
 from openpyxl.worksheet._read_only import ReadOnlyWorksheet
@@ -67,6 +68,8 @@ _UNREADABLE_WORKBOOK_ERRORS = (
     ParseError,
     ExpatError,
 )
+
+_WORKBOOK_SUFFIXES = (".xlsx", ".xlsm", ".xltx", ".xltm")
 
 # Układ arkusza Pliku zbiorczego i Wzorców tej rodziny. Publiczne są tylko liczby, których potrzebują narzędzia
 # spoza pakietu (benchmark wpisuje ilości jak tata, generator składa syntetyczne Wzorce kształtu Wzorców taty).
@@ -160,39 +163,56 @@ WORKER_HEADER = HeaderCell(get_column_letter(_WORKER_COLUMN), HEADER_ROW)
 _WORKER_LABEL = "WYKONAWCA"
 
 
-_NO_ENTRIES: MappingProxyType[int, Never] = MappingProxyType({})
 _NO_QUANTITIES: MappingProxyType[QuantityColumn, Never] = MappingProxyType({})
+
+
+class DataCell(NamedTuple):
+    """Komórka Wiersza danych: wartość, jej Wyróżnienia, format liczby i Hiperłącze (tylko przy wartości)."""
+
+    value: _ExcelCellValue
+    highlights: Highlights
+    number_format: str
+    hyperlink: Hyperlink | None
 
 
 @dataclass(frozen=True)
 class DataRow:
-    """Wiersz danych: wartości komórek po kolei, ich Wyróżnienia, formaty liczb i Hiperłącza.
+    """Wiersz danych Pliku zbiorczego: komórki kolumn A:AT po kolei od A.
 
-    Daje go odczyt Pliku zbiorczego (pozycje to kolumny A:AT, formaty liczb kolumn wyglądu A:L) i odczyt
-    Rejestru zleceń (pozycje w kolejności ``preparation_register.COLUMNS``, czyli kolumn A:K Pliku
-    zbiorczego, z formatem liczby każdej). ``number`` to numer wiersza w pliku, z którego go odczytano.
-    Klucze ``hyperlinks`` to pozycje od 1; Hiperłącze ma tylko komórka z wartością.
+    ``number`` to numer wiersza w Pliku zbiorczym. Przebieg rozliczeń wpisuje każdą komórkę do tej samej kolumny
+    Rozliczenia pracownika. Format liczby z pliku mają tylko kolumny wyglądu A:L, a dalsze komórki ogólny: odczyt
+    formatu, którego plik nie użyje, mógłby zatrzymać rozliczenie na komórce ze stylem bez definicji formatu.
     """
 
     number: int
-    values: ExcelRow
-    highlights: tuple[Highlights, ...]
-    """Wyróżnienia komórek po pozycji jak ``values``."""
-    number_formats: tuple[str, ...]
-    """Formaty liczb komórek po pozycji; trafiają do kolumn wyglądu pliku z Wzorca."""
-    hyperlinks: Mapping[int, Hyperlink] = field(default_factory=lambda: _NO_ENTRIES)
-    quantities: Mapping[QuantityColumn, int] = field(default_factory=lambda: _NO_QUANTITIES)
-    """Ilości usług Wiersza danych Pliku zbiorczego z Przygotowania: litera kolumny N:AP → liczba różna od zera.
+    cells: tuple[DataCell, ...]
 
-    Trafiają do komórki Wzorca z jej wyglądem, bez Wyróżnień; reszta kolumn ilości zostaje jak we Wzorcu.
-    Odczyt Pliku zbiorczego ma ilości w ``values``.
-    """
+    def value(self, column: str) -> _ExcelCellValue:
+        """Wartość komórki w kolumnie ``column`` (litera, np. ``N``)."""
+
+        return self.cells[column_index_from_string(column) - 1].value
 
     @property
     def worker(self) -> _ExcelCellValue:
         """Surowa wartość WYKONAWCA z kolumny H Pliku zbiorczego."""
 
-        return self.values[_WORKER_COLUMN - 1]
+        return self.value(WORKER_HEADER.column)
+
+
+@dataclass(frozen=True)
+class RegisterRow:
+    """Wiersz Rejestru zleceń, który staje się Wierszem danych obu plików okresu: komórki pod nagłówkiem docelowym.
+
+    ``number`` to numer wiersza w Rejestrze zleceń; plik z Wzorca wpisuje komórkę do kolumny pod jej nagłówkiem.
+    """
+
+    number: int
+    cells: Mapping[str, DataCell]
+    quantities: Mapping[QuantityColumn, int] = field(default_factory=lambda: _NO_QUANTITIES)
+    """Ilości usług Wiersza danych Pliku zbiorczego z Przygotowania: litera kolumny N:AP → liczba różna od zera.
+
+    Trafiają do komórki Wzorca z jej wyglądem, bez Wyróżnień; reszta kolumn ilości zostaje jak we Wzorcu.
+    """
 
 
 def _status(path: Path) -> os.stat_result | None:
@@ -366,13 +386,26 @@ def read_data_rows(path: Path, *, despite_excel_lock: bool = False) -> DataRows:
         for number, cells in enumerate(
             classified(path, sheet.iter_rows(min_row=FIRST_DATA_ROW, max_col=max_column)), start=FIRST_DATA_ROW
         ):
-            values = tuple(cell.value for cell in cells[:last_column])
+            row_cells = cells[:last_column]
+            values = tuple(cell.value for cell in row_cells)
             if all(value is None for value in values[: INPUT_COLUMNS[-1]]):
                 continue
+            row_links = links.row(number, values)
             with unreadable_as_error(path):
-                row_highlights = tuple(highlights.of(cell) for cell in cells[:last_column])
-                number_formats = tuple(getattr(cell, "number_format", None) or GENERAL for cell in cells[: LOOK_COLUMNS[-1]])
-            rows.append(DataRow(number, values, row_highlights, number_formats, links.row(number, values)))
+                rows.append(
+                    DataRow(
+                        number,
+                        tuple(
+                            DataCell(
+                                values[column - 1],
+                                highlights.of(cell),
+                                (getattr(cell, "number_format", None) or GENERAL) if column in LOOK_COLUMNS else GENERAL,
+                                row_links.get(column),
+                            )
+                            for column, cell in enumerate(row_cells, start=1)
+                        ),
+                    )
+                )
     finally:
         workbook.close()
     names = tuple("" if is_blank(name) else " ".join(str(name).split()) for name in price_list)
@@ -413,8 +446,8 @@ class ReadSheet:
     def values(self, min_row: int, max_row: int | None = None) -> Iterator[tuple[object, ...]]:
         return classified(self._path, self._sheet.iter_rows(min_row=min_row, max_row=max_row, values_only=True))
 
-    def data_rows(self, min_row: int, columns: Sequence[int]) -> Iterator[tuple[tuple[object, ...], DataRow]]:
-        """Wartości całego wiersza i Wiersz danych z komórek ``columns`` (od 1) po kolei, od ``min_row`` w dół.
+    def data_rows(self, min_row: int, columns: Mapping[str, int]) -> Iterator[tuple[tuple[object, ...], RegisterRow]]:
+        """Wartości całego wiersza i wiersz z komórkami ``columns`` (nagłówek docelowy → kolumna od 1), od ``min_row`` w dół.
 
         Wyróżnienia czyta ta sama reguła co w Pliku zbiorczym (``Highlights.of``), a format liczby każdej
         komórki to jej format, ogólny dla brakującej. W arkuszu zawężonym tylko wiersze z jego zakresu.
@@ -422,7 +455,7 @@ class ReadSheet:
 
         return classified(self._path, self._data_rows(min_row, columns))
 
-    def _data_rows(self, min_row: int, columns: Sequence[int]) -> Iterator[tuple[tuple[object, ...], DataRow]]:
+    def _data_rows(self, min_row: int, columns: Mapping[str, int]) -> Iterator[tuple[tuple[object, ...], RegisterRow]]:
         max_row = None
         if self._rows is not None:
             min_row, max_row = max(min_row, self._rows.start), self._rows.stop - 1
@@ -433,14 +466,19 @@ class ReadSheet:
         for number, cells in enumerate(self._sheet.iter_rows(min_row=min_row, max_row=max_row), start=min_row):
             values = tuple(getattr(cell, "value", None) for cell in cells)
             row_links = links.row(number, values)
-            picked = [cells[column - 1] if column <= len(cells) else None for column in columns]
-            yield values, DataRow(
+            picked = {header: cells[column - 1] if column <= len(cells) else None for header, column in columns.items()}
+            yield values, RegisterRow(
                 number,
-                tuple(getattr(cell, "value", None) for cell in picked),
-                tuple(highlights.of(cell) for cell in picked),
-                tuple(getattr(cell, "number_format", None) or GENERAL for cell in picked),
                 MappingProxyType(
-                    {position: row_links[column] for position, column in enumerate(columns, start=1) if column in row_links}
+                    {
+                        header: DataCell(
+                            getattr(cell, "value", None),
+                            highlights.of(cell),
+                            getattr(cell, "number_format", None) or GENERAL,
+                            row_links.get(columns[header]),
+                        )
+                        for header, cell in picked.items()
+                    }
                 ),
             )
 
@@ -487,6 +525,15 @@ def workbook_content(path: Path) -> bytes:
     """Bajty skoroszytu, który jest na dysku i nie jest otwarty w Excelu; inaczej ``WorkbookError``."""
 
     ensure_available(path)
+    return _file_bytes(path)
+
+
+def template_content(path: Path) -> bytes:
+    """Bajty Wzorca jak ``workbook_content``, a plik bez rozszerzenia skoroszytu, który otwiera openpyxl, jest nieczytelny."""
+
+    ensure_available(path)
+    if path.suffix.lower() not in _WORKBOOK_SUFFIXES:
+        raise WorkbookError(path, Problem.UNREADABLE)
     return _file_bytes(path)
 
 

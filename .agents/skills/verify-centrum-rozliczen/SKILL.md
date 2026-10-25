@@ -24,8 +24,8 @@ py -3 .agents\skills\verify-centrum-rozliczen\scripts\run_centrum_verification.p
 ```
 
 `--feature ustawienia`, `--feature tablica-okresow`, `--feature uklad-folderow-taty`, `--feature konfiguracja`, `--feature aktualizacja`,
-`--feature metryki`, `--feature przygotowanie-pliku-zbiorczego`, `--feature uzupelnienie`,
-`--feature przebieg-rozliczen`, `--feature kontrola-ilosci`, `--feature diagnoza`, `--feature aktualnosc-i-onedrive`, `--feature zgloszenie`, `--feature uwaga-taty`, `--feature logi-uruchomienia`, `--feature powiadomienia`, `--feature pomiar-u-taty`, or `--feature start-i-zamykanie` drives one
+`--feature metryki`, `--feature blad-odczytu`, `--feature przygotowanie-pliku-zbiorczego`, `--feature uzupelnienie`,
+`--feature przebieg-rozliczen`, `--feature kontrola-ilosci`, `--feature diagnoza`, `--feature aktualnosc-i-onedrive`, `--feature zgloszenie`, `--feature uwaga-taty`, `--feature logi-uruchomienia`, `--feature karta-z-logow`, `--feature powiadomienia`, `--feature pomiar-u-taty`, or `--feature start-i-zamykanie` drives one
 feature; the default `all` drives every feature in `features/README.md`, ending
 with `start-i-zamykanie`, which closes Centrum through its own button. In `all`,
 Dad's whole week runs in order: Przygotowanie pliku zbiorczego, the summary of
@@ -135,7 +135,9 @@ run dir is `.verification` of the checkout, or any path given with `--run-dir`:
 - `fixture.txt`, `server.txt` (server console), `doctor.txt`, `drive.txt`
   (every step and check), `cleanup.txt`, `self-test.txt`;
 - `screenshots/NN-<step>.png` and `aria/NN-<step>.txt` for each step, captured
-  after transitions finish; on failure, also `screenshots/zz-failure.png`;
+  after transitions finish; on failure, also `screenshots/zz-failure.png`.
+  `NN` belongs to one screenshot only (feature files and PRs cite it alone), and
+  the run fails when two required screenshots share it;
 - `api/*.json` with the server's answers, including the refused foreign
   `Origin` and `Host` requests, and `api/start-*.txt` with the real launcher's
   console output;
@@ -154,8 +156,8 @@ Proof standards:
   stand-ins for Dad's computer.
   Harness steps are labelled in `drive.txt`: Gotowość, where the drive
   edits the Plik zbiorczy instead of Excel, the Szablony pacing, a server
-  unreachable for one read, a picker held open like Dad's native window,
-  and a stream that delivers late.
+  unreachable for one read, a re-read held on its way, a picker held open
+  like Dad's native window, and a stream that delivers late.
 - Look at the screenshots after a UI change; a passing run does not judge
   visual quality.
 - Evidence holds synthetic paths only. The self-test fails if the fixture's

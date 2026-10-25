@@ -3,7 +3,7 @@ import { HistoryIcon, PlayIcon } from "lucide-react"
 
 import { getMetrics, getRunSetup, type ProcessSetup, type RunView } from "@/api/centrum"
 import { PageHeader } from "@/components/page-header"
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import { LoadFailure } from "@/components/load-failure"
 import { Card, CardContent, CardHeader } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -12,7 +12,7 @@ import { isActive, useRuns } from "@/lib/runs"
 import { filesIdentity, useSettings } from "@/lib/settings"
 import { useResource } from "@/lib/use-resource"
 import { RunHistoryCard } from "@/pages/metrics/run-history-card"
-import { RunCard } from "@/pages/runs/run-card"
+import { PastRunCard, RunCard } from "@/pages/runs/run-card"
 import { DecisionDialog } from "@/pages/runs/run-dialogs"
 import { RunSetupCard } from "@/pages/runs/run-setup-card"
 
@@ -60,19 +60,14 @@ export function RunsPage() {
 }
 
 function RunHistory() {
-  const { resource: metrics } = useResource(getMetrics)
+  const { resource: metrics, reload } = useResource(getMetrics)
   const entrance = useContentEntrance(metrics.state === "loading")
 
   switch (metrics.state) {
     case "loading":
       return <Skeleton className="h-64 w-full" aria-label="Wczytywanie historii" />
     case "failed":
-      return (
-        <Alert variant="destructive" className="wejscie">
-          <AlertTitle>Nie udało się odczytać historii</AlertTitle>
-          <AlertDescription>{metrics.message}</AlertDescription>
-        </Alert>
-      )
+      return <LoadFailure what="historii" message={metrics.message} reload={reload} />
     case "ready":
       return (
         <div className={entrance}>
@@ -108,20 +103,16 @@ function RunsContent() {
   }
 
   if (setup.state === "failed") {
-    return (
-      <Alert variant="destructive" className="wejscie">
-        <AlertTitle>Nie udało się odczytać Uruchomień</AlertTitle>
-        <AlertDescription>{setup.message}</AlertDescription>
-      </Alert>
-    )
+    return <LoadFailure what="Uruchomień" message={setup.message} reload={reload} />
   }
 
   return <RunOrSetup view={view} processes={setup.data.processes} entrance={entrance} />
 }
 
 /**
- * Karta nowego Uruchomienia procesu albo podgląd na żywo. Zamiana jednej na drugą na oczach taty
- * (start, „Nowe Uruchomienie procesu”) wchodzi `wejscie`; karta zastana po wejściu na stronę nie.
+ * Karta nowego Uruchomienia procesu, podgląd na żywo albo ostatnie Uruchomienie sprzed startu Centrum. Zamiana
+ * jednej na drugą na oczach taty (start, „Nowe Uruchomienie procesu”) wchodzi `wejscie`; karta zastana po
+ * wejściu na stronę nie.
  */
 function RunOrSetup({
   view,
@@ -134,8 +125,10 @@ function RunOrSetup({
 }) {
   const { dismissed, draft, deciding, decide, newRun } = useRuns()
 
-  const setupInstead =
-    view.state === "idle" || (view.state === "finished" && (view.run.id === dismissed || draft !== null))
+  // Ostatnie Uruchomienie sprzed startu Centrum stoi jak zakończone: „Nowe Uruchomienie procesu” je odkłada.
+  const run = view.state === "idle" ? view.previous?.run : view.run
+  const ended = view.state === "idle" || view.state === "finished"
+  const setupInstead = run === undefined || (ended && (run.id === dismissed || draft !== null))
 
   const shown = useChangeEntrance(setupInstead, "wejscie") ?? entrance
 
@@ -147,11 +140,19 @@ function RunOrSetup({
     )
   }
 
-  const reminder = processes.find((process) => process.process === view.run.process)?.reminder ?? ""
+  const reminder = processes.find((process) => process.process === run.process)?.reminder ?? ""
+
+  if (view.state === "idle") {
+    return view.previous === null ? null : (
+      <div key="ostatnie" className={shown}>
+        <PastRunCard past={view.previous} reminder={reminder} onNewRun={() => newRun(run.id)} />
+      </div>
+    )
+  }
 
   return (
     <div key="podglad" className={shown}>
-      <RunCard view={view} reminder={reminder} onNewRun={() => newRun(view.run.id)} />
+      <RunCard view={view} reminder={reminder} onNewRun={() => newRun(run.id)} />
       {view.state === "awaiting_decision" ? (
         <DecisionDialog
           decision={view.decision}

@@ -29,7 +29,8 @@ from fastapi.staticfiles import StaticFiles
 from rozliczenia.centrum.cloud_files import CloudFiles
 from rozliczenia.centrum.configuration import ConfigurationFiles, configuration_router
 from rozliczenia.centrum.contract import Health, Problem, Refusal
-from rozliczenia.centrum.dad_notes import DAD_NOTES_FILE, DadNotes, after_delivery, dad_notes_router, with_logs
+from rozliczenia.centrum.dad_cases import DadCases
+from rozliczenia.centrum.dad_notes import after_delivery, dad_notes_router, with_logs
 from rozliczenia.centrum.diagnosis import Surroundings, diagnose, files_of_process
 from rozliczenia.centrum.filling import filling_router
 from rozliczenia.centrum.log import CentrumLog
@@ -43,6 +44,7 @@ from rozliczenia.centrum.quantity_check_run import QuantityCheckAfterRun
 from rozliczenia.centrum.reports import SEARCH_DEADLINE_S, UNSENT_DIRECTORY, Reports, read_report_key
 from rozliczenia.centrum.preparation_run import PreparationEntry
 from rozliczenia.centrum.processes import Processes
+from rozliczenia.centrum.run_cards import LAST_STARTED_FILE, RunCards, run_cards_router
 from rozliczenia.centrum.run_logs import LABEL as RUN_LOGS_LABEL, RUN_LOGS_DIRECTORY, RunLogs
 from rozliczenia.centrum.run_origins import CENTRUM_RUNS_FILE, CentrumRuns
 from rozliczenia.centrum.runs import ProcessEntry, RunHost, runs_router
@@ -160,13 +162,16 @@ def create_app(
     # Diagnoza: commit `main` z GitHuba i atrybuty OneDrive to granice komputera taty, podstawiane w testach.
     surroundings = Surroundings(replace(freshness, release=release.fresh), cloud_files or CloudFiles.of_system())
     app.include_router(filling_router(store, log, surroundings.cloud_files))
-    # Zgłoszenia do Maksa: skrzynka obok platformy, klucz i stan wysłanych obok Ustawień taty (ADR 0007).
+    # Sprawy taty: wysłane Zgłoszenia i Uwagi taty w jednym pliku stanu obok Ustawień taty (ADR 0015).
     config = settings_path.parent
+    cases = DadCases(config, log)
+    # Zgłoszenia do Maksa: skrzynka obok platformy, klucz obok Ustawień taty (ADR 0007).
     box = report_box or GitHubReportBox()
-    reports = Reports(config, box, log, surroundings.tool_freshness.local, search_deadline_s=report_search_deadline_s)
+    reports = Reports(
+        config, box, log, surroundings.tool_freshness.local, cases, search_deadline_s=report_search_deadline_s
+    )
     # Kontrola ilości, Logi Uruchomienia i Uwagi taty: w kolejce obok niewysłanych Zgłoszeń, wysyłane w tle
-    # (ADR 0013, 0015); numer issue Uwagi trafia do stanu Uwag obok Ustawień taty.
-    notes = DadNotes(config / DAD_NOTES_FILE, log)
+    # (ADR 0013, 0015); numer issue Uwagi trafia do Spraw taty.
 
     def run_logs_address(run_id: str) -> str | None:
         return outbox.delivered(run_id, RUN_LOGS_LABEL)
@@ -179,14 +184,13 @@ def create_app(
         box,
         lambda: read_report_key(config),
         log,
-        on_delivered=lambda post, number: after_delivery(post, number, notes, outbox),
-        prepare=lambda post: with_logs(post, notes, run_logs_address, run_logs_rejected),
+        on_delivered=lambda post, number: after_delivery(post, number, cases, outbox),
+        prepare=lambda post: with_logs(post, cases, run_logs_address, run_logs_rejected),
         addresses=config / ADDRESSES_FILE,
     )
     # Powiadomienia o Uwagach taty, wysłanych Zgłoszeniach i Wydaniach; przeczytane obok Ustawień taty (ADR 0015).
     notifications = Notifications(
-        reports.sent,
-        notes,
+        cases,
         ReadNotifications(config / NOTIFICATIONS_FILE, log),
         box,
         lambda: read_report_key(config),
@@ -200,6 +204,7 @@ def create_app(
         log.directory / RUN_LOGS_DIRECTORY,
         outbox,
         commit=surroundings.tool_freshness.local,
+        wydanie=surroundings.tool_freshness.wydanie,
         files=lambda process, period: files_of_process(
             process, period, settings=store.load(), configuration=configuration
         ),
@@ -220,10 +225,21 @@ def create_app(
         log,
         run_logs,
     )
+    preparation = PreparationEntry(store, configuration, processes.preparation, today, readers)
+    settlement = SettlementEntry(store, configuration, processes.settlement, today, readers)
+    entries: list[ProcessEntry] = [preparation, settlement]
+    # Karty Uruchomień z pliku startu i Logów Uruchomienia: ostatnie po starcie Centrum i wiersz Historii (ADR 0017).
+    cards = RunCards(
+        log.directory / RUN_LOGS_DIRECTORY,
+        log.directory / LAST_STARTED_FILE,
+        {preparation.key: preparation, settlement.key: settlement},
+    )
     runs = RunHost(
         log,
         centrum_runs,
         stops,
+        previous=cards.last(),
+        run_started=cards.run_started,
         after_run=[run_logs, QuantityCheckAfterRun(outbox, surroundings.tool_freshness.local)],
     )
     shutdown.refuse_while(runs.shutdown_refusal)
@@ -240,16 +256,13 @@ def create_app(
         result_file=settings_path.parent / RESULT_FILE,
         release=release,
     )
-    entries: list[ProcessEntry] = [
-        PreparationEntry(store, configuration, processes.preparation, today, readers),
-        SettlementEntry(store, configuration, processes.settlement, today, readers),
-    ]
     entry_processes = {entry.key: entry.process for entry in entries}
     app.include_router(runs_router(runs, entries))
+    app.include_router(run_cards_router(cards))
     app.include_router(notifications_router(notifications))
     app.include_router(
         dad_notes_router(
-            notes,
+            cases,
             outbox,
             surroundings.tool_freshness.local,
             lambda: read_runs(entry_processes, centrum_runs.started()),

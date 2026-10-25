@@ -70,7 +70,7 @@ Coverage, confirmed at **sync commit `5714940`** (PR #345, sheet chunks compress
 | `src/rozliczenia/highlights.py` (`Highlights.of`, `font_over`, `fill_over`) | Wyróżnienia both paths lay over the Wzorzec's font and fill |
 | `src/rozliczenia/row_look.py` (`RowLook`, `CellLook`, `wraps`) | Wygląd Wiersza danych both paths give A:L; judged by WYGLAD_WIERSZA |
 | `src/rozliczenia/hyperlinks.py` (`Hyperlink`) | the Hiperłącze both paths write; its reader `read_sheet_hyperlinks` is covered by pytest (`tests/test_hiperlacza_pliku_zbiorczego.py`), not here |
-| `src/rozliczenia/template_file.py`: `TemplateFile` (`check`, `create`, `_read`, `_template_copy`, `_create_with_openpyxl`), `_placed` (columns already in order), `_package_writer`, `Route`; `src/rozliczenia/workbook_save.py`: `write_atomically` | the real entry point; which path it takes (`create` returns it) |
+| `src/rozliczenia/template_file.py`: `TemplateFile` (`check`, `create`, `_read`, `_template_copy`, `_create_with_openpyxl`), `_in_columns` (a `DataRow` cell in its own column), `_package_writer`, `Route`; `src/rozliczenia/workbook_save.py`: `write_atomically` | the real entry point; which path it takes (`create` returns it) |
 | `src/rozliczenia/template_file.py`: `TemplateFile._create_with_openpyxl`, `_write_rows`, `_request_full_recalculation`; `src/rozliczenia/workbook_save.py`: `save_from_template`, `_restore_external_link_parts` | the reference (old openpyxl path) |
 | `tools/porownanie_rozliczen.py` (`compare_worker_settlements` and its per-cell helpers, `_hyperlink` among them) | the judge for WIERNA_KOPIA |
 | `tools/syntetyczne_wzorce.py` (`write_settlement_template`), `tests/fixtures/settlement.py` (`write_template`), `tests/fixtures/workbooks.py` (`add_external_link_fixture`, `refused_by_copy`) | the Wzorce under test and the twin the copy refuses |
@@ -148,7 +148,8 @@ Row counts are drawn both at random and from the counts whose last written row f
 before, on, or right after each chunk start within reach and the end of the sheet. The run reports
 `granice kawałków przekroczone: k/n` and is a LUKA SPRAWDZENIA unless every reachable chunk start
 was crossed by a Rozliczenie pracownika written through the copy. Each row is a `DataRow` with 46
-values (A:AT), 46 Wyróżnienia and 12 number formats (A:L), as `read_data_rows` gives them: most rows carry
+cells (A:AT), each with its value, Wyróżnienia, number format and Hiperłącze, as `read_data_rows` gives them; the
+number formats of A:L vary: most rows carry
 `General` with a date format on dates, as from a Plik zbiorczy written by Przygotowanie, the others a mix of
 built-in formats, Dad's date format and custom codes with quotes, colours and `<&>`. About half the rows have no
 Wyróżnienia; the others mark up to 10 cells, built with `Highlights.of` from fonts and fills as
@@ -187,7 +188,7 @@ Not covered:
   practically never carries a raw `\r` (Excel stores it as `_x000D_`).
 - Only the Wzorce above. Wzorce of other shapes go the old way (`UnsupportedShape`), and that
   routing decision is not checked.
-- Ilości usług (`DataRow.quantities`, `SheetLayout.quantity_columns`). Only the Plik zbiorczy gets
+- Ilości usług (`RegisterRow.quantities`, `SheetLayout.quantity_columns`). Only the Plik zbiorczy gets
   them, so every Rozliczenie pracownika here has none; `tests/test_ilosci_uslug.py` compares the
   copy with the openpyxl path for them.
 - Reading the Plik zbiorczy, the engine, the publication of the Folder rozliczeń pracowników, the

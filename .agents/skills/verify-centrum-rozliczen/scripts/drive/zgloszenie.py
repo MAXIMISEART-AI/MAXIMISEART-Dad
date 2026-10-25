@@ -8,7 +8,16 @@ import re
 
 from playwright.sync_api import Locator, Page, expect
 
-from drive.common import ROW_MARKER, Run, current_run, ensure_files_set, finished_result, stop_banner
+from drive.common import (
+    ROW_MARKER,
+    Run,
+    current_run,
+    ended_run_shown,
+    ensure_files_set,
+    finished_result,
+    period_choice,
+    stop_banner,
+)
 
 FEATURE = "zgloszenie"
 # The period of features/diagnoza.md: no Folder okresu and no orders, so no Uruchomienie here writes a file.
@@ -36,11 +45,11 @@ def _stop_for_maks(run: Run, page: Page, name: str, missing: str = "internal_tem
     aside = template.with_name(f"{template.name}.odlozony")
     page.goto(run.url + "#/uruchomienia")
     page.reload()
-    if current_run(run, f"{name}-przed")["state"] == "finished":
+    if ended_run_shown(current_run(run, f"{name}-przed")):
         page.get_by_role("button", name="Nowe Uruchomienie procesu").click()
     page.get_by_role("radio", name="Przygotowanie pliku zbiorczego").click()
     page.get_by_role("combobox", name="Okres").click()
-    page.get_by_role("option", name=f"{PERIOD} · Brak plików okresu", exact=True).click()
+    page.get_by_role("option", name=period_choice(PERIOD, "Brak plików okresu"), exact=True).click()
     template.rename(aside)
     try:
         page.get_by_role("button", name="Podgląd bez zapisu", exact=True).click()
@@ -63,6 +72,13 @@ def _issues(box: Path) -> list[dict[str, object]]:
 
     issues = [json.loads(path.read_text(encoding="utf-8")) for path in box.glob("*.json")]
     return sorted((issue for issue in issues if issue["labels"] == ["zgloszenie"]), key=lambda issue: int(str(issue["number"])))
+
+
+def _sent(config: Path) -> list[dict[str, object]]:
+    """Sent Zgłoszenia from the local state of Dad's cases; the fingerprint is their ``id``."""
+
+    cases = json.loads((config / "sprawy-taty.json").read_text(encoding="utf-8"))["sprawy"]
+    return [case for case in cases if case["kind"] == "zgloszenie"]
 
 
 def _shown_report(page: Page) -> tuple[str, str]:
@@ -154,9 +170,9 @@ def drive_report(run: Run, page: Page) -> None:
         "the skrzynka got exactly the preview, labelled zgloszenie",
     )
     run.check(not unsent.exists(), "the sent Zgłoszenie no longer waits in a file")
-    sent = json.loads((config / "zgloszenia-wyslane.json").read_text(encoding="utf-8"))
+    sent = _sent(config)
     run.check(
-        [entry["number"] for entry in sent] == [number] and f"- Odcisk problemu: {sent[0]['fingerprint']}" in body.splitlines(),
+        [entry["number"] for entry in sent] == [number] and f"- Odcisk problemu: {sent[0]['id']}" in body.splitlines(),
         "the local sent state keeps the fingerprint and the issue number",
     )
     log = (run.root / "logs" / "centrum-rozliczen.log").read_text(encoding="utf-8")
@@ -244,7 +260,7 @@ def _one_open_report(run: Run, page: Page, box: Path, config: Path) -> None:
         and (issues[1]["title"], issues[1]["body"]) == (title, body),
         "the skrzynka got exactly the new preview as a second Zgłoszenie next to the closed one",
     )
-    sent = json.loads((config / "zgloszenia-wyslane.json").read_text(encoding="utf-8"))
+    sent = _sent(config)
     run.check(
         [entry["number"] for entry in sent] == [issue["number"] for issue in issues],
         "the local sent state keeps both Zgłoszenia",

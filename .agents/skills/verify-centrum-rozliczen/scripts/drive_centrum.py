@@ -25,7 +25,9 @@ from drive import (
     EXPLICIT_FEATURES,
     aktualizacja,
     aktualnosc_i_onedrive,
+    blad_odczytu,
     diagnoza,
+    karta_z_logow,
     konfiguracja,
     kontrola_ilosci,
     logi_uruchomienia,
@@ -50,8 +52,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "tools"))
 from skrypt_skilla import Parser
 
 # aktualizacja moves the run's tool clone right after Konfiguracja shows it. Przygotowanie pliku zbiorczego
-# appends to the metrics files that Metryki counts, so it runs after Metryki; uzupelnienie shows what Dad fills in
-# its Plik zbiorczy and restores the file, and Przebieg rozliczeń continues Dad's path from that Plik zbiorczy, and kontrola-ilosci sends its Kontrola ilości after two restarts of Centrum; Diagnoza stops Uruchomienia of an empty Folder okresu after Dad's week, and aktualnosc-i-onedrive diagnoses one more such stop with the
+# appends to the metrics files that Metryki counts, so it runs after Metryki; blad-odczytu runs between them, before
+# the week's first Uruchomienie; uzupelnienie shows what Dad fills in its Plik zbiorczy and restores the file, and
+# Przebieg rozliczeń continues Dad's path from that Plik zbiorczy, and kontrola-ilosci sends its Kontrola ilości after two restarts of Centrum; Diagnoza stops Uruchomienia of an empty Folder okresu after Dad's week, and aktualnosc-i-onedrive diagnoses one more such stop with the
 # scripted GitHub and OneDrive; zgloszenie sends one such stop to the file skrzynka Zgłoszeń, and
 # uwaga-taty needs the skrzynka queue that kontrola-ilosci emptied; logi-uruchomienia matches every Uruchomienie
 # of the week with its file of Logi; powiadomienia closes an Uwaga taty and that Zgłoszenie there; pomiar-u-taty
@@ -64,6 +67,7 @@ FEATURES = (
     "konfiguracja",
     "aktualizacja",
     "metryki",
+    "blad-odczytu",
     "przygotowanie-pliku-zbiorczego",
     "uzupelnienie",
     "przebieg-rozliczen",
@@ -73,6 +77,7 @@ FEATURES = (
     "zgloszenie",
     "uwaga-taty",
     "logi-uruchomienia",
+    "karta-z-logow",
     "powiadomienia",
     "pomiar-u-taty",
     "start-i-zamykanie",
@@ -100,6 +105,7 @@ def main(argv: list[str] | None = None) -> int:
         "konfiguracja": konfiguracja.drive_configuration,
         "aktualizacja": aktualizacja.drive_update,
         "metryki": metryki.drive_metrics,
+        "blad-odczytu": blad_odczytu.drive_load_failures,
         "przygotowanie-pliku-zbiorczego": przygotowanie_pliku_zbiorczego.drive_preparation,
         "uzupelnienie": uzupelnienie.drive_filling,
         "przebieg-rozliczen": przebieg_rozliczen.drive_settlement,
@@ -109,6 +115,7 @@ def main(argv: list[str] | None = None) -> int:
         "zgloszenie": zgloszenie.drive_report,
         "uwaga-taty": uwaga_taty.drive_dad_note,
         "logi-uruchomienia": logi_uruchomienia.drive_run_logs,
+        "karta-z-logow": karta_z_logow.drive_run_card_from_logs,
         "powiadomienia": powiadomienia.drive_notifications,
         "pomiar-u-taty": pomiar_u_taty.drive_measurement,
         "start-i-zamykanie": start_i_zamykanie.drive_start_and_close,
