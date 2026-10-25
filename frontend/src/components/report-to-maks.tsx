@@ -31,14 +31,15 @@ export function ReportToMaks({
   primary: boolean
 }) {
   const [sending, setSending] = React.useState(false)
-  const [answer, setAnswer] = React.useState<ReportState | null>(null)
-  const state = answer ?? report
+  // Odpowiedź na kliknięcie ważna tylko do następnego stanu od serwera: kolejka może potem wysłać Zgłoszenie sama.
+  const [answer, setAnswer] = React.useState<{ to: ReportState; state: ReportState } | null>(null)
+  const state = answer !== null && answer.to === report ? answer.state : report
 
   const send = () => {
     setSending(true)
 
     sendReport()
-      .then(setAnswer, (failure: Error) => {
+      .then((answered) => setAnswer({ to: report, state: answered }), (failure: Error) => {
         toast.add({ title: "Nie udało się", description: failureMessage(failure), type: "error" })
       })
       .finally(() => setSending(false))
