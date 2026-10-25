@@ -89,6 +89,42 @@ MUTATIONS = (
         "sam gateway dostaje premię za wifi6extra",
     ),
     _mutation(
+        "samo nokia z akt int bez O",
+        '_Component({_Q.Z: 1}, without_router=("akt int", {_Q.O: 1}))',
+        "_Component({_Q.Z: 1})",
+        "samo nokia z akt int daje tylko Z, tata dopisuje O",
+    ),
+    _mutation(
+        "akt int także przy routerze",
+        "    if not count_of[_Kind.ROUTER]:\n",
+        "    if True:\n",
+        "nokia, gateway z akt int daje O=2",
+    ),
+    _mutation(
+        "akt int tylko małymi literami",
+        'phrases = " ".join(activities.casefold().split())',
+        'phrases = " ".join(activities.split())',
+        "samo nokia z AKT INT traci O",
+    ),
+    _mutation(
+        "akt int liczy się do S",
+        "                quantities.update(added)\n",
+        "                quantities.update({**added, _Q.S: quantities[_Q.S] + 1})\n",
+        "samo nokia z akt int dostaje Dostarczenie CPE",
+    ),
+    _mutation(
+        "akt int na każdą sztukę nokia",
+        "        for phrase, added in once.items():\n",
+        "        for phrase, added in [component.without_router for component, _ in components if component.without_router]:\n",
+        "nokia nokia z akt int daje O=2",
+    ),
+    _mutation(
+        "akt int przy routerze z urządzeniem TV",
+        "    if not count_of[_Kind.ROUTER]:\n",
+        "    if not count_of[_Kind.ROUTER] or count_of[_Kind.TV]:\n",
+        "nokia, gateway fut z akt int daje O=2",
+    ),
+    _mutation(
         "sztuki z krotności zamiast z CZYNNOŚCI",
         "per_order = pieces if component.kind is _Kind.PIECES else count",
         "per_order = count",
@@ -124,7 +160,7 @@ MUTATIONS = (
     _mutation(
         "bez reguły z ilościami URZĄDZENIA",
         "        return WithoutRule(_nonzero(quantities))",
-        "        return WithoutRule(_nonzero({**quantities, **_device_quantities(components, 1)}))",
+        "        return WithoutRule(_nonzero({**quantities, **_device_quantities(components, "")}))",
         "nokia zte przeniesienie dostaje O, S, Z",
     ),
     _mutation(
