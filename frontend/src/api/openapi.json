@@ -449,6 +449,78 @@
         }
       }
     },
+    "/api/periods/{token}/worker-settlements/open": {
+      "post": {
+        "tags": [
+          "okresy"
+        ],
+        "summary": "Open Worker Settlement",
+        "operationId": "openWorkerSettlement",
+        "parameters": [
+          {
+            "name": "token",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Token"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WorkerSettlementRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Opened"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/runs": {
       "post": {
         "tags": [
@@ -928,6 +1000,47 @@
         }
       }
     },
+    "/api/settings/register/open": {
+      "post": {
+        "tags": [
+          "ustawienia"
+        ],
+        "summary": "Open Register",
+        "operationId": "openRegister",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Opened"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/settings/theme": {
       "put": {
         "tags": [
@@ -1207,10 +1320,12 @@
               "getHealth",
               "getSettings",
               "chooseRegister",
+              "openRegister",
               "choosePeriodsDirectory",
               "changeTheme",
               "getPeriodBoard",
               "openPeriodPath",
+              "openWorkerSettlement",
               "getRunSetup",
               "startRun",
               "decideRun",
@@ -2200,6 +2315,13 @@
               }
             ],
             "title": "Collective File"
+          },
+          "open_in_excel": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Open In Excel"
           }
         },
         "additionalProperties": false,
@@ -2211,7 +2333,8 @@
           "status_label",
           "last_complete",
           "previewed",
-          "collective_file"
+          "collective_file",
+          "open_in_excel"
         ],
         "title": "PeriodChoice",
         "description": "Okres do wyboru przy starcie, ze Statusem okresu wyliczonym z plików."
@@ -3219,6 +3342,7 @@
             "enum": [
               "finished",
               "stop",
+              "declined",
               "unexpected",
               "after_engine"
             ],
@@ -3229,7 +3353,8 @@
             "enum": [
               "run",
               "rerun",
-              "open_period_folder"
+              "open_collective_file",
+              "open_worker_settlements_folder"
             ],
             "title": "Next Action"
           },
@@ -3240,7 +3365,8 @@
                 "enum": [
                   "for_tata",
                   "for_maks",
-                  "repeated"
+                  "repeated",
+                  "declined"
                 ]
               },
               {
@@ -3331,6 +3457,25 @@
                 "type": "null"
               }
             ]
+          },
+          "files_unchanged": {
+            "type": "boolean",
+            "title": "Files Unchanged"
+          },
+          "opens": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "order_register",
+                  "collective_file"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Opens"
           }
         },
         "additionalProperties": false,
@@ -3346,10 +3491,12 @@
           "stops",
           "warnings",
           "technical_notes",
-          "summary"
+          "summary",
+          "files_unchanged",
+          "opens"
         ],
         "title": "RunOutcome",
-        "description": "Wynik Uruchomienia procesu: zatrzymania i ostrzeżenia w trzech częściach, uwagi techniczne i podsumowanie.\n\n``ending`` mówi, jak się skończyło: ``finished``, własne zatrzymanie procesu (``stop``), nieoczekiwany\nbłąd (``unexpected``) albo błąd po zakończeniu silnika (``after_engine``). ``next_action`` to akcja,\nktórą Centrum proponuje po wyniku, a ``headline`` to tytuł banera wyniku. ``stop_kind`` to rodzaj\nZatrzymania (``None`` bez Zatrzymania), ``diagnosis`` to Diagnoza, którą z niego Centrum proponuje\n(``None``: bez Zatrzymania i przy Zatrzymaniu „dla taty”), a ``report`` stan Zgłoszenia do Maksa tego\nproblemu (``None``, gdy Centrum nie proponuje Diagnozy)."
+        "description": "Wynik Uruchomienia procesu: zatrzymania i ostrzeżenia w trzech częściach, uwagi techniczne i podsumowanie.\n\n``ending`` mówi, jak się skończyło: ``finished``, własne zatrzymanie procesu (``stop``), Zatrzymanie po\nodmowie w Decyzji taty (``declined``), nieoczekiwany błąd (``unexpected``) albo błąd po zakończeniu\nsilnika (``after_engine``). ``next_action`` to akcja, którą Centrum proponuje po wyniku, a ``headline``\nto tytuł banera wyniku. ``stop_kind`` to rodzaj\nZatrzymania (``None`` bez Zatrzymania), ``diagnosis`` to Diagnoza, którą z niego Centrum proponuje\n(``None``: bez Zatrzymania i przy Zatrzymaniu „dla taty”), a ``report`` stan Zgłoszenia do Maksa tego\nproblemu (``None``, gdy Centrum nie proponuje Diagnozy). ``files_unchanged``: Uruchomienie nie zmieniło\nplików taty (podgląd bez zapisu albo koniec przed Zapisywaniem), więc karta może to tacie powiedzieć.\n``opens`` to plik taty, w którym jest poprawka Zatrzymania, a karta proponuje go otworzyć (``None``: żaden)."
       },
       "RunRequest": {
         "properties": {
@@ -3451,11 +3598,11 @@
             "type": "array",
             "title": "Files"
           },
-          "file_plan": {
+          "worker_settlements": {
             "anyOf": [
               {
                 "items": {
-                  "$ref": "#/components/schemas/WorkerFile"
+                  "$ref": "#/components/schemas/WorkerSettlement"
                 },
                 "type": "array"
               },
@@ -3463,7 +3610,7 @@
                 "type": "null"
               }
             ],
-            "title": "File Plan"
+            "title": "Worker Settlements"
           }
         },
         "additionalProperties": false,
@@ -3472,10 +3619,10 @@
           "figures",
           "counts",
           "files",
-          "file_plan"
+          "worker_settlements"
         ],
         "title": "RunSummary",
-        "description": "Podsumowanie albo plan (DRY-RUN) procesu tak, jak pokazuje je karta Uruchomienia, bez danych klientów.\n\nLiczby wyniku, potem szczegóły: kafelki liczb (np. Zlecenia na dzień), pliki okresu i plan plików\n(``None``, gdy proces go nie ma)."
+        "description": "Podsumowanie albo plan (DRY-RUN) procesu tak, jak pokazuje je karta Uruchomienia, bez danych klientów.\n\nLiczby wyniku, potem szczegóły: kafelki liczb (np. Zlecenia na dzień), pliki okresu i Rozliczenia\npracowników: plan po podglądzie, zapisane po uruchomieniu (``None``, gdy proces ich nie tworzy)."
       },
       "Settings": {
         "properties": {
@@ -3922,25 +4069,50 @@
         "title": "ViewTiming",
         "description": "Pomiar gotowego widoku z przeglądarki: same liczby i nazwy z kontraktu, bez adresów i treści.\n\n``ready_ms`` to czas do gotowej treści, ``fcp_ms`` pierwsze malowanie treści\n(tylko przy zimnym starcie), ``skeleton_ms`` czas widocznego szkieletu."
       },
-      "WorkerFile": {
+      "WorkerSettlement": {
         "properties": {
+          "worker": {
+            "type": "string",
+            "title": "Worker"
+          },
           "file": {
             "type": "string",
             "title": "File"
           },
-          "rows": {
+          "orders": {
             "type": "integer",
-            "title": "Rows"
+            "title": "Orders"
+          },
+          "empty": {
+            "type": "boolean",
+            "title": "Empty"
           }
         },
         "additionalProperties": false,
         "type": "object",
         "required": [
+          "worker",
           "file",
-          "rows"
+          "orders",
+          "empty"
         ],
-        "title": "WorkerFile",
-        "description": "Wiersz planu plików: nazwa pliku Szablonu pracownika i liczba Wierszy danych (0 = pusty skoroszyt)."
+        "title": "WorkerSettlement",
+        "description": "Rozliczenie pracownika jednego Wykonawcy: nazwa pliku, liczba jego zleceń w okresie i czy szablon jest pusty."
+      },
+      "WorkerSettlementRequest": {
+        "properties": {
+          "worker": {
+            "type": "string",
+            "title": "Worker"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "worker"
+        ],
+        "title": "WorkerSettlementRequest",
+        "description": "Którego Wykonawcy Rozliczenie pracownika otworzyć; ścieżkę wylicza serwer z Folderu okresu."
       },
       "WorkersReady": {
         "properties": {
