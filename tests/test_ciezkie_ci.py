@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -76,6 +77,7 @@ def test_ciezkie_zadanie_poza_ci_bez_odtwarzania_odmawia_startu_i_mowi_co_zrobic
     assert "Wypchnij gałąź" in last and "gh pr checks" in last and "--odtwarzam" in last
 
 
+@pytest.mark.skipif(importlib.util.find_spec("ruff") is None, reason="zadania pytest na Windows instalują tylko requirements.txt, bez ruff")
 def test_brama_pre_push_poza_ci_sprawdza_ruff_i_mypy_bez_odtwarzania(tmp_path: Path) -> None:
     repo = repository(
         tmp_path / "repo",
