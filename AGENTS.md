@@ -19,6 +19,10 @@
   Na mergu z `origin/main` z ostatniego `git fetch` uruchamia tylko testy struktury.
   Nie uruchamia zadań CI `mutations` (skrypty mutacji skilli), `Frontend`, E2E ani Timing guard.
   Krok pytest bierze 4 workery, chyba że ustawisz `PYTEST_XDIST_AUTO_NUM_WORKERS`.
+  Z testów dotkniętych zmianą uruchamia zawsze te w odległości najwyżej 1 od zmienionego pliku spoza konfiguracji (test zmieniony albo importujący lub czytający taki plik), a dalsze tylko w budżecie czasu kroku pytest.
+  Przy zmianie konfiguracji (`pyproject.toml`, `requirements.txt`, `tests/conftest.py`, `tests/fixtures/git_config.py`) testy, które importują albo czytają zmieniony plik konfiguracji, nie biegną zawsze, ale w budżecie biegną przed pozostałymi, a po nich najtańsze.
+  Resztę liczy pytest w CI, a szybko wypisuje ją przed wynikiem w linii `zostawione CI: …`.
+  Gdy padnie ruff, mypy albo inny krok, szybko przerywa krok pytest i kończy się `SZYBKO FAIL | <kroki> | pytest przerwany`, więc testy dotknięte zmianą sprawdzi dopiero następne uruchomienie.
   `SZYBKO OK` nie jest gotowością.
 - Status `scalenie z main` na HEAD PR mówi, czy scalenie PR z obecnym `main` przechodzi bez konfliktu, ruff i mypy dla obu systemów (`tools/scalenia_pr.py` w workflow `scalenia.yml`, po każdym pushu do `main`).
   Ruleset go nie wymaga, więc gotowość PR od niego nie zależy.

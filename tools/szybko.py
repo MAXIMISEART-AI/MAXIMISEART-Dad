@@ -5,7 +5,7 @@ razem z niezacommitowanymi i nieśledzonymi plikami, różni się od ``merge-bas
 ``origin/main``). Kroki ruff i mypy to kroki ``tools/ci_lokalnie.py``, a pytest to jego krok z wybranymi
 testami. Gdy ``.venv`` ma Pythona nowszego niż najstarszy z ``requires-python``, który CI też testuje, krok
 ``import src pod Pythonem <wersja>`` importuje każdy moduł ``src/`` tym Pythonem przez ``uv`` (bez ``uv`` pada).
-Kroki biegną naraz.
+Kroki biegną naraz, a gdy padnie inny krok, szybko przerywa krok pytest i wypisuje, że go przerwał.
 
 Test jest dotknięty, gdy zmiana obejmuje jego plik albo plik, od którego zależy. Zależności wynikają z samego
 kodu, więc świeży worktree wybiera tak samo:
@@ -22,13 +22,22 @@ wszystkie testy. Test, który już przeszedł na tych samych plikach, nie biegni
 leży w katalogu gita worktree. Krok pytest bierze ``WORKERS`` workerów, chyba że ustawiono
 ``PYTEST_XDIST_AUTO_NUM_WORKERS``.
 
+Z wybranych testów biegną zawsze pliki w odległości najwyżej 1 od zmiany w grafie zależności (``plan``), czyli
+zmienione albo zależne wprost od zmienionego pliku, a dalsze po odległości i czasie z tabeli CI (``TIMES``) rosnąco,
+dopóki mieszczą się w budżecie ``BUDGET_S``. Odległość liczy się od zmiany bez plików ``FULL``, a test, który
+importuje albo czyta plik ``FULL``, ma najwyżej 2, więc przy zmianie konfiguracji biegnie w budżecie przed testami
+bez drogi w grafie. Resztę liczy pełny pytest w CI, a szybko wypisuje ją przed wynikiem
+jako „zostawione CI”, więc ``SZYBKO OK`` znaczy, że przeszły uruchomione testy.
+
 Testy ``STRUCTURE`` (reguły z tabeli w ``AGENTS.md`` i testy całego repozytorium) biegną przy każdej zmianie, a gdy
 ``--baza`` poszła dalej niż HEAD, także na mergu z nią (to drzewo sprawdza CI PR-u; numer ADR zajęty równolegle
-pada dopiero tam). Na mergu biegną tylko one, bez mypy i testów dotkniętych zmianą. Szybko nie pobiera ``origin``,
-więc merge jest z bazą z ostatniego ``git fetch``. Nie uruchamia zadań CI ``mutations`` (skrypty mutacji skilli),
-``Frontend``, E2E ani Timing guard.
+pada dopiero tam). Na mergu biegną tylko one, bez mypy, testów dotkniętych zmianą i workerów xdist, razem z
+pozostałymi krokami.
+Szybko nie pobiera ``origin``, więc merge jest z bazą z ostatniego ``git fetch``. Nie uruchamia zadań CI
+``mutations`` (skrypty mutacji skilli), ``Frontend``, E2E ani Timing guard.
 
-Kończy się ``SZYBKO OK`` albo ``SZYBKO FAIL | <kroki>``.
+Kończy się ``SZYBKO OK`` albo ``SZYBKO FAIL | <kroki>``, z dopiskiem `` | pytest przerwany``, gdy szybko przerwał
+krok pytest.
 
     .venv/bin/python tools/szybko.py
     .venv/bin/python tools/szybko.py --baza feat/galaz-rodzica
@@ -38,16 +47,19 @@ from __future__ import annotations
 
 import argparse
 import ast
-from collections import defaultdict
+from collections import defaultdict, deque
 from collections.abc import Iterable
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import ExitStack
 from dataclasses import dataclass, replace
 import hashlib
 import json
+import math
 import os
 from pathlib import Path, PurePosixPath
 import re
 import shutil
+import statistics
 import subprocess
 import sys
 import threading
@@ -101,6 +113,10 @@ GREEN = "szybko-zielone.json"
 PATH_TYPES = frozenset({"Path", "PurePath", "PurePosixPath", "PureWindowsPath"})
 GLOBS = frozenset({"glob", "rglob", "iterdir"})
 WORKERS = "4"
+TIMES = Path("tools", "czasy_testow_ci_linux.json")
+# Sekundy tabeli ``TIMES`` na workera. Porażki pytest w szybko z 23–24.10 łapie ten sam plan od 20 s wzwyż, bo prawie
+# wszystkie padły w odległości 0–1 albo w testach struktury, więc budżet stoi blisko tej granicy.
+BUDGET_S = 45.0
 # Importuje każdy moduł ``src/`` i wypisuje te, które padają; moduł, który się nie importuje, wywraca każdy test.
 IMPORT_ALL = """\
 import importlib, pathlib, sys
@@ -130,7 +146,35 @@ sys.exit(code)
 @dataclass(frozen=True)
 class Selection:
     fingerprints: dict[str, str]
+    distances: dict[str, int]
     full_reason: str | None = None
+
+
+@dataclass(frozen=True)
+class Plan:
+    """Pliki testów, które biegną, i te zostawione CI (``deferred_s`` to ich czas z tabeli ``TIMES``)."""
+
+    run: tuple[str, ...]
+    deferred: tuple[str, ...]
+    deferred_s: float
+
+
+def plan(tests: Iterable[str], distances: dict[str, int], times: dict[str, float], budget_s: float = BUDGET_S) -> Plan:
+    """Pliki w odległości najwyżej 1 od zmiany biegną zawsze, także ponad budżet. Dalsze, po odległości i koszcie
+    rosnąco, biegną, gdy suma kosztów na ``WORKERS`` workerów mieści się jeszcze w ``budget_s``. Koszt pliku spoza
+    tabeli to mediana tabeli."""
+
+    default = statistics.median(times.values()) if times else 0.0
+    cost = {test: times.get(test, default) for test in tests}
+    capacity, used = budget_s * int(WORKERS), 0.0
+    run, deferred = [], []
+    for test in sorted(cost, key=lambda test: (distances.get(test, math.inf), cost[test], test)):
+        if distances.get(test, math.inf) <= 1 or used + cost[test] <= capacity:
+            run.append(test)
+            used += cost[test]
+        else:
+            deferred.append(test)
+    return Plan(tuple(sorted(run)), tuple(sorted(deferred)), sum(cost[test] for test in deferred))
 
 
 @dataclass(frozen=True)
@@ -183,18 +227,27 @@ class Dependencies:
         return found | {path for source in found for path in self.folder_files.get(source, set())}
 
     def affected_by(self, changed: Iterable[str]) -> set[str]:
+        return set(self.distances_from(changed))
+
+    def distances_from(self, changed: Iterable[str]) -> dict[str, int]:
+        """Najmniejsza liczba krawędzi od pliku do zmiany: zmieniony plik ma 0, a plik, który czyta zmieniony plik
+        z katalogu, globu albo danych pakietu, 1."""
+
         back: dict[str, set[str]] = defaultdict(set)
         for source, targets in self.depends_on.items():
             for target in targets:
                 back[target].add(source)
         changed = set(changed)
-        found = changed | {source for source, folder in self.folder_files.items() if folder & changed}
-        pending = list(found)
+        distances = dict.fromkeys(sorted(changed), 0)
+        readers = sorted(source for source, folder in self.folder_files.items() if folder & changed)
+        distances |= {reader: 1 for reader in readers if reader not in changed}
+        pending = deque(distances)
         while pending:
-            for source in back[pending.pop()] - found:
-                found.add(source)
+            target = pending.popleft()
+            for source in sorted(back[target] - distances.keys()):
+                distances[source] = distances[target] + 1
                 pending.append(source)
-        return found
+        return distances
 
 
 def _is_python(root: Path, path: str) -> bool:
@@ -388,10 +441,21 @@ def select(root: Path, changed: frozenset[str]) -> Selection:
     dependencies = Dependencies.of(root, files)
     tests = {path for path in files if _is_test(path) and (root / path).is_file()}
     full = sorted(changed & set(FULL))
+    # Plik z ``FULL`` dotyczy każdego testu, a drogę w grafie mają do niego tylko testy, które wymieniają jego nazwę.
+    distances = dependencies.distances_from(changed - set(FULL))
+    readers = {source for source, targets in dependencies.depends_on.items() if targets & set(full)}
+    distances |= {reader: min(distances.get(reader, 2), 2) for reader in readers}
     if not full:
-        tests &= dependencies.affected_by(changed)
+        tests &= distances.keys()
     fingerprints = {test: _fingerprint(root, dependencies.inputs_of(test)) for test in sorted(tests)}
-    return Selection(fingerprints, f"zmiana w {', '.join(full)}" if full else None)
+    return Selection(fingerprints, distances, f"zmiana w {', '.join(full)}" if full else None)
+
+
+def _times(root: Path) -> dict[str, float]:
+    try:
+        return {str(test): float(seconds) for test, seconds in json.loads((root / TIMES).read_text(encoding="utf-8")).items()}
+    except (OSError, ValueError, AttributeError):
+        return {}
 
 
 def _fingerprint(root: Path, inputs: Iterable[str]) -> str:
@@ -538,18 +602,32 @@ def _environment(root: Path) -> dict[str, str]:
     return {"PYTEST_XDIST_AUTO_NUM_WORKERS": WORKERS, **environment(root), "PYTHON": sys.executable}
 
 
-def _run_all(steps: list[ci_lokalnie.Step], root: Path) -> list[str]:
-    stop = threading.Event()
+def _run_all(steps: list[ci_lokalnie.Step], interruptible: ci_lokalnie.Step | None = None) -> tuple[list[str], list[str]]:
+    """Kroki naraz; zwraca nazwy kroków, które padły, i przerwanych. Gdy padnie krok inny niż ``interruptible``,
+    ``interruptible`` jest przerywany: wynik i tak jest FAIL, a na koniec długiego kroku pytest nie trzeba czekać."""
 
-    def run(step: ci_lokalnie.Step) -> tuple[bool, str, float]:
+    stop, failure = threading.Event(), threading.Event()
+
+    def run(step: ci_lokalnie.Step) -> tuple[bool | None, str, float]:
         started = time.monotonic()
-        done = potomne.run(step.command, cwd=step.cwd, env=_environment(root), stop=stop)
+        try:
+            done = potomne.run(
+                step.command, cwd=step.cwd, env=_environment(step.cwd), stop=failure if step is interruptible else stop
+            )
+        except potomne.Stopped:
+            return None, "", time.monotonic() - started
+        if done.returncode:
+            failure.set()
         return done.returncode == 0, done.stdout + done.stderr, time.monotonic() - started
 
-    failed = []
+    failed, interrupted = [], []
     pool = ThreadPoolExecutor(max_workers=len(steps))
     try:
         for step, (passed, output, elapsed) in zip(steps, pool.map(run, steps), strict=True):
+            if passed is None:
+                print(f"PRZERWANY {step.name} ({elapsed:.0f} s): padł inny krok, więc jego testy nie są sprawdzone", flush=True)
+                interrupted.append(step.name)
+                continue
             print(f"{'OK  ' if passed else 'FAIL'} {step.name} ({elapsed:.0f} s)", flush=True)
             if not passed:
                 failed.append(step.name)
@@ -557,20 +635,26 @@ def _run_all(steps: list[ci_lokalnie.Step], root: Path) -> list[str]:
     except BaseException:
         # Przerwanie w głównym wątku nie dociera do wątków, które czekają na swoje polecenia.
         stop.set()
+        failure.set()
         raise
     finally:
         pool.shutdown(cancel_futures=True)
-    return failed
+    return failed, interrupted
 
 
-def _describe(selection: Selection, to_run: list[str], changed: frozenset[str], base: str) -> str:
+def _describe(selection: Selection, chosen: Plan, changed: frozenset[str], base: str) -> str:
     kind = f"pełny zestaw ({selection.full_reason})" if selection.full_reason else "dotknięte zmianą"
-    names = ", ".join(PurePosixPath(path).name for path in to_run) or "brak"
-    green = len(selection.fingerprints) - len(to_run)
+    names = ", ".join(PurePosixPath(path).name for path in chosen.run) or "brak"
+    green = len(selection.fingerprints) - len(chosen.run) - len(chosen.deferred)
     return (
         f"Zmiana: {len(changed)} plików od {base}. Testy {kind}: {len(selection.fingerprints)},"
-        f" do uruchomienia {len(to_run)} ({names}), zielone na tych samych plikach {green}; i testy struktury."
+        f" do uruchomienia {len(chosen.run)} ({names}), zielone na tych samych plikach {green}; i testy struktury."
     )
+
+
+def _deferred(chosen: Plan, selected: int) -> str:
+    names = ", ".join(PurePosixPath(path).name for path in chosen.deferred)
+    return f"zostawione CI: {len(chosen.deferred)} z {selected} plików testów (~{chosen.deferred_s:.0f} s w CI): {names}"
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -584,16 +668,22 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     selection = select(ROOT, changed)
     memory = GreenMemory.of_checkout()
-    to_run = memory.to_run(selection)
-    print(_describe(selection, to_run, changed, args.baza), flush=True)
+    chosen = plan(memory.to_run(selection), selection.distances, _times(ROOT))
+    print(_describe(selection, chosen, changed, args.baza), flush=True)
     junit = memory.path.with_name(f"szybko-junit-{os.getpid()}.xml")
-    failed = _run_all(_steps(ROOT, to_run, junit), ROOT)
-    memory.remember(selection, junit, to_run)
+    steps = _steps(ROOT, chosen.run, junit)
+    with ExitStack() as copies:
+        if merge := _merge_with(args.baza):
+            copy = copies.enter_context(potomne.commit_copy(ROOT, merge))
+            # Biegnie razem z krokiem pytest, więc bez workerów xdist nie podwaja liczby rdzeni szybko.
+            steps.append(_pytest(copy, f"testy struktury po mergu z {args.baza}", (*STRUCTURE, "-n", "0")))
+        failed, interrupted = _run_all(steps, next(step for step in steps if step.name == "pytest"))
+    memory.remember(selection, junit, chosen.run)
     junit.unlink(missing_ok=True)
-    if merge := _merge_with(args.baza):
-        with potomne.commit_copy(ROOT, merge) as copy:
-            failed += _run_all([_pytest(copy, f"testy struktury po mergu z {args.baza}", STRUCTURE)], copy)
-    print(f"SZYBKO FAIL | {', '.join(failed)}" if failed else "SZYBKO OK")
+    if chosen.deferred:
+        print(_deferred(chosen, len(selection.fingerprints)))
+    stopped = "".join(f" | {name} przerwany" for name in interrupted)
+    print(f"SZYBKO FAIL | {', '.join(failed)}{stopped}" if failed else "SZYBKO OK")
     return 1 if failed else 0
 
 
