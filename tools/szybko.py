@@ -5,7 +5,7 @@ razem z niezacommitowanymi i nieśledzonymi plikami, różni się od ``merge-bas
 ``origin/main``). Kroki ruff i mypy to kroki ``tools/ci_lokalnie.py``, a pytest to jego krok z wybranymi
 testami. Gdy ``.venv`` ma Pythona nowszego niż najstarszy z ``requires-python``, który CI też testuje, krok
 ``import src pod Pythonem <wersja>`` importuje każdy moduł ``src/`` tym Pythonem przez ``uv`` (bez ``uv`` pada).
-Kroki biegną naraz.
+Kroki biegną naraz, a gdy padnie inny krok, szybko przerywa krok pytest i wypisuje, że go przerwał.
 
 Test jest dotknięty, gdy zmiana obejmuje jego plik albo plik, od którego zależy. Zależności wynikają z samego
 kodu, więc świeży worktree wybiera tak samo:
@@ -593,18 +593,31 @@ def _environment(root: Path) -> dict[str, str]:
     return {"PYTEST_XDIST_AUTO_NUM_WORKERS": WORKERS, **environment(root), "PYTHON": sys.executable}
 
 
-def _run_all(steps: list[ci_lokalnie.Step]) -> list[str]:
-    stop = threading.Event()
+def _run_all(steps: list[ci_lokalnie.Step], interruptible: ci_lokalnie.Step | None = None) -> list[str]:
+    """Kroki naraz. Gdy padnie krok inny niż ``interruptible``, ``interruptible`` jest przerywany: wynik i tak jest
+    FAIL, a na koniec długiego kroku pytest nie trzeba czekać."""
 
-    def run(step: ci_lokalnie.Step) -> tuple[bool, str, float]:
+    stop, failure = threading.Event(), threading.Event()
+
+    def run(step: ci_lokalnie.Step) -> tuple[bool | None, str, float]:
         started = time.monotonic()
-        done = potomne.run(step.command, cwd=step.cwd, env=_environment(step.cwd), stop=stop)
+        try:
+            done = potomne.run(
+                step.command, cwd=step.cwd, env=_environment(step.cwd), stop=failure if step is interruptible else stop
+            )
+        except potomne.Stopped:
+            return None, "", time.monotonic() - started
+        if done.returncode:
+            failure.set()
         return done.returncode == 0, done.stdout + done.stderr, time.monotonic() - started
 
     failed = []
     pool = ThreadPoolExecutor(max_workers=len(steps))
     try:
         for step, (passed, output, elapsed) in zip(steps, pool.map(run, steps), strict=True):
+            if passed is None:
+                print(f"PRZERWANY {step.name} ({elapsed:.0f} s): padł inny krok, więc jego testy nie są sprawdzone", flush=True)
+                continue
             print(f"{'OK  ' if passed else 'FAIL'} {step.name} ({elapsed:.0f} s)", flush=True)
             if not passed:
                 failed.append(step.name)
@@ -612,6 +625,7 @@ def _run_all(steps: list[ci_lokalnie.Step]) -> list[str]:
     except BaseException:
         # Przerwanie w głównym wątku nie dociera do wątków, które czekają na swoje polecenia.
         stop.set()
+        failure.set()
         raise
     finally:
         pool.shutdown(cancel_futures=True)
@@ -652,7 +666,7 @@ def main(argv: list[str] | None = None) -> int:
         if merge := _merge_with(args.baza):
             copy = copies.enter_context(potomne.commit_copy(ROOT, merge))
             steps.append(_pytest(copy, f"testy struktury po mergu z {args.baza}", STRUCTURE))
-        failed = _run_all(steps)
+        failed = _run_all(steps, next(step for step in steps if step.name == "pytest"))
     memory.remember(selection, junit, chosen.run)
     junit.unlink(missing_ok=True)
     if chosen.deferred:

@@ -154,6 +154,20 @@ def test_zmiana_modulu_uruchamia_testy_ktore_go_importuja_a_pozostalych_nie(tmp_
     assert "test_zawsze_pada" not in answered.stdout
 
 
+def test_blad_ruff_przerywa_krok_pytest_zamiast_czekac_na_jego_koniec(tmp_path: Path) -> None:
+    repo = _repo(tmp_path)
+    # Bez przerwania krok pytest skończyłby się po 30 s i przeszedł.
+    _write(repo, "tests/test_wolny.py", "import time\n\nfrom pakiet.a import wartosc\n\n\ndef test_wolny() -> None:\n    time.sleep(30)\n    assert wartosc() == 1\n")
+    commit(repo, "wolny test")
+    git(repo, "update-ref", "refs/remotes/origin/main", "HEAD")
+    _write(repo, "src/pakiet/a.py", "import os\n\n\ndef wartosc() -> int:\n    return 1\n")
+
+    answered = _szybko(repo)
+
+    assert re.search(r"^PRZERWANY pytest \(\d+ s\): padł inny krok, więc jego testy nie są sprawdzone$", answered.stdout, re.MULTILINE)
+    assert (answered.returncode, answered.stdout.splitlines()[-1]) == (1, "SZYBKO FAIL | ruff"), answered.stdout
+
+
 def test_zmiana_bez_bledu_konczy_sie_ok_choc_niedotkniety_test_pada(tmp_path: Path) -> None:
     repo = _repo(tmp_path)
     _write(repo, "src/pakiet/a.py", "def wartosc() -> int:\n    return 0 + 1\n")
