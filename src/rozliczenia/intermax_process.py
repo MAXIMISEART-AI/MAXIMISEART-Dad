@@ -32,21 +32,13 @@ def _local_now() -> datetime:
     return datetime.now().astimezone()
 
 
-def _store(path: Path, content: bytes) -> None:
-    path.write_bytes(content)
-
-
 @dataclass(frozen=True)
 class OrderingInputs:
-    """Wejście procesu Uporządkowania INTERMAX: INTERMAX z Ustawień taty, folder Kopii i zegar procesu.
-
-    ``store`` zapisuje bajty pliku tymczasowego przed jego sprawdzeniem; test podstawia zapis, który się psuje.
-    """
+    """Wejście procesu Uporządkowania INTERMAX: INTERMAX z Ustawień taty, folder Kopii i zegar procesu."""
 
     register_path: Path
     copies_directory: Path = field(default_factory=intermax_copies.default_directory)
     now: Callable[[], datetime] = _local_now
-    store: Callable[[Path, bytes], None] = _store
 
     @property
     def dry_run(self) -> bool:
@@ -61,7 +53,7 @@ class OrderingInputs:
 
 def _execute(inputs: OrderingInputs, observer: ProgressObserver, _conversation: Conversation) -> OrderingSummary:
     return intermax_ordering.order_register(
-        inputs.register_path, inputs.copies_directory, now=inputs.now, store=inputs.store, observer=observer
+        inputs.register_path, inputs.copies_directory, now=inputs.now, observer=observer
     )
 
 

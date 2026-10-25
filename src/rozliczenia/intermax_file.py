@@ -9,8 +9,10 @@ bez openpyxl: ~42 tys. wierszy taty to dziesiątki MB XML, a rozpoznanie potrzeb
 
 - w XML arkusza zleceń wiersze pod wierszem, pod którym staje dzień (``RawBlock.anchor``): wiersz zlecenia
   dostaje komórki Surowego zlecenia (w przesuniętym pierwszym wierszu o dwie kolumny w prawo), w kolumnach od
-  ``AKCJE`` do ``UWAGI`` z wyglądem reszty INTERMAX, a za ``UWAGI`` takie, jak przyszły; pusty wiersz, który był
-  pusty, zostaje bajt w bajt, a wiersz, z którego zlecenie odeszło, znika;
+  ``AKCJE`` do ``UWAGI`` z wyglądem reszty INTERMAX, a za ``UWAGI`` takie, jak przyszły; pusty wiersz między
+  segmentami ma puste komórki od ``AKCJE`` do ``UWAGI`` z tym samym wyglądem; inny pusty wiersz, który był pusty,
+  zostaje bajt w bajt, a wiersz, z którego zlecenie odeszło, i wiersz, którego nie było, są pustym wierszem
+  taty; wygląd ``<row>`` (styl wiersza, wysokość) daje ``_RowLooks``;
 - ``ref`` Hiperłączy z tych wierszy, które idą razem ze swoją komórką, i ``<dimension>``, gdy dzień sięga dalej;
 - w ``xl/styles.xml`` czcionki, obramowanie i style komórek dopisane na końcu swoich list.
 
@@ -26,7 +28,8 @@ from __future__ import annotations
 import html
 import re
 import zipfile
-from collections.abc import Callable, Iterator, Sequence
+from functools import cached_property
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from io import BytesIO
 from pathlib import Path
@@ -36,15 +39,16 @@ from xml.etree import ElementTree
 from openpyxl.styles.borders import Border
 from openpyxl.styles.fonts import Font
 from openpyxl.styles.numbers import BUILTIN_FORMATS, is_date_format
-from openpyxl.utils.cell import column_index_from_string, get_column_letter, range_boundaries
+from openpyxl.utils.cell import column_index_from_string, coordinate_from_string, get_column_letter, range_boundaries
 from openpyxl.utils.datetime import MAC_EPOCH, WINDOWS_EPOCH, from_excel
+from openpyxl.workbook.properties import WorkbookProperties
 
 from . import workbook_files
 from .preparation_register import COLUMNS, DATE, WORKER
 from .raw_orders import SHIFT, CellFacts, DayPlan, OrderColumns, RawBlock, RowFacts
 from .row_look import BORDER
 from .workbook_files import WorkbookError, header_columns, is_blank
-from .workbook_parts import MAIN, OFFICE_REL, IrregularSheetData, SheetData, office_document, relationships
+from .workbook_parts import MAIN, OFFICE_REL, IrregularSheetData, SheetData, SheetRow, office_document, relationships
 from .workbook_save import write_atomically
 from .worker_config import normalize_text
 
@@ -69,7 +73,12 @@ _DIMENSION = re.compile(rb'<dimension ref="([^"]*)"\s*/>')
 _HYPERLINK_REF = re.compile(rb'(<hyperlink\b[^>]*?\sref=")([^"]*)(")')
 _HYPERLINKS = re.compile(rb"<hyperlinks>.*?</hyperlinks>", re.S)
 _RANGES = re.compile(rb'\s(?:ref|sqref)="([^"]*)"')
-_STYLE_LISTS: Final = (b"numFmts", b"fonts", b"fills", b"borders", b"cellXfs")
+_HEADER_ROW = re.compile(rb'<row r="1"[^>]*?(?:/>|>.*?</row>)', re.S)
+_ATTRIBUTE = re.compile(rb'\s([\w:]+)="([^"]*)"')
+_ROW_LOOK: Final = (b"s", b"customFormat", b"ht", b"customHeight", b"x14ac:dyDescent")
+"""Atrybuty ``<row>``, które dają wiersz wygląd: styl wiersza i wysokość; ``x14ac`` deklaruje arkusz taty."""
+_STYLE_LISTS: Final = (b"fonts", b"borders", b"cellXfs")
+"""Listy ``xl/styles.xml``, na których końcu zapis dopisuje wpisy."""
 
 
 class UnsupportedShape(Exception):
@@ -97,11 +106,10 @@ class _Styles:
         root = ElementTree.fromstring(xml)
         codes = {int(item.get("numFmtId", "0")): item.get("formatCode", "") for item in root.iter(f"{MAIN}numFmt")}
         fonts = [Font.from_tree(cast(Any, font)) for font in root.iterfind(f"{MAIN}fonts/{MAIN}font")]
-        borders = [Border.from_tree(cast(Any, border)) or Border() for border in root.iterfind(f"{MAIN}borders/{MAIN}border")]
+        borders = [cast(Border, Border.from_tree(cast(Any, border))) for border in root.iterfind(f"{MAIN}borders/{MAIN}border")]
         fills = [_is_yellow(fill) for fill in root.iterfind(f"{MAIN}fills/{MAIN}fill")]
         xfs = list(root.iterfind(f"{MAIN}cellXfs/{MAIN}xf"))
-        block = re.search(rb"<cellXfs\b[^>]*>(.*?)</cellXfs>", xml, re.S)
-        raw_xfs = re.findall(rb"<xf\b[^>]*?(?:/>|>.*?</xf>)", block.group(1), re.S) if block else []
+        raw_xfs = re.findall(rb"<xf\b[^>]*?(?:/>|>.*?</xf>)", _style_list(xml, b"cellXfs").group(2), re.S)
         number_formats = tuple(int(xf.get("numFmtId", "0")) for xf in xfs)
         return cls(
             number_formats=number_formats,
@@ -117,14 +125,12 @@ class _Styles:
 
 
 def _face(font: Font) -> tuple[str | None, float | None]:
-    return font.name, None if font.sz is None else float(font.sz)
+    return font.name, font.sz
 
 
 def _is_yellow(fill: ElementTree.Element) -> bool:
-    pattern = fill.find(f"{MAIN}patternFill")
-    color = None if pattern is None else pattern.find(f"{MAIN}fgColor")
-    solid = pattern is not None and pattern.get("patternType") == "solid"
-    return solid and color is not None and color.get("rgb", "").upper().endswith(_YELLOW)
+    color = fill.find(f"{MAIN}patternFill[@patternType='solid']/{MAIN}fgColor")
+    return color is not None and color.get("rgb", "").upper().endswith(_YELLOW)
 
 
 @dataclass(frozen=True)
@@ -167,14 +173,32 @@ class OrderSheet:
     columns: OrderColumns
     _register: Register
 
+    @cached_property
+    def sheet_xml(self) -> _SheetXml:
+        """XML arkusza z indeksem wierszy, liczonym raz; ``UnsupportedShape``, gdy wiersze nie dają się rozdzielić."""
+
+        xml = self._register._parts[self.part]
+        try:
+            return _SheetXml(xml, SheetData.of(xml))
+        except IrregularSheetData as error:
+            raise UnsupportedShape(str(error)) from error
+
     def rows_from_bottom(self) -> Iterator[RowFacts]:
         """Wiersze arkusza od ostatniego do drugiego jako fakty dla rozpoznania Surowych zleceń."""
 
-        sheet = self._register._sheet(self.part)
+        sheet = self.sheet_xml
         for row in reversed(sheet.data.rows):
             if row.number < 2:
                 return
-            yield self._register._facts(row.number, _cells(sheet.xml[row.start : row.end]))
+            yield self._register._facts(_row_tag(sheet.xml, row), row.number, _cells(sheet.xml[row.start : row.end]))
+
+
+def _row_tag(xml: bytes, row: SheetRow) -> bytes:
+    return xml[row.start : xml.index(b">", row.start) + 1]
+
+
+def _row_attributes(tag: bytes) -> dict[bytes, bytes]:
+    return dict(_ATTRIBUTE.findall(tag))
 
 
 @dataclass(frozen=True)
@@ -193,7 +217,7 @@ class Register:
             archive = zipfile.ZipFile(BytesIO(content))
             self._infos = archive.infolist()
             self._parts = {info.filename: archive.read(info) for info in self._infos}
-            workbook = office_document(self._parts) or ""
+            workbook = cast(str, office_document(self._parts))  # bez dokumentu: KeyError, czyli nieczytelny
             rels = relationships(self._parts, workbook)
             root = ElementTree.fromstring(self._parts[workbook])
             styles_part = next(rel.target for rel in rels.values() if rel.kind.endswith("/styles"))
@@ -202,8 +226,8 @@ class Register:
             strings = next((rel.target for rel in rels.values() if rel.kind.endswith("/sharedStrings")), None)
             self._shared = _shared_strings(self._parts[strings]) if strings else []
             properties = root.find(f"{MAIN}workbookPr")
-            self._epoch = MAC_EPOCH if properties is not None and properties.get("date1904") in ("1", "true") else WINDOWS_EPOCH
-            self._sheets: dict[str, _SheetXml] = {}
+            date1904 = properties is not None and cast(WorkbookProperties, WorkbookProperties.from_tree(cast(Any, properties))).date1904
+            self._epoch = MAC_EPOCH if date1904 else WINDOWS_EPOCH
             sheets = [
                 (sheet.get("name", ""), rels[sheet.get(f"{{{OFFICE_REL}}}id", "")].target)
                 for sheet in root.iter(f"{MAIN}sheet")
@@ -220,22 +244,11 @@ class Register:
 
         return cls(path, workbook_files.workbook_content(path))
 
-    def _sheet(self, part: str) -> _SheetXml:
-        if part not in self._sheets:
-            xml = self._parts[part]
-            try:
-                self._sheets[part] = _SheetXml(xml, SheetData.of(xml))
-            except IrregularSheetData as error:
-                raise UnsupportedShape(str(error)) from error
-        return self._sheets[part]
-
     def _order_columns(self, part: str) -> OrderColumns | None:
-        xml = self._parts[part]
-        start = xml.find(b'<row r="1"')
-        tag_end = xml.find(b">", start)
-        if start < 0 or xml[tag_end - 1 : tag_end] == b"/":
+        header_row = _HEADER_ROW.search(self._parts[part])
+        if header_row is None:
             return None
-        cells = _cells(xml[start : xml.index(b"</row>", tag_end)])
+        cells = _cells(header_row.group(0))
         header: list[object] = [None] * max((cell.column for cell in cells), default=0)
         for cell in cells:
             header[cell.column - 1] = self._value(cell)
@@ -250,10 +263,10 @@ class Register:
         return OrderColumns(first, cast(int, named[DATE.target_header]), cast(int, named[WORKER.target_header]), last)
 
     def _value(self, cell: _Cell) -> object:
-        """Wartość komórki jak w openpyxl (tekst, liczba, data, prawda/fałsz), ``None`` dla pustej."""
+        """Wartość komórki: tekst (także prawda/fałsz jako 1 i 0), liczba, data w formacie daty; ``None`` dla pustej."""
 
         content = cell.content or b""
-        kind = cell.kind
+        kind = cell.kind or b"n"
         if kind == b"inlineStr":
             text: object = html.unescape(b"".join(_TEXT.findall(content)).decode("utf-8"))
         else:
@@ -263,31 +276,32 @@ class Register:
             raw = found.group(1).decode("utf-8")
             if kind == b"s":
                 text = self._shared[int(raw)]
-            elif kind in (b"str", b"e"):
-                text = html.unescape(raw)
-            elif kind == b"b":
-                return raw == "1"
-            else:
+            elif kind == b"n":
                 number = float(raw)
                 if self._styles.number_formats[cell.style] in self._styles.date_formats:
                     return from_excel(number, self._epoch)
                 return number
+            else:
+                text = html.unescape(raw)
         return None if is_blank(text) else text
 
-    def _facts(self, number: int, cells: Sequence[_Cell]) -> RowFacts:
+    def _facts(self, row_tag: bytes, number: int, cells: Sequence[_Cell]) -> RowFacts:
         styles = self._styles
+        attributes = _row_attributes(row_tag)
+        row_style = attributes.get(b"s") if attributes.get(b"customFormat") == b"1" else None
         return RowFacts(
             number,
             {
                 cell.column: CellFacts(self._value(cell), styles.faces[cell.style], styles.yellow[cell.style])
                 for cell in cells
             },
+            row_style is not None and styles.yellow[int(row_style)],
         )
 
     def ordered(self, sheet: OrderSheet, block: RawBlock, plan: DayPlan) -> bytes:
         """Bajty INTERMAX z uporządkowanym dniem; ``UnsupportedShape``, gdy arkusza nie da się tak zapisać."""
 
-        xml = self._sheet(sheet.part)
+        xml = sheet.sheet_xml
         looks = _Looks(self._styles, sheet.columns)
         sheet_xml = _ordered_sheet(xml, sheet.columns, block, plan, looks)
         parts = {sheet.part: sheet_xml, self._styles_part: looks.styles(self._parts[self._styles_part])}
@@ -301,14 +315,14 @@ class Register:
         return out.getvalue()
 
     def check(self, written: bytes, sheet: OrderSheet, block: RawBlock, plan: DayPlan) -> None:
-        """``WriteMismatch``, gdy ``written`` różni się od INTERMAX czymś więcej niż dniem z ``plan``."""
+        """``WriteMismatch``, gdy ``written`` różni się od INTERMAX czymś więcej niż dniem z ``plan``.
 
-        try:
-            with zipfile.ZipFile(BytesIO(written)) as archive:
-                names = [info.filename for info in archive.infolist()]
-                parts = {name: archive.read(name) for name in names}
-        except (zipfile.BadZipFile, KeyError, OSError, ValueError) as error:
-            raise WriteMismatch("zip") from error
+        Uszkodzenie ``written`` zgłasza jak odczyt skoroszytu (``workbook_files.unreadable_as_error``).
+        """
+
+        with zipfile.ZipFile(BytesIO(written)) as archive:
+            names = [info.filename for info in archive.infolist()]
+            parts = {name: archive.read(name) for name in names}
         if names != [info.filename for info in self._infos]:
             raise WriteMismatch("części")
         for name in names:
@@ -316,7 +330,7 @@ class Register:
                 raise WriteMismatch(name)
         if not _styles_kept(self._parts[self._styles_part], parts[self._styles_part]):
             raise WriteMismatch("style")
-        _check_sheet(self._sheet(sheet.part), parts[sheet.part], sheet.columns, block, plan)
+        _check_sheet(sheet.sheet_xml, parts[sheet.part], sheet.columns, block, plan)
 
 
 def _shared_strings(xml: bytes) -> list[str]:
@@ -380,24 +394,52 @@ def _index(existing: Sequence[object], added: list[Any], item: object) -> int:
     return len(existing) + added.index(item)
 
 
+def _style_list(xml: bytes, tag: bytes) -> re.Match[bytes]:
+    """Lista ``tag`` w ``xl/styles.xml``: atrybuty (grupa 1) i wpisy (grupa 2); ``WriteMismatch``, gdy jej nie ma."""
+
+    found = re.search(rb"<" + tag + rb"\b([^>]*)>(.*?)</" + tag + rb">", xml, re.S)
+    if found is None:
+        raise WriteMismatch(f"style: {tag.decode('ascii')}")
+    return found
+
+
 def _appended(xml: bytes, tag: bytes, entries: Sequence[bytes], existing: int) -> bytes:
     """``entries`` na końcu listy ``tag`` (``existing`` pozycji) w ``xl/styles.xml`` z licznikiem ``count``."""
 
-    if not entries:
-        return xml
-    block = re.search(rb"<" + tag + rb"\b([^>]*)>(.*?)</" + tag + rb">", xml, re.S)
-    if block is None:
-        raise UnsupportedShape(tag.decode("ascii"))
+    block = _style_list(xml, tag)
     count = existing + len(entries)
     attributes = re.sub(rb'\scount="\d+"', b"", block.group(1))
     opening = b"<" + tag + b' count="%d"' % count + attributes + b">"
     return xml[: block.start()] + opening + block.group(2) + b"".join(entries) + b"</" + tag + b">" + xml[block.end() :]
 
 
+@dataclass(frozen=True)
+class _RowLooks:
+    """Wygląd ``<row>`` wierszy nowego dnia z ostatniego uporządkowanego dnia taty; jedyne miejsce tej decyzji.
+
+    Wiersz zlecenia i pusty wiersz między segmentami mają atrybuty ostatniego uporządkowanego wiersza
+    (``RawBlock.last_ordered``), a inny pusty wiersz atrybuty pustego wiersza taty pod nim (``RawBlock.blank_row``),
+    bez niego te same co wiersz zlecenia. Bez uporządkowanego wiersza nowe wiersze nie mają atrybutów wyglądu.
+    """
+
+    order: bytes
+    blank: bytes
+
+    @classmethod
+    def of(cls, xml: bytes, rows: Mapping[int, SheetRow], block: RawBlock) -> _RowLooks:
+        def look(number: int) -> bytes:
+            attributes = _row_attributes(_row_tag(xml, rows[number]))
+            return b"".join(b' %s="%s"' % (name, attributes[name]) for name in _ROW_LOOK if name in attributes)
+
+        order = look(block.last_ordered) if block.last_ordered > 1 else b""
+        return cls(order, order if block.blank_row is None else look(block.blank_row))
+
+
 def _ordered_sheet(sheet: _SheetXml, columns: OrderColumns, block: RawBlock, plan: DayPlan, looks: _Looks) -> bytes:
     xml, data = sheet.xml, sheet.data
     region = [row for row in data.rows if row.number > block.anchor]
-    by_number = {row.number: row for row in region}
+    by_number = {row.number: row for row in data.rows}
+    row_looks = _RowLooks.of(xml, by_number, block)
     raw = {order.row for order in block.orders}
     tail_at = data.end + len(b"</sheetData>")
     _require_writable(xml[tail_at:], block.anchor)
@@ -405,6 +447,7 @@ def _ordered_sheet(sheet: _SheetXml, columns: OrderColumns, block: RawBlock, pla
         if _FORMULA.search(xml, by_number[number].start, by_number[number].end):
             raise UnsupportedShape("formuła")
     placed = {placement.row: placement for placement in plan.placements}
+    separators = set(range(plan.placements[0].row, plan.placements[-1].row)) - set(placed)
     last = max([*placed, *(row.number for row in region)])
     rows: list[bytes] = []
     widest = 0
@@ -412,19 +455,25 @@ def _ordered_sheet(sheet: _SheetXml, columns: OrderColumns, block: RawBlock, pla
         placement = placed.get(number)
         if placement is not None:
             source = by_number[placement.order.row]
-            row_xml, right = _order_row(xml[source.start : source.end], number, placement.order.shifted, columns, looks)
+            row_xml, right = _order_row(
+                xml[source.start : source.end], number, placement.order.shifted, columns, looks, row_looks.order
+            )
             rows.append(row_xml)
             widest = max(widest, right)
+        elif number in separators:
+            rows.append(_order_row(b"", number, False, columns, looks, row_looks.order)[0])
         elif number in by_number and number not in raw:
             rows.append(xml[by_number[number].start : by_number[number].end])
-    start = region[0].start if region else data.end
-    end = data.rows[-1].end if data.rows else data.end
-    head = _with_dimension(xml[:start], last, widest)
-    return head + b"".join(rows) + xml[end:tail_at] + _moved_hyperlinks(xml[tail_at:], block, plan)
+        else:
+            rows.append(b'<row r="%d"%s/>' % (number, row_looks.blank))
+    head = _with_dimension(xml[: region[0].start], last, widest)
+    return head + b"".join(rows) + xml[data.rows[-1].end : tail_at] + _moved_hyperlinks(xml[tail_at:], block, plan)
 
 
-def _order_row(row_xml: bytes, number: int, shifted: bool, columns: OrderColumns, looks: _Looks) -> tuple[bytes, int]:
-    """Wiersz zlecenia ``number`` z komórek Surowego zlecenia i najdalsza kolumna z komórką."""
+def _order_row(
+    row_xml: bytes, number: int, shifted: bool, columns: OrderColumns, looks: _Looks, row_look: bytes
+) -> tuple[bytes, int]:
+    """Wiersz zlecenia ``number`` z komórek Surowego zlecenia i wyglądem ``row_look`` oraz najdalsza kolumna z komórką."""
 
     offset = SHIFT if shifted else 0
     written: dict[int, bytes] = {}
@@ -439,18 +488,20 @@ def _order_row(row_xml: bytes, number: int, shifted: bool, columns: OrderColumns
     for column in range(columns.first, columns.last + 1):
         if column not in written:
             written[column] = _Cell(column, b"", None).xml(column, number, b' s="%d"' % looks.style(column, 0))
-    return b'<row r="%d">' % number + b"".join(written[column] for column in sorted(written)) + b"</row>", max(written)
+    cells = b"".join(written[column] for column in sorted(written))
+    return b'<row r="%d"%s>' % (number, row_look) + cells + b"</row>", max(written)
 
 
 def _with_dimension(head: bytes, last_row: int, last_column: int) -> bytes:
+    """Nagłówek arkusza z ``<dimension>`` sięgającym co najmniej ``last_row`` i ``last_column``."""
+
     found = _DIMENSION.search(head)
     if found is None:
         return head
-    min_col, min_row, max_col, max_row = range_boundaries(found.group(1).decode("ascii"))
-    if (max_row or 0) >= last_row and (max_col or 0) >= last_column:
-        return head
-    reference = f"{get_column_letter(min_col or 1)}{min_row or 1}:{get_column_letter(max(max_col or 1, last_column))}{max(max_row or 1, last_row)}"
-    return head[: found.start(1)] + reference.encode("ascii") + head[found.end(1) :]
+    corners = found.group(1).decode("ascii").split(":")
+    column, row = coordinate_from_string(corners[-1])
+    end = f"{get_column_letter(max(column_index_from_string(column), last_column))}{max(row, last_row)}"
+    return head[: found.start(1)] + f"{corners[0]}:{end}".encode("ascii") + head[found.end(1) :]
 
 
 def _require_writable(tail: bytes, anchor: int) -> None:
@@ -474,13 +525,15 @@ def _moved_hyperlinks(tail: bytes, block: RawBlock, plan: DayPlan) -> bytes:
 
     def moved(found: re.Match[bytes]) -> bytes:
         reference = found.group(2).decode("ascii")
-        min_col, min_row, max_col, max_row = range_boundaries(reference)
-        if min_row is None or min_row <= block.anchor:
+        first = reference.split(":")[0]
+        column, number = coordinate_from_string(first)
+        if number <= block.anchor:
             return found.group(0)
-        if (min_col, min_row) != (max_col, max_row) or min_row not in moves or min_col is None:
+        if reference != first or number not in moves:
             raise UnsupportedShape("Hiperłącze")
-        offset, row = moves[min_row]
-        return found.group(1) + f"{get_column_letter(min_col + offset)}{row}".encode("ascii") + found.group(3)
+        offset, row = moves[number]
+        target = f"{get_column_letter(column_index_from_string(column) + offset)}{row}"
+        return found.group(1) + target.encode("ascii") + found.group(3)
 
     return _HYPERLINK_REF.sub(moved, tail)
 
@@ -489,13 +542,8 @@ def _styles_kept(original: bytes, written: bytes) -> bool:
     """Arkusz stylów ``written`` to ``original`` z wpisami dopisanymi tylko na końcu list."""
 
     for tag in _STYLE_LISTS:
-        pattern = re.compile(rb"<" + tag + rb"\b[^>]*>(.*?)</" + tag + rb">", re.S)
-        before, after = pattern.search(original), pattern.search(written)
-        if before is None or after is None:
-            if before is not after:
-                return False
-            continue
-        if not after.group(1).startswith(before.group(1)):
+        before, after = _style_list(original, tag), _style_list(written, tag)
+        if not after.group(2).startswith(before.group(2)):
             return False
         written = written[: after.start()] + before.group(0) + written[after.end() :]
     return written == original
@@ -516,13 +564,15 @@ def _check_sheet(original: _SheetXml, written: bytes, columns: OrderColumns, blo
         raise WriteMismatch("ogon arkusza")
     rows = {row.number: row for row in data.rows if row.number > block.anchor}
     sources = {row.number: row for row in before.rows}
+    raw = {order.row for order in block.orders}
+    kept = {number: xml[row.start : row.end] for number, row in sources.items() if number not in raw}
     placed = {placement.row: placement for placement in plan.placements}
     for number, row in rows.items():
         cells = _cells(written[row.start : row.end])
         valued = {cell.column: cell for cell in cells if _has_value(cell)}
         placement = placed.get(number)
         if placement is None:
-            if valued:
+            if valued and written[row.start : row.end] != kept.get(number):
                 raise WriteMismatch(f"wiersz {number}")
             continue
         source = sources[placement.order.row]
@@ -546,31 +596,23 @@ def _has_value(cell: _Cell) -> bool:
     return _VALUE.search(content) is not None or b"<is>" in content
 
 
-def save(
-    register: Register,
-    sheet: OrderSheet,
-    block: RawBlock,
-    plan: DayPlan,
-    *,
-    store: Callable[[Path, bytes], None],
-    before_replace: Callable[[], None],
-) -> None:
+def save(register: Register, sheet: OrderSheet, block: RawBlock, plan: DayPlan, *, before_replace: Callable[[], None]) -> None:
     """Zapisuje dzień w INTERMAX: plik tymczasowy obok, sprawdzenie zapisu, ``before_replace`` i atomowa podmiana.
 
-    ``store`` zapisuje bajty pliku tymczasowego. ``WriteMismatch``, ``UnsupportedShape`` albo wyjątek z
-    ``before_replace`` zostawiają INTERMAX nietknięty i bez pliku tymczasowego; nieudana podmiana to
-    ``WorkbookSaveError``.
+    ``WriteMismatch``, ``UnsupportedShape`` albo wyjątek z ``before_replace`` zostawiają INTERMAX nietknięty i bez
+    pliku tymczasowego; nieudana podmiana to ``WorkbookSaveError``.
     """
 
     content = register.ordered(sheet, block, plan)
 
     def write(temporary: Path) -> None:
-        store(temporary, content)
+        temporary.write_bytes(content)
         try:
             written = workbook_files.workbook_content(temporary)
+            with workbook_files.unreadable_as_error(temporary):
+                register.check(written, sheet, block, plan)
         except WorkbookError as error:
             raise WriteMismatch("odczyt") from error
-        register.check(written, sheet, block, plan)
         before_replace()
 
     write_atomically(register.path, write)

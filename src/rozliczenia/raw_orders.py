@@ -1,12 +1,13 @@
 """Surowe zlecenia na dole arkusza zleceń Rejestru zleceń: rozpoznanie i plan dnia, czyste funkcje faktów arkusza.
 
 Rozpoznanie (``recognize``) dostaje wiersze arkusza zleceń od dołu i oddaje blok Surowych zleceń (``RawBlock``)
-albo typowany powód braku (``NoRawOrders``). Wiersz uporządkowany ma w kolumnach zlecenia (od ``AKCJE`` do
+albo ``None``, gdy na dole arkusza nie ma wierszy z wyglądem z aplikacji. Wiersz uporządkowany ma w kolumnach zlecenia (od ``AKCJE`` do
 ``UWAGI``, bez ``WYKONAWCA``, którą tata pisze też Calibri 9) choć jedną komórkę z wartością w Calibri 8; wiersz z
 wartościami bez niej ma wygląd z aplikacji. Blok to wiersze z wartościami pod ostatnim uporządkowanym wierszem.
 Pierwszy wiersz bloku jest przesunięty o dwie kolumny w lewo, gdy w ``DATA GODZ. POCZ.`` nie ma daty, a dwie
-kolumny w lewo jest. Miejsce dnia wyznacza żółty wiersz, którym tata oddziela dni: pusty wiersz między
-ostatnim uporządkowanym a blokiem, w którym co najmniej połowa kolumn zlecenia ma żółte wypełnienie.
+kolumny w lewo jest. Miejsce dnia wyznacza żółty wiersz, którym tata oddziela dni: najniższy pusty wiersz między
+ostatnim uporządkowanym a blokiem, w którym co najmniej połowa kolumn zlecenia ma żółte wypełnienie. Kolumna bez
+komórki ma wypełnienie stylu wiersza: u taty żółty wiersz to zwykle styl całego wiersza bez żadnej komórki.
 
 Plan dnia (``plan_day``) z bloku wyznacza docelowe wiersze zleceń: jeden pusty wiersz pod żółtym wierszem albo
 10 pustych pod ostatnim uporządkowanym zleceniem, segmenty Wykonawców w kolejności alfabetycznej z jednym
@@ -30,6 +31,10 @@ _ORDERED_FACE: Final = ("Calibri", 8.0)
 _BLANK_ROWS_WITHOUT_YELLOW: Final = 10
 
 
+class UndatedOrder(ValueError):
+    """Surowe zlecenie bez daty z godziną w ``DATA GODZ. POCZ.``, więc nie ma miejsca w dniu."""
+
+
 @dataclass(frozen=True)
 class OrderColumns:
     """Kolumny arkusza zleceń (od 1) po nagłówkach z wiersza 1: kolumny zlecenia od ``first`` do ``last`` (UWAGI)."""
@@ -51,10 +56,11 @@ class CellFacts:
 
 @dataclass(frozen=True)
 class RowFacts:
-    """Wiersz arkusza: numer i komórki po kolumnie od 1 (tylko te, które są w pliku)."""
+    """Wiersz arkusza: numer, komórki po kolumnie od 1 (tylko te, które są w pliku) i żółte wypełnienie stylu wiersza."""
 
     number: int
     cells: Mapping[int, CellFacts]
+    yellow: bool = False
 
     def value(self, column: int) -> object:
         cell = self.cells.get(column)
@@ -79,18 +85,16 @@ class RawOrder:
 class RawBlock:
     """Blok Surowych zleceń w kolejności z aplikacji i wiersz, pod którym staje dzień.
 
-    ``anchor`` to żółty wiersz (``under_yellow``) albo ostatni uporządkowany wiersz, a bez niego nagłówek.
-    Zmieniają się tylko wiersze pod ``anchor``.
+    ``last_ordered`` to ostatni uporządkowany wiersz, a bez niego nagłówek. ``anchor`` to żółty wiersz
+    (``under_yellow``) albo ``last_ordered``. Zmieniają się tylko wiersze pod ``anchor``. ``blank_row`` to
+    najwyższy pusty, nieżółty wiersz pod ``last_ordered`` (u taty przygotowana siatka), jeśli jest w pliku.
     """
 
     orders: tuple[RawOrder, ...]
     anchor: int
     under_yellow: bool
-
-
-@dataclass(frozen=True)
-class NoRawOrders:
-    """Na dole arkusza zleceń nie ma wierszy z wyglądem z aplikacji."""
+    last_ordered: int
+    blank_row: int | None
 
 
 @dataclass(frozen=True)
@@ -110,15 +114,18 @@ class DayPlan:
     worker_count: int
 
 
-def recognize(rows_from_bottom: Iterable[RowFacts], columns: OrderColumns) -> RawBlock | NoRawOrders:
-    """Blok Surowych zleceń z wierszy arkusza zleceń od ostatniego w górę (bez nagłówka) albo powód braku."""
+def recognize(rows_from_bottom: Iterable[RowFacts], columns: OrderColumns) -> RawBlock | None:
+    """Blok Surowych zleceń z wierszy arkusza zleceń od ostatniego w górę (bez nagłówka); ``None``, gdy ich nie ma."""
 
     raw: list[RowFacts] = []
     yellow: int | None = None
+    blank: int | None = None
     anchor = 1
     for row in rows_from_bottom:
         if row.blank:
-            if raw and yellow is None and _is_yellow(row, columns):
+            if not _is_yellow(row, columns):
+                blank = row.number
+            elif yellow is None:
                 yellow = row.number
             continue
         if _is_ordered(row, columns):
@@ -127,12 +134,12 @@ def recognize(rows_from_bottom: Iterable[RowFacts], columns: OrderColumns) -> Ra
         yellow = None
         raw.append(row)
     if not raw:
-        return NoRawOrders()
+        return None
     raw.reverse()
     first, *rest = raw
     shifted = _is_date(first.value(columns.date - SHIFT)) and not _is_date(first.value(columns.date))
     orders = [_order(first, columns, shifted), *(_order(row, columns, False) for row in rest)]
-    return RawBlock(tuple(orders), yellow if yellow is not None else anchor, yellow is not None)
+    return RawBlock(tuple(orders), yellow if yellow is not None else anchor, yellow is not None, anchor, blank)
 
 
 def plan_day(block: RawBlock) -> DayPlan:
@@ -160,7 +167,7 @@ def _order(row: RowFacts, columns: OrderColumns, shifted: bool) -> RawOrder:
     when = row.value(columns.date - offset)
     if not isinstance(when, datetime):
         # Zatrzymanie z wierszem i kolumną dla taty dostaje osobna zmiana (#469); do tego czasu nic się nie zapisuje.
-        raise ValueError("Surowe zlecenie bez daty z godziną.")
+        raise UndatedOrder(row.number)
     return RawOrder(row.number, shifted, when, str(row.value(columns.worker - offset) or ""))
 
 
@@ -182,5 +189,5 @@ def _is_ordered(row: RowFacts, columns: OrderColumns) -> bool:
 
 def _is_yellow(row: RowFacts, columns: OrderColumns) -> bool:
     span = range(columns.first, columns.last + 1)
-    yellow = sum(1 for column in span if (cell := row.cells.get(column)) is not None and cell.yellow)
+    yellow = sum(1 for column in span if (cell.yellow if (cell := row.cells.get(column)) is not None else row.yellow))
     return 2 * yellow >= len(span)

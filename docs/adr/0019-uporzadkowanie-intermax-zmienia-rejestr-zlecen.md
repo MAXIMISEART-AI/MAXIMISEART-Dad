@@ -43,7 +43,12 @@ od 2021 roku: około 42 tys. wierszy, cztery arkusze, około 6,5 MB, w OneDrive.
   zleceń idzie razem z ich komórką; relacje arkusza zostają. Zmieniane wiersze
   to wszystkie pod żółtym wierszem albo pod ostatnim uporządkowanym zleceniem,
   także puste między nimi a wklejeniem: pusty wiersz, który zostaje pusty, ma
-  te same bajty, a wiersz, z którego zlecenie odeszło, znika. Autofiltr,
+  te same bajty, a wiersz, z którego zlecenie odeszło, jest pustym wierszem
+  taty. Wiersze nowego dnia biorą wygląd `<row>` (styl wiersza, wysokość) z
+  ostatniego uporządkowanego dnia: wiersz zlecenia i pusty wiersz między
+  segmentami z ostatniego uporządkowanego wiersza, a inny pusty wiersz z
+  pierwszego pustego, nieżółtego wiersza pod nim. Żółty wiersz to u taty styl
+  całego wiersza bez komórek, więc rozpoznanie patrzy na styl wiersza i komórek. Autofiltr,
   formatowanie warunkowe, sprawdzanie poprawności i scalenia nie zmieniają się:
   gdy któreś sięga tych wierszy, Uporządkowanie zatrzymuje się „do Maksa”, tak
   samo przy formule albo Hiperłączu na kilka komórek w Surowych zleceniach. Na

@@ -435,6 +435,21 @@ def test_uporzadkowanie_intermax_ze_skryptu_dla_maszyn_oddaje_karte_uruchomienia
     assert "jan.nowak" not in json.dumps(result) and "jan.nowak" not in metrics.read_text(encoding="utf-8")
 
 
+def test_uporzadkowanie_intermax_z_nieusunieta_stara_kopia_konczy_sie_ok_z_ostrzezeniem(tmp_path: Path) -> None:
+    register = tmp_path / "ZLECENIA INTERMAX OD 08_11_2021.xlsx"
+    Intermax().write(register)
+    copies = tmp_path / "Kopie INTERMAX"
+    copies.mkdir()
+    for day in range(10, 20):
+        (copies / f"INTERMAX przed uporządkowaniem 2026-10-{day:02d} 07-00-00.xlsx").write_bytes(b"kopia")
+    (copies / "INTERMAX przed uporządkowaniem 2026-10-09 07-00-00.xlsx").mkdir()
+
+    exit_code, result = _run("intermax", "--register", register, "--copies", copies, "--metrics", tmp_path / "m.jsonl")
+
+    assert (exit_code, result["result"], result["stop"]) == (0, "OK", None)
+    assert [warning["code"] for warning in result["warnings"]] == ["STARE_KOPIE_INTERMAX"]
+
+
 def test_uporzadkowanie_intermax_bez_surowych_zlecen_konczy_kodem_1_z_kodem_komunikatu(tmp_path: Path) -> None:
     register = tmp_path / "ZLECENIA INTERMAX OD 08_11_2021.xlsx"
     Intermax(raw=()).write(register)

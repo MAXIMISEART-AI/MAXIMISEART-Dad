@@ -32,14 +32,14 @@ def make_copy(content: bytes, directory: Path, moment: datetime) -> Path:
     Kopia o tej samej nazwie już istnieje: ``FileExistsError``, istniejąca zostaje.
     """
 
-    directory.mkdir(parents=True, exist_ok=True)
+    directory.mkdir(exist_ok=True)
     path = directory / f"{_PREFIX}{moment:%Y-%m-%d %H-%M-%S}.xlsx"
     descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0))
     try:
         with os.fdopen(descriptor, "wb") as file:
             file.write(content)
     except OSError:
-        path.unlink(missing_ok=True)
+        path.unlink()
         raise
     return path
 
@@ -49,4 +49,4 @@ def keep_newest(directory: Path) -> None:
 
     copies = sorted(path for path in directory.iterdir() if _NAME.fullmatch(path.name))
     for path in copies[:-KEPT]:
-        path.unlink(missing_ok=True)
+        path.unlink()

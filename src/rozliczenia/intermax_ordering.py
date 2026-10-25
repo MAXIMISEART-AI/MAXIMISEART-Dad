@@ -23,7 +23,7 @@ from .domain import ProgressObserver, ProgressPhase
 from .intermax_file import OrderSheet, Register, UnsupportedShape, WriteMismatch
 from .message import Message, StopError
 from .phase_runner import PhaseRunner
-from .raw_orders import DayPlan, RawBlock
+from .raw_orders import DayPlan, RawBlock, UndatedOrder
 from .workbook_files import WorkbookError
 from .workbook_save import WorkbookSaveError
 
@@ -55,16 +55,15 @@ def order_register(
     copies_directory: Path,
     *,
     now: Callable[[], datetime],
-    store: Callable[[Path, bytes], None],
     observer: ProgressObserver | None = None,
     clock: Callable[[], float] = time.perf_counter,
 ) -> OrderingSummary:
     """Porządkuje Surowe zlecenia dnia w INTERMAX ``register_path``.
 
     Zgłasza ``StopError``, gdy nie można działać bezpiecznie; INTERMAX zostaje wtedy nietknięty. Przed podmianą
-    INTERMAX powstaje Kopia INTERMAX w ``copies_directory`` z nazwą z ``now()``, a po udanym zapisie zostaje 10
-    najnowszych Kopii. ``store`` zapisuje bajty pliku tymczasowego obok INTERMAX, który przed podmianą jest
-    sprawdzany. ``clock`` to zegar w sekundach, z którego liczone są czasy etapów.
+    INTERMAX powstaje Kopia INTERMAX w ``copies_directory`` z nazwą z ``now()``; gdy podmiana się nie uda, Kopia
+    znika. Po udanym zapisie zostaje 10 najnowszych Kopii, a nieudane usunięcie starszych to ostrzeżenie: INTERMAX
+    jest już uporządkowany. ``clock`` to zegar w sekundach, z którego liczone są czasy etapów.
     """
 
     phases = PhaseRunner(observer, clock=clock)
@@ -92,14 +91,15 @@ def order_register(
     def plan() -> tuple[OrderSheet, RawBlock, DayPlan]:
         sheet = register.order_sheets[0]
         for candidate in register.order_sheets:
-            with _stops(lambda: messages.unsupported_shape(register_path, candidate.name), UnsupportedShape):
+            with _stops(lambda: messages.unsupported_shape(register_path, candidate.name), UnsupportedShape, UndatedOrder):
                 block = raw_orders.recognize(candidate.rows_from_bottom(), candidate.columns)
-            if isinstance(block, RawBlock):
+            if block is not None:
                 return candidate, block, raw_orders.plan_day(block)
         raise StopError(messages.no_raw_orders(register_path, sheet.name))
 
     sheet, block, day = phases.plan(plan, issue_count=lambda _: 0)
     copies: list[Path] = []
+    warnings: list[Message] = []
 
     def before_replace() -> None:
         if workbook_files.is_open_in_excel(register_path):
@@ -111,11 +111,18 @@ def order_register(
         with (
             _stops(lambda: messages.write_check_failed(register_path), WriteMismatch),
             _stops(lambda: messages.unsupported_shape(register_path, sheet.name), UnsupportedShape),
-            _stops(lambda: messages.register_open(register_path), WorkbookSaveError),
         ):
-            intermax_file.save(register, sheet, block, day, store=store, before_replace=before_replace)
-        intermax_copies.keep_newest(copies_directory)
+            try:
+                intermax_file.save(register, sheet, block, day, before_replace=before_replace)
+            except WorkbookSaveError as error:
+                for copy in copies:
+                    copy.unlink()
+                raise StopError(messages.register_open(register_path)) from error
+        try:
+            intermax_copies.keep_newest(copies_directory)
+        except OSError:
+            warnings.append(messages.old_copies_kept(copies_directory))
 
     phases.save(save)
-    summary = OrderingSummary(day.day, len(day.placements), day.worker_count, copies[0].name)
+    summary = OrderingSummary(day.day, len(day.placements), day.worker_count, copies[0].name, warnings)
     return replace(summary, phase_durations_ms=phases.durations_ms())

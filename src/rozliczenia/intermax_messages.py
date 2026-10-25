@@ -8,7 +8,6 @@ numerów zleceń, numerów umów i loginów Wykonawców.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import assert_never
 
 from .message import REPORT_TO_MAINTAINER, Message, file_label, folder_label
 from .workbook_files import Problem, WorkbookError
@@ -29,8 +28,6 @@ def register_unusable(error: WorkbookError) -> Message:
             return _register_inaccessible(error.path)
         case Problem.UNREADABLE | Problem.LAYOUT | Problem.HAS_DATA:
             return _register_unreadable(error.path)
-        case _:
-            assert_never(error.problem)
 
 
 def _register_missing(register: Path) -> Message:
@@ -142,6 +139,20 @@ def copy_failed(directory: Path) -> Message:
         action=(
             "Sprawdź, czy na dysku jest wolne miejsce, i uruchom ponownie. "
             "Jeśli błąd wraca, przekaż ten komunikat osobie utrzymującej narzędzie."
+        ),
+    )
+
+
+def old_copies_kept(directory: Path) -> Message:
+    """Ostrzeżenie: INTERMAX jest uporządkowany, ale starsze Kopie INTERMAX nie zostały usunięte."""
+
+    return Message(
+        code="STARE_KOPIE_INTERMAX",
+        what="INTERMAX został uporządkowany, ale nie udało się usunąć starszych Kopii INTERMAX.",
+        where=folder_label(directory),
+        action=(
+            "Nie musisz nic robić teraz. Jeśli któraś Kopia INTERMAX jest otwarta w Excelu, zamknij ją. "
+            "Jeśli komunikat wraca, przekaż go osobie utrzymującej narzędzie."
         ),
     )
 
