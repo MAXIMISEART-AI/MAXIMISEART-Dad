@@ -312,6 +312,30 @@ def test_zgloszenie_ktorego_nie_da_sie_zapisac_w_kolejce_daje_komunikat(tmp_path
     assert cases(centrum) == []
 
 
+def test_niezapisane_zgloszenie_powracajacego_problemu_zostawia_jego_poprzednie_zgloszenie(tmp_path: Path) -> None:
+    centrum = preparing_centrum(tmp_path)
+    with_key(centrum)
+    first = stopped_for_maks(centrum)
+    diagnose(centrum, first)
+    send(centrum, first)
+    centrum.surroundings.report_box.close(1)
+    assert [item["state"] for item in centrum.client.get("/api/notifications").json()["items"]] == ["rozwiazana"]
+    centrum.restart()
+    again = stopped_for_maks(centrum)
+    diagnose(centrum, again)
+    queue = tmp_path / "config" / "zgloszenia" / "kolejka"
+    shutil.rmtree(queue)
+    queue.write_text("", encoding="utf-8")  # plik zamiast folderu: zapis się nie uda
+
+    state = send(centrum, again)
+
+    assert state["state"] == "not_queued"
+    assert "- Poprzednie Zgłoszenie: #1" in diagnose(centrum, again)["report"]["body"].splitlines()
+    items = centrum.client.get("/api/notifications").json()["items"]
+    assert [(item["kind"], item["state"]) for item in items] == [("zgloszenie", "rozwiazana")]
+    assert [case["number"] for case in cases(centrum)] == [1]
+
+
 def current_report(centrum: PreparingCentrum) -> object:
     view = centrum.client.get("/api/runs/current").json()
     return view["result"]["report"]
