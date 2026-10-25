@@ -20,7 +20,7 @@ from tests.fixtures.git_repo import commit, git, repository
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
 
-from mutacje_zmiany import Hunk, Mutant, exceptions, mutants, parts_by_cost  # noqa: E402
+from mutacje_zmiany import Hunk, exceptions, mutants, part_of  # noqa: E402
 import pokrycie_procesu  # noqa: E402
 
 MODULE = "src/rozliczenia/warunek.py"
@@ -37,22 +37,17 @@ ALL_CASES = (
 
 
 def _repo(tmp_path: Path, test: str, changed: str = CHANGED, base: str = BASE, conftest: str = "", other: str = "") -> Path:
-    files = {MODULE: base, "tests/test_warunek.py": test}
+    files = {".gitignore": "__pycache__/\n", "src/rozliczenia/__init__.py": "", MODULE: base, "tests/test_warunek.py": test}
     if conftest:
         files["tests/conftest.py"] = conftest
     if other:
         files["src/rozliczenia/inny.py"] = other
-    return _changed_repo(tmp_path, files, {MODULE: changed})
-
-
-def _changed_repo(tmp_path: Path, base: dict[str, str], changed: dict[str, str]) -> Path:
-    repo = repository(tmp_path, {".gitignore": "__pycache__/\n", "src/rozliczenia/__init__.py": "", **base})
-    for name in ("szybko.py", "mutacje_zmiany.py", "pokrycie_linii.py", "pokrycie_procesu.py", "czesci_pytest.py"):
+    repo = repository(tmp_path, files)
+    for name in ("szybko.py", "mutacje_zmiany.py", "pokrycie_linii.py", "pokrycie_procesu.py"):
         shutil.copy2(ROOT / "tools" / name, repo / "tools" / name)
     commit(repo, "baza")
     git(repo, "branch", "--quiet", "baza")
-    for path, text in changed.items():
-        (repo / path).write_text(text, encoding="utf-8")
+    (repo / MODULE).write_text(changed, encoding="utf-8")
     return repo
 
 
@@ -89,38 +84,39 @@ def test_zmiana_z_testami_ktore_widza_kazda_mutacje_konczy_sie_ok(tmp_path: Path
     assert done.stdout.splitlines()[-1] == "MUTACJE ZMIANY OK | mutacje=4 | wyjątki=0 | innego systemu=0"
 
 
-def test_czesci_dziela_mutacje_wedlug_czasu_testow_ich_plikow(tmp_path: Path) -> None:
-    # Każdy plik ma jedną mutację (cofnięcie stałej). Testu pliku b nie ma w tabeli, więc waży jej medianę (150 s):
-    # jego mutacja idzie sama do części 1, a mutacje a i c (po 100 s) do części 2. Co druga z listy dałaby a i c części 1.
-    modules = {f"src/rozliczenia/{name}.py": "VALUE = 1\n" for name in "abc"}
-    tests = {f"tests/test_{name}.py": f"from rozliczenia.{name} import VALUE\n\n\ndef test_value() -> None:\n    assert VALUE == 2\n" for name in "abc"}
-    times = {"tests/test_a.py": 100.0, "tests/test_c.py": 100.0, "tests/test_usuniety.py": 200.0, "tests/test_inny.py": 200.0}
-    base = {**modules, **tests, "tools/czasy_testow_ci_linux.json": json.dumps(times)}
-    repo = _changed_repo(tmp_path, base, {path: "VALUE = 2\n" for path in modules})
+def test_czesci_dziela_mutacje_miedzy_siebie(tmp_path: Path) -> None:
+    repo = _repo(tmp_path, ONE_CASE)
 
     parts = [_run(repo, "--czesc", f"{number}/2") for number in (1, 2)]
 
-    names = [sorted(line.split(":", 2)[1].removeprefix(" src/rozliczenia/") for line in done.stdout.splitlines() if line.startswith("WYKRYTA: ")) for done in parts]
-    assert names == [["b.py"], ["a.py", "c.py"]], [done.stdout for done in parts]
-    assert "Testy dotknięte zmianą: 1." in parts[0].stdout, parts[0].stdout
+    names = [{line.split(": ", 1)[1].rsplit(" → ", 1)[0] for line in done.stdout.splitlines() if "WYKRYTA: " in line} for done in parts]
+    every = mutants(MODULE, CHANGED, [Hunk(2, 1, ("    return a",))])
+    assert names == [{f"{mutant.path}:{mutant.line} {mutant.description}" for mutant in part_of(every, number, 2)} for number in (1, 2)], [done.stdout for done in parts]
 
 
-def _mutant(path: str, line: int) -> Mutant:
-    return Mutant(path, line, frozenset({line}), f"mutacja {line}", f"źródło {path} {line}")
+SPLIT = """\
+import json, sys
+sys.path.insert(0, sys.argv[1])
+from mutacje_zmiany import Mutant, part_of
+every = [Mutant(f"src/{name}.py", line, frozenset({line}), f"mutacja {line}", f"{name} {line}") for line in range(10) for name in "abc"]
+print(json.dumps([[f"{mutant.path}:{mutant.line}" for mutant in part_of(every, number, 3)] for number in (1, 2, 3)]))
+"""
 
 
-def test_czesci_maja_kazda_mutacje_raz_a_drogie_rozlozone_niezaleznie_od_kolejnosci() -> None:
-    # Co trzecia mutacja z tej listy to mutacja drogiego pliku: podział co N-ta dałby je wszystkie jednej części.
-    found = [_mutant("src/drogi.py" if line % 3 == 0 else "src/tani.py", line) for line in range(12)]
-    cost_s = {"src/drogi.py": 300.0, "src/tani.py": 10.0}
+def test_czesci_sa_te_same_w_kazdym_procesie_a_mutacje_pliku_nie_ida_do_jednej() -> None:
+    # Każde zadanie CI liczy swoją część w osobnym procesie, a inny podział w dwóch z nich gubi albo dubluje mutację.
+    splits = [
+        json.loads(subprocess.run([sys.executable, "-c", SPLIT, str(ROOT / "tools")], env={**os.environ, "PYTHONHASHSEED": seed}, capture_output=True, text=True, check=True).stdout)
+        for seed in ("0", "1", "2", "random")
+    ]
 
-    parts = parts_by_cost(found, cost_s, 3)
-    reversed_parts = parts_by_cost(found[::-1], cost_s, 3)
-
-    assert sorted((mutant for part in parts for mutant in part), key=found.index) == found
-    assert [[mutant.path for mutant in part].count("src/drogi.py") for part in parts] == [2, 1, 1]
-    assert [sum(cost_s[mutant.path] for mutant in part) for part in parts] == [600.0, 340.0, 340.0]
-    assert [sorted(part, key=found.index) for part in reversed_parts] == parts
+    assert all(split == splits[0] for split in splits), splits
+    every = [f"src/{name}.py:{line}" for line in range(10) for name in "abc"]
+    assert sorted(name for names in splits[0] for name in names) == sorted(every)
+    assert [names == sorted(names, key=every.index) for names in splits[0]] == [True] * 3
+    assert [len(names) for names in splits[0]] == [10, 10, 10]
+    # Co trzecia z listy to mutacje jednego pliku.
+    assert all(len({name.split(":")[0] for name in names}) > 1 for names in splits[0]), splits[0]
 
 
 def test_wyjatek_w_linii_mutacji_ja_pomija_a_wygasly_juz_nie(tmp_path: Path) -> None:

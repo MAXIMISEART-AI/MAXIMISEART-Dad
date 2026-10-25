@@ -274,7 +274,8 @@ jobs:
     # Each mutation of a line the pull request changes in src/ must fail a test (tools/mutacje_zmiany.py):
     # a reviewer used to find these by hand, after CI was green. A push to main has no change to mutate,
     # so there the job does not start and takes no runner.
-    # Each part takes every third mutation: 90 mutations of a seven-module refactor (#382) took 25 min on one busy Mac.
+    # Each part takes every third mutation in sha256 order of the mutations, the same split in every job:
+    # 90 mutations of a seven-module refactor (#382) took 25 min on one busy Mac.
     name: Change mutations (${{ matrix.part }}/3)
     if: ${{ github.event_name == 'pull_request' }}
     runs-on: ubuntu-latest
