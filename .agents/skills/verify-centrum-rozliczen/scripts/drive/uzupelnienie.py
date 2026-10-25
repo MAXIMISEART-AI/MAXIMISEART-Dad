@@ -136,6 +136,9 @@ def drive_result_card(run: Run, page: Page) -> None:
     with page.expect_response(lambda response: response.url.endswith(API)):
         filling.get_by_role("button", name="Uzupełnij", exact=True).click()
     expect(page).to_have_url(f"{run.url.rstrip('/')}/{SUMMARY}")
+    # The address changes before the page handles it: until then the result card, with the same counters, is still
+    # shown, and Wstecz would leave it mounted with its copy from before the file changes.
+    expect(page.get_by_role("heading", level=1)).to_have_text("Uzupełnienie pliku zbiorczego")
     _check_screen(run, page, answer, "on the summary opened from the result card")
 
     run.step(FEATURE, "uzupelnienie-wynik-bez-starej-kopii")
