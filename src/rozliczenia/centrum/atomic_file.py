@@ -8,7 +8,7 @@ którego mimo to nie da się zapisać, pamięta treść i zapisuje ją przy nast
 from __future__ import annotations
 
 import threading
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from contextlib import suppress
 from pathlib import Path
 from typing import Final
@@ -20,18 +20,25 @@ from rozliczenia.centrum.log import CentrumLog
 RETRY_PAUSES_S: Final = (0.05, 0.1, 0.2, 0.4)
 
 
-def replace_atomically(path: Path, text: str, *, pause: Callable[[float], None] = SYSTEM_CLOCK.pause) -> None:
+def replace_atomically(
+    path: Path,
+    text: str,
+    *,
+    pause: Callable[[float], None] = SYSTEM_CLOCK.pause,
+    pauses: Sequence[float] = RETRY_PAUSES_S,
+) -> None:
     """Zapisuje ``text`` jako ``path`` przez plik tymczasowy w tym samym folderze.
 
-    Zamiana, której Windows odmawia (``PermissionError``), czeka ``pause`` i próbuje ponownie. Nieudany zapis
-    (``OSError``) nie zostawia pustego ani urwanego pliku i nie niszczy poprzedniej treści.
+    Zamiana, której Windows odmawia (``PermissionError``), czeka ``pause`` kolejnej przerwy z ``pauses`` i próbuje
+    ponownie; bez przerw jest jedna próba. Nieudany zapis (``OSError``) nie zostawia pustego ani urwanego pliku i nie
+    niszczy poprzedniej treści.
     """
 
     temporary = path.with_name(path.name + ".tmp")
     path.parent.mkdir(parents=True, exist_ok=True)
     try:
         temporary.write_text(text, encoding="utf-8")
-        for seconds in RETRY_PAUSES_S:
+        for seconds in pauses:
             try:
                 temporary.replace(path)
                 return
@@ -49,7 +56,8 @@ class StateFile:
 
     Treść, której nie udało się zapisać, czeka w pamięci (``unavailable``), a ``retry`` albo następny ``write``
     zapisuje ją albo nowszą. Obie idą pod jedną blokadą, więc starsza treść nigdy nie zastąpi nowszej. Pierwsza
-    porażka po udanym zapisie trafia do dziennika Centrum jako ``where``.
+    porażka po udanym zapisie trafia do dziennika Centrum jako ``where``. Tylko ona ponawia zamianę z przerwami:
+    każdy odczyt Powiadomień próbuje zapisu, więc przerwy przy dłuższej blokadzie spowalniałyby każdą stronę.
     """
 
     def __init__(self, path: Path, log: CentrumLog, *, where: str, clock: Clock) -> None:
@@ -80,7 +88,8 @@ class StateFile:
 
     def _save(self, text: str) -> None:
         try:
-            replace_atomically(self.path, text, pause=self._pause)
+            pauses = RETRY_PAUSES_S if self._waiting is None else ()
+            replace_atomically(self.path, text, pause=self._pause, pauses=pauses)
         except OSError as failure:
             if self._waiting is None:
                 self._log.unexpected_failure(failure, where=self._where)
