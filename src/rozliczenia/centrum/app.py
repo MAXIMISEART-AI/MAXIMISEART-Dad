@@ -200,6 +200,7 @@ def create_app(
         log.directory / RUN_LOGS_DIRECTORY,
         outbox,
         commit=surroundings.tool_freshness.local,
+        wydanie=surroundings.tool_freshness.wydanie,
         files=lambda process, period: files_of_process(
             process, period, settings=store.load(), configuration=configuration
         ),

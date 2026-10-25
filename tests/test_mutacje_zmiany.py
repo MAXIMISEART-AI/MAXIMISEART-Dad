@@ -21,6 +21,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
 
 from mutacje_zmiany import Hunk, exceptions, mutants  # noqa: E402
+import pokrycie_procesu  # noqa: E402
 
 MODULE = "src/rozliczenia/warunek.py"
 BASE = 'def oba(a: bool, b: bool) -> bool:\n    return a\n'
@@ -35,10 +36,14 @@ ALL_CASES = (
 )
 
 
-def _repo(tmp_path: Path, test: str, changed: str = CHANGED, base: str = BASE) -> Path:
+def _repo(tmp_path: Path, test: str, changed: str = CHANGED, base: str = BASE, conftest: str = "", other: str = "") -> Path:
     files = {".gitignore": "__pycache__/\n", "src/rozliczenia/__init__.py": "", MODULE: base, "tests/test_warunek.py": test}
+    if conftest:
+        files["tests/conftest.py"] = conftest
+    if other:
+        files["src/rozliczenia/inny.py"] = other
     repo = repository(tmp_path, files)
-    for name in ("szybko.py", "mutacje_zmiany.py", "pokrycie_linii.py"):
+    for name in ("szybko.py", "mutacje_zmiany.py", "pokrycie_linii.py", "pokrycie_procesu.py"):
         shutil.copy2(ROOT / "tools" / name, repo / "tools" / name)
     commit(repo, "baza")
     git(repo, "branch", "--quiet", "baza")
@@ -50,6 +55,9 @@ def _run(repo: Path, *arguments: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         [sys.executable, str(repo / "tools" / "mutacje_zmiany.py"), "--baza", "baza", "--rownolegle", "2", *arguments],
         cwd=repo,
+        # Jeden worker xdist: testy biegną w kolejności z pliku, więc fixture sesji ustawia zawsze pierwszy z nich.
+        # Narzędzie biegnie jak w zadaniu CI, bo poza nim odmawia startu (tools/ciezkie_ci.py).
+        env={**os.environ, "PYTEST_XDIST_AUTO_NUM_WORKERS": "1", "GITHUB_ACTIONS": "true"},
         capture_output=True,
         text=True,
         encoding="utf-8",
@@ -98,12 +106,12 @@ def test_wyjatek_w_linii_mutacji_ja_pomija_a_wygasly_juz_nie(tmp_path: Path) -> 
     assert stale.returncode == 1, stale.stdout + stale.stderr
 
 
-def test_mutacja_kodu_sprawdzanego_tylko_w_podprocesie_wykrywa_test_podprocesu(tmp_path: Path) -> None:
+def test_mutacje_kodu_sprawdzanego_tylko_w_podprocesie_wykrywa_juz_pierwszy_przebieg(tmp_path: Path) -> None:
     base = BASE + "\n\ndef dwa() -> int:\n    return 1\n"
     changed = CHANGED + "\n\ndef dwa() -> int:\n    return 2\n"
     in_subprocess = (
         "import subprocess\nimport sys\n\n\n"
-        "def test_dwa_w_podprocesie() -> None:\n"
+        "def test_z_podprocesu() -> None:\n"
         "    code = 'from rozliczenia.warunek import dwa; assert dwa() == 2'\n"
         "    subprocess.run([sys.executable, '-c', code], check=True)\n"
     )
@@ -113,22 +121,56 @@ def test_mutacja_kodu_sprawdzanego_tylko_w_podprocesie_wykrywa_test_podprocesu(t
     done = _run(_repo(tmp_path, tests, changed, base))
 
     assert done.returncode == 0, done.stdout + done.stderr
+    found = next(line for line in done.stdout.splitlines() if "warunek.py:6 `return 2` → `return None`" in line)
+    # Tylko test podprocesu: pozostałe testy pliku (``test_oba``) w pierwszym przebiegu nie biegną.
+    assert found.startswith("WYKRYTA: ") and "→ 1 failed in" in found, done.stdout
+
+
+def test_mutacje_kodu_w_procesie_z_flaga_izolacji_wykrywa_test_ktory_go_uruchomil(tmp_path: Path) -> None:
+    base = BASE + "\n\ndef dwa() -> int:\n    return 1\n"
+    changed = CHANGED + "\n\ndef dwa() -> int:\n    return 2\n"
+    isolated = (
+        "\n\ndef test_dwa_w_izolowanym_procesie() -> None:\n"
+        "    code = 'import sys; sys.path.insert(0, \"src\"); from rozliczenia.warunek import dwa; assert dwa() == 2'\n"
+        "    subprocess.run([sys.executable, '-I', '-c', code], check=True)\n"
+    )
+
+    done = _run(_repo(tmp_path, "import subprocess\nimport sys\n" + ALL_CASES + isolated, changed, base))
+
+    assert done.returncode == 0, done.stdout + done.stderr
     assert "WYKRYTA: src/rozliczenia/warunek.py:6 `return 2` → `return None`" in done.stdout
 
 
-def test_mutacja_stalej_modulu_wykrywa_test_innej_funkcji_pliku(tmp_path: Path) -> None:
-    base = "LIMIT = 3\n\n\ndef duze(n: int) -> bool:\n    return n > LIMIT\n\n\ndef nazwa() -> str:\n    return 'a'\n"
+def test_mutacje_stalej_modulu_wykrywa_test_innego_modulu_ktory_ja_czyta_przy_imporcie(tmp_path: Path) -> None:
+    base = "LIMIT = 3\n\n\ndef nazwa() -> str:\n    return 'a'\n"
+    other = "from rozliczenia.warunek import LIMIT\n\n\ndef duze(n: int) -> bool:\n    return n > LIMIT\n"
     changed = base.replace("LIMIT = 3", "LIMIT = 5").replace("return 'a'", "return 'b'")
     tests = (
-        "from rozliczenia.warunek import duze, nazwa\n\n\n"
+        "from rozliczenia.inny import duze\nfrom rozliczenia.warunek import nazwa\n\n\n"
         "def test_nazwa() -> None:\n    assert nazwa() == 'b'\n\n\n"
         "def test_duze() -> None:\n    assert duze(4) is False\n    assert duze(6) is True\n"
     )
 
-    done = _run(_repo(tmp_path, tests, changed, base))
+    done = _run(_repo(tmp_path, tests, changed, base, other=other))
 
     assert done.returncode == 0, done.stdout + done.stderr
     assert "WYKRYTA: src/rozliczenia/warunek.py:1 zmiana linii 1 cofnięta do bazy" in done.stdout
+
+
+def test_mutacje_kodu_fixture_sesji_wykrywa_test_ktory_tylko_dostal_jej_wynik(tmp_path: Path) -> None:
+    base = "def wartosc() -> int:\n    return 1\n\n\ndef inna() -> int:\n    return 7\n"
+    conftest = "import pytest\n\nfrom rozliczenia.warunek import wartosc\n\n\n@pytest.fixture(scope='session')\ndef liczba() -> int:\n    return wartosc()\n"
+    tests = (
+        "from rozliczenia.warunek import inna\n\n\n"
+        "def test_inna() -> None:\n    assert inna() == 7\n\n\n"
+        "def test_typ(liczba: int) -> None:\n    assert isinstance(liczba, int)\n\n\n"
+        "def test_wartosc(liczba: int) -> None:\n    assert liczba == 2\n"
+    )
+
+    done = _run(_repo(tmp_path, tests, base.replace("return 1", "return 2"), base, conftest))
+
+    assert done.returncode == 0, done.stdout + done.stderr
+    assert "WYKRYTA: src/rozliczenia/warunek.py:2 zmiana linii 2 cofnięta do bazy" in done.stdout
 
 
 def test_cofniecie_przywraca_usunieta_linie_zaczynajaca_sie_od_dwoch_minusow(tmp_path: Path) -> None:
@@ -343,6 +385,15 @@ def test_cofniecie_fragmentu_gałęzi_windows_z_komentarzem_jest_oznaczone() -> 
     assert [m.other_system for m in found if "cofnięta" in m.description] == [True]
 
 
+def test_mutacja_funkcji_z_cache_ma_stan_wspolny() -> None:
+    code = "@functools.cache\ndef zb() -> int:\n    return a or b\n\n\ndef inna() -> int:\n    return c or d\n"
+    hunks = [Hunk(line, 1, ()) for line in (3, 7)]
+
+    shared = {m.description: m.shared_state for m in mutants("m.py", code, hunks) if "w `or`" in m.description}
+
+    assert shared == {"bez `a` w `or`": True, "bez `b` w `or`": True, "bez `c` w `or`": False, "bez `d` w `or`": False}
+
+
 def test_cofniecie_liczy_linie_jak_git_mimo_separatora_unicode() -> None:
     code = 'a = "x\u2028y"\nb = 2\nc = 3\n'
 
@@ -386,7 +437,7 @@ def test_wyjatek_w_zlej_postaci_nazywa_plik_i_linie(comment: str) -> None:
         exceptions(f"x = 1\ny = 2  {comment}\n", "m.py")
 
 
-def test_pokrycie_przypisuje_zmieniona_linie_testom_ktore_ja_wykonuja_takze_w_watku(tmp_path: Path) -> None:
+def test_pokrycie_przypisuje_zmieniona_linie_testom_ktore_ja_wykonuja_w_watku_i_w_podprocesie(tmp_path: Path) -> None:
     module = tmp_path / "modul.py"
     module.write_text(
         "import threading\n\n\n"
@@ -397,20 +448,34 @@ def test_pokrycie_przypisuje_zmieniona_linie_testom_ktore_ja_wykonuja_takze_w_wa
         "def watek() -> None:\n"
         "    t = threading.Thread(target=w_watku)\n"
         "    t.start()\n"
-        "    t.join()\n",
+        "    t.join()\n\n\n"
+        "def w_podprocesie() -> int:\n"
+        "    return 3\n",
         encoding="utf-8",
     )
     (tmp_path / "test_modul.py").write_text(
-        "import modul\n\n\ndef test_wprost() -> None:\n    modul.wprost()\n\n\ndef test_watek() -> None:\n    modul.watek()\n",
+        "import os\nimport subprocess\nimport sys\n\nimport modul\n\n\n"
+        "def test_wprost() -> None:\n    modul.wprost()\n\n\n"
+        "def test_watek() -> None:\n    modul.watek()\n\n\n"
+        "def test_podproces() -> None:\n"
+        "    code = 'import modul; modul.w_podprocesie()'\n"
+        "    subprocess.run([sys.executable, '-c', code], env=dict(os.environ), check=True)\n",
         encoding="utf-8",
     )
+    site = tmp_path / "site"
+    site.mkdir()
+    (site / "sitecustomize.py").write_text(pokrycie_procesu.SITECUSTOMIZE, encoding="utf-8")
     found = tmp_path / "wynik"
     found.mkdir()
-    settings = {"linie": {str(module): [5, 9]}, "wynik": str(found)}
+    settings = {"linie": {str(module): [5, 9, 18]}, "wynik": str(found)}
     done = subprocess.run(
         [sys.executable, "-m", "pytest", "-q", "-p", "pokrycie_linii", "-p", "no:cacheprovider", "test_modul.py"],
         cwd=tmp_path,
-        env={**os.environ, "PYTHONPATH": os.pathsep.join([str(ROOT / "tools"), str(tmp_path)]), "POKRYCIE_LINII": json.dumps(settings)},
+        env={
+            **{name: value for name, value in os.environ.items() if name != pokrycie_procesu.TEST},
+            "PYTHONPATH": os.pathsep.join([str(site), str(ROOT / "tools"), str(tmp_path)]),
+            "POKRYCIE_LINII": json.dumps(settings),
+        },
         capture_output=True,
         text=True,
         encoding="utf-8",
@@ -419,8 +484,11 @@ def test_pokrycie_przypisuje_zmieniona_linie_testom_ktore_ja_wykonuja_takze_w_wa
     )
 
     assert done.returncode == 0, done.stdout + done.stderr
-    [written] = found.iterdir()
-    assert json.loads(written.read_text(encoding="utf-8")) == {
+    merged: dict[str, dict[str, list[int]]] = {}
+    for written in found.iterdir():
+        merged |= json.loads(written.read_text(encoding="utf-8"))["linie"]
+    assert merged == {
         "test_modul.py::test_wprost": {str(module): [9]},
         "test_modul.py::test_watek": {str(module): [5]},
+        "test_modul.py::test_podproces": {str(module): [18]},
     }

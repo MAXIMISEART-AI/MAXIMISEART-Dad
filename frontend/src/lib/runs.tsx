@@ -211,7 +211,10 @@ export function useRuns() {
   return context
 }
 
+/** Uruchomienie, które trwa albo czeka na Decyzję taty. */
+export type ActiveRunView = Extract<RunView, { state: "running" | "awaiting_decision" }>
+
 /** Uruchomienie trwa (także gdy czeka na decyzję taty). */
-export function isActive(view: RunView | null): boolean {
+export function isActive(view: RunView | null): view is ActiveRunView {
   return view !== null && (view.state === "running" || view.state === "awaiting_decision")
 }
