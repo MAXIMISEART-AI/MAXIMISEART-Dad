@@ -8,6 +8,7 @@ nazywa Plik zbiorczy, i wpis w dzienniku Centrum z przyczyną, bez treści wiers
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from fastapi import APIRouter
@@ -71,8 +72,8 @@ def _ready(found: QuantitiesToFill) -> contract.QuantitiesToFillReady:
 
 
 def _excel_lock(path: Path) -> str:
-    try:
-        return "tak" if is_open_in_excel(path) else "nie"
-    except OSError:
+    # W folderze bez dostępu pliku blokady nie widać, więc „nie” byłoby zgadywaniem.
+    if not os.access(path.parent, os.X_OK):
         return "nieznany"
+    return "tak" if is_open_in_excel(path) else "nie"
 
