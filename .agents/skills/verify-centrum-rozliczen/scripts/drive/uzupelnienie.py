@@ -219,8 +219,11 @@ def _drive(run: Run, page: Page, collective_file: Path, lock: Path) -> None:
     lock.write_bytes(b"\x00" * 165)
     page.reload()
     held = _ready(run, "uzupelnienie-blokada-excela")
+    held_read = held["read"]
+    assert isinstance(held_read, dict)
+    expect(page.get_by_role("status").filter(has_text="Stan z")).to_have_count(0)
     run.check(
-        _without_read(held) == _without_read(after),
+        held_read["retrying"] is False and _without_read(held) == _without_read(after),
         "with Excel's lock file next to the Plik zbiorczy the server reads its last saved version unchanged",
     )
     _check_screen(run, page, held, "with Excel's lock file")
