@@ -1,16 +1,21 @@
+import { cn } from "cn"
 import { ClipboardPenLineIcon } from "lucide-react"
 
 import { ThreePartMessage } from "@/components/three-part-message"
 import { Button } from "@/components/ui/button"
 import { href } from "@/lib/address"
 import { useContentEntrance } from "@/lib/content-entrance"
-import { useResource } from "@/lib/use-resource"
+import { useLiveFile } from "@/lib/use-live-file"
 import { FillingSkeleton, FillingSummary, quantitiesOf } from "@/pages/filling/filling-page"
+import { SaveHint } from "@/pages/filling/save-hint"
 
-/** Na karcie wyniku Przygotowania: to samo podsumowanie Uzupełnienia co jego strona, z tego samego odczytu. */
+/**
+ * Na karcie wyniku Przygotowania: to samo podsumowanie Uzupełnienia co jego strona, z tego samego odczytu i tak samo
+ * na żywo, bo tata wpisuje w Excelu obok Centrum zaraz po „Otwórz Plik zbiorczy”.
+ */
 export function FillingOnResult({ token }: { token: string }) {
   // Karta powstaje, gdy Uruchomienie zmieniło pliki okresu, więc kopia sprzed niego byłaby nieaktualna.
-  const { resource } = useResource(quantitiesOf(token), { fresh: true })
+  const { resource } = useLiveFile(token, quantitiesOf(token), { fresh: true })
   const entrance = useContentEntrance(resource.state === "loading")
 
   return (
@@ -31,9 +36,12 @@ export function FillingOnResult({ token }: { token: string }) {
       {resource.state === "loading" ? (
         <FillingSkeleton />
       ) : resource.state === "failed" ? null : (
-        <div className={entrance}>
+        <div className={cn(entrance, "flex flex-col gap-3")}>
           {resource.data.state === "ready" ? (
-            <FillingSummary token={token} found={resource.data} />
+            <>
+              <FillingSummary token={token} found={resource.data} />
+              {resource.data.settled ? null : <SaveHint read={resource.data.read} />}
+            </>
           ) : (
             <ThreePartMessage message={resource.data.message} kind="notice" />
           )}
