@@ -45,8 +45,10 @@ następnej zmianie jego pliku, a komentarz ``mutacje-zmiany:`` w innej postaci k
 Kończy się ``MUTACJE ZMIANY OK | …`` albo ``MUTACJE ZMIANY FAIL | …``. Nie zastępuje mutacji z opisu PR: zachowanie,
 którego żadna z tych mutacji nie psuje (np. inny klucz wyszukiwania), dalej sprawdza przegląd.
 
-    .venv/bin/python tools/mutacje_zmiany.py
-    .venv/bin/python tools/mutacje_zmiany.py --baza feat/galaz-rodzica
+Poza CI biegnie tylko do odtworzenia porażki zadania z runu Actions tej gałęzi (``tools/ciezkie_ci.py``):
+
+    .venv/bin/python tools/mutacje_zmiany.py --odtwarzam <id albo URL runu>
+    .venv/bin/python tools/mutacje_zmiany.py --baza feat/galaz-rodzica --odtwarzam <id albo URL runu>
 
 Z ``--czesc K/N`` biegnie co N-ta mutacja od K-tej, więc N zadań CI dzieli mutacje bez listy w ``ci.yml``.
 """
@@ -69,6 +71,7 @@ import sys
 import tempfile
 import time
 
+import ciezkie_ci
 import mutacje
 import pokrycie_procesu
 import potomne
@@ -563,7 +566,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--rownolegle", type=int, default=WORKERS, help="Ile mutacji biegnie naraz, każda w swojej kopii.")
     parser.add_argument("--limit-s", type=float, default=900, help="Limit czasu testów jednej mutacji w sekundach.")
     parser.add_argument("--czesc", metavar="K/N", type=_part, default=(1, 1), help="Tylko co N-ta mutacja, od K-tej.")
+    ciezkie_ci.argument(parser)
     args = parser.parse_args(argv)
+    if refusal := ciezkie_ci.refusal({"change-mutations"}, args.odtwarzam, root=ROOT):
+        print(refusal)
+        return 2
     number, count = args.czesc
     try:
         fork = _git("merge-base", "HEAD", args.baza).strip()

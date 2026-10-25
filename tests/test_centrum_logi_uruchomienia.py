@@ -17,6 +17,7 @@ from typing import Any, NoReturn
 
 import pytest
 
+from rozliczenia import settlement_messages
 from rozliczenia.centrum import app, contract, runs
 from rozliczenia.centrum.tool_update import Release
 from rozliczenia.period_folder import PeriodFolderInaccessible
@@ -32,6 +33,7 @@ from tests.fixtures.centrum_processes import (
     stopped_for_maks,
 )
 from tests.fixtures.preparation import PERIOD, incomplete_period_rows
+from tests.fixtures.run_cards import first_view, restored
 from tests.fixtures.settlement import MARKED, SOURCE_NAME, write_quantity_source
 from tests.fixtures.tool_clone import ToolRepository, git_command, git_failing_on, tool_repository
 
@@ -306,6 +308,21 @@ def test_kazda_droga_zakonczenia_w_obu_trybach_daje_jeden_plik_logow_z_wynikiem_
     assert in_json(tmp_path) not in text and in_json(tmp_path.resolve()) not in text
 
 
+@pytest.mark.parametrize("ending", ENDINGS.values(), ids=ENDINGS.keys())
+def test_po_ponownym_starcie_karta_ostatniego_uruchomienia_wraca_z_logow(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, ending: Ending
+) -> None:
+    centrum, live = ending.run(tmp_path, monkeypatch)
+    [record] = records(centrum)
+
+    centrum.restart()
+
+    current = centrum.client.get("/api/runs/current").json()
+    assert current == {"state": "idle", "previous": restored(live, record["started_at"])}
+    assert first_view(centrum.client) == current
+    assert in_json(tmp_path) not in json.dumps(current), "same nazwy plików, bez ścieżek"
+
+
 def test_logi_maja_etapy_i_przetworzenia_szablonow_pracownika_z_wynikiem_wierszami_i_czasem(tmp_path: Path) -> None:
     centrum = settling_centrum(tmp_path)
 
@@ -422,6 +439,14 @@ def test_logi_nie_maja_tresci_komorek_wykonawcy_przy_wierszu_daty_dziennej_ani_p
     texts = [path.read_text(encoding="utf-8") for path in log_files(centrum)]
     assert len(texts) == 3
     texts += sent
+    naming = [
+        settlement_messages.unmapped_worker_warning(centrum.collective_file, "ZNACZNIK-WYKONAWCA").what,
+        settlement_messages.unmapped_worker(centrum.collective_file, ["ZNACZNIK-WYKONAWCA"]).what,
+    ]
+    for what in naming:
+        forms = (what, json.dumps(what)[1:-1])
+        assert any(form in text for form in forms for text in texts), what
+        texts = [text.replace(forms[0], "").replace(forms[1], "") for text in texts]
     forbidden = ("ZNACZNIK", "adrian.testowy", "2026-09-09", "09.09.2026", in_json(tmp_path), in_json(tmp_path.resolve()))
     assert [marker for marker in forbidden if any(marker in text for text in texts)] == []
     assert sum("Adrian Testowy" in text for text in texts) == 4, "Wykonawca z Konfiguracji w obu wynikach z planem"

@@ -489,18 +489,15 @@ ResultAction = Literal["open_collective_file", "open_worker_settlements_folder"]
 NextAction = Literal["run", "rerun", ResultAction]
 
 
-class RunOutcome(_Model):
-    """Wynik Uruchomienia procesu: zatrzymania i ostrzeżenia w trzech częściach, uwagi techniczne i podsumowanie.
+class LoggedOutcome(_Model):
+    """Wynik Uruchomienia procesu taki, jak niosą go Logi Uruchomienia: to, co karta pokazuje także po zamknięciu Centrum.
 
-    ``ending`` mówi, jak się skończyło: ``finished``, własne zatrzymanie procesu (``stop``), Zatrzymanie po
-    odmowie w Decyzji taty (``declined``), nieoczekiwany błąd (``unexpected``) albo błąd po zakończeniu
-    silnika (``after_engine``). ``next_action`` to akcja, którą Centrum proponuje po wyniku, a ``headline``
-    to tytuł banera wyniku. ``stop_kind`` to rodzaj
-    Zatrzymania (``None`` bez Zatrzymania), ``diagnosis`` to Diagnoza, którą z niego Centrum proponuje
-    (``None``: bez Zatrzymania i przy Zatrzymaniu „dla taty”), a ``report`` stan Zgłoszenia do Maksa tego
-    problemu (``None``, gdy Centrum nie proponuje Diagnozy). ``files_unchanged``: Uruchomienie nie zmieniło
-    plików taty (podgląd bez zapisu albo koniec przed Zapisywaniem), więc karta może to tacie powiedzieć.
-    ``opens`` to plik taty, w którym jest poprawka Zatrzymania, a karta proponuje go otworzyć (``None``: żaden).
+    Zatrzymania i ostrzeżenia w trzech częściach, uwagi techniczne i podsumowanie. ``ending`` mówi, jak się
+    skończyło: ``finished``, własne zatrzymanie procesu (``stop``), Zatrzymanie po odmowie w Decyzji taty
+    (``declined``), nieoczekiwany błąd (``unexpected``) albo błąd po zakończeniu silnika (``after_engine``).
+    ``next_action`` to akcja, którą Centrum proponuje po wyniku, a ``headline`` to tytuł banera wyniku; oba
+    wylicza z wyniku jedna reguła (``runs.verdict``). ``stop_kind`` to Rodzaj Zatrzymania (``None`` bez
+    Zatrzymania).
     """
 
     result: RunResult
@@ -508,20 +505,69 @@ class RunOutcome(_Model):
     ending: Literal["finished", "stop", "declined", "unexpected", "after_engine"]
     next_action: NextAction
     stop_kind: StopKind | None
-    diagnosis: DiagnosisOffer | None
-    report: ReportState | None
     stops: list[Message]
     warnings: list[Message]
     technical_notes: list[str]
     summary: RunSummary | None
+
+
+class RunOutcome(LoggedOutcome):
+    """Wynik bieżącego Uruchomienia tej pracy Centrum: ``LoggedOutcome`` i to, czego Logi Uruchomienia nie niosą.
+
+    ``diagnosis`` to Diagnoza, którą Centrum z niego proponuje (``None``: bez Zatrzymania i przy Zatrzymaniu „dla
+    taty”), a ``report`` stan Zgłoszenia do Maksa tego problemu (``None``, gdy Centrum nie proponuje Diagnozy).
+    ``files_unchanged``: Uruchomienie nie zmieniło plików taty (podgląd bez zapisu albo koniec przed
+    Zapisywaniem), więc karta może to tacie powiedzieć. ``opens`` to plik taty, w którym jest poprawka
+    Zatrzymania, a karta proponuje go otworzyć (``None``: żaden).
+    """
+
+    diagnosis: DiagnosisOffer | None
+    report: ReportState | None
     files_unchanged: bool
     opens: DadFile | None
 
 
+class RunRestored(_Model):
+    """Karta zakończonego Uruchomienia z jego Logów Uruchomienia: nic, czego w nich nie ma.
+
+    ``run`` ma tytuł procesu i ``confirms_readiness`` z deklaracji procesu, jak przy starcie, a ``started_at`` to
+    start z Logów, ten sam co data wiersza Historii. Diagnozy i Zgłoszenia nie ma: żyją tylko przy Zatrzymaniu
+    bieżącego Uruchomienia tej pracy Centrum.
+    """
+
+    state: Literal["restored"]
+    run: RunInfo
+    started_at: datetime
+    phases: list[PhaseProgress]
+    result: LoggedOutcome
+
+
+class RunInterrupted(_Model):
+    """Urwane Uruchomienie: Centrum zamknęło się w jego trakcie, więc zna tylko jego start.
+
+    Nie ma wyniku, Logów Uruchomienia ani rekordu metryk. ``advice`` mówi w trzech częściach, co się stało i co
+    zrobić, osobno dla podglądu (nic nie zapisał) i zapisu.
+    """
+
+    state: Literal["interrupted"]
+    run: RunInfo
+    started_at: datetime
+    advice: Message
+
+
+# Ostatnie Uruchomienie sprzed tego startu Centrum, z dysku.
+PastRun = Annotated[RunRestored | RunInterrupted, Field(discriminator="state")]
+
+
 class RunIdle(_Model):
-    """Od startu serwera nie było żadnego Uruchomienia procesu."""
+    """W tej pracy Centrum nie było jeszcze Uruchomienia procesu.
+
+    ``previous`` to ostatnie Uruchomienie przed tym startem Centrum; ``None``: nie było żadnego albo jego plików nie
+    da się odczytać.
+    """
 
     state: Literal["idle"]
+    previous: PastRun | None
 
 
 class RunRunning(_Model):
@@ -549,6 +595,16 @@ class RunFinished(_Model):
 
 
 RunView = Annotated[RunIdle | RunRunning | RunAwaitingDecision | RunFinished, Field(discriminator="state")]
+
+
+class RunCardMissing(_Model):
+    """Karty tego Uruchomienia nie ma: nie wystartowało z Centrum, nie ma jego Logów albo nie da się ich odczytać."""
+
+    state: Literal["missing"]
+
+
+# Karta Uruchomienia z wiersza Historii.
+RunCard = Annotated[RunRestored | RunCardMissing, Field(discriminator="state")]
 
 
 class RunEvent(_Model):
@@ -854,6 +910,7 @@ ApiOperation = Literal[
     "decideRun",
     "diagnoseRun",
     "reportRun",
+    "getRunCard",
     "getNotifications",
     "markNotificationsRead",
     "getMetrics",

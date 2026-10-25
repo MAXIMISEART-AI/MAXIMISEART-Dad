@@ -151,6 +151,26 @@ class Surroundings:
         shutil.rmtree(restart.work)
 
 
+@dataclass
+class HeldRegister:
+    """Rejestr zleceń, którego odczyt w Uruchomieniu procesu czeka, aż test go puści (``released``).
+
+    ``reading`` mówi, że Uruchomienie już czyta Rejestr. Ponowny start Centrum w tym czasie to Centrum zamknięte
+    w trakcie Uruchomienia: stare Uruchomienie nie kończy się, dopóki test go nie puści.
+    """
+
+    reading: threading.Event = field(default_factory=threading.Event)
+    released: threading.Event = field(default_factory=threading.Event)
+
+    def readers(self) -> Readers:
+        def register(path: Path, period: Any) -> Any:
+            self.reading.set()
+            self.released.wait()
+            return FILE_READERS.register(path, period)
+
+        return replace(FILE_READERS, register=register)
+
+
 def _client(
     tmp_path: Path,
     platform: FakePlatform,

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
+from datetime import date, timedelta
 from fnmatch import fnmatchcase
 import json
 from pathlib import Path
@@ -136,6 +137,19 @@ def ensure_files_set(run: Run, page: Page) -> None:
         run.wait_for(lambda: run.remembered("rejestr_zlecen") == run.fixture["order_register"], "Rejestr zleceń set")
 
 
+def period_choice(token: str, status: str) -> str:
+    """A period in the combobox ``Okres`` as Dad reads it: ``wt 06.10 – pon 12.10 · ostatni pełny · 06_12_10_2026``.
+
+    The days come from the token itself (the Monday's day, month and year; the Tuesday six days earlier), not from
+    the server's answer, so a wrong date on screen fails the drive.
+    """
+
+    _, monday_day, month, year = token.split("_")
+    monday = date(int(year), int(month), int(monday_day))
+    tuesday = monday - timedelta(days=6)
+    return f"wt {tuesday:%d.%m} – pon {monday:%d.%m} · {status} · {token}"
+
+
 def period_row(page: Page, token: str) -> Locator:
     return page.get_by_role("table", name="Tablica okresów").get_by_role("row").filter(has_text=token)
 
@@ -162,6 +176,13 @@ def current_run(run: Run, name: str) -> dict[str, object]:
     return view
 
 
+def ended_run_shown(view: dict[str, object]) -> bool:
+    """Uruchomienia shows an ended Uruchomienie instead of the setup card: one that finished, or the last one from
+    before Centrum's start (``RunIdle.previous``); `Nowe Uruchomienie procesu` sets it aside."""
+
+    return view["state"] == "finished" or (view["state"] == "idle" and view["previous"] is not None)
+
+
 def finished_result(run: Run, name: str) -> dict[str, object]:
     # One answer for both the state and the result: a second read could already see the next Uruchomienie.
     seen: dict[str, object] = {}
@@ -184,6 +205,14 @@ def figure(shown: object, label: str) -> int:
     [value] = [entry["value"] for entry in shown["figures"] if entry["label"] == label]
     assert isinstance(value, int)
     return value
+
+
+def active_run_signs(page: Page, label: str) -> tuple[Locator, Locator]:
+    """The sign of the current Uruchomienie beside `Uruchomienia` in the menu and the header's link to it."""
+
+    menu = page.get_by_role("list", name="Sekcje Centrum rozliczeń")
+    header = page.locator("header").first
+    return menu.get_by_role("img", name=label, exact=True), header.get_by_role("link", name=label, exact=True)
 
 
 def stop_banner(page: Page) -> Locator:

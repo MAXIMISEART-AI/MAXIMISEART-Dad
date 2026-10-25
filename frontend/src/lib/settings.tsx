@@ -22,6 +22,8 @@ export type PickedPath = { [Key in keyof Settings]: Settings[Key] extends PathSe
 
 type SettingsContextValue = {
   settings: Resource<Settings>
+  /** Odczyt Ustawień taty od nowa, np. po „Spróbuj ponownie”. */
+  reload: () => Promise<void>
   /** Rośnie przy każdym wskazaniu innego folderu okresów albo Rejestru zleceń: klucz treści czytanej z tych plików. */
   filesVersion: number
   theme: Theme
@@ -73,7 +75,7 @@ function showFailure(failure: Error) {
 }
 
 export function SettingsProvider({ children }: { children: React.ReactNode }) {
-  const { resource: settings, replace } = useResource(getSettings)
+  const { resource: settings, reload, replace } = useResource(getSettings)
   const [firstPaintTheme] = React.useState<Theme>(currentTheme)
   const [chosenTheme, setChosenTheme] = React.useState<Theme | null>(null)
   const [filesVersion, setFilesVersion] = React.useState(0)
@@ -109,6 +111,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
   const value = React.useMemo<SettingsContextValue>(
     () => ({
       settings,
+      reload,
       filesVersion,
       theme,
       picker,
@@ -133,7 +136,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
         changeTheme(next).then((saved) => replace({ state: "ready", data: saved }), showFailure)
       },
     }),
-    [settings, filesVersion, theme, picker, remember, replace]
+    [settings, reload, filesVersion, theme, picker, remember, replace]
   )
 
   return <SettingsContext.Provider value={value}>{children}</SettingsContext.Provider>

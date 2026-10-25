@@ -40,7 +40,7 @@ def _repo(root: Path, files: dict[str, str] = REPO) -> str:
         (root / name).parent.mkdir(parents=True, exist_ok=True)
         (root / name).write_text(text, encoding="utf-8")
     (root / "tools").mkdir(exist_ok=True)
-    for name in ("skille_dla_zmiany.py", "mutacje_skilli.py", "potomne.py", "szybko.py", "ci_lokalnie.py", "mutacje.py"):
+    for name in ("skille_dla_zmiany.py", "mutacje_skilli.py", "potomne.py", "szybko.py", "ci_lokalnie.py", "ciezkie_ci.py", "mutacje.py"):
         shutil.copy(TOOLS / name, root / "tools" / name)
     git(root, "init", "--quiet")
     return commit(root, "baza")

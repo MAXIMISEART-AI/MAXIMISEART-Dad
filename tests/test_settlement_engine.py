@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import errno
 import os
+import re
 import shutil
 import tempfile
 from pathlib import Path
 import time
+import zipfile
 from collections.abc import Callable
 
 from openpyxl import load_workbook
@@ -41,6 +43,7 @@ from tests.fixtures.workbooks import (
     cut_sheet_after_data_rows,
     hyperlinks,
     refused_by_copy,
+    rewrite_parts,
     without_sheet,
 )
 from tests.fixtures.settlement import (
@@ -406,6 +409,38 @@ def test_wykonawca_bez_mapowania_albo_wiersz_danych_bez_wykonawcy_wstrzymuje_pub
     assert not list(target_directory.parent.glob(f".{target_directory.name}.staging-*"))
 
 
+@pytest.mark.parametrize(
+    ("workers", "named", "subject"),
+    [
+        ({19: "andrzej.nieznany2"}, ["andrzej.nieznany2"], "jest WYKONAWCA"),
+        (
+            {18: " Zenon.Nieznany ", 19: "Bartosz.Nieznany", 20: "ZENON.NIEZNANY"},
+            ["Zenon.Nieznany", "Bartosz.Nieznany"],
+            "są WYKONAWCY",
+        ),
+    ],
+    ids=["jeden", "dwoch-w-kolejnosci-pliku-w-pisowni-pierwszego-wiersza"],
+)
+def test_zatrzymanie_i_podglad_nazywaja_kazdego_nieznanego_wykonawce_raz(
+    tmp_path: Path, workers: dict[int, str | None], named: list[str], subject: str
+) -> None:
+    source_path, _target_directory, config_path = make_fixture(tmp_path)
+    with_workers(source_path, workers)
+    worker_template_path = tmp_path / "Wzorzec rozliczenia pracownika.xlsx"
+
+    with pytest.raises(StopError) as raised:
+        run_settlements(source_path, config_path, worker_template_path=worker_template_path)
+    preview = run_settlements(source_path, config_path, dry_run=True, worker_template_path=worker_template_path)
+
+    assert raised.value.message.what == (
+        f"W Pliku zbiorczym {subject} spoza konfiguracji wykonawców: {', '.join(named)}. "
+        "Nie utworzono żadnego pliku pracownika."
+    )
+    assert [warning.what for warning in preview.warnings] == [
+        f"Nieznany identyfikator WYKONAWCA: {worker}. Nie ma go w konfiguracji wykonawców." for worker in named
+    ]
+
+
 def test_podglad_bez_zapisu_pokazuje_problemy_wierszy_danych_i_plan_kazdego_wykonawcy_z_konfiguracji(tmp_path: Path) -> None:
     source_path, target_directory, config_path = make_fixture(tmp_path)
     with_workers(source_path, {18: "andrzej.nieznany2", 20: None})  # nieznany Wykonawca w pierwszym wierszu, przed znanymi
@@ -419,7 +454,10 @@ def test_podglad_bez_zapisu_pokazuje_problemy_wierszy_danych_i_plan_kazdego_wyko
         observer=recorded.append,
     )
 
-    assert [warning.code for warning in summary.warnings] == ["BRAK_WYKONAWCY", "BRAK_MAPOWANIA"]
+    assert [(warning.code, warning.what) for warning in summary.warnings] == [
+        ("BRAK_WYKONAWCY", "Wiersz 20 ma dane, ale nie ma wykonawcy w kolumnie H."),
+        ("BRAK_MAPOWANIA", "Nieznany identyfikator WYKONAWCA: andrzej.nieznany2. Nie ma go w konfiguracji wykonawców."),
+    ]
     counted = [(type(event), event.issue_count) for event in recorded if isinstance(event, (IssueCountReady, PlanReady))]
     assert counted == [(IssueCountReady, 1), (PlanReady, 2)]
     assert [(result.worker_name, result.status, result.rows) for result in summary.results] == [
@@ -451,6 +489,57 @@ def test_nieczytelny_plik_zbiorczy_zatrzymuje_przebieg_rozliczen_bezpiecznym_kom
     )
     assert not target_directory.exists()
     assert not list(target_directory.parent.glob(f".{target_directory.name}.staging-*"))
+
+
+def with_undefined_number_format(cell: str) -> Callable[[Path], None]:
+    """Komórka ``cell`` ma styl z numerem formatu liczby, którego nie ma w stylach skoroszytu."""
+
+    def change(path: Path) -> None:
+        workbook = load_workbook(path)
+        try:
+            active_worksheet(workbook)[cell].number_format = "0.000"
+            workbook.save(path)
+        finally:
+            workbook.close()
+        with zipfile.ZipFile(path) as workbook_zip:
+            cell_styles = re.search(rb'<cellXfs count="(\d+)"', workbook_zip.read("xl/styles.xml"))
+        assert cell_styles is not None
+        count = int(cell_styles[1])
+
+        def undefined(name: str, data: bytes) -> bytes:
+            if name == "xl/styles.xml":
+                data = data.replace(b'<cellXfs count="%d"' % count, b'<cellXfs count="%d"' % (count + 1), 1)
+                return data.replace(b"</cellXfs>", b'<xf numFmtId="250" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/></cellXfs>', 1)
+            if name.startswith("xl/worksheets/"):
+                return re.sub(rb'<c r="%s" s="\d+"' % cell.encode(), b'<c r="%s" s="%d"' % (cell.encode(), count), data, count=1)
+            return data
+
+        rewrite_parts(path, undefined)
+
+    return change
+
+
+def test_format_liczby_bez_definicji_poza_kolumnami_wygladu_nie_zatrzymuje_przebiegu_rozliczen(tmp_path: Path) -> None:
+    source_path, target_directory, config_path = make_fixture(tmp_path)
+    with_undefined_number_format("M18")(source_path)
+
+    run_settlements(source_path, config_path, worker_template_path=tmp_path / "Wzorzec rozliczenia pracownika.xlsx")
+
+    assert any(target_directory.glob("*.xlsx"))
+
+
+def test_format_liczby_bez_definicji_w_kolumnach_wygladu_to_uszkodzony_plik_zbiorczy(tmp_path: Path) -> None:
+    source_path, target_directory, config_path = make_fixture(tmp_path)
+    with_undefined_number_format("L18")(source_path)
+
+    with pytest.raises(StopError) as stop:
+        run_settlements(source_path, config_path, worker_template_path=tmp_path / "Wzorzec rozliczenia pracownika.xlsx")
+
+    assert (stop.value.message.code, stop.value.message.what) == (
+        "ZLY_PLIK_ZBIORCZY",
+        f"{UNFIT_COLLECTIVE_FILE_PREFIX} {UNREADABLE_SOURCE_MESSAGE}",
+    )
+    assert not target_directory.exists()
 
 
 @pytest.mark.parametrize(

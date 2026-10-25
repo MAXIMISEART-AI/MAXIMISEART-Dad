@@ -56,7 +56,8 @@ def _run(repo: Path, *arguments: str) -> subprocess.CompletedProcess[str]:
         [sys.executable, str(repo / "tools" / "mutacje_zmiany.py"), "--baza", "baza", "--rownolegle", "2", *arguments],
         cwd=repo,
         # Jeden worker xdist: testy biegną w kolejności z pliku, więc fixture sesji ustawia zawsze pierwszy z nich.
-        env={**os.environ, "PYTEST_XDIST_AUTO_NUM_WORKERS": "1"},
+        # Narzędzie biegnie jak w zadaniu CI, bo poza nim odmawia startu (tools/ciezkie_ci.py).
+        env={**os.environ, "PYTEST_XDIST_AUTO_NUM_WORKERS": "1", "GITHUB_ACTIONS": "true"},
         capture_output=True,
         text=True,
         encoding="utf-8",
