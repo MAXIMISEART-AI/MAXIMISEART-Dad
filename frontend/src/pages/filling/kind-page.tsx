@@ -21,7 +21,9 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Skeleton } from "@/components/ui/skeleton"
 import { href } from "@/lib/address"
 import { useContentEntrance } from "@/lib/content-entrance"
-import { useResource, type Resource } from "@/lib/use-resource"
+import { useLiveFile } from "@/lib/use-live-file"
+import type { Resource } from "@/lib/use-resource"
+import { SaveHint } from "@/pages/filling/save-hint"
 
 // Wygląd wiersza po jego stanie z serwera; tło przypiętych komórek jest kryjące, bo pod nimi przewijają się ilości.
 const ROWS: Record<RowState, { tint: string; label: string }> = {
@@ -122,7 +124,7 @@ function KindContent({
   hint: string
   action: React.ReactNode
 }) {
-  const { resource } = useResource(tableOf(token, kind))
+  const { resource } = useLiveFile(token, tableOf(token, kind))
 
   return (
     <>
@@ -181,7 +183,7 @@ function KindState({ resource, heading, hint }: { resource: Resource<KindTable>;
             )}
           </div>
           {table.rows.length === 0 ? null : <QuantitiesTable columns={table.columns} rows={table.rows} />}
-          <p className="px-1 text-sm text-muted-foreground">Nie widzisz zmian? Zapisz w Excelu (Ctrl+S).</p>
+          <SaveHint read={table.read} />
         </div>
       )
     }

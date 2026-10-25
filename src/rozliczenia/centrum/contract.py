@@ -406,23 +406,42 @@ class DescriptionColumn(_Model):
     rows: int
 
 
+class CollectiveFileRead(_Model):
+    """Odczyt Pliku zbiorczego za widokiem: znacznik zapisu przed odczytem i godzina odczytu.
+
+    ``retrying``: późniejsze odczyty się nie udały, więc to ostatni dobry stan, a strona ponawia odczyt.
+    """
+
+    version: str | None
+    read_at: datetime
+    retrying: bool
+
+
 class QuantitiesToFillReady(_Model):
     """Ilości do uzupełnienia okresu przeliczone z zapisanego Pliku zbiorczego; ``kinds`` ma każdy rodzaj z listą."""
 
     state: Literal["ready"]
+    read: CollectiveFileRead
     kinds: list[KindToFill]
     description_columns: list[DescriptionColumn]
 
 
 class QuantitiesToFillProblem(_Model):
-    """Pliku zbiorczego nie udało się odczytać; Komunikat go nazywa.
+    """Pliku zbiorczego nie udało się odczytać; Komunikat go nazywa, a ``version`` to znacznik zapisu przed odczytem.
 
     ``collective_file_exists``: plik jest w Folderze okresu, więc „Otwórz Plik zbiorczy” ma co otworzyć.
     """
 
     state: Literal["problem"]
     message: Message
+    version: str | None
     collective_file_exists: bool
+
+
+class CollectiveFileVersion(_Model):
+    """Znacznik zapisu Pliku zbiorczego (czas zmiany i rozmiar); ``None``, gdy pliku nie widać."""
+
+    version: str | None
 
 
 QuantitiesToFill = Annotated[QuantitiesToFillReady | QuantitiesToFillProblem, Field(discriminator="state")]
@@ -481,6 +500,7 @@ class KindTableReady(_Model):
     """Wiersze jednego rodzaju Ilości do uzupełnienia rosnąco po numerze; ``columns`` to N:AP po kolei."""
 
     state: Literal["ready"]
+    read: CollectiveFileRead
     kind: FillKind
     columns: list[PriceListItem]
     rows: list[KindTableRow]
@@ -1004,6 +1024,7 @@ ApiOperation = Literal[
     "getPeriodBoard",
     "openPeriodPath",
     "getQuantitiesToFill",
+    "getCollectiveFileVersion",
     "getWithoutQuantity",
     "getKindTable",
     "openWorkerSettlement",

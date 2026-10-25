@@ -18,6 +18,7 @@ export const zApiTiming = z.object({
         'getPeriodBoard',
         'openPeriodPath',
         'getQuantitiesToFill',
+        'getCollectiveFileVersion',
         'getWithoutQuantity',
         'getKindTable',
         'openWorkerSettlement',
@@ -87,6 +88,28 @@ export const zClosedStep = z.object({
  */
 export const zClosing = z.object({
     state: z.literal('closing')
+});
+
+/**
+ * CollectiveFileRead
+ *
+ * Odczyt Pliku zbiorczego za widokiem: znacznik zapisu przed odczytem i godzina odczytu.
+ *
+ * ``retrying``: późniejsze odczyty się nie udały, więc to ostatni dobry stan, a strona ponawia odczyt.
+ */
+export const zCollectiveFileRead = z.object({
+    version: z.string().nullable(),
+    read_at: z.iso.datetime(),
+    retrying: z.boolean()
+});
+
+/**
+ * CollectiveFileVersion
+ *
+ * Znacznik zapisu Pliku zbiorczego (czas zmiany i rozmiar); ``None``, gdy pliku nie widać.
+ */
+export const zCollectiveFileVersion = z.object({
+    version: z.string().nullable()
 });
 
 /**
@@ -560,13 +583,14 @@ export const zProgress = z.object({
 /**
  * QuantitiesToFillProblem
  *
- * Pliku zbiorczego nie udało się odczytać; Komunikat go nazywa.
+ * Pliku zbiorczego nie udało się odczytać; Komunikat go nazywa, a ``version`` to znacznik zapisu przed odczytem.
  *
  * ``collective_file_exists``: plik jest w Folderze okresu, więc „Otwórz Plik zbiorczy” ma co otworzyć.
  */
 export const zQuantitiesToFillProblem = z.object({
     state: z.literal('problem'),
     message: zMessage,
+    version: z.string().nullable(),
     collective_file_exists: z.boolean()
 });
 
@@ -755,6 +779,7 @@ export const zKindTableRow = z.object({
  */
 export const zKindTableReady = z.object({
     state: z.literal('ready'),
+    read: zCollectiveFileRead,
     kind: zFillKind,
     columns: z.array(zPriceListItem),
     rows: z.array(zKindTableRow)
@@ -788,6 +813,7 @@ export const zKindToFill = z.object({
  */
 export const zQuantitiesToFillReady = z.object({
     state: z.literal('ready'),
+    read: zCollectiveFileRead,
     kinds: z.array(zKindToFill),
     description_columns: z.array(zDescriptionColumn)
 });
@@ -1409,6 +1435,15 @@ export const zGetPeriodBoardResponse = z.discriminatedUnion('state', [
     zBoardMissing,
     zBoardReady
 ]);
+
+export const zGetCollectiveFileVersionPath = z.object({
+    token: z.string()
+});
+
+/**
+ * Successful Response
+ */
+export const zGetCollectiveFileVersionResponse = zCollectiveFileVersion;
 
 export const zOpenPeriodPathBody = zOpenRequest;
 
