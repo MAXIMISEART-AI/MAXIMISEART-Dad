@@ -11,6 +11,7 @@ from drive.common import (
     Run,
     current_run,
     diagnosis_answer,
+    ended_run_shown,
     ensure_files_set,
     finished_result,
     release_only,
@@ -49,7 +50,7 @@ def _stop_without_cause_on_computer(run: Run, page: Page) -> str:
     ensure_files_set(run, page)
     page.goto(run.url + "#/uruchomienia")
     page.reload()
-    if current_run(run, "aktualnosc-przed")["state"] == "finished":
+    if ended_run_shown(current_run(run, "aktualnosc-przed")):
         page.get_by_role("button", name="Nowe Uruchomienie procesu").click()
     page.get_by_role("radio", name="Przygotowanie pliku zbiorczego").click()
     page.get_by_role("combobox", name="Okres").click()

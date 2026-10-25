@@ -7,7 +7,7 @@ from pathlib import Path
 
 from playwright.sync_api import Page, expect
 
-from drive.common import ROW_MARKER, Run, current_run, diagnosis_answer, ensure_files_set, finished_result, stop_banner
+from drive.common import ROW_MARKER, Run, current_run, diagnosis_answer, ended_run_shown, ensure_files_set, finished_result, stop_banner
 
 FEATURE = "diagnoza"
 # A period without a Folder okresu that no feature prepares; the Rejestr zleceń has no orders in it, so no
@@ -61,7 +61,7 @@ def drive_diagnosis(run: Run, page: Page) -> None:
     lock.touch()
     page.goto(run.url + "#/uruchomienia")
     page.reload()
-    if current_run(run, "diagnoza-przed")["state"] == "finished":
+    if ended_run_shown(current_run(run, "diagnoza-przed")):
         page.get_by_role("button", name="Nowe Uruchomienie procesu").click()
     page.get_by_role("radio", name="Przygotowanie pliku zbiorczego").click()
     page.get_by_role("combobox", name="Okres").click()

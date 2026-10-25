@@ -178,6 +178,13 @@ REQUIRED_SCREENSHOTS = {
         "160-logi-podglad.png",
         "161-logi-zatrzymanie.png",
     ),
+    "karta-z-logow": (
+        "210-karta-przed-zamknieciem.png",
+        "211-karta-po-zamknieciu.png",
+        "212-karta-przerwana.png",
+        "213-karta-z-historii.png",
+        "214-karta-bez-logow.png",
+    ),
     "powiadomienia": (
         "180-powiadomienia-dzwonek.png",
         "181-powiadomienia-kropka.png",

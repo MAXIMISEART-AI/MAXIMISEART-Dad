@@ -160,6 +160,13 @@ def current_run(run: Run, name: str) -> dict[str, object]:
     return view
 
 
+def ended_run_shown(view: dict[str, object]) -> bool:
+    """Uruchomienia shows an ended Uruchomienie instead of the setup card: one that finished, or the last one from
+    before Centrum's start (``RunIdle.previous``); `Nowe Uruchomienie procesu` sets it aside."""
+
+    return view["state"] == "finished" or (view["state"] == "idle" and view["previous"] is not None)
+
+
 def finished_result(run: Run, name: str) -> dict[str, object]:
     # One answer for both the state and the result: a second read could already see the next Uruchomienie.
     seen: dict[str, object] = {}

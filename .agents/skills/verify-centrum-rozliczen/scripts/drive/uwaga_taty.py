@@ -16,7 +16,7 @@ from playwright.sync_api import Locator, Page, Request, ViewportSize, expect
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
 from drive import kontrola_ilosci
-from drive.common import PAGES, Run, current_run, ensure_files_set, error_toasts, finished_result, history_rows
+from drive.common import PAGES, Run, current_run, ended_run_shown, ensure_files_set, error_toasts, finished_result, history_rows
 from drive.metryki import _local
 
 FEATURE = "uwaga-taty"
@@ -457,7 +457,7 @@ def _drive_pinned(run: Run, page: Page, config: Path, box: Path) -> None:
     ensure_files_set(run, page)
     was_dark = _theme(page, "jasny")
     page.goto(run.url + "#/uruchomienia")
-    if current_run(run, "uwaga-przed-podgladem")["state"] == "finished":
+    if ended_run_shown(current_run(run, "uwaga-przed-podgladem")):
         page.get_by_role("button", name="Nowe Uruchomienie procesu", exact=True).click()
     page.get_by_role("radio", name="Przebieg rozliczeń").click()
     expect(page.get_by_role("combobox", name="Okres")).to_contain_text(period)
@@ -625,7 +625,7 @@ def _not_in_history(run: Run, page: Page, period: str) -> None:
     records, mode = metrics.read_bytes(), metrics.stat().st_mode
     page.goto(run.url + "#/uruchomienia")
     page.get_by_role("tab", name="Uruchomienie", exact=True).click()
-    if current_run(run, "uwaga-przed-podgladem-bez-metryk")["state"] == "finished":
+    if ended_run_shown(current_run(run, "uwaga-przed-podgladem-bez-metryk")):
         page.get_by_role("button", name="Nowe Uruchomienie procesu", exact=True).click()
     page.get_by_role("radio", name="Przebieg rozliczeń").click()
     expect(page.get_by_role("combobox", name="Okres")).to_contain_text(period)
@@ -688,7 +688,7 @@ def _preview(run: Run, page: Page, period: str, name: str) -> str:
 
     page.goto(run.url + "#/uruchomienia")
     page.get_by_role("tab", name="Uruchomienie", exact=True).click()
-    if current_run(run, f"{name}-przed")["state"] == "finished":
+    if ended_run_shown(current_run(run, f"{name}-przed")):
         page.get_by_role("button", name="Nowe Uruchomienie procesu", exact=True).click()
     page.get_by_role("radio", name="Przebieg rozliczeń").click()
     expect(page.get_by_role("combobox", name="Okres")).to_contain_text(period)

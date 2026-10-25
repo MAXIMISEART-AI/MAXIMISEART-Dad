@@ -8,7 +8,7 @@ import re
 
 from playwright.sync_api import Locator, Page, expect
 
-from drive.common import ROW_MARKER, Run, current_run, ensure_files_set, finished_result, stop_banner
+from drive.common import ROW_MARKER, Run, current_run, ended_run_shown, ensure_files_set, finished_result, stop_banner
 
 FEATURE = "zgloszenie"
 # The period of features/diagnoza.md: no Folder okresu and no orders, so no Uruchomienie here writes a file.
@@ -36,7 +36,7 @@ def _stop_for_maks(run: Run, page: Page, name: str, missing: str = "internal_tem
     aside = template.with_name(f"{template.name}.odlozony")
     page.goto(run.url + "#/uruchomienia")
     page.reload()
-    if current_run(run, f"{name}-przed")["state"] == "finished":
+    if ended_run_shown(current_run(run, f"{name}-przed")):
         page.get_by_role("button", name="Nowe Uruchomienie procesu").click()
     page.get_by_role("radio", name="Przygotowanie pliku zbiorczego").click()
     page.get_by_role("combobox", name="Okres").click()
