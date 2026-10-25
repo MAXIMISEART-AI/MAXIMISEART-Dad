@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
+import os
 from pathlib import Path
 
 from fastapi import APIRouter
@@ -55,8 +56,12 @@ def filling_router(
             )
         if failing.kept is not None:
             return failing.kept
+        # ``os.path.isfile``, bo ``Path.is_file`` w folderze bez dostępu rzuca PermissionError zamiast odpowiedzieć „nie”.
         return contract.QuantitiesToFillProblem(
-            state="problem", message=contract.Message.of(found.message), version=attempt.version
+            state="problem",
+            message=contract.Message.of(found.message),
+            version=attempt.version,
+            collective_file_exists=os.path.isfile(path),
         )
 
     @router.get(

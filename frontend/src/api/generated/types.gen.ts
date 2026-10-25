@@ -1190,6 +1190,8 @@ export type Progress = {
  * QuantitiesToFillProblem
  *
  * Pliku zbiorczego nie udało się odczytać; Komunikat go nazywa, a ``version`` to znacznik zapisu przed odczytem.
+ *
+ * ``collective_file_exists``: plik jest w Folderze okresu, więc „Otwórz Plik zbiorczy” ma co otworzyć.
  */
 export type QuantitiesToFillProblem = {
     /**
@@ -1201,6 +1203,10 @@ export type QuantitiesToFillProblem = {
      * Version
      */
     version: string | null;
+    /**
+     * Collective File Exists
+     */
+    collective_file_exists: boolean;
 };
 
 /**
