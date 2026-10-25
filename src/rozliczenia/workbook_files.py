@@ -227,13 +227,19 @@ def _status(path: Path) -> os.stat_result | None:
         return None
 
 
+def excel_lock_file(path: Path) -> Path:
+    """Plik blokady ``~$…``, który desktopowy Excel kładzie obok otwartego skoroszytu ``path``."""
+
+    return path.with_name(f"~${path.name}")
+
+
 def is_open_in_excel(path: Path) -> bool:
     """Rozpoznaje skoroszyt otwarty w desktopowym Excelu po pliku blokady ``~$…``.
 
     W folderze bez dostępu blokady nie widać; niedostępny skoroszyt zgłasza jego odczyt (``ensure_available``).
     """
 
-    return os.path.exists(path.with_name(f"~${path.name}"))
+    return os.path.exists(excel_lock_file(path))
 
 
 def ensure_available(path: Path, *, despite_excel_lock: bool = False) -> None:

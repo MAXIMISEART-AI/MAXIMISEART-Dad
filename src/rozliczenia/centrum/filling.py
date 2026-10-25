@@ -25,7 +25,7 @@ from rozliczenia.message import Message
 from rozliczenia.order_facts import MissingHeaders
 from rozliczenia.quantities_to_fill import NumberedOrder, quantities_to_fill
 from rozliczenia.settings import SettingsStore
-from rozliczenia.workbook_files import WorkbookError
+from rozliczenia.workbook_files import WorkbookError, excel_lock_file
 
 
 def filling_router(
@@ -122,7 +122,7 @@ def _excel_lock(path: Path) -> str:
     """
 
     try:
-        path.with_name(f"~${path.name}").stat()
+        excel_lock_file(path).stat()
     except FileNotFoundError:
         return "nie"
     except OSError:
