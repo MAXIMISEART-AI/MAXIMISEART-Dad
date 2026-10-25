@@ -589,11 +589,6 @@ class ProcessEntry(Protocol):
     @property
     def process(self) -> Process[Any, Any]: ...
 
-    @property
-    def view(self) -> ProcessView[Any, Any]:
-        """Deklaracja procesu (``run_view``): ta sama przy starcie i na karcie z Logów Uruchomienia."""
-        ...
-
     def setup(self) -> contract.ProcessSetup: ...
 
     def prepare(self, request: contract.RunRequest) -> PreparedRun[Any, Any]:

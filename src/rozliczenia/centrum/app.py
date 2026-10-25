@@ -220,15 +220,14 @@ def create_app(
         log,
         run_logs,
     )
-    entries: list[ProcessEntry] = [
-        PreparationEntry(store, configuration, processes.preparation, today, readers),
-        SettlementEntry(store, configuration, processes.settlement, today, readers),
-    ]
+    preparation = PreparationEntry(store, configuration, processes.preparation, today, readers)
+    settlement = SettlementEntry(store, configuration, processes.settlement, today, readers)
+    entries: list[ProcessEntry] = [preparation, settlement]
     # Karty Uruchomień z pliku startu i Logów Uruchomienia: ostatnie po starcie Centrum i wiersz Historii (ADR 0017).
     cards = RunCards(
         log.directory / RUN_LOGS_DIRECTORY,
         log.directory / LAST_STARTED_FILE,
-        {entry.key: entry for entry in entries},
+        {preparation.key: preparation, settlement.key: settlement},
     )
     runs = RunHost(
         log,

@@ -27,7 +27,9 @@ from pydantic import BaseModel, ConfigDict
 from rozliczenia.centrum import contract
 from rozliczenia.centrum.atomic_file import replace_atomically
 from rozliczenia.centrum.run_logs import RunLog
-from rozliczenia.centrum.runs import ProcessEntry, verdict
+from rozliczenia.centrum.preparation_run import PreparationEntry
+from rozliczenia.centrum.runs import verdict
+from rozliczenia.centrum.settlement_run import SettlementEntry
 
 LAST_STARTED_FILE: Final = "ostatnie-uruchomienie.json"
 # Identyfikator Uruchomienia z Centrum (``uuid4().hex``); inny nie ma Logów, więc nie dotyka dysku.
@@ -60,7 +62,7 @@ class RunCards:
     z których karta bierze tytuł procesu i deklarację procesu (Gotowość, tytuł wyniku po zapisie), jak przy starcie.
     """
 
-    def __init__(self, logs: Path, last_started: Path, entries: Mapping[contract.ProcessKey, ProcessEntry]) -> None:
+    def __init__(self, logs: Path, last_started: Path, entries: Mapping[contract.ProcessKey, PreparationEntry | SettlementEntry]) -> None:
         self._logs = logs
         self._last_started = last_started
         self._entries = entries
