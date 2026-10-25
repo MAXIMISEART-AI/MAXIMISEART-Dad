@@ -448,6 +448,14 @@ wracasz do niej z Excela. Jeśli nie widzisz swoich wpisów, zapisz plik w Excel
 Gdy skończysz, zapisz i zamknij Plik zbiorczy i kliknij `Gotowe, rozlicz
 pracowników`. Otwiera się strona `Uruchomienia` z Przebiegiem rozliczeń i tym
 okresem (dalej „Przebieg rozliczeń” niżej).
+Jeśli tego okresu nie ma do wyboru w Przebiegu rozliczeń (na przykład nie ma
+jeszcze Pliku zbiorczego), strona mówi „Okresu … nie ma do wyboru, więc wybrany
+jest …”. Sprawdź okres, zanim klikniesz `Podgląd bez zapisu`.
+
+Po Przebiegu rozliczeń strony zostają jako podgląd: nad listą stoi `Przebieg
+rozliczeń się odbył · tylko podgląd`, a `Gotowe, rozlicz pracowników` znika.
+Wiersz, w którym nic nie wpisałeś, jest szary z napisem `bez ilości`: został na
+zerach. Zielone zostają wiersze, które uzupełniłeś.
 
 ### Uzupełnienie → co zrobić
 

@@ -49,7 +49,7 @@ def _get(centrum: PreparingCentrum, url: str) -> dict[str, Any]:
 
 def _without_rule(view: dict[str, Any]) -> list[tuple[int, bool]]:
     [kind] = (kind for kind in view["kinds"] if kind["kind"] == "without_rule")
-    return [(row["row"], row["done"]) for row in kind["rows"]]
+    return [(row["row"], row["state"] == "done") for row in kind["rows"]]
 
 
 def _type_in_excel(path: Path, cell: str, value: int) -> None:

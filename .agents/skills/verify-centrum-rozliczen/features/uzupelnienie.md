@@ -24,7 +24,11 @@ three-part Komunikat. The summary and the kind pages are live (#419): while
 visible they ask every 3 s for the saved version
 (`GET /api/periods/<token>/collective-file-version`, `stat` only) and read the
 view again only when it changed; a failed read keeps the last good state with
-its time for about a minute, then the Komunikat.
+its time for about a minute, then the Komunikat. After Przebieg rozliczeń
+(Status okresu `Rozliczenia pracowników gotowe`) both pages are a preview:
+`Przebieg rozliczeń się odbył · tylko podgląd`, no `Gotowe` and no hint about
+saving in Excel, and a row Dad left empty is grey with the words „bez ilości”
+on screen, not yellow.
 
 ## Sub-features
 
@@ -47,7 +51,9 @@ its time for about a minute, then the Komunikat.
 - `uzupelnienie-gotowe-potwierdzenie`: `Uruchom` opens `Uruchomić z zapisem?`, which says `2 wiersze bez ilości: 19, 20` and keeps `Uruchom` enabled; `Anuluj` closes it.
 - `uzupelnienie-gotowe-po-podgladzie`: `Podgląd bez zapisu` on the form, then `Uruchom` on the result card opens the same dialog with `2 wiersze bez ilości: 19, 20` (Dad's usual path); `Anuluj` closes it.
 - `uzupelnienie-gotowe-bez-odczytu`: with the Plik zbiorczy of `29_05_10_2026` damaged (harness, restored after), `Gotowe` on its summary chooses that period, not the preselected one; its rows answer `{state: unread}`, and the dialog says `Nie udało się sprawdzić wierszy bez ilości` with `Uruchom` enabled.
+- `uzupelnienie-po-przebiegu`: with the Folder rozliczeń pracowników of `06_12_10_2026` present (harness, removed after), the Tablica okresów says `Rozliczenia pracowników gotowe`; the summary says `Przebieg rozliczeń się odbył · tylko podgląd`, its answer has `settled: true`, row 18 (Dad's value) done and rows 19 and 20 `without_quantity` with `bez ilości` on screen next to their numbers (image `Bez ilości`), there is no `Gotowe, rozlicz pracowników`; on the kind page `Wiersze bez reguły` row 20 is no longer yellow as before the folder and not green like row 18, reads `bez ilości` on screen under its number, and the hint is `Szare zostały bez ilości.`
 - `uzupelnienie-bez-pliku`: a period without a Plik zbiorczy shows the server's three-part Komunikat (label `Komunikat`), not a failure, `Otwórz Plik zbiorczy` only when the file is in the Folder okresu (`collective_file_exists`), on the summary and on `#/uzupelnienie/15_21_09_2026/without_rule` alike, and the Centrum log has `uzupelnienie-odczyt-nieudany` with the period.
+- `uzupelnienie-gotowe-bez-okresu`: `Gotowe` on that summary opens Przebieg rozliczeń with the preselected `06_12_10_2026` and an alert `Okresu 15_21_09_2026 nie ma do wyboru, więc wybrany jest 06_12_10_2026.`, never a silent switch.
 
 ## How to get to it (user POV)
 
@@ -81,9 +87,11 @@ Preconditions:
 - **Confirm.** Click `Uruchom`: alertdialog `Uruchomić z zapisem?` contains `„Uruchom” potwierdza Gotowość Pliku zbiorczego` and `2 wiersze bez ilości: 19, 20`, and its `Uruchom` is enabled. Screenshot `216`. Click `Anuluj`; nothing runs.
 - **After the preview.** Click `Podgląd bez zapisu`: region `Podgląd na żywo` says `Podgląd gotowy · nic nie zapisano`. Its `Uruchom` opens `Uruchomić z zapisem?` with `2 wiersze bez ilości: 19, 20` and an enabled `Uruchom`. Screenshot `218`. Click `Anuluj`; the preview wrote nothing.
 - **Unreadable.** Harness: replace the bytes of `Rozliczenie 29_05_10_2026 - zbiorcze.xlsx` with text (restored in `finally`). Open `#/uzupelnienie/29_05_10_2026` and click `Gotowe`: combobox `Okres` shows `29_05_10_2026`, and `GET /api/periods/29_05_10_2026/without-quantity` (`api/uzupelnienie-gotowe-bez-odczytu-wiersze.json`) is `200` with `{state: unread}`. `Uruchom` opens the dialog with `Nie udało się sprawdzić wierszy bez ilości` and an enabled `Uruchom`. Screenshot `217`. `Anuluj`, then a reload drops the form's draft.
+- **After Przebieg.** First open `#/uzupelnienie/06_12_10_2026/without_rule` and keep the computed background of row 20's number cell (`20 do uzupełnienia`, yellow). Harness: create the empty folder `Rozliczenie pracowników 06_12_10_2026` next to the Plik zbiorczy, the fact Status okresu reads (a real Przebieg rozliczeń is in `tests/test_centrum_uzupelnienie_po_przebiegu.py`; `przebieg-rozliczen` needs this period still open), with Dad's value still in Y18. Okresy: the period's row says `Rozliczenia pracowników gotowe`. Open `#/uzupelnienie/06_12_10_2026`: status `Przebieg rozliczeń się odbył · tylko podgląd`; the answer (`api/uzupelnienie-po-przebiegu.json`) has `settled: true` and rows `18 done`, `20 without_quantity`, `19 without_quantity`; the screen matches it (`20 bez ilości`, `19 bez ilości`, image `Bez ilości` for a kind not done), and the words `bez ilości` in both list items take real room on screen (at least 20 px wide, so not the one-pixel screen-reader text); no button `Gotowe, rozlicz pracowników` and no `Nie widzisz zmian?` hint, `Otwórz Plik zbiorczy` stays. Screenshot `233-uzupelnienie-po-przebiegu`. Click the link in region `Wiersze bez reguły`: row headers `18 zrobiony` and `20 bez ilości`, the same status, `Szare zostały bez ilości.` and no `Nie widzisz zmian?` hint, the answer has `settled: true`, row 20's number cell has another background than its own yellow before the folder and than the done row 18, and its `bez ilości` under the number takes real room on screen. Screenshots `233-uzupelnienie-po-przebiegu-bez-reguly` and `…-jasny`. In `finally` the folder is removed.
 - **Restore.** In `finally` the drive writes back the Plik zbiorczy's original bytes and removes the lock file; the damaged Plik zbiorczy of `29_05_10_2026` gets its bytes back too, because `przebieg-rozliczen` reads it.
 - **No Plik zbiorczy.** Open `#/uzupelnienie/15_21_09_2026` (empty Folder okresu): label `Komunikat` shows the answer's `what`, `where` and `action` (`api/uzupelnienie-bez-pliku.json`, `state: problem`), no alert `Nie udało się …`; `collective_file_exists` and the button `Otwórz Plik zbiorczy` follow the disk (alone: no file, no button; in `all`, `tablica-okresow` left an empty `Rozliczenie 15_21_09_2026 - zbiorcze.xlsx`, so the Komunikat calls it damaged and the button is there), and the Centrum log has `uzupelnienie-odczyt-nieudany … okres=15_21_09_2026`. Screenshot `224`.
-- **Proof.** Screenshots `215`–`218`, `220`–`227`, `229` and `230`–`232`, `api/uzupelnienie-*.json`, checks in `drive.txt`.
+- **Gotowe without the period.** In `all` the harness first sets aside the empty Plik zbiorczy `tablica-okresow` left (back in `finally`), so Przebieg rozliczeń does not offer the period. Click `Gotowe, rozlicz pracowników` there: radio `Przebieg rozliczeń` checked, combobox `Okres` shows `06_12_10_2026`, and an alert says `Okresu 15_21_09_2026 nie ma do wyboru, więc wybrany jest 06_12_10_2026.` Screenshot `234-uzupelnienie-gotowe-bez-okresu`. A reload drops the draft.
+- **Proof.** Screenshots `215`–`218`, `220`–`227`, `229`, `230`–`232`, `233` and `234`, `api/uzupelnienie-*.json`, checks in `drive.txt`.
 
 ## Gotchas
 
@@ -95,3 +103,4 @@ Preconditions:
 - The preview in `uzupelnienie-gotowe-po-podgladzie` adds one DRY-RUN of Przebieg rozliczeń to the week before `przebieg-rozliczen`; that feature counts its records from its own start.
 - The kind pages' row texts are workbook content: `run.api` would keep them in the evidence, and `centrum_self_test.py` rejects evidence with `ROW_MARKER`, so the drive saves the table answer without them.
 - Delete the lock file in `finally`; a leftover `~$…` makes Przebieg rozliczeń stop with „Plik zbiorczy otwarty”.
+- Remove the harness's `Rozliczenie pracowników 06_12_10_2026` in `finally`: a leftover folder closes the period, and `przebieg-rozliczen` would stop with Nienadpisywanie instead of settling it.

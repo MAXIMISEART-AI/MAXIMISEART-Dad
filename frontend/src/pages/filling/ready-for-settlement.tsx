@@ -12,7 +12,7 @@ export function ReadyForSettlement({ token }: { token: string }) {
     <Button
       variant="outline"
       size="lg"
-      className="-mt-2 self-end"
+      className="self-end"
       nativeButton={false}
       render={<a href={href("uruchomienia")} />}
       onClick={() => setDraft({ process: "settlement", period: token })}
