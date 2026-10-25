@@ -22,6 +22,8 @@ Uruchamia go systemowy Python (na Macu 3.9), więc ruff sprawdza ten plik pod 3.
 
 from __future__ import annotations
 
+from bisect import bisect_left
+from collections.abc import Iterator
 from dataclasses import dataclass
 import json
 import re
@@ -148,24 +150,32 @@ def _quoted(command: str, start: int) -> tuple[str, int]:
     return (kept if WHITESPACE.search(literal) else QUOTED_SEPARATOR.sub("_", literal)), end
 
 
-def _loop_bodies(command: str) -> list[str]:
-    """Tekst każdej pętli na pierwszym planie od słowa ``until``/``while``/``for`` do jej ``done`` (albo do końca polecenia)."""
+def _loop_bodies(command: str) -> Iterator[str]:
+    """Tekst każdej pętli na pierwszym planie od słowa ``until``/``while``/``for`` do jej ``done`` (albo do końca polecenia).
 
-    words = list(LOOP_WORD.finditer(command))
-    bodies = []
-    for index, start in enumerate(words):
-        if start.group(2):
-            continue
-        depth, end = 0, len(command)
-        for word in words[index:]:
-            depth += -1 if word.group(2) else 1
-            if depth == 0:
-                end = word.end()
-                break
-        stop = LIST_END.search(command, end)
-        if not LONE_AMPERSAND.search(command, end, stop.start() if stop else len(command)):
-            bodies.append(command[start.start(1) : end])
-    return bodies
+    Po jednej naraz: ciała zagnieżdżonych pętli razem rosną z kwadratem długości polecenia.
+    """
+
+    loops: list[list[int]] = []
+    unclosed: list[int] = []
+    for word in LOOP_WORD.finditer(command):
+        if not word.group(2):
+            unclosed.append(len(loops))
+            loops.append([word.start(1), len(command)])
+        elif unclosed:
+            loops[unclosed.pop()][1] = word.end()
+    # Pozycje policzone raz: szukanie od każdej pętli osobno kosztuje O(pętle × długość polecenia).
+    list_ends = [match.start() for match in LIST_END.finditer(command)]
+    ampersands = [match.start() for match in LONE_AMPERSAND.finditer(command)]
+    for start, end in loops:
+        stop = _first_from(list_ends, end, len(command))
+        if _first_from(ampersands, end, stop) >= stop:
+            yield command[start:end]
+
+
+def _first_from(positions: list[int], start: int, default: int) -> int:
+    index = bisect_left(positions, start)
+    return positions[index] if index < len(positions) else default
 
 
 def judge(command: str, in_background: bool) -> Optional[Refusal]:

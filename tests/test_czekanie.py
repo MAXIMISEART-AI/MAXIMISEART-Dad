@@ -7,11 +7,13 @@ kod 2 z przyczyną na stderr.
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import os
 from pathlib import Path
 import subprocess
 import sys
+import tracemalloc
 
 import pytest
 
@@ -72,8 +74,10 @@ CI_LOOPS = (
     "until ! gh pr checks 446 | grep -q pending; do sleep 30; done &> ci.log; gh pr checks 446",
     "until ! gh pr checks 446 | grep -q pending; do sleep 30; done >&2",
     "until ! gh pr checks 446 | grep -q pending; do sleep 30; done > ci.log 2>&1 && gh pr checks 446",
-    # ``&`` za ``;`` puszcza w tło tylko następne polecenie.
+    "until ! gh pr checks 446 | grep -q pending; do sleep 30; done <&0",
+    # ``&`` za ``;`` albo nową linią puszcza w tło tylko następne polecenie.
     "until ! gh pr checks 446 | grep -q pending; do sleep 30; done; afplay /System/Library/Sounds/Glass.aiff &",
+    "until ! gh pr checks 446 | grep -q pending; do sleep 30; done\nafplay /System/Library/Sounds/Glass.aiff &",
 )
 WATCHES = (
     "timeout 1500 gh pr checks 215 --watch > .audit/swarm-215/lane1-pr-checks.txt 2>&1; echo exit=$?",
@@ -160,8 +164,12 @@ PASSING = (
     "(while true; do echo \"$(date +%T) $(pgrep -fl 'serve_centrum|chrome-headless|pytest' | cut -c1-100 | "
     "tr '\\n' ' ')\"; sleep 5; done) > /tmp/wyd165-watch1.log 2>&1 & W=$!; .venv/bin/python "
     ".agents/skills/verify-centrum-rozliczen/scripts/run_centrum_verification.py --feature wydajnosc; kill $W",
-    # Syntetyczne: pętla zakończona przed ``sleep`` i wzorce wyszukiwania ze słowem pętli.
+    # Syntetyczne: pętla w tle na końcu polecenia, pętla zakończona przed ``sleep`` i wzorce wyszukiwania ze słowem pętli.
+    "until ! gh pr checks 446 | grep -q pending; do sleep 30; done &",
+    "(until ! gh pr checks 446 | grep -q pending; do sleep 30; done) &",
     "for f in a b; do echo $f; done; sleep 10; gh pr checks 1",
+    # Samotne ``done`` po zamkniętej pętli nie zamyka jej drugi raz.
+    "until test -f x; do echo; done; sleep 5; gh pr checks 1; done",
     "rg -n 'while|until' tools/hooks/czekanie.py; sleep 1; gh pr checks 446",
     'grep -nw "until" tools/hooks/czekanie.py; sleep 1; gh pr checks 446',
 )
@@ -215,9 +223,24 @@ def _configured_timeout() -> float:
     return float(timeout)
 
 
-def test_hook_ocenia_dlugi_ogon_przekierowan_przed_limitem_z_ustawien() -> None:
-    # Wzorzec z zagnieżdżonymi kwantyfikatorami cofa się wykładniczo po ``2>1 2>1 …`` (48 znaków to 14 s).
-    command = "while :; do sleep 1; gh pr checks 1; done " + "2>1" * 2000
+def test_limit_hooka_w_ustawieniach_opoznia_polecenie_najwyzej_o_10_s() -> None:
+    # Claude Code po limicie puszcza polecenie bez oceny, więc limit to najdłuższe opóźnienie każdego Basha.
+    assert 0 < _configured_timeout() <= 10
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        # Wzorzec z zagnieżdżonymi kwantyfikatorami cofa się wykładniczo po ``2>1 2>1 …`` (48 znaków to 14 s).
+        "while :; do sleep 1; gh pr checks 1; done " + "2>1" * 2000,
+        # Szukanie ``done``, końca listy albo ``&`` od każdej pętli osobno rośnie z kwadratem liczby pętli.
+        "until x; do " * 40000 + "sleep 1; gh pr checks 1",
+        "until a& do b& done&" * 40000 + "while :; do sleep 1; gh pr checks 1; done",
+        "(until x do done)" * 40000 + "(while :; do sleep 1; gh pr checks 1; done)",
+    ],
+    ids=["ogon-przekierowan", "petle-bez-done", "petle-w-tle-bez-srednika", "petle-bez-konca-listy"],
+)
+def test_hook_ocenia_wejscie_bez_konca_przed_limitem_z_ustawien(command: str) -> None:
     tool_input = {"command": command, "run_in_background": False}
 
     hooked = subprocess.run(
@@ -230,6 +253,26 @@ def test_hook_ocenia_dlugi_ogon_przekierowan_przed_limitem_z_ustawien() -> None:
     )
 
     assert hooked.returncode == 2, hooked.stderr
+
+
+def test_hook_trzyma_w_pamieci_jedno_cialo_petli_naraz(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Ciała 2000 zagnieżdżonych pętli to razem 24 MB, a 40 000 to 10 GB, których runner Windows nie ma.
+    spec = importlib.util.spec_from_file_location("czekanie", HOOK)
+    assert spec is not None and spec.loader is not None
+    hook = importlib.util.module_from_spec(spec)
+    monkeypatch.setitem(sys.modules, spec.name, hook)
+    spec.loader.exec_module(hook)
+    command = "until x; do " * 2000 + "sleep 1; gh pr checks 1"
+
+    tracemalloc.start()
+    try:
+        refusal = hook.judge(command, in_background=False)
+        _, peak = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+
+    assert refusal is not None
+    assert peak < 100 * len(command)
 
 
 @pytest.mark.parametrize(
