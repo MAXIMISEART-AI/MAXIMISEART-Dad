@@ -12,15 +12,17 @@ import threading
 from pathlib import Path
 
 from rozliczenia.centrum.clock import SYSTEM_CLOCK
+from rozliczenia.centrum.keyed_box import KeyedBox
 
 ROOT = Path(__file__).resolve().parents[1]
 
-# Budzik za godzinę i sprawdzenie klucza w Skrzynce, która nie odpowiada; potem koniec programu.
-EXIT_WITH_BACKGROUND_THREADS = """
+# Budzik za godzinę i sprawdzenie klucza w Skrzynce, która nie odpowiada; potem koniec programu. Moduł ``KeyedBox``
+# z importu tego pliku: mutacje zmiany (``tools/mutacje_zmiany.py``) wybierają testy pliku po grafie importów.
+EXIT_WITH_BACKGROUND_THREADS = f"""
 import threading
 
 from rozliczenia.centrum.clock import SYSTEM_CLOCK
-from rozliczenia.centrum.keyed_box import KeyedBox
+from {KeyedBox.__module__} import KeyedBox
 
 
 class SilentBox:
