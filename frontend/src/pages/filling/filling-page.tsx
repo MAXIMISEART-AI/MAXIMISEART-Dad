@@ -28,10 +28,11 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { href, usePagePath } from "@/lib/address"
 import { useContentEntrance } from "@/lib/content-entrance"
 import { useSettings } from "@/lib/settings"
-import { useResource } from "@/lib/use-resource"
+import { useLiveFile } from "@/lib/use-live-file"
 import { AfterSettlement, afterSettlementHint } from "@/pages/filling/after-settlement"
 import { KindPage } from "@/pages/filling/kind-page"
 import { ReadyForSettlement } from "@/pages/filling/ready-for-settlement"
+import { SaveHint } from "@/pages/filling/save-hint"
 import { openAndConfirm } from "@/pages/periods/open-period-path"
 
 const TITLE = "Uzupełnienie pliku zbiorczego"
@@ -118,7 +119,7 @@ function OpenCollectiveFile({ token }: { token: string }) {
 }
 
 function FillingContent({ token }: { token: string }) {
-  const { resource } = useResource(quantitiesOf(token))
+  const { resource } = useLiveFile(token, quantitiesOf(token))
   const entrance = useContentEntrance(resource.state === "loading")
 
   switch (resource.state) {
@@ -150,7 +151,8 @@ function FillingContent({ token }: { token: string }) {
               <DescriptionColumns columns={found.description_columns} />
             </CardContent>
           </Card>
-          <p className="px-1 text-sm text-muted-foreground">Nie widzisz zmian? Zapisz w Excelu (Ctrl+S).</p>
+          {/* Po Przebiegu strona jest podglądem: nikt już nie wpisuje, więc wskazówka o zapisie nie ma sensu. */}
+          {found.settled ? null : <SaveHint read={found.read} />}
           {found.settled ? null : <ReadyForSettlement token={token} />}
         </div>
       )
