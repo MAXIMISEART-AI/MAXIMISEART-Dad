@@ -57,6 +57,21 @@ COLLECTIVE_HEADERS = (
     "NUMER UMOWY/ZLECENIA ORANGE", "SKUTECZNE", "CZYNNOŚCI ZREALIZOWANE",
 )
 LIVE_DEVICES = ("nokia zte", "zte", "nokia", "nokia zte stb")
+# Every fetch of the page with its path, start and answer (headers) in page time.
+FETCHES = r"""
+(() => {
+  const original = window.fetch;
+  const fetches = (window.__fetches = []);
+  window.fetch = async (input, init) => {
+    const url = new URL(input instanceof Request ? input.url : String(input), location.href);
+    const entry = { path: url.pathname, start: performance.now(), end: null };
+    fetches.push(entry);
+    const response = await original(input, init);
+    entry.end = performance.now();
+    return response;
+  };
+})();
+"""
 TRACE_CATEGORIES = [
     "devtools.timeline",
     "disabled-by-default-devtools.timeline",
@@ -375,45 +390,56 @@ def _live_filling(browsing: Browsing, measured: Measured, collective_file: Path)
     """
 
     with browsing.context() as (context, requests):
+        context.add_init_script(FETCHES)
         page, cdp = browsing.page(context)
         page.goto(f"{browsing.url}#/{LIVE_PAGE}", wait_until="commit")
         ready(page, LIVE_TITLE)
         page.wait_for_timeout(SETTLE_MS)
-        mark, before = len(requests), script_ms(cdp)
+        mark, seen, before = len(requests), _fetch_count(page), script_ms(cdp)
         for _ in range(LIVE_CHECKS):
             with page.expect_response(lambda response: urlsplit(response.url).path == VERSION_PATH, timeout=10_000):
                 pass
         page.wait_for_timeout(SETTLE_MS)
-        checks: list[float] = page.evaluate(
-            """([path]) => performance.getEntriesByType("resource")
-              .filter((r) => new URL(r.name).pathname === path).map((r) => r.responseEnd - r.startTime)""",
-            [VERSION_PATH],
-        )
+        checks = [end - start for path, start, end in _fetches(page, seen) if path == VERSION_PATH]
         measured.add(
-            "uzupelnienie/pytanie-o-zapis", browsing.cpu, statistics.median(checks[-LIVE_CHECKS:]), requests[mark:],
+            "uzupelnienie/pytanie-o-zapis", browsing.cpu, statistics.median(checks), requests[mark:],
             skrypt_ms=(script_ms(cdp) - before) / LIVE_CHECKS,
         )
 
-        counter = page.get_by_role("region", name="Wiersze bez reguły", exact=True)
-        shown = counter.inner_text()
-        mark = len(requests)
+        counter = '[aria-label="Wiersze bez reguły"]'
+        shown = page.eval_on_selector(counter, "(region) => region.textContent")
+        mark, seen = len(requests), _fetch_count(page)
         _toggle_live_value(collective_file)
-        expect(counter).not_to_have_text(shown, timeout=10_000)
-        on_screen = page.evaluate("() => window.__wydajnosc.lastMutation")
+        page.wait_for_function(
+            "([counter, shown]) => document.querySelector(counter).textContent !== shown",
+            arg=[counter, shown], polling="raf", timeout=10_000,
+        )
+        on_screen = float(page.evaluate("() => window.__wydajnosc.lastMutation"))
         page.wait_for_timeout(SETTLE_MS)
-        seen = page.evaluate(
-            """([check, view]) => {
-              const api = performance.getEntriesByType("resource");
-              const read = api.filter((r) => new URL(r.name).pathname === view).at(-1);
-              const saw = api.filter((r) => new URL(r.name).pathname === check && r.responseEnd <= read.startTime).at(-1);
-              return { saw: saw.responseEnd, read_ms: read.responseEnd - read.startTime };
-            }""",
-            [VERSION_PATH, VIEW_PATH],
-        )
+        fetches = _fetches(page, seen)
+        reads = [(start, end) for path, start, end in fetches if path == VIEW_PATH]
+        saw = [end for path, _, end in fetches if path == VERSION_PATH and reads and end <= reads[0][0]]
+        if not reads or not saw:
+            raise DriveFailure(f"uzupelnienie/zmiana-pliku: no check of the saved version before the read: {fetches}")
         measured.add(
-            "uzupelnienie/zmiana-pliku", browsing.cpu, float(on_screen) - float(seen["saw"]), requests[mark:],
-            odczyt_ms=float(seen["read_ms"]),
+            "uzupelnienie/zmiana-pliku", browsing.cpu, on_screen - saw[-1], requests[mark:],
+            odczyt_ms=reads[0][1] - reads[0][0],
         )
+
+
+def _fetch_count(page: Page) -> int:
+    count = page.evaluate("() => window.__fetches.length")
+    assert isinstance(count, int)
+    return count
+
+
+def _fetches(page: Page, since: int) -> list[tuple[str, float, float]]:
+    """The page's fetches from number ``since`` on that have an answer, in order: path, start and answer."""
+
+    found: list[dict[str, Any]] = page.evaluate("() => window.__fetches")
+    return [
+        (entry["path"], float(entry["start"]), float(entry["end"])) for entry in found[since:] if entry["end"] is not None
+    ]
 
 
 def _trace(browsing: Browsing, page_id: str, path: Path) -> dict[str, Any]:
