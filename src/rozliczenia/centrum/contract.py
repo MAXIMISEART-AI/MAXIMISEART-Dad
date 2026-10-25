@@ -580,7 +580,7 @@ class ReportReady(_Model):
 
 
 class ReportSent(_Model):
-    """Zgłoszenie tego problemu wysłano w tym Uruchomieniu; czeka na naprawę."""
+    """Zgłoszenie tego problemu wysłano z tego uchwytu (albo kolejka dostarczyła je później); czeka na naprawę."""
 
     state: Literal["sent"]
 
@@ -591,18 +591,24 @@ class ReportWaiting(_Model):
     state: Literal["waiting"]
 
 
-class ReportSaved(_Model):
-    """Zgłoszenia nie wysłano (brak klucza, odmowa albo brak połączenia); zwykle czeka w pliku na tym komputerze.
+class ReportQueued(_Model):
+    """Zgłoszenie czeka w kolejce Skrzynki na tym komputerze i wyjdzie samo; ``waits_for``: na internet albo na klucz
+    do Zgłoszeń od Maksa (brak klucza albo klucz, którego Skrzynka odmówiła)."""
 
-    ``message`` mówi, który plik przesłać Maksowi mailem i kiedy spróbować ponownie, a gdy i zapis pliku
-    się nie udał (pliku nie ma), że treść trzeba przesłać z podglądu.
-    """
+    state: Literal["queued"]
+    waits_for: Literal["internet", "key"]
 
-    state: Literal["saved"]
+
+class ReportNotQueued(_Model):
+    """Zgłoszenia nie udało się zapisać w kolejce, więc nic go nie wyśle; ``message`` mówi, co zrobić."""
+
+    state: Literal["not_queued"]
     message: Message
 
 
-ReportState = Annotated[ReportReady | ReportSent | ReportWaiting | ReportSaved, Field(discriminator="state")]
+ReportState = Annotated[
+    ReportReady | ReportSent | ReportWaiting | ReportQueued | ReportNotQueued, Field(discriminator="state")
+]
 
 
 # Rodzaj Zatrzymania: ``for_tata`` usuwa tata sam według Komunikatu, ``for_maks`` każe przekazać Komunikat
@@ -818,8 +824,9 @@ class WorkersUnreadable(_Model):
 Workers = Annotated[WorkersReady | WorkersUnreadable, Field(discriminator="state")]
 
 
-# Klucz do Zgłoszeń na tym komputerze: ``ready`` („Zgłoszenia: gotowe”) albo ``missing_key``; nigdy jego wartość.
-ReportKeyState = Literal["ready", "missing_key"]
+# Klucz do Zgłoszeń na tym komputerze: ``ready`` („Zgłoszenia: gotowe”: jest, a Skrzynka go nie odrzuciła, także bez
+# sieci), ``missing_key`` albo ``refused_key`` (Skrzynka Zgłoszeń odmówiła tego klucza); nigdy jego wartość.
+ReportKeyState = Literal["ready", "missing_key", "refused_key"]
 
 
 # Aktualność narzędzia: ``current`` (commit narzędzia zawiera najnowsze Wydanie), ``newer`` (jest nowsze Wydanie),
@@ -1005,10 +1012,12 @@ Notification = Annotated[DadNoteNotification | ReportNotification | ReleaseNotif
 
 
 class Notifications(_Model):
-    """Powiadomienia od najnowszego i liczba nieprzeczytanych (kropka na dzwonku)."""
+    """Powiadomienia od najnowszego, liczba nieprzeczytanych (kropka na dzwonku) i Komunikat o pliku stanu, którego
+    Centrum nie może zapisać (``None``: wszystko zapisane)."""
 
     unread: int
     items: list[Notification]
+    message: Message | None
 
 
 class NotificationsRead(_Model):

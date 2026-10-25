@@ -1,15 +1,16 @@
-"""Kolejka Skrzynki Zgłoszeń: Kontrole ilości, Logi Uruchomienia (#320) i Uwagi taty, które Centrum wysyła w tle.
+"""Kolejka Skrzynki Zgłoszeń: Kontrole ilości, Logi Uruchomienia, Uwagi taty i Zgłoszenia, które Centrum wysyła w tle.
 
-Każda wysyłka (``Post``) to gotowy tekst skierowany do issue okresu (``PeriodThread``: etykieta, wiersz
-rozpoznawczy na początku treści issue, tytuł i co z issue, które Maks zamknął), do nowego issue (``NewIssue``:
-etykieta i tytuł, jak Uwaga taty) albo do issue o znanym numerze (``KnownIssue``). Najpierw trafia do własnego pliku
-JSON w ``config/zgloszenia/kolejka/`` (poza Gitem, poza plikami ``Zgłoszenie *.md``, które tata może przesłać
-Maksowi), potem jeden wątek w tle wysyła wszystkie pliki po kolei i usuwa wysłane. Porażka (brak klucza, odmowa,
-brak sieci) zostawia plik bez Komunikatu; wątek rusza znów przy starcie Centrum (``resume``) i po każdej nowej
-wysyłce. Plik do ``KnownIssue``, którego skrzynka już nie ma, kolejka porzuca z linią dziennika (#402). Wysłany plik
-dostaje znacznik dostarczenia, zanim zniknie, więc plik, którego nie da się usunąć, nie idzie drugi raz. Przerwanie
-między wysłaniem a znacznikiem powtarza wysyłkę (co najmniej raz, decyzja 12). Treść nigdy nie trafia do dziennika
-Centrum: tylko etykieta, okres, numer issue i przyczyna czekania (decyzja 13).
+Każda wysyłka (``Post``) to gotowy tekst skierowany do issue okresu (``PeriodThread``: etykieta, wiersz rozpoznawczy
+na początku treści issue, tytuł i co z issue, które Maks zamknął), do nowego issue (``NewIssue``: etykieta i tytuł,
+jak Uwaga taty), do issue o znanym numerze (``KnownIssue``) albo do jednego otwartego Zgłoszenia problemu
+(``ReportIssue``: wiersz odcisku problemu w treści i tytuł). Najpierw trafia do własnego pliku JSON w
+``config/zgloszenia/kolejka/`` (poza Gitem), potem jeden wątek w tle wysyła wszystkie pliki po kolei i usuwa
+wysłane. Porażka (brak klucza, odmowa, brak sieci) zostawia plik bez Komunikatu; wątek rusza znów sam po
+``RETRY_S``, przy starcie Centrum (``resume``) i po każdej nowej wysyłce. Plik do ``KnownIssue``, którego skrzynka
+już nie ma, kolejka porzuca z linią dziennika (#402). Wysłany plik dostaje znacznik dostarczenia, zanim zniknie,
+więc plik, którego nie da się usunąć, nie idzie drugi raz. Przerwanie między wysłaniem a znacznikiem powtarza
+wysyłkę (co najmniej raz, decyzja 12). Treść nigdy nie trafia do dziennika Centrum: tylko etykieta, okres, numer
+issue i przyczyna czekania (decyzja 13).
 
 Issue okresu kolejka znajduje po wierszu rozpoznawczym przy każdej próbie wysyłki i dopisuje do niego części jako
 komentarze. Bez niego zakłada nowe issue: pierwsza część (albo nagłówek) jest jego treścią, kolejne komentarzami.
@@ -36,6 +37,8 @@ from pathlib import Path
 from typing import Any, Final, Literal, assert_never, get_args
 
 from rozliczenia.centrum.atomic_file import replace_atomically
+from rozliczenia.centrum.clock import Clock
+from rozliczenia.centrum.keyed_box import KeyedBox, NoKey
 from rozliczenia.centrum.log import CentrumLog, WaitingCause
 from rozliczenia.centrum.report_box import (
     COMMENT_LIMIT,
@@ -43,10 +46,8 @@ from rozliczenia.centrum.report_box import (
     Label,
     Refused,
     Rejected,
-    ReportBox,
     Sent,
     Unreachable,
-    find_issue,
 )
 
 QUEUE_DIRECTORY: Final = "kolejka"
@@ -57,9 +58,40 @@ SCHEMA_VERSION: Final = 2
 _PERIOD_THREAD_SCHEMA: Final = 1
 # Miejsce w komentarzu na nagłówek części i wiersz rozpoznawczy, ponad tekst bloków.
 _FRAME_RESERVE: Final = 2_000
+# Etykieta Zgłoszenia jak ``dad_cases.REPORT``, który sam zależy od kolejki.
+_REPORT_LABEL: Final[Label] = "zgloszenie"
+# Po przejściu, które stanęło na przyczynie dla całej kolejki (brak sieci, brak klucza, odmowa klucza), kolejka
+# próbuje znowu po minucie. Odrzucony klucz nie kosztuje przy tym zapytania: ``KeyedBox`` odpowiada ``Refused`` bez
+# sieci przez kwadrans, a brak klucza to odczyt pliku. Nieudana próba DNS raz na minutę nic nie kosztuje, a dłuższa
+# przerwa opóźniłaby wysyłkę po powrocie sieci.
+RETRY_S: Final = 60.0
+# Tyle „Wyślij” Uwagi taty i „Wyślij do Maksa” czekają na skrzynkę, zanim powiedzą, że wysyłka czeka w kolejce.
+DELIVERY_WAIT_S: Final = 5.0
 
 Frame = Callable[[int, int, str], str]
 """Komentarz części ``k`` z ``n`` z jej tekstu."""
+
+# Foldery kolejki z trwającym przejściem w tym procesie i czy inna kolejka tego folderu prosi o następne. Dwie
+# kolejki jednego folderu (restart Centrum w procesie) nie wysyłają naraz: obie nie znalazłyby issue okresu, którego
+# druga jeszcze nie założyła, i założyłyby je dwa razy. Między procesami pilnuje tego port Centrum (``launcher``).
+_PASSES_LOCK: Final = threading.Lock()
+_PASSES: Final[dict[Path, bool]] = {}
+
+
+def _claimed(directory: Path) -> bool:
+    """Czy to przejście może wysyłać z ``directory``; inaczej prosi trwające przejście o następne."""
+
+    with _PASSES_LOCK:
+        alone = directory not in _PASSES
+        _PASSES[directory] = not alone
+        return alone
+
+
+def _released(directory: Path) -> bool:
+    """Kończy przejście z ``directory``; ``True``, gdy w jego trakcie inna kolejka tego folderu prosiła o następne."""
+
+    with _PASSES_LOCK:
+        return _PASSES.pop(directory)
 Closed = Literal["new_issue", "reuse"]
 _LABELS: Final = frozenset(get_args(Label))
 _CLOSED: Final = frozenset(get_args(Closed))
@@ -94,7 +126,24 @@ class KnownIssue:
     number: int
 
 
-Target = PeriodThread | NewIssue | KnownIssue
+@dataclass(frozen=True)
+class ReportIssue:
+    """Zgłoszenie: jedno otwarte issue z etykietą ``zgloszenie`` na odcisk problemu (``line``: jego wiersz w treści).
+
+    Dostarczenie szuka otwartego Zgłoszenia z tym wierszem. Gdy jest (założyła je przerwana próba tej wysyłki, inny
+    komputer albo wcześniejsze Zgłoszenie, którego Centrum jeszcze nie znało), wysyłka je przejmuje bez nowego issue i
+    bez komentarza. Bez niego zakłada issue z ``title`` i częścią 1, a resztę części dopisuje komentarzami.
+    """
+
+    line: str
+    title: str
+
+    @property
+    def label(self) -> Label:
+        return _REPORT_LABEL
+
+
+Target = PeriodThread | NewIssue | KnownIssue | ReportIssue
 """Dokąd w Skrzynce Zgłoszeń idzie wysyłka; dostarczenie rozróżnia cele przez ``match``."""
 
 
@@ -117,6 +166,9 @@ class Post:
         body, comments = self.opening()
         if not self.parts or any(len(text) > COMMENT_LIMIT for text in (body, *comments)):
             raise ValueError("Wysyłka musi mieć części mieszczące się w komentarzu Skrzynki Zgłoszeń.")
+        # Przerwaną wysyłkę Zgłoszenia następna próba znajduje po tym wierszu; bez niego założyłaby drugie issue.
+        if isinstance(self.target, ReportIssue) and self.target.line not in body.splitlines():
+            raise ValueError("Treść nowego issue Zgłoszenia musi mieć wiersz odcisku problemu.")
 
     @classmethod
     def of(
@@ -151,7 +203,7 @@ class Post:
         match self.target:
             case PeriodThread(line=line):
                 return f"{line}\n\n{first}", comments
-            case NewIssue():
+            case NewIssue() | ReportIssue():
                 return first, comments
             case KnownIssue():
                 return "", self.parts
@@ -204,6 +256,8 @@ def _target_json(target: Target) -> dict[str, str | int]:
             return {"kind": "new_issue", "label": target.label, "title": target.title}
         case KnownIssue():
             return {"kind": "known_issue", "label": target.label, "number": target.number}
+        case ReportIssue():
+            return {"kind": "report_issue", "label": target.label, "line": target.line, "title": target.title}
         case _:
             assert_never(target)
 
@@ -217,6 +271,8 @@ def _target(entry: dict[str, Any], kind: object) -> Target | None:
         return NewIssue(entry["label"], _string(entry["title"]))
     if kind == "known_issue":
         return KnownIssue(entry["label"], entry["number"]) if type(entry["number"]) is int else None
+    if kind == "report_issue":
+        return ReportIssue(_string(entry["line"]), _string(entry["title"]))
     if kind != "period_thread" or entry["closed"] not in _CLOSED:
         return None
     return PeriodThread(entry["label"], _string(entry["line"]), entry["closed"], _string(entry["title"]))
@@ -324,92 +380,109 @@ class Gone:
     number: int
 
 
-def _deliver(post: Post, box: ReportBox, key: str) -> Delivered | Gone | Refused | Rejected | Unreachable:
+Failure = Refused | Rejected | Unreachable | NoKey
+"""Porażka wysyłki: odmowa klucza, odmowa treści, brak sieci albo brak klucza."""
+
+
+def _deliver(post: Post, box: KeyedBox) -> Delivered | Gone | Failure:
     match post.target:
         case PeriodThread() as thread:
-            return _deliver_to_period(post, thread, box, key)
+            return _deliver_to_period(post, thread, box)
         case NewIssue() as issue:
-            return _deliver_new_issue(post, issue, box, key)
+            return _deliver_new_issue(post, issue, box)
         case KnownIssue() as known:
-            return _deliver_to_known(post, known, box, key)
+            return _deliver_to_known(post, known, box)
+        case ReportIssue() as report:
+            return _deliver_report(post, report, box)
         case _:
             assert_never(post.target)
 
 
-def _deliver_new_issue(
-    post: Post, issue: NewIssue, box: ReportBox, key: str
-) -> Delivered | Refused | Rejected | Unreachable:
+def _deliver_new_issue(post: Post, issue: NewIssue, box: KeyedBox) -> Delivered | Failure:
     """Nowe issue z pierwszą częścią (albo nagłówkiem) i komentarze z resztą; porażka kończy wysyłkę."""
 
     body, comments = post.opening()
-    opened = box.open_issue(issue.label, issue.title, body, key=key)
+    opened = box.open_issue(issue.label, issue.title, body)
     if not isinstance(opened, Sent):
         return opened
-    return _comment_all(opened.number, comments, box, key)
+    return _comment_all(opened.number, comments, box)
 
 
-def _deliver_to_known(
-    post: Post, known: KnownIssue, box: ReportBox, key: str
-) -> Delivered | Gone | Refused | Rejected | Unreachable:
+def _deliver_report(post: Post, report: ReportIssue, box: KeyedBox) -> Delivered | Failure:
+    """Otwarte Zgłoszenie z tym odciskiem albo nowe issue z częścią 1 i komentarze z resztą.
+
+    Ponowna próba po przerwaniu między założeniem issue a znacznikiem dostarczenia znajduje issue założone przez
+    pierwszą i je przejmuje, więc jeden problem ma jedno otwarte Zgłoszenie także wtedy.
+    """
+
+    found = box.find_issue(report.label, report.line, include_closed=False)
+    if isinstance(found, Refused | Unreachable | NoKey):
+        return found
+    if found is not None:
+        return Delivered(found, ())
+    body, comments = post.opening()
+    opened = box.open_issue(report.label, report.title, body)
+    if not isinstance(opened, Sent):
+        return opened
+    return _comment_all(opened.number, comments, box)
+
+
+def _deliver_to_known(post: Post, known: KnownIssue, box: KeyedBox) -> Delivered | Gone | Failure:
     """Każda część jako komentarz do issue ``known.number``, jeśli skrzynka je ma (otwarte albo zamknięte).
 
     Komentarz do issue, które Maks usunął, to 404, czyli odmowa, która zatrzymałaby całą kolejkę, więc kolejka
     najpierw pyta o issue z etykietą. Gdy lista przyszła bez tego numeru, issue nie ma (``Gone``).
     """
 
-    found = box.labelled_issues(known.label, include_closed=True, key=key)
-    if isinstance(found, Refused | Unreachable):
+    found = box.labelled_issues(known.label, include_closed=True)
+    if isinstance(found, Refused | Unreachable | NoKey):
         return found
     if all(issue.number != known.number for issue in found):
         return Gone(known.number)
-    return _comment_all(known.number, post.parts, box, key)
+    return _comment_all(known.number, post.parts, box)
 
 
-def _deliver_to_period(
-    post: Post, thread: PeriodThread, box: ReportBox, key: str
-) -> Delivered | Refused | Rejected | Unreachable:
+def _deliver_to_period(post: Post, thread: PeriodThread, box: KeyedBox) -> Delivered | Failure:
     """Każda część jako komentarz do issue okresu, a bez niego nowe issue z pierwszą częścią i komentarze z resztą.
 
     Issue okresu jest szukane przy każdej próbie, więc usunięte albo zamknięte issue nie blokuje kolejki. Pierwsza
     porażka kończy wysyłkę; następna próba zaczyna od nowa.
     """
 
-    found = find_issue(box, thread.label, thread.line, include_closed=thread.closed == "reuse", key=key)
-    if isinstance(found, Refused | Unreachable):
+    found = box.find_issue(thread.label, thread.line, include_closed=thread.closed == "reuse")
+    if isinstance(found, Refused | Unreachable | NoKey):
         return found
     if found is None:
         body, comments = post.opening()
-        opened = box.open_issue(thread.label, thread.title, body, key=key)
+        opened = box.open_issue(thread.label, thread.title, body)
         if not isinstance(opened, Sent):
             return opened
         number = opened.number
     else:
         number, comments = found, post.parts
-    return _comment_all(number, comments, box, key)
+    return _comment_all(number, comments, box)
 
 
-def _comment_all(
-    number: int, comments: Sequence[str], box: ReportBox, key: str
-) -> Delivered | Refused | Rejected | Unreachable:
+def _comment_all(number: int, comments: Sequence[str], box: KeyedBox) -> Delivered | Failure:
     delivered: list[Commented] = []
     for comment in comments:
-        answer = box.comment(number, comment, key=key)
+        answer = box.comment(number, comment)
         if not isinstance(answer, Commented):
             return answer
         delivered.append(answer)
     return Delivered(number, tuple(delivered))
 
 
-def _waiting(outcome: Refused | Rejected | Unreachable | None) -> tuple[WaitingCause, Literal["stop", "next"]]:
-    """Przyczyna w dzienniku i co dalej w przejściu kolejki po porażce wysyłki (``None``: brak klucza).
+def _waiting(outcome: Failure) -> tuple[WaitingCause, Literal["stop", "next"]]:
+    """Przyczyna w dzienniku i co dalej w przejściu kolejki po porażce wysyłki.
 
-    Brak klucza, brak sieci i odmowa (401/403/404: klucz, dostęp albo limit zapytań) spotkałyby każdy następny plik,
+    Brak klucza, brak sieci (także limit zapytań) i odmowa (401/403/404: klucz albo dostęp) spotkałyby każdy następny plik,
     więc przejście staje z jedną linią dziennika. Odmowa treści dotyczy tylko tego pliku: zostaje do następnego
     startu Centrum, a przejście idzie dalej.
     """
 
     match outcome:
-        case None:
+        case NoKey():
             return "brak-klucza", "stop"
         case Unreachable():
             return "brak-sieci", "stop"
@@ -422,7 +495,7 @@ def _waiting(outcome: Refused | Rejected | Unreachable | None) -> tuple[WaitingC
 
 
 class Outbox:
-    """Pliki kolejki w ``directory`` i jedyny wątek, który je wysyła.
+    """Pliki kolejki w ``directory`` i jedyny wątek, który je wysyła, także sam po porażce skrzynki.
 
     Każdy plik ma jednego autora (``post``, nowa nazwa) i jednego czytelnika, który go oznacza i usuwa (wątek
     ``skrzynka-kolejka``), więc pliki nie potrzebują blokady. Blokada chroni tylko to, czy wątek już biegnie, i
@@ -430,31 +503,42 @@ class Outbox:
     ``on_delivered`` dostaje każdą wysyłkę przyjętą przez skrzynkę i numer jej issue, w wątku wysyłki, zanim plik
     dostanie znacznik. ``prepare`` dostaje wysyłkę z pliku tuż przed wysłaniem i zwraca tę, która pójdzie, albo
     ``None``: wysyłka czeka na inną i zostaje w kolejce do następnego przejścia.
+
+    Dwie kolejki jednego folderu w tym procesie nie wysyłają naraz (``_claimed``): kolejka, która zastanie przejście
+    drugiej, nie wysyła nic, a druga po swoim przejściu robi następne.
+
+    Przejście, które stanęło na przyczynie dla całej kolejki, nastawia jedno budzenie ``clock`` za ``RETRY_S``, chyba
+    że już jest nastawione; budzenie rusza wysyłkę w tle. Odrzucona treść i wysyłka czekająca w ``prepare`` budzenia
+    nie nastawiają: ponowienie im nie pomoże. Linia „skrzynka-czeka” trafia do dziennika tylko przy zmianie przyczyny
+    (zeruje ją każde dostarczenie i przejście do końca), bo budzenie co minutę zapełniłoby ostatnie wpisy, które niesie
+    Diagnoza.
     """
 
     def __init__(
         self,
         directory: Path,
-        box: ReportBox,
-        key: Callable[[], str | None],
+        box: KeyedBox,
         log: CentrumLog,
         *,
+        clock: Clock,
         on_delivered: Callable[[Post, int], None] = lambda _post, _number: None,
         prepare: Callable[[Post], Post | None] = lambda post: post,
         addresses: Path | None = None,
     ) -> None:
         self._directory = directory
         self._box = box
-        self._key = key
         self._log = log
+        self._clock = clock
         self._on_delivered = on_delivered
         self._prepare = prepare
         self._addresses = addresses
         self._sequence = itertools.count(1)
-        self._lock = threading.Lock()  # _draining, _again, _first_comments, _rejected_posts; nie na czas skrzynki
+        self._lock = threading.Lock()  # _draining, _again, _retry_armed, _first_comments, _rejected_posts
         self._changed = threading.Condition(self._lock)
         self._draining = False
         self._again = False
+        self._retry_armed = False
+        self._stopped_on: WaitingCause | None = None  # tylko wątek kolejki
         self._first_comments: dict[tuple[str, Label], str | None] = {} if addresses is None else _read_addresses(addresses)
         self._undeleted: set[str] = set()  # wysłane w tej pracy Centrum, usunięcie się nie udało i jest w dzienniku
         self._unreadable: set[str] = set()  # nieczytelne, już w dzienniku tej pracy Centrum
@@ -475,6 +559,10 @@ class Outbox:
                 with suppress(OSError):
                     leftover.unlink()
         self.send_in_background()
+
+    @property
+    def directory(self) -> Path:
+        return self._directory
 
     def delivered(self, run_id: str, label: Label) -> str | None:
         """Adres pierwszego komentarza wysyłki ``label`` z Uruchomienia ``run_id``, przyjętej przez skrzynkę.
@@ -535,24 +623,37 @@ class Outbox:
     def _drain(self) -> None:
         while True:
             try:
-                self._send_all()
+                if _claimed(self._directory):
+                    try:
+                        self._send_all()
+                    finally:
+                        if _released(self._directory):
+                            with self._lock:
+                                self._again = True
             except Exception as failure:
                 self._log.unexpected_failure(failure, where="wysyłka do Skrzynki Zgłoszeń")
             with self._changed:
                 if not self._again:
                     self._draining = False
+                    if self._stopped_on is not None and not self._retry_armed:
+                        self._retry_armed = True
+                        self._clock.after(RETRY_S, self._woken)
                     self._changed.notify_all()
                     return
                 self._again = False
 
-    def _send_all(self) -> None:
-        """Pliki kolejki po nazwie (czas utworzenia); porażka skrzynki zatrzymuje przejście albo pomija plik (``_waiting``)."""
+    def _woken(self) -> None:
+        with self._lock:
+            self._retry_armed = False
+        self.send_in_background()
 
-        paths = sorted(self._directory.glob("*.json"))
-        if not paths:
-            return
-        key = self._key()
-        for path in paths:
+    def _send_all(self) -> None:
+        """Pliki kolejki po nazwie (czas utworzenia); porażka skrzynki zatrzymuje przejście albo pomija plik (``_waiting``).
+
+        ``_stopped_on`` to potem przyczyna, na której przejście stanęło, albo ``None``.
+        """
+
+        for path in sorted(self._directory.glob("*.json")):
             if path.name in self._undeleted:
                 self._remove(path)
                 continue
@@ -569,7 +670,7 @@ class Outbox:
             if post is None:
                 continue
             label, period = post.target.label, post.period
-            outcome = None if key is None else _deliver(post, self._box, key)
+            outcome = _deliver(post, self._box)
             if isinstance(outcome, Gone):
                 self._log.box_post_dropped(label=label, file=path.name, number=outcome.number)
                 self._remove(path)
@@ -577,13 +678,16 @@ class Outbox:
             if not isinstance(outcome, Delivered):
                 cause, then = _waiting(outcome)
                 if then == "stop":
-                    self._log.box_post_waiting(label=label, period=period, cause=cause)
+                    if cause != self._stopped_on:
+                        self._log.box_post_waiting(label=label, period=period, cause=cause)
+                    self._stopped_on = cause
                     return
                 self._rejected.add(path.name)
                 with self._lock:
                     self._rejected_posts.add((post.run_id, label))
                 self._log.box_post_waiting(label=label, period=period, cause=cause, file=path.name)
                 continue
+            self._stopped_on = None
             self._log.box_post_sent(label=label, period=period, number=outcome.number)
             self._on_delivered(post, outcome.number)
             with self._changed:
@@ -593,6 +697,7 @@ class Outbox:
             with suppress(OSError):  # bez znacznika chroni już tylko _undeleted, do końca tej pracy Centrum
                 replace_atomically(path, _queue_text(post, delivered_parts=len(post.parts)))
             self._remove(path)
+        self._stopped_on = None
 
     def _remember_address(self, post: Post, outcome: Delivered) -> None:
         """Dopisuje adres pierwszego komentarza do pliku ``addresses``; nieudany zapis to tylko wpis w dzienniku."""

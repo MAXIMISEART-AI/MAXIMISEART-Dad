@@ -29,9 +29,11 @@ from rozliczenia.centrum.report_box import (
     SendOutcome,
     Sent,
     Unreachable,
-    find_issue,
 )
+from rozliczenia.centrum.keyed_box import KeyedBox, NoKey
 from rozliczenia.centrum.reports import fingerprint_line
+
+from tests.fixtures.clock import ManualClock
 
 TITLE = "BRAK_WZORCA: Nie znaleziono wzorca."
 BODY = "## Komunikat\n"
@@ -201,12 +203,10 @@ def test_brak_sieci_na_drugiej_stronie_to_skrzynka_nieosiagalna() -> None:
     assert outcome == Unreachable()
 
 
-def find_with(answer: Callable[[], HttpResponse]) -> tuple[FindOutcome, ScriptedTransport]:
+def find_with(answer: Callable[[], HttpResponse]) -> tuple[FindOutcome | NoKey, ScriptedTransport]:
     transport = ScriptedTransport(answer)
-    found = find_issue(
-        GitHubReportBox(transport=transport), "zgloszenie", fingerprint_line(FINGERPRINT), include_closed=False, key=KEY
-    )
-    return found, transport
+    box = KeyedBox(GitHubReportBox(transport=transport), lambda: KEY, clock=ManualClock())
+    return box.find_issue("zgloszenie", fingerprint_line(FINGERPRINT), include_closed=False), transport
 
 
 def test_otwarte_issue_z_odciskiem_problemu_to_znalezione_zgloszenie() -> None:
@@ -377,3 +377,32 @@ def test_klucz_ktorego_nie_da_sie_wyslac_w_naglowku_to_odmowa_skrzynki_bez_zapyt
     outcome = OPERATIONS[operation](GitHubReportBox(transport=transport), key)
 
     assert (outcome, transport.requests) == (Refused(), [])
+
+
+# Odpowiedzi GitHuba na przekroczony limit zapytań: podstawowy (403) i „secondary” (403 albo 429).
+RATE_LIMITS = {
+    "podstawowy-403": (403, b'{"message": "API rate limit exceeded for user ID 1.", "documentation_url": "..."}'),
+    "secondary-403": (403, b'{"message": "You have exceeded a secondary rate limit. Please wait a few minutes."}'),
+    "secondary-429": (429, b'{"message": "You have exceeded a secondary rate limit."}'),
+}
+
+
+@pytest.mark.parametrize("answer", RATE_LIMITS.values(), ids=RATE_LIMITS.keys())
+@pytest.mark.parametrize("operation", OPERATIONS)
+def test_limit_zapytan_githuba_to_brak_sieci_a_nie_odmowa_klucza(operation: str, answer: tuple[int, bytes]) -> None:
+    transport = ScriptedTransport(lambda: HttpResponse(*answer))
+
+    outcome = OPERATIONS[operation](GitHubReportBox(transport=transport), KEY)
+
+    assert outcome == Unreachable()
+
+
+@pytest.mark.parametrize("operation", OPERATIONS)
+def test_403_bez_limitu_zapytan_to_odmowa_klucza(operation: str) -> None:
+    transport = ScriptedTransport(
+        lambda: HttpResponse(403, b'{"message": "Resource not accessible by personal access token"}')
+    )
+
+    outcome = OPERATIONS[operation](GitHubReportBox(transport=transport), KEY)
+
+    assert outcome == Refused()

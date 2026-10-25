@@ -16,7 +16,7 @@ READS = {
     "load_workbook": "rozliczenia/workbook_files.py::_open",
 }
 NOT_WORKBOOKS = {
-    "rozliczenia/centrum/reports.py::read_report_key": "klucz Zgłoszeń to plik tekstowy; bez dostępu jest brakiem klucza",
+    "rozliczenia/centrum/keyed_box.py::read_report_key": "klucz Zgłoszeń to plik tekstowy; bez dostępu jest brakiem klucza",
 }
 
 
