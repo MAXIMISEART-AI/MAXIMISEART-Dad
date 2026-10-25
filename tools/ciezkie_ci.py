@@ -1,0 +1,104 @@
+"""Ciężkie zadania CI liczy GitHub, a lokalnie biegną tylko do odtworzenia ich konkretnej porażki.
+
+Ciężkie zadania to ``change-mutations`` (``tools/mutacje_zmiany.py``) i ``mutations`` (``tools/mutacje_skilli.py``
+dla wszystkich skilli): trwają kilkanaście minut i dłużej, a CI liczy je po pushu w trzech częściach każde.
+``tools/mutacje_zmiany.py`` i ``tools/ci_lokalnie.py`` z jednym z nich (także pełne, bez ``--tylko``) pytają
+``refusal`` przed startem i poza CI odmawiają, chyba że:
+
+- biegną w CI (``GITHUB_ACTIONS=true``);
+- ``--odtwarzam <id runu Actions albo URL>`` wskazuje run, w którym każde z tych zadań padło i który dotyczy bieżącej
+  gałęzi (``headBranch`` to ona albo ``headSha`` jest przodkiem HEAD spoza ``origin/main``); ``gh run view`` to sprawdza;
+- uruchamia je krok ``tools/ci_lokalnie.py --odtwarzam``, którego run strażnik już sprawdził (``MAXIMISEART_ODTWARZAM``);
+- uruchamia je ``tools/na_scalonych_pr.py`` (``MAXIMISEART_NA_SCALONYCH_PR=1``): próba narzędzia na commicie scalenia
+  cudzego PR-u, nie sprawdzenie przed pushem.
+
+Granica: ``GITHUB_ACTIONS``, ``MAXIMISEART_ODTWARZAM`` albo ``MAXIMISEART_NA_SCALONYCH_PR`` podstawione ręcznie,
+``tools/na_scalonych_pr.py --commit`` z commitem własnej gałęzi i mutacje uruchomione bez tych narzędzi (pytest z własną
+pętlą mutacji) łapie tylko przegląd.
+"""
+
+from __future__ import annotations
+
+import argparse
+from collections.abc import Callable, Iterable, Mapping, Sequence
+import json
+import os
+from pathlib import Path
+import re
+import subprocess
+
+ROOT = Path(__file__).resolve().parents[1]
+# Zadanie z ``tools/ci_lokalnie.py`` i początek nazwy jego zadań w ``.github/workflows/ci.yml``.
+HEAVY = {"change-mutations": "Change mutations", "mutations": "Mutation checks"}
+FROM_MERGED_PRS = "MAXIMISEART_NA_SCALONYCH_PR"
+# Run, który sprawdził już strażnik narzędzia nadrzędnego: ``tools/ci_lokalnie.py`` przekazuje go swoim krokom.
+REPRODUCING = "MAXIMISEART_ODTWARZAM"
+
+Gh = Callable[[Sequence[str]], str]
+
+
+def _gh(arguments: Sequence[str]) -> str:
+    return subprocess.run(["gh", *arguments], cwd=ROOT, capture_output=True, text=True, encoding="utf-8", check=True).stdout
+
+
+def argument(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--odtwarzam",
+        metavar="RUN",
+        help="Id albo URL runu Actions tej gałęzi, w którym padło ciężkie zadanie: tylko wtedy biegnie ono poza CI.",
+    )
+
+
+def refusal(
+    jobs: Iterable[str],
+    reproduces: str | None,
+    *,
+    root: Path,
+    env: Mapping[str, str] = os.environ,
+    gh: Gh = _gh,
+) -> str | None:
+    """Powód odmowy startu ciężkich zadań z ``jobs`` albo ``None``, gdy mogą biec."""
+
+    heavy = sorted(set(jobs) & HEAVY.keys())
+    if not heavy or env.get("GITHUB_ACTIONS") == "true" or env.get(FROM_MERGED_PRS) == "1" or env.get(REPRODUCING):
+        return None
+    named = ", ".join(heavy)
+    if reproduces is None:
+        return (
+            f"CIĘŻKIE CI ODMOWA | {named} liczy CI na GitHubie, nie ten komputer. "
+            "Wypchnij gałąź: CI policzy je w trzech częściach, a stan pokaże tools/praca_w_toku.py albo gh pr checks. "
+            "Lokalnie tylko odtworzenie porażki: dodaj --odtwarzam <id albo URL runu Actions tej gałęzi, w którym zadanie padło>."
+        )
+    try:
+        why = _not_reproducing(heavy, reproduces, root, gh)
+    except (OSError, subprocess.CalledProcessError, ValueError, KeyError, TypeError) as error:
+        why = f"nie odczytałem runu {reproduces} przez gh: {error}"
+    return f"CIĘŻKIE CI ODMOWA | --odtwarzam {reproduces}: {why}" if why else None
+
+
+def _not_reproducing(heavy: list[str], reproduces: str, root: Path, gh: Gh) -> str | None:
+    found = re.fullmatch(r"(\d+)|https://github\.com/[^/]+/[^/]+/actions/runs/(\d+)(/.*)?", reproduces.strip())
+    if not found:
+        return "to nie jest id ani URL runu Actions"
+    run_id = found.group(1) or found.group(2)
+    run = json.loads(gh(["run", "view", run_id, "--json", "headBranch,headSha,jobs"]))
+    branch = _git(root, "branch", "--show-current", check=True).stdout.strip()
+    if run["headBranch"] != branch and not _own_commit(root, run["headSha"]):
+        return f"run dotyczy gałęzi {run['headBranch']} ({run['headSha'][:8]}), a nie bieżącej {branch or 'HEAD'}"
+    failed = {job["name"] for job in run["jobs"] if job["conclusion"] == "failure"}
+    if missing := [job for job in heavy if not any(name.startswith(HEAVY[job]) for name in failed)]:
+        return f"w runie {run_id} nie padło {', '.join(missing)}; odtwórz tylko zadanie, które padło"
+    return None
+
+
+def _own_commit(root: Path, commit: str) -> bool:
+    """``commit`` jest przodkiem HEAD, ale nie ``origin/main``: czerwony run scalonego PR-u nie otwiera mutacji."""
+
+    def ancestor(of: str) -> bool:
+        return _git(root, "merge-base", "--is-ancestor", commit, of, check=False).returncode == 0
+
+    return ancestor("HEAD") and not ancestor("origin/main")
+
+
+def _git(root: Path, *arguments: str, check: bool) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(["git", *arguments], cwd=root, capture_output=True, text=True, encoding="utf-8", check=check)
