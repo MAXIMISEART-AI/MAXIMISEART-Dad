@@ -35,13 +35,15 @@ class FakeExcel:
         self.running = False
         self.workbooks: list[str] = []
         self.dialog = False
+        # Excel names its workbooks also behind a dialog that is not modal.
+        self.names_workbooks_in_dialog = False
         self.rss_mb = 2400
         self.closed: list[str] = []
         self.end_error: Exception | None = None
         self.running_after_end_error = True
 
     def open_paths(self, timeout: int = 10) -> list[str]:
-        if self.dialog:
+        if self.dialog and not self.names_workbooks_in_dialog:
             raise self.excel.ExcelDialog("Excel answers 'missing value' for its workbooks: a modal dialog is up")
         return list(self.workbooks) if self.running else []
 
@@ -97,7 +99,9 @@ def excel(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[FakeExcel
         sys.modules.pop(name, None)
 
 
-def _run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fake: FakeExcel, *, dialog: bool = False) -> tuple[int, str]:
+def _run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fake: FakeExcel, *, dialog: bool = False, opened_by_user: tuple[str, ...] = ()
+) -> tuple[int, str]:
     """``run_excel_verification.main`` whose drive opens this run's workbooks on its desk, as the real steps do."""
 
     runner = importlib.import_module("run_excel_verification")
@@ -113,6 +117,7 @@ def _run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fake: FakeExcel, *, di
         for name in RUN_WORKBOOKS:
             (desk / name).write_bytes(b"PK")
             fake.workbooks.append(str(desk / name))
+        fake.workbooks += opened_by_user
         fake.rss_mb += 600
         if dialog:
             fake.dialog = True
@@ -239,6 +244,20 @@ def test_nieudane_zatrzymanie_excela_z_oknem_dialogowym_konczy_run_linia_verify(
     assert f"excel_quit_failed={type(excel.end_error).__name__}" in cleanup, cleanup
     assert ("desk_kept=" in cleanup) is not excel_ended, cleanup
     assert ("scratch_removed=true" in cleanup) is excel_ended, cleanup
+
+
+@pytest.mark.parametrize("users", [False, True], ids=["tylko-skoroszyty-runu", "skoroszyt-uzytkownika"])
+def test_excel_uruchomiony_przez_run_z_oknem_dialogowym_zostaje_otwarty_tylko_ze_skoroszytem_uzytkownika(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, excel: FakeExcel, users: bool
+) -> None:
+    excel.names_workbooks_in_dialog = True
+
+    code, output = _run(tmp_path, monkeypatch, excel, dialog=True, opened_by_user=(MAKS_WORKBOOK,) if users else ())
+
+    cleanup = (_evidence(tmp_path) / "cleanup.txt").read_text(encoding="utf-8")
+    assert code == 1 and _verdict(output).startswith("VERIFY FAIL"), output
+    assert ("excel_dialog_left=true" in cleanup, "excel_stopped=true" in cleanup) == (users, not users), cleanup
+    assert excel.running is users and (MAKS_WORKBOOK in excel.workbooks) is users
 
 
 def test_okno_dialogowe_na_starcie_konczy_run_przed_praca(

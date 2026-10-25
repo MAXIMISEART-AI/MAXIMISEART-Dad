@@ -202,7 +202,10 @@ evidence stays. If a dialog keeps Excel from closing and this run
 started Excel, it stops that process by its id, then starts Excel once more and
 quits it, so macOS does not reopen the run's windows at the next start. A dialog
 in an Excel that was already running stays for its owner to answer
-(`excel_dialog_left=true`).
+(`excel_dialog_left=true`), and so does one in the Excel this run started when
+Excel names a workbook outside the run's desk (the user opened it during the
+run). Behind a modal dialog Excel names no workbook, so then the run stops it
+without knowing.
 
 Excel may not answer the quit or the stop, for example because a dialog came up
 after the check, an AppleEvent timed out (`-1712`), Excel refused it (`-1708`),

@@ -621,6 +621,18 @@ def _drive(run: Run, args: Namespace, real_templates: Path | None) -> None:
         repair_control(run)
 
 
+def _holds_others(desk: Path) -> bool:
+    """Whether Excel names a workbook outside ``desk``, such as one the user opened in the Excel this run started.
+
+    While a modal dialog is up Excel names none (``ExcelDialog``), so then no workbook is known to be the user's.
+    """
+
+    try:
+        return any(not Path(path).is_relative_to(desk) for path in excel.open_paths())
+    except excel.ExcelError:
+        return False
+
+
 def _cleanup(run: Run) -> tuple[list[str], bool]:
     """Close this run's workbooks, quit an Excel that holds no workbook, remove scratch; evidence stays.
 
@@ -636,7 +648,7 @@ def _cleanup(run: Run) -> tuple[list[str], bool]:
         closed = False
         notes.append(f"close_failed={type(exc).__name__}")
     try:
-        if run.started_excel is not None and excel.dialogs() and excel.pid() == run.started_excel:
+        if run.started_excel is not None and excel.dialogs() and excel.pid() == run.started_excel and not _holds_others(run.desk):
             notes.append(f"excel_stopped={str(excel.terminate(run.started_excel)).lower()}")
         elif excel.dialogs():
             notes.append("excel_dialog_left=true (answer the dialog in Excel by hand)")
