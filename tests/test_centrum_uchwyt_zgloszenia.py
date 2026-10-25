@@ -100,7 +100,6 @@ class Computer:
             on_delivered=lambda post, number: reports.delivered(post, number),
         )
         reports = Reports(
-            self.config,
             keyed,
             outbox,
             lambda: TOOL_COMMIT,

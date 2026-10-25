@@ -28,7 +28,6 @@ from collections.abc import Callable
 from dataclasses import astuple, dataclass
 from datetime import datetime, timezone
 import hashlib
-from pathlib import Path
 from typing import Final, Literal
 
 from rozliczenia.call_trace import CallTrace
@@ -402,7 +401,6 @@ class Reports:
 
     def __init__(
         self,
-        config_directory: Path,
         box: KeyedBox,
         outbox: Outbox,
         commit: CommitSource,

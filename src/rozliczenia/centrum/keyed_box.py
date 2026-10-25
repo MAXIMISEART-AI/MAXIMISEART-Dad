@@ -156,7 +156,6 @@ class KeyedBox:
         self._listed(key, _PROBE_LABEL, include_closed=False)
 
     def _listed(self, key: str, label: Label, *, include_closed: bool) -> IssuesOutcome:
-
         asked_at = self._clock()
         outcome = self._box.labelled_issues(label, include_closed=include_closed, key=key)
         self._observe(key, asked_at, outcome)

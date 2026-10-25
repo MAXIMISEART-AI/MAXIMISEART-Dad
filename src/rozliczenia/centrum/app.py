@@ -195,7 +195,7 @@ def create_app(
         addresses=config / ADDRESSES_FILE,
     )
     reports = Reports(
-        config, box, outbox, surroundings.tool_freshness.local, cases, search_deadline_s=report_search_deadline_s
+        box, outbox, surroundings.tool_freshness.local, cases, search_deadline_s=report_search_deadline_s
     )
     # Powiadomienia o Uwagach taty, wysłanych Zgłoszeniach i Wydaniach; przeczytane obok Ustawień taty (ADR 0015).
     notifications = Notifications(
