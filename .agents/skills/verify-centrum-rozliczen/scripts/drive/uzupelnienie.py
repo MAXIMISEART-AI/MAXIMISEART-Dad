@@ -107,9 +107,11 @@ def _drive_entries(run: Run, page: Page) -> None:
     assert isinstance(periods, list)
     prepared = [period["token"] for period in periods if period["status"] == "collective_file_prepared"]
     expect(others).to_have_count(len(prepared))
+    for token in prepared:
+        expect(period_row(page, token).get_by_role("button", name=f"Uzupełnij, okres {token}", exact=True)).to_be_visible()
     run.check(
-        prepared == [LAST_COMPLETE],
-        "only the row with Status okresu Plik zbiorczy przygotowany offers Uzupełnij",
+        LAST_COMPLETE in prepared and len(prepared) < len(periods),
+        f"exactly the rows with Status okresu Plik zbiorczy przygotowany ({', '.join(prepared)}) offer Uzupełnij",
     )
     run.capture(page, "231-uzupelnienie-tablica")
     fill.click()
