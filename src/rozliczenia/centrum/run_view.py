@@ -49,13 +49,14 @@ class ProcessView(Generic[InputsT, SummaryT]):
     """Widok Uruchomienia jednego procesu: deklaracja procesu, liczby na żywo i wynik w kształcie kontraktu.
 
     Deklaracja procesu: ``reminder`` to przypomnienie przed uruchomieniem, ``confirms_readiness``
-    mówi, czy „Uruchom” potwierdza Gotowość Pliku zbiorczego, a ``preview_hint`` to podpowiedź
-    „Podgląd bez zapisu”.
+    mówi, czy „Uruchom” potwierdza Gotowość Pliku zbiorczego, ``preview_hint`` to podpowiedź
+    „Podgląd bez zapisu”, a ``done`` tytuł wyniku po zapisie.
     """
 
     reminder: str
     confirms_readiness: bool
     preview_hint: str
+    done: str
     _figures: Callable[[ProgressSnapshot, bool], list[contract.Figure]]
     _summary: Callable[[SummaryT, bool], contract.RunSummary]
 
@@ -155,6 +156,7 @@ SETTLEMENT: Final[ProcessView[SettlementInputs, SettlementSummary]] = ProcessVie
     reminder="Zapisz i zamknij Plik zbiorczy w Excelu",
     confirms_readiness=True,
     preview_hint="Nic nie zostanie zapisane. Zobaczysz plan plików każdego Wykonawcy.",
+    done="Rozliczenia pracowników gotowe",
     _figures=_settlement_figures,
     _summary=_settlement_summary,
 )
@@ -162,6 +164,7 @@ PREPARATION: Final[ProcessView[PreparationInputs, PreparationSummary]] = Process
     reminder="Zapisz i zamknij Rejestr zleceń w Excelu",
     confirms_readiness=False,
     preview_hint="Nic nie zostanie zapisane. Zobaczysz plan i nazwy obu plików.",
+    done="Plik zbiorczy przygotowany",
     _figures=_preparation_figures,
     _summary=_preparation_summary,
 )

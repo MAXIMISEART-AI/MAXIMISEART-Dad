@@ -8,6 +8,7 @@ import {
   FileSpreadsheetIcon,
   FileTextIcon,
   FolderOpenIcon,
+  HistoryIcon,
   InfoIcon,
   PlayIcon,
   PlusIcon,
@@ -17,11 +18,16 @@ import {
 } from "lucide-react"
 
 import type {
+  LoggedOutcome,
+  NextAction,
+  PastRun,
   PeriodFile,
   PhaseProgress,
   Progress as RunProgress,
   RunInfo,
+  RunInterrupted,
   RunOutcome,
+  RunRestored,
   RunSummary,
   RunView,
   WorkerFile,
@@ -38,14 +44,14 @@ import { Disclosure } from "@/components/disclosure"
 import { ThreePartMessage } from "@/components/three-part-message"
 import { WriteAboutRun } from "@/components/write-to-maks"
 import { useChangeEntrance } from "@/lib/content-entrance"
-import { seconds } from "@/lib/format"
+import { dateTime, seconds } from "@/lib/format"
 import { useRuns } from "@/lib/runs"
 import { openAndConfirm } from "@/pages/periods/open-period-path"
 import { CountTiles, NumberStrip } from "@/pages/runs/count-tiles"
 import { useStopDiagnosis } from "@/pages/runs/diagnosis"
 import { ConfirmRunDialog } from "@/pages/runs/run-dialogs"
 
-type ShownRun = Exclude<RunView, { state: "idle" }>
+type LiveRun = Exclude<RunView, { state: "idle" }>
 
 const PHASE_ICONS: Record<PhaseProgress["state"], React.ReactNode> = {
   pending: <CircleDashedIcon className="text-muted-foreground" aria-hidden />,
@@ -75,7 +81,7 @@ export function RunCard({
   reminder,
   onNewRun,
 }: {
-  view: ShownRun
+  view: LiveRun
   reminder: string
   onNewRun: () => void
 }) {
@@ -85,61 +91,19 @@ export function RunCard({
 
   return (
     <Card role="region" aria-label="Podgląd na żywo">
-      <CardHeader>
-        <CardDescription className="tabular-nums">Okres {run.period}</CardDescription>
-        <CardTitle className="text-lg">{run.title}</CardTitle>
-        <CardAction className="flex items-center gap-2">
-          <Badge variant={run.dry_run ? "outline" : "default"}>
-            {run.dry_run ? <EyeIcon data-icon="inline-start" /> : null}
-            {run.dry_run ? "Bez zapisu" : "Z zapisem"}
-          </Badge>
-          {view.state === "finished" ? (
+      <RunHeader
+        run={run}
+        actions={
+          view.state === "finished" ? (
             <>
-              <Tooltip>
-                <TooltipTrigger
-                  render={
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      aria-label="Nowe Uruchomienie procesu"
-                      onClick={onNewRun}
-                    />
-                  }
-                >
-                  <PlusIcon />
-                </TooltipTrigger>
-                <TooltipContent>Nowe Uruchomienie procesu</TooltipContent>
-              </Tooltip>
+              <NewRunButton onNewRun={onNewRun} />
               <WriteAboutRun runId={run.id} />
             </>
-          ) : null}
-        </CardAction>
-      </CardHeader>
+          ) : null
+        }
+      />
       <CardContent className="flex flex-col gap-6">
-        <ol className="grid grid-cols-4 gap-4" aria-label="Etapy">
-          {view.progress.phases.map((phase) => (
-            <li
-              key={phase.phase}
-              className="flex flex-col gap-2"
-              aria-label={`${phase.phase}: ${PHASE_STATE_LABELS[phase.state]}`}
-            >
-              <span className="flex items-center gap-2 text-sm font-medium [&_svg]:size-4">
-                <PhaseIcon state={phase.state} />
-                <span data-pending={phase.state === "pending"} className="data-[pending=true]:text-muted-foreground">
-                  {phase.phase}
-                </span>
-              </span>
-              <Progress
-                value={PHASE_VALUES[phase.state]}
-                aria-label={phase.phase}
-                className={phase.state === "failed" ? "**:data-[slot=progress-indicator]:bg-destructive" : undefined}
-              />
-              <span className="h-4 text-xs text-muted-foreground tabular-nums">
-                {phase.state === "completed" || phase.state === "failed" ? seconds(phase.duration_ms) : null}
-              </span>
-            </li>
-          ))}
-        </ol>
+        <PhaseList phases={view.progress.phases} />
         {view.state === "finished" ? null : <NumberStrip name="Liczniki" figures={view.progress.figures} />}
         {view.state !== "finished" && view.progress.template_total > 0 ? (
           <TemplateProgress progress={view.progress} />
@@ -172,6 +136,153 @@ export function RunCard({
   )
 }
 
+/**
+ * Ostatnie Uruchomienie sprzed startu Centrum, z dysku: karta z Logów Uruchomienia albo Uruchomienie, w którego
+ * trakcie Centrum się zamknęło. Wygląda jak wynik na żywo, z dopiskiem, skąd jest.
+ */
+export function PastRunCard({ past, reminder, onNewRun }: { past: PastRun; reminder: string; onNewRun: () => void }) {
+  switch (past.state) {
+    case "restored":
+      return <RestoredRunCard past={past} reminder={reminder} onNewRun={onNewRun} />
+    case "interrupted":
+      return <InterruptedRunCard past={past} onNewRun={onNewRun} />
+    default: {
+      const unhandled: never = past
+
+      return unhandled
+    }
+  }
+}
+
+function RestoredRunCard({ past, reminder, onNewRun }: { past: RunRestored; reminder: string; onNewRun: () => void }) {
+  const { run, result } = past
+  const next = useNextAction(run, result.next_action, reminder)
+
+  return (
+    <Card role="region" aria-label="Ostatnie Uruchomienie">
+      <RunHeader
+        run={run}
+        actions={
+          <>
+            <NewRunButton onNewRun={onNewRun} />
+            <WriteAboutRun runId={run.id} />
+          </>
+        }
+      />
+      <CardContent className="flex flex-col gap-6">
+        <PastNote>Ostatnie Uruchomienie · {dateTime(past.started_at)} · Centrum było od tego czasu zamknięte</PastNote>
+        <PhaseList phases={past.phases} />
+        <OutcomeBody run={run} result={result} action={next.button} />
+        {next.dialog}
+      </CardContent>
+    </Card>
+  )
+}
+
+function InterruptedRunCard({ past, onNewRun }: { past: RunInterrupted; onNewRun: () => void }) {
+  const { start } = useRuns()
+  const run = past.run
+
+  return (
+    <Card role="region" aria-label="Ostatnie Uruchomienie">
+      <RunHeader run={run} actions={<NewRunButton onNewRun={onNewRun} />} />
+      <CardContent className="flex flex-col gap-6">
+        <PastNote>Ostatnie Uruchomienie · {dateTime(past.started_at)} · Centrum zamknęło się w trakcie</PastNote>
+        <ThreePartMessage
+          message={past.advice}
+          kind="warning"
+          action={<RerunButton onRerun={() => start({ process: run.process, period: run.period, dry_run: run.dry_run })} />}
+        />
+      </CardContent>
+    </Card>
+  )
+}
+
+/** Karta Uruchomienia z wiersza Historii, tylko do odczytu: etapy i wynik z Logów Uruchomienia, bez akcji. */
+export function HistoryRunCard({ card }: { card: RunRestored }) {
+  return (
+    <div className="flex flex-col gap-6">
+      <PastNote>Uruchomienie z {dateTime(card.started_at)}</PastNote>
+      <PhaseList phases={card.phases} />
+      <OutcomeBody run={card.run} result={card.result} action={null} />
+    </div>
+  )
+}
+
+/** Okres, proces, tryb i akcje karty Uruchomienia. */
+function RunHeader({ run, actions }: { run: RunInfo; actions: React.ReactNode }) {
+  return (
+    <CardHeader>
+      <CardDescription className="tabular-nums">Okres {run.period}</CardDescription>
+      <CardTitle className="text-lg">{run.title}</CardTitle>
+      <CardAction className="flex items-center gap-2">
+        <ModeBadge dryRun={run.dry_run} />
+        {actions}
+      </CardAction>
+    </CardHeader>
+  )
+}
+
+export function ModeBadge({ dryRun }: { dryRun: boolean }) {
+  return (
+    <Badge variant={dryRun ? "outline" : "default"}>
+      {dryRun ? <EyeIcon data-icon="inline-start" /> : null}
+      {dryRun ? "Bez zapisu" : "Z zapisem"}
+    </Badge>
+  )
+}
+
+function PastNote({ children }: { children: React.ReactNode }) {
+  return (
+    <p className="flex items-center gap-2 text-sm text-muted-foreground tabular-nums">
+      <HistoryIcon className="size-4" aria-hidden />
+      {children}
+    </p>
+  )
+}
+
+function NewRunButton({ onNewRun }: { onNewRun: () => void }) {
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={<Button variant="ghost" size="icon-sm" aria-label="Nowe Uruchomienie procesu" onClick={onNewRun} />}
+      >
+        <PlusIcon />
+      </TooltipTrigger>
+      <TooltipContent>Nowe Uruchomienie procesu</TooltipContent>
+    </Tooltip>
+  )
+}
+
+function PhaseList({ phases }: { phases: ReadonlyArray<PhaseProgress> }) {
+  return (
+    <ol className="grid grid-cols-4 gap-4" aria-label="Etapy">
+      {phases.map((phase) => (
+        <li
+          key={phase.phase}
+          className="flex flex-col gap-2"
+          aria-label={`${phase.phase}: ${PHASE_STATE_LABELS[phase.state]}`}
+        >
+          <span className="flex items-center gap-2 text-sm font-medium [&_svg]:size-4">
+            <PhaseIcon state={phase.state} />
+            <span data-pending={phase.state === "pending"} className="data-[pending=true]:text-muted-foreground">
+              {phase.phase}
+            </span>
+          </span>
+          <Progress
+            value={PHASE_VALUES[phase.state]}
+            aria-label={phase.phase}
+            className={phase.state === "failed" ? "**:data-[slot=progress-indicator]:bg-destructive" : undefined}
+          />
+          <span className="h-4 text-xs text-muted-foreground tabular-nums">
+            {phase.state === "completed" || phase.state === "failed" ? seconds(phase.duration_ms) : null}
+          </span>
+        </li>
+      ))}
+    </ol>
+  )
+}
+
 /** Ikona stanu etapu. Ikona stanu, który zmienił się na oczach taty, wchodzi `podmiana`; zastana stoi. */
 function PhaseIcon({ state }: { state: PhaseProgress["state"] }) {
   const entrance = useChangeEntrance(state, "podmiana")
@@ -185,24 +296,39 @@ function PhaseIcon({ state }: { state: PhaseProgress["state"] }) {
 
 function RunOutcomeSection({ run, result, reminder }: { run: RunInfo; result: RunOutcome; reminder: string }) {
   const { start } = useRuns()
-  const [confirming, setConfirming] = React.useState(false)
-  const openFolder = () => openAndConfirm(run.period, "period_folder", () => undefined)
-  const again = (dryRun: boolean) => start({ process: run.process, period: run.period, dry_run: dryRun })
+  const next = useNextAction(run, result.next_action, reminder)
   // Czy i jak proponować Diagnozę, mówi serwer: przy niej przycisk „Diagnoza” zastępuje następną akcję.
   const offersDiagnosis = result.diagnosis !== null
-  const diagnosis = useStopDiagnosis(run.id, result.diagnosis, result.report, () => again(run.dry_run))
 
-  const nextAction = (
-    <NextActionButton
-      action={result.next_action}
-      onRun={() => setConfirming(true)}
-      onRerun={() => again(run.dry_run)}
-      onOpenFolder={openFolder}
-    />
+  const diagnosis = useStopDiagnosis(run.id, result.diagnosis, result.report, () =>
+    start({ process: run.process, period: run.period, dry_run: run.dry_run })
   )
 
-  const action = offersDiagnosis ? diagnosis.action : nextAction
+  return (
+    <>
+      <OutcomeBody
+        run={run}
+        result={result}
+        action={offersDiagnosis ? diagnosis.action : next.button}
+        below={offersDiagnosis ? diagnosis.result : null}
+      />
+      {next.dialog}
+    </>
+  )
+}
 
+/** Wynik: liczby, tytuł albo Zatrzymania z akcją, ostrzeżenia, uwagi techniczne i szczegóły podsumowania. */
+function OutcomeBody({
+  run,
+  result,
+  action,
+  below = null,
+}: {
+  run: RunInfo
+  result: LoggedOutcome
+  action: React.ReactNode
+  below?: React.ReactNode
+}) {
   return (
     <>
       {result.summary === null ? null : <NumberStrip figures={result.summary.figures} />}
@@ -214,14 +340,19 @@ function RunOutcomeSection({ run, result, reminder }: { run: RunInfo; result: Ru
             <TriangleAlertIcon className="text-warning!" />
           )}
           <AlertTitle className="text-base">{result.headline}</AlertTitle>
-          <AlertAction className="top-3 right-3">{action}</AlertAction>
+          {action === null ? null : <AlertAction className="top-3 right-3">{action}</AlertAction>}
         </Alert>
       ) : (
         result.stops.map((stop, index) => (
-          <ThreePartMessage key={stop.what} message={stop} kind="stop" action={index === 0 ? action : undefined} />
+          <ThreePartMessage
+            key={stop.what}
+            message={stop}
+            kind="stop"
+            action={index === 0 && action !== null ? action : undefined}
+          />
         ))
       )}
-      {offersDiagnosis ? diagnosis.result : null}
+      {below}
       {result.warnings.map((warning) => (
         <ThreePartMessage key={warning.what} message={warning} kind="warning" />
       ))}
@@ -232,6 +363,26 @@ function RunOutcomeSection({ run, result, reminder }: { run: RunInfo; result: Ru
         </p>
       ))}
       {result.summary === null ? null : <SummaryDetails summary={result.summary} dryRun={run.dry_run} />}
+    </>
+  )
+}
+
+/** Akcja po wyniku, którą proponuje serwer, z potwierdzeniem zapisu przy „Uruchom”. */
+function useNextAction(run: RunInfo, action: NextAction, reminder: string) {
+  const { start } = useRuns()
+  const [confirming, setConfirming] = React.useState(false)
+  const again = (dryRun: boolean) => start({ process: run.process, period: run.period, dry_run: dryRun })
+
+  return {
+    button: (
+      <NextActionButton
+        action={action}
+        onRun={() => setConfirming(true)}
+        onRerun={() => again(run.dry_run)}
+        onOpenFolder={() => openAndConfirm(run.period, "period_folder", () => undefined)}
+      />
+    ),
+    dialog: (
       <ConfirmRunDialog
         open={confirming}
         onOpenChange={setConfirming}
@@ -243,8 +394,8 @@ function RunOutcomeSection({ run, result, reminder }: { run: RunInfo; result: Ru
         previewed
         onConfirm={() => again(false)}
       />
-    </>
-  )
+    ),
+  }
 }
 
 /** Jedyna akcja przy wyniku; którą pokazać, mówi serwer. */
@@ -254,7 +405,7 @@ function NextActionButton({
   onRerun,
   onOpenFolder,
 }: {
-  action: RunOutcome["next_action"]
+  action: NextAction
   onRun: () => void
   onRerun: () => void
   onOpenFolder: () => void
@@ -268,12 +419,7 @@ function NextActionButton({
         </Button>
       )
     case "rerun":
-      return (
-        <Button size="sm" variant="outline" onClick={onRerun}>
-          <RotateCcwIcon data-icon="inline-start" />
-          Uruchom ponownie
-        </Button>
-      )
+      return <RerunButton onRerun={onRerun} />
     case "open_period_folder":
       return (
         <Button size="sm" variant="outline" onClick={onOpenFolder}>
@@ -287,6 +433,15 @@ function NextActionButton({
       return unhandled
     }
   }
+}
+
+function RerunButton({ onRerun }: { onRerun: () => void }) {
+  return (
+    <Button size="sm" variant="outline" onClick={onRerun}>
+      <RotateCcwIcon data-icon="inline-start" />
+      Uruchom ponownie
+    </Button>
+  )
 }
 
 /** Postęp Szablonów pracowników z projekcji: bieżący Wykonawca i „x z y”. */

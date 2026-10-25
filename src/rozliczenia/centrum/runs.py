@@ -25,7 +25,7 @@ from __future__ import annotations
 
 import threading
 import uuid
-from collections.abc import AsyncIterator, Mapping, Sequence
+from collections.abc import AsyncIterator, Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from typing import Any, Final, Generic, Literal, Protocol, TypeVar
@@ -71,16 +71,12 @@ SummaryT = TypeVar("SummaryT", bound=WarnedSummary)
 
 @dataclass(frozen=True)
 class PreparedRun(Generic[InputsT, SummaryT]):
-    """Uruchomienie procesu gotowe do startu.
-
-    ``done`` to tytuł wyniku po zapisie, np. „Plik zbiorczy przygotowany”.
-    """
+    """Uruchomienie procesu gotowe do startu."""
 
     key: contract.ProcessKey
     period: str
     process: Process[InputsT, SummaryT]
     inputs: InputsT
-    done: str
     view: ProcessView[InputsT, SummaryT]
 
     @property
@@ -92,6 +88,28 @@ class PreparedRun(Generic[InputsT, SummaryT]):
 
 
 Ending = Literal["finished", "stop", "unexpected", "after_engine"]
+
+
+def verdict(
+    *, ending: Ending, result: contract.RunResult, dry_run: bool, done: str
+) -> tuple[str, Literal["run", "rerun", "open_period_folder"]]:
+    """Tytuł wyniku i jedyna akcja po nim: jedna reguła dla karty na żywo i karty z Logów Uruchomienia.
+
+    ``done`` to tytuł wyniku po zapisie (``ProcessView.done``). Wynik „Wymaga sprawdzenia” ma własny tytuł,
+    a po podglądzie proponuje ponowny podgląd po poprawce zamiast zapisu.
+    """
+
+    if ending != "finished":
+        # Po błędzie podsumowania przy zapisie pliki już są: nie proponujemy ponownego uruchomienia.
+        return (
+            "Zatrzymano" if ending == "stop" else "Błąd",
+            "open_period_folder" if ending == "after_engine" and not dry_run else "rerun",
+        )
+    if result == "WYMAGA_SPRAWDZENIA":
+        if dry_run:
+            return "Podgląd wymaga sprawdzenia · nic nie zapisano", "rerun"
+        return f"{done} · wymaga sprawdzenia", "open_period_folder"
+    return ("Podgląd gotowy · nic nie zapisano", "run") if dry_run else (done, "open_period_folder")
 
 
 @dataclass(frozen=True)
@@ -150,26 +168,13 @@ class EndedRun:
     def warnings(self) -> tuple[Message, ...]:
         return () if self.shown is None else self.shown.warnings
 
-    def card(self, done: str) -> contract.RunOutcome:
-        """Wynik na karcie Uruchomienia; ``done`` to tytuł wyniku po zapisie (``PreparedRun.done``).
+    def card(self, view: ProcessView[Any, Any]) -> contract.RunOutcome:
+        """Wynik na karcie Uruchomienia z deklaracji procesu ``view`` (tytuł wyniku po zapisie)."""
 
-        Wynik „Wymaga sprawdzenia” ma własny tytuł, a po podglądzie proponuje
-        ponowny podgląd po poprawce zamiast zapisu.
-        """
-
-        dry_run, stopped = self.info.dry_run, self.stopped
-        next_action: Literal["run", "rerun", "open_period_folder"]
-        if stopped is not None:
-            kind = stopped.stop.kind
-            headline = "Zatrzymano" if kind == "stop" else "Błąd"
-            # Po błędzie podsumowania przy zapisie pliki już są: nie proponujemy ponownego uruchomienia.
-            next_action = "open_period_folder" if kind == "after_engine" and not dry_run else "rerun"
-        elif self.result == "WYMAGA_SPRAWDZENIA":
-            next_action = "rerun" if dry_run else "open_period_folder"
-            headline = "Podgląd wymaga sprawdzenia · nic nie zapisano" if dry_run else f"{done} · wymaga sprawdzenia"
-        else:
-            next_action = "run" if dry_run else "open_period_folder"
-            headline = "Podgląd gotowy · nic nie zapisano" if dry_run else done
+        stopped = self.stopped
+        headline, next_action = verdict(
+            ending=self.ending, result=self.result, dry_run=self.info.dry_run, done=view.done
+        )
         return contract.RunOutcome(
             result=self.result,
             headline=headline,
@@ -214,18 +219,30 @@ class RunHost:
     Zatrzymania bieżącego Uruchomienia, a nowy stan Zgłoszenia trafia na jego kartę.
     Działania po wyniku (``after_run``) biegną przed końcem Uruchomienia, więc
     przyjęte zamknięcie Centrum albo Aktualizacja narzędzia ich nie przerwie.
+    Pierwszy widok niesie ``previous``, ostatnie Uruchomienie sprzed startu Centrum,
+    a każdy start idzie do ``run_started`` (plik startu na dysku), zanim ruszy jego wątek;
+    nieudany zapis startu trafia tylko do dziennika.
     """
 
     def __init__(
-        self, log: CentrumLog, centrum_runs: CentrumRuns, stops: Stops, *, after_run: Sequence[AfterRun]
+        self,
+        log: CentrumLog,
+        centrum_runs: CentrumRuns,
+        stops: Stops,
+        *,
+        previous: contract.PastRun | None,
+        run_started: Callable[[contract.RunInfo, datetime], None],
+        after_run: Sequence[AfterRun],
     ) -> None:
         self._log = log
         self._centrum_runs = centrum_runs
         self._stops = stops
+        self._run_started = run_started
         self._after_run = tuple(after_run)
         self._lock = threading.Lock()
         self._sequence = 0
-        self._events: list[contract.RunEvent] = [contract.RunEvent(sequence=0, view=contract.RunIdle(state="idle"))]
+        first = contract.RunIdle(state="idle", previous=previous)
+        self._events: list[contract.RunEvent] = [contract.RunEvent(sequence=0, view=first)]
         self._run: _Run | None = None
         self._updating = False
         self._closing = False
@@ -299,6 +316,10 @@ class RunHost:
             self._publish_locked(run.running_view())
             view = self._events[-1].view
         self._log.run_started(process=prepared.key, mode=run.info.mode, period=prepared.period)
+        try:
+            self._run_started(run.info, run.started_at)
+        except Exception as failure:  # zapis startu na dysku nie może zmienić Uruchomienia
+            self._log.unexpected_failure(failure, where="start Uruchomienia procesu")
         threading.Thread(target=run.work, name=f"uruchomienie-{run.info.id}", daemon=True).start()
         return view
 
@@ -398,6 +419,7 @@ class _Run:
             dry_run=prepared.dry_run,
             confirms_readiness=prepared.view.confirms_readiness,
         )
+        self.started_at = datetime.now(timezone.utc)
         self._progress = prepared.progress_view(ProgressProjection().snapshot)
         self._stale = False
         self._decided = threading.Event()
@@ -417,7 +439,7 @@ class _Run:
     def work(self) -> None:
         prepared = self._prepared
         core: Outcome[Shown[Any]] | None = None
-        since = datetime.now(timezone.utc)
+        since = self.started_at
         try:
             core = run_process(
                 prepared.process,
@@ -428,13 +450,13 @@ class _Run:
             )
             self._host.remember(prepared, self.info.id, since)
             ended = self._ended(core, None if isinstance(core.ending, Finished) else core.ending, since)
-            result = ended.card(prepared.done)
+            result = ended.card(prepared.view)
         except Exception as failure:
             self._host.failed(failure)
             stop = Stop("after_engine", _RESULT_NOT_SHOWN, CallTrace.of(failure))
             core = None if core is None else replace(core, ending=stop, view=None, technical_notes=())
             ended = self._ended(core, stop, since)
-            result = ended.card(prepared.done)
+            result = ended.card(prepared.view)
         self.stopped = ended.stopped
         self._host.after(ended)
         self._host.finished(ended)

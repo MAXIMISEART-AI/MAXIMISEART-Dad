@@ -477,7 +477,7 @@ def test_bez_wskazanego_rejestru_zlecen_uruchomienie_jest_odrzucone(tmp_path: Pa
 
     assert setup["blocker"] == "Najpierw wskaż Rejestr zleceń i folder okresów."
     assert (refused.status_code, refused.json()) == (409, {"message": "Najpierw wskaż Rejestr zleceń i folder okresów."})
-    assert client.get("/api/runs/current").json() == {"state": "idle"}
+    assert client.get("/api/runs/current").json() == {"state": "idle", "previous": None}
 
 
 def test_okres_spoza_kalendarza_okresow_jest_odrzucony(tmp_path: Path) -> None:
@@ -499,7 +499,7 @@ def test_uruchomienie_z_obcej_strony_jest_odrzucone(tmp_path: Path) -> None:
     )
 
     assert refused.status_code == 403
-    assert centrum.client.get("/api/runs/current").json() == {"state": "idle"}
+    assert centrum.client.get("/api/runs/current").json() == {"state": "idle", "previous": None}
     assert list(centrum.fixture.periods_directory.iterdir()) == []
 
 

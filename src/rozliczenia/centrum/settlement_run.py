@@ -86,7 +86,6 @@ class SettlementEntry:
             period=period.token,
             process=self.process,
             inputs=inputs,
-            done="Rozliczenia pracowników gotowe",
             view=_VIEW,
         )
 

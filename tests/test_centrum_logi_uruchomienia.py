@@ -28,6 +28,7 @@ from tests.fixtures.centrum_processes import (
     stopped_for_maks,
 )
 from tests.fixtures.preparation import PERIOD, incomplete_period_rows
+from tests.fixtures.run_cards import first_view, restored
 from tests.fixtures.settlement import MARKED, SOURCE_NAME, write_quantity_source
 
 AnyCentrum = PreparingCentrum | SettlingCentrum
@@ -270,6 +271,21 @@ def test_kazda_droga_zakonczenia_w_obu_trybach_daje_jeden_plik_logow_z_wynikiem_
     text = path.read_text(encoding="utf-8")
     assert "SYN-" not in text
     assert in_json(tmp_path) not in text and in_json(tmp_path.resolve()) not in text
+
+
+@pytest.mark.parametrize("ending", ENDINGS.values(), ids=ENDINGS.keys())
+def test_po_ponownym_starcie_karta_ostatniego_uruchomienia_wraca_z_logow(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, ending: Ending
+) -> None:
+    centrum, live = ending.run(tmp_path, monkeypatch)
+    [record] = records(centrum)
+
+    centrum.restart()
+
+    current = centrum.client.get("/api/runs/current").json()
+    assert current == {"state": "idle", "previous": restored(live, record["started_at"])}
+    assert first_view(centrum.client) == current
+    assert in_json(tmp_path) not in json.dumps(current), "same nazwy plików, bez ścieżek"
 
 
 def test_logi_maja_etapy_i_przetworzenia_szablonow_pracownika_z_wynikiem_wierszami_i_czasem(tmp_path: Path) -> None:

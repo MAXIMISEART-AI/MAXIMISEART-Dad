@@ -86,7 +86,6 @@ class PreparationEntry:
             period=period,
             process=self.process,
             inputs=inputs,
-            done="Plik zbiorczy przygotowany",
             view=_VIEW,
         )
 

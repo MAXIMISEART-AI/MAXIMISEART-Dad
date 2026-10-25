@@ -24,7 +24,8 @@ per schedule, and checks two rules:
 
 Replaced: ``threading`` inside ``runs.py`` and ``shutdown.py`` by model primitives that hand control to
 the checker; ``run_process`` by an engine with two steps and an optional Decyzja through the real
-``_Run.confirm``; ``CentrumLog`` and ``CentrumRuns`` by steps that write nothing; the actions after the result
+``_Run.confirm``; ``CentrumLog``, ``CentrumRuns`` and the start file (``run_started``) by steps that write
+nothing, with no Uruchomienie before Centrum's start; the actions after the result
 (``AfterRun``) by one step that writes nothing. ``ToolUpdates``
 (``tool_updates.py``) is modelled by hand around the real ``begin_update``, ``end_update`` and
 ``Shutdown.close_for_update``: Git, pip and the restart guardian are one step that ends either without a
@@ -360,6 +361,16 @@ class CentrumRunsSteps:
         self._scheduler.step("CentrumRuns.remember: rekord metryk Uruchomienia z Centrum")
 
 
+class StartFileSteps:
+    """``run_started`` of ``RunHost``: the start file of each Uruchomienie is one step; nothing is written."""
+
+    def __init__(self, scheduler: Scheduler) -> None:
+        self._scheduler = scheduler
+
+    def run_started(self, *_: object) -> None:
+        self._scheduler.step("run_started: plik startu Uruchomienia")
+
+
 # --- Harness ------------------------------------------------------------------------------------------
 
 
@@ -394,7 +405,6 @@ PREPARED: runs.PreparedRun[Any, Any] = runs.PreparedRun(
     period="08_14_09_2026",
     process=PROCESS,
     inputs=SimpleNamespace(dry_run=False),
-    done="Plik zbiorczy przygotowany",
     view=PREPARATION,
 )
 
@@ -512,6 +522,8 @@ def harness(scheduler: Scheduler) -> Iterator[World]:
             log,  # type: ignore[arg-type]
             CentrumRunsSteps(scheduler),  # type: ignore[arg-type]
             NoStops(),  # type: ignore[arg-type]
+            previous=None,
+            run_started=StartFileSteps(scheduler).run_started,
             after_run=[AfterRunSteps(scheduler)],
         )
         stopper.refuse_while(host.shutdown_refusal)
