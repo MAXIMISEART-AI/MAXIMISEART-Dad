@@ -18,6 +18,8 @@ export const zApiTiming = z.object({
         'getPeriodBoard',
         'openPeriodPath',
         'getQuantitiesToFill',
+        'getWithoutQuantity',
+        'getKindTable',
         'openWorkerSettlement',
         'getRunSetup',
         'startRun',
@@ -55,6 +57,17 @@ export const zBoardMissing = z.object({
 export const zBoardNotSet = z.object({
     state: z.literal('not_set')
 });
+
+/**
+ * CellSource
+ *
+ * Czyją wartość pokazuje komórka N:AP wiersza do uzupełnienia.
+ */
+export const zCellSource = z.enum([
+    'tool',
+    'tata',
+    'empty'
+]);
 
 /**
  * ClosedStep
@@ -232,6 +245,19 @@ export const zHealth = z.object({
 });
 
 /**
+ * KindTableCell
+ *
+ * Komórka N:AP wiersza na stronie rodzaju: wartość z pliku w kolumnie narzędzia, wpis taty, który robi wiersz, albo nic (0).
+ */
+export const zKindTableCell = z.object({
+    source: zCellSource,
+    value: z.union([
+        z.int(),
+        z.literal('nieliczbowa')
+    ])
+});
+
+/**
  * Message
  *
  * Komunikat w trzech częściach (Co się stało, Gdzie, Co zrobić) bez kodu.
@@ -396,6 +422,16 @@ export const zPinnableRun = z.object({
         'BLAD_KRYTYCZNY'
     ]),
     stop_kind: z.enum(['for_tata', 'for_maks']).nullable()
+});
+
+/**
+ * PriceListItem
+ *
+ * Kolumna N:AP i nazwa pozycji cennika z wiersza 17 Pliku zbiorczego.
+ */
+export const zPriceListItem = z.object({
+    column: z.string(),
+    name: z.string()
 });
 
 /**
@@ -688,6 +724,40 @@ export const zMetrics = z.object({
     runs: z.array(zProcessRun),
     statistics: z.array(zModeStatistics),
     recent: zRecentResults
+});
+
+/**
+ * RowState
+ */
+export const zRowState = z.enum(['to_fill', 'done']);
+
+/**
+ * KindTableRow
+ *
+ * Wiersz strony rodzaju: numer wiersza Pliku zbiorczego, teksty, po których tata go rozpoznaje, i komórki N:AP.
+ *
+ * Nigdy adres, numer zlecenia ani ``UMOWA`` (ADR 0016).
+ */
+export const zKindTableRow = z.object({
+    row: z.int(),
+    state: zRowState,
+    worker: z.string(),
+    devices: z.string(),
+    activities: z.string(),
+    completed: z.string(),
+    cells: z.array(zKindTableCell)
+});
+
+/**
+ * KindTableReady
+ *
+ * Wiersze jednego rodzaju Ilości do uzupełnienia rosnąco po numerze; ``columns`` to N:AP po kolei.
+ */
+export const zKindTableReady = z.object({
+    state: z.literal('ready'),
+    kind: zFillKind,
+    columns: z.array(zPriceListItem),
+    rows: z.array(zKindTableRow)
 });
 
 /**
@@ -1017,6 +1087,28 @@ export const zViewTiming = z.object({
 });
 
 /**
+ * WithoutQuantityRead
+ *
+ * Wiersze z listą (bez reguły, z opisu), w których tata nic jeszcze nie wpisał, rosnąco.
+ *
+ * ``sentence`` to zdanie okna „Uruchomić z zapisem?”, np. „3 wiersze bez ilości: 118, 203, 244”; ``None`` bez wierszy.
+ */
+export const zWithoutQuantityRead = z.object({
+    state: z.literal('read'),
+    rows: z.array(z.int()),
+    sentence: z.string().nullable()
+});
+
+/**
+ * WithoutQuantityUnread
+ *
+ * Pliku zbiorczego nie udało się odczytać, więc nie wiadomo, które wiersze są bez ilości; start zostaje możliwy.
+ */
+export const zWithoutQuantityUnread = z.object({
+    state: z.literal('unread')
+});
+
+/**
  * WorkerSettlement
  *
  * Rozliczenie pracownika jednego Wykonawcy: nazwa pliku, liczba jego zleceń w okresie i czy szablon jest pusty.
@@ -1341,6 +1433,35 @@ export const zGetQuantitiesToFillPath = z.object({
 export const zGetQuantitiesToFillResponse = z.discriminatedUnion('state', [
     zQuantitiesToFillReady,
     zQuantitiesToFillProblem
+]);
+
+export const zGetKindTablePath = z.object({
+    token: z.string(),
+    kind: zFillKind
+});
+
+/**
+ * Response Getkindtable
+ *
+ * Successful Response
+ */
+export const zGetKindTableResponse = z.discriminatedUnion('state', [
+    zKindTableReady,
+    zQuantitiesToFillProblem
+]);
+
+export const zGetWithoutQuantityPath = z.object({
+    token: z.string()
+});
+
+/**
+ * Response Getwithoutquantity
+ *
+ * Successful Response
+ */
+export const zGetWithoutQuantityResponse = z.discriminatedUnion('state', [
+    zWithoutQuantityRead,
+    zWithoutQuantityUnread
 ]);
 
 export const zOpenWorkerSettlementBody = zWorkerSettlementRequest;

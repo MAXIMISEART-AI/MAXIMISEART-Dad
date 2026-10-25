@@ -32,7 +32,7 @@ export function FillingOnResult({ token }: { token: string }) {
       ) : resource.state === "failed" ? null : (
         <div className={entrance}>
           {resource.data.state === "ready" ? (
-            <FillingSummary found={resource.data} />
+            <FillingSummary token={token} found={resource.data} />
           ) : (
             <ThreePartMessage message={resource.data.message} kind="notice" />
           )}

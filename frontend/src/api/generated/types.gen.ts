@@ -13,7 +13,7 @@ export type ApiTiming = {
     /**
      * Operation
      */
-    operation: 'getHealth' | 'getSettings' | 'chooseRegister' | 'openRegister' | 'choosePeriodsDirectory' | 'changeTheme' | 'getPeriodBoard' | 'openPeriodPath' | 'getQuantitiesToFill' | 'openWorkerSettlement' | 'getRunSetup' | 'startRun' | 'decideRun' | 'diagnoseRun' | 'reportRun' | 'getRunCard' | 'getNotifications' | 'markNotificationsRead' | 'getMetrics' | 'getConfiguration' | 'startToolUpdate' | 'getToolUpdate' | 'reportToolUpdate' | 'getDadNoteRuns' | 'draftDadNote' | 'sendDadNote' | 'closeCentrum';
+    operation: 'getHealth' | 'getSettings' | 'chooseRegister' | 'openRegister' | 'choosePeriodsDirectory' | 'changeTheme' | 'getPeriodBoard' | 'openPeriodPath' | 'getQuantitiesToFill' | 'getWithoutQuantity' | 'getKindTable' | 'openWorkerSettlement' | 'getRunSetup' | 'startRun' | 'decideRun' | 'diagnoseRun' | 'reportRun' | 'getRunCard' | 'getNotifications' | 'markNotificationsRead' | 'getMetrics' | 'getConfiguration' | 'startToolUpdate' | 'getToolUpdate' | 'reportToolUpdate' | 'getDadNoteRuns' | 'draftDadNote' | 'sendDadNote' | 'closeCentrum';
     /**
      * Browser Ms
      */
@@ -67,6 +67,13 @@ export type BoardReady = {
      */
     last_prepared_period: string | null;
 };
+
+/**
+ * CellSource
+ *
+ * Czyją wartość pokazuje komórka N:AP wiersza do uzupełnienia.
+ */
+export type CellSource = 'tool' | 'tata' | 'empty';
 
 /**
  * Choice
@@ -449,6 +456,75 @@ export type Health = {
      * Instance
      */
     instance: string;
+};
+
+/**
+ * KindTableCell
+ *
+ * Komórka N:AP wiersza na stronie rodzaju: wartość z pliku w kolumnie narzędzia, wpis taty, który robi wiersz, albo nic (0).
+ */
+export type KindTableCell = {
+    source: CellSource;
+    /**
+     * Value
+     */
+    value: number | 'nieliczbowa';
+};
+
+/**
+ * KindTableReady
+ *
+ * Wiersze jednego rodzaju Ilości do uzupełnienia rosnąco po numerze; ``columns`` to N:AP po kolei.
+ */
+export type KindTableReady = {
+    /**
+     * State
+     */
+    state: 'ready';
+    kind: FillKind;
+    /**
+     * Columns
+     */
+    columns: Array<PriceListItem>;
+    /**
+     * Rows
+     */
+    rows: Array<KindTableRow>;
+};
+
+/**
+ * KindTableRow
+ *
+ * Wiersz strony rodzaju: numer wiersza Pliku zbiorczego, teksty, po których tata go rozpoznaje, i komórki N:AP.
+ *
+ * Nigdy adres, numer zlecenia ani ``UMOWA`` (ADR 0016).
+ */
+export type KindTableRow = {
+    /**
+     * Row
+     */
+    row: number;
+    state: RowState;
+    /**
+     * Worker
+     */
+    worker: string;
+    /**
+     * Devices
+     */
+    devices: string;
+    /**
+     * Activities
+     */
+    activities: string;
+    /**
+     * Completed
+     */
+    completed: string;
+    /**
+     * Cells
+     */
+    cells: Array<KindTableCell>;
 };
 
 /**
@@ -890,6 +966,22 @@ export type PinnableRun = {
 };
 
 /**
+ * PriceListItem
+ *
+ * Kolumna N:AP i nazwa pozycji cennika z wiersza 17 Pliku zbiorczego.
+ */
+export type PriceListItem = {
+    /**
+     * Column
+     */
+    column: string;
+    /**
+     * Name
+     */
+    name: string;
+};
+
+/**
  * Problem
  *
  * Odmowa wykonania żądania z bezpiecznym komunikatem dla taty, bez tekstu wyjątku.
@@ -1296,6 +1388,11 @@ export type ResultCounts = {
      */
     failed: number;
 };
+
+/**
+ * RowState
+ */
+export type RowState = 'to_fill' | 'done';
 
 /**
  * RowToFill
@@ -1890,6 +1987,40 @@ export type ViewTiming = {
 };
 
 /**
+ * WithoutQuantityRead
+ *
+ * Wiersze z listą (bez reguły, z opisu), w których tata nic jeszcze nie wpisał, rosnąco.
+ *
+ * ``sentence`` to zdanie okna „Uruchomić z zapisem?”, np. „3 wiersze bez ilości: 118, 203, 244”; ``None`` bez wierszy.
+ */
+export type WithoutQuantityRead = {
+    /**
+     * State
+     */
+    state: 'read';
+    /**
+     * Rows
+     */
+    rows: Array<number>;
+    /**
+     * Sentence
+     */
+    sentence: string | null;
+};
+
+/**
+ * WithoutQuantityUnread
+ *
+ * Pliku zbiorczego nie udało się odczytać, więc nie wiadomo, które wiersze są bez ilości; start zostaje możliwy.
+ */
+export type WithoutQuantityUnread = {
+    /**
+     * State
+     */
+    state: 'unread';
+};
+
+/**
  * WorkerSettlement
  *
  * Rozliczenie pracownika jednego Wykonawcy: nazwa pliku, liczba jego zleceń w okresie i czy szablon jest pusty.
@@ -2263,6 +2394,95 @@ export type GetQuantitiesToFillResponses = {
 };
 
 export type GetQuantitiesToFillResponse = GetQuantitiesToFillResponses[keyof GetQuantitiesToFillResponses];
+
+export type GetKindTableData = {
+    body?: never;
+    path: {
+        /**
+         * Token
+         */
+        token: string;
+        kind: FillKind;
+    };
+    query?: never;
+    url: '/api/periods/{token}/quantities-to-fill/{kind}';
+};
+
+export type GetKindTableErrors = {
+    /**
+     * Not Found
+     */
+    404: Problem;
+    /**
+     * Conflict
+     */
+    409: Problem;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type GetKindTableError = GetKindTableErrors[keyof GetKindTableErrors];
+
+export type GetKindTableResponses = {
+    /**
+     * Response Getkindtable
+     *
+     * Successful Response
+     */
+    200: ({
+        state: 'ready';
+    } & KindTableReady) | ({
+        state: 'problem';
+    } & QuantitiesToFillProblem);
+};
+
+export type GetKindTableResponse = GetKindTableResponses[keyof GetKindTableResponses];
+
+export type GetWithoutQuantityData = {
+    body?: never;
+    path: {
+        /**
+         * Token
+         */
+        token: string;
+    };
+    query?: never;
+    url: '/api/periods/{token}/without-quantity';
+};
+
+export type GetWithoutQuantityErrors = {
+    /**
+     * Not Found
+     */
+    404: Problem;
+    /**
+     * Conflict
+     */
+    409: Problem;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type GetWithoutQuantityError = GetWithoutQuantityErrors[keyof GetWithoutQuantityErrors];
+
+export type GetWithoutQuantityResponses = {
+    /**
+     * Response Getwithoutquantity
+     *
+     * Successful Response
+     */
+    200: ({
+        state: 'read';
+    } & WithoutQuantityRead) | ({
+        state: 'unread';
+    } & WithoutQuantityUnread);
+};
+
+export type GetWithoutQuantityResponse = GetWithoutQuantityResponses[keyof GetWithoutQuantityResponses];
 
 export type OpenWorkerSettlementData = {
     body: WorkerSettlementRequest;

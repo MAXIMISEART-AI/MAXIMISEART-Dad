@@ -14,7 +14,7 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 from rozliczenia import domain
 from rozliczenia.message import DadFile, Message as ProcessMessage
 from rozliczenia.period_folder import PeriodStatus
-from rozliczenia.quantities_to_fill import FillKind
+from rozliczenia.quantities_to_fill import CellSource, FillKind, RowState
 
 
 class _Model(BaseModel):
@@ -426,6 +426,67 @@ class QuantitiesToFillProblem(_Model):
 
 
 QuantitiesToFill = Annotated[QuantitiesToFillReady | QuantitiesToFillProblem, Field(discriminator="state")]
+
+
+class WithoutQuantityRead(_Model):
+    """Wiersze z listą (bez reguły, z opisu), w których tata nic jeszcze nie wpisał, rosnąco.
+
+    ``sentence`` to zdanie okna „Uruchomić z zapisem?”, np. „3 wiersze bez ilości: 118, 203, 244”; ``None`` bez wierszy.
+    """
+
+    state: Literal["read"]
+    rows: list[int]
+    sentence: str | None
+
+
+class WithoutQuantityUnread(_Model):
+    """Pliku zbiorczego nie udało się odczytać, więc nie wiadomo, które wiersze są bez ilości; start zostaje możliwy."""
+
+    state: Literal["unread"]
+
+
+WithoutQuantity = Annotated[WithoutQuantityRead | WithoutQuantityUnread, Field(discriminator="state")]
+
+
+class KindTableCell(_Model):
+    """Komórka N:AP wiersza na stronie rodzaju: wartość z pliku w kolumnie narzędzia, wpis taty, który robi wiersz, albo nic (0)."""
+
+    source: CellSource
+    value: int | Literal["nieliczbowa"]
+
+
+class KindTableRow(_Model):
+    """Wiersz strony rodzaju: numer wiersza Pliku zbiorczego, teksty, po których tata go rozpoznaje, i komórki N:AP.
+
+    Nigdy adres, numer zlecenia ani ``UMOWA`` (ADR 0016).
+    """
+
+    row: int
+    state: RowState
+    worker: str
+    devices: str
+    activities: str
+    completed: str
+    cells: list[KindTableCell]
+
+
+class PriceListItem(_Model):
+    """Kolumna N:AP i nazwa pozycji cennika z wiersza 17 Pliku zbiorczego."""
+
+    column: str
+    name: str
+
+
+class KindTableReady(_Model):
+    """Wiersze jednego rodzaju Ilości do uzupełnienia rosnąco po numerze; ``columns`` to N:AP po kolei."""
+
+    state: Literal["ready"]
+    kind: FillKind
+    columns: list[PriceListItem]
+    rows: list[KindTableRow]
+
+
+KindTable = Annotated[KindTableReady | QuantitiesToFillProblem, Field(discriminator="state")]
 
 
 class Count(_Model):
@@ -943,6 +1004,8 @@ ApiOperation = Literal[
     "getPeriodBoard",
     "openPeriodPath",
     "getQuantitiesToFill",
+    "getWithoutQuantity",
+    "getKindTable",
     "openWorkerSettlement",
     "getRunSetup",
     "startRun",
