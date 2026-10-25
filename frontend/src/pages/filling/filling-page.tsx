@@ -1,12 +1,5 @@
 import { cn } from "cn"
-import {
-  ArrowLeftIcon,
-  ArrowRightIcon,
-  CalendarRangeIcon,
-  CircleCheckIcon,
-  CircleDashedIcon,
-  FileSpreadsheetIcon,
-} from "lucide-react"
+import { ArrowLeftIcon, CalendarRangeIcon, CircleCheckIcon, CircleDashedIcon, FileSpreadsheetIcon } from "lucide-react"
 
 import {
   getQuantitiesToFill,
@@ -24,9 +17,9 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { href, usePagePath } from "@/lib/address"
 import { useContentEntrance } from "@/lib/content-entrance"
-import { useRuns } from "@/lib/runs"
 import { useSettings } from "@/lib/settings"
 import { useResource } from "@/lib/use-resource"
+import { ReadyForSettlement } from "@/pages/filling/ready-for-settlement"
 import { openAndConfirm } from "@/pages/periods/open-period-path"
 
 const TITLE = "Uzupełnienie pliku zbiorczego"
@@ -78,25 +71,6 @@ export function FillingPage() {
       <FillingContent key={`${token}/${filesVersion}`} token={token} />
       <ReadyForSettlement token={token} />
     </>
-  )
-}
-
-/** Gotowość decyduje tata: przejście do Przebiegu rozliczeń z tym okresem, a start i jego potwierdzenie są tam. */
-function ReadyForSettlement({ token }: { token: string }) {
-  const { setDraft } = useRuns()
-
-  return (
-    <Button
-      variant="outline"
-      size="lg"
-      className="-mt-2 self-end"
-      nativeButton={false}
-      render={<a href={href("uruchomienia")} />}
-      onClick={() => setDraft({ process: "settlement", period: token })}
-    >
-      Gotowe, rozlicz pracowników
-      <ArrowRightIcon data-icon="inline-end" />
-    </Button>
   )
 }
 
