@@ -16,6 +16,7 @@
     --color-sidebar: var(--sidebar);
     --color-warning: var(--warning);
     --color-success: var(--success);
+    --color-to-fill: var(--to-fill);
     --color-ring: var(--ring);
     --color-input: var(--input);
     --color-border: var(--border);
@@ -68,6 +69,7 @@
     --radius: 0.625rem;
     --warning: oklch(0.6 0.13 70);
     --success: oklch(0.55 0.11 160);
+    --to-fill: oklch(0.965 0.06 102);
     --sidebar: oklch(0.985 0 0);
     --sidebar-foreground: oklch(0.145 0 0);
     --sidebar-accent: oklch(0.97 0 0);
@@ -106,6 +108,7 @@
     --sidebar-border: oklch(1 0 0 / 10%);
     --warning: oklch(0.8 0.12 80);
     --success: oklch(0.75 0.1 160);
+    --to-fill: oklch(0.3 0.04 100);
     --sidebar-ring: oklch(0.556 0 0);
 }
 

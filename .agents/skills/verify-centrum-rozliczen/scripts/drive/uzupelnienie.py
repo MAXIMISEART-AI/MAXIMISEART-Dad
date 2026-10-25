@@ -27,9 +27,11 @@ EXPECTED_ROWS = {"without_rule": [18, 20], "from_description": [19]}
 # its row without rule done, and it moves that column's counter.
 DAD_COLUMN = "Y"
 # The pinned column headers of a kind's table, the row texts the browser gets, and each row state's words.
-PINNED = ("Wiersz", "WYKONAWCA", "URZĄDZENIA", "CZYNNOŚCI", "CZYNNOŚCI ZREALIZOWANE")
+PINNED = ("Nr", "WYKONAWCA", "URZĄDZENIA", "CZYNNOŚCI", "CZYNNOŚCI ZREALIZOWANE")
 ROW_TEXTS = ("worker", "devices", "activities", "completed")
 ROW_LABELS = {"to_fill": "do uzupełnienia", "done": "zrobiony"}
+# Dad's 15,6" 1920×1080 touch screen scaled 150% and 125%, in CSS pixels; the narrower must fit 10 columns N:AP.
+DAD_WIDTHS = (1280, 1536)
 # A period whose Folder okresu holds no Plik zbiorczy.
 EMPTY_PERIOD = "15_21_09_2026"
 
@@ -186,6 +188,23 @@ def _drive_kind(run: Run, page: Page, kind: str, shot: str) -> dict[str, object]
     )
     _capture(run, page, f"{shot}-otwarty-opis", answer)
     page.keyboard.press("Escape")
+    original = page.viewport_size
+    for width in DAD_WIDTHS:
+        page.set_viewport_size({"width": width, "height": 800})
+        visible = table.evaluate(
+            """table => {
+                const right = table.parentElement.getBoundingClientRect().right
+                return [...table.querySelectorAll("thead th")].slice(5)
+                    .filter((th) => th.getBoundingClientRect().right <= right + 0.5).length
+            }"""
+        )
+        run.check(
+            width > DAD_WIDTHS[0] or visible >= 10,
+            f"{title}: at {width} px with the menu open {visible} columns N:AP fit next to the pinned texts",
+        )
+        _capture(run, page, f"{shot}-{width}px", answer)
+    if original is not None:
+        page.set_viewport_size(original)
     switched = _light_theme(page)
     _capture(run, page, f"{shot}-jasny", answer)
     if switched:

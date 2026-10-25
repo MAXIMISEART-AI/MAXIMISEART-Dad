@@ -461,7 +461,7 @@ export type Health = {
 /**
  * KindTableCell
  *
- * Komórka N:AP wiersza na stronie rodzaju: wartość narzędzia, wartość taty, która robi wiersz, albo nic (0).
+ * Komórka N:AP wiersza na stronie rodzaju: wartość z pliku w kolumnie narzędzia, wpis taty, który robi wiersz, albo nic (0).
  */
 export type KindTableCell = {
     source: CellSource;

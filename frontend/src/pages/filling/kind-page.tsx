@@ -17,10 +17,7 @@ import { useResource } from "@/lib/use-resource"
 
 // Wygląd wiersza po jego stanie z serwera; tło przypiętych komórek jest kryjące, bo pod nimi przewijają się ilości.
 const ROWS: Record<RowState, { tint: string; label: string }> = {
-  to_fill: {
-    tint: "bg-[color-mix(in_oklab,var(--warning)_14%,var(--card))] dark:bg-[color-mix(in_oklab,var(--warning)_20%,var(--card))]",
-    label: "do uzupełnienia",
-  },
+  to_fill: { tint: "bg-to-fill", label: "do uzupełnienia" },
   done: {
     tint: "bg-[color-mix(in_oklab,var(--success)_14%,var(--card))] dark:bg-[color-mix(in_oklab,var(--success)_20%,var(--card))]",
     label: "zrobiony",
@@ -29,17 +26,24 @@ const ROWS: Record<RowState, { tint: string; label: string }> = {
 
 type Pinned = { title: string; width: number; left: number }
 
-// Przypięte kolumny w rem: `left` to suma szerokości kolumn przed nią.
-const NUMBER: Pinned = { title: "Wiersz", width: 3.5, left: 0 }
+// Przypięte kolumny w rem: `left` to suma szerokości kolumn przed nią. Razem 22 rem, więc na laptopie taty
+// (1280 px z menu) obok mieści się 10 kolumn N:AP.
+const NUMBER: Pinned = { title: "Nr", width: 2.5, left: 0 }
 
 const TEXTS: ReadonlyArray<Pinned> = [
-  { title: "WYKONAWCA", width: 7.5, left: 3.5 },
-  { title: "URZĄDZENIA", width: 7.5, left: 11 },
-  { title: "CZYNNOŚCI", width: 7, left: 18.5 },
-  { title: "CZYNNOŚCI ZREALIZOWANE", width: 12, left: 25.5 },
+  { title: "WYKONAWCA", width: 4.5, left: 2.5 },
+  { title: "URZĄDZENIA", width: 4.75, left: 7 },
+  { title: "CZYNNOŚCI", width: 4.25, left: 11.75 },
+  { title: "CZYNNOŚCI ZREALIZOWANE", width: 6, left: 16 },
 ]
 
 const PINNED = [NUMBER, ...TEXTS]
+
+const PINNED_WIDTH = PINNED.reduce((sum, { width }) => sum + width, 0)
+
+// Kolumna N:AP w rem. Tabela ma stały układ (`table-fixed`), więc długie słowo nie poszerza kolumny ani nie
+// przesuwa przypiętych kolumn.
+const QUANTITY_WIDTH = 3.125
 
 function pinnedStyle({ width, left }: Pinned): React.CSSProperties {
   return { width: `${width}rem`, minWidth: `${width}rem`, maxWidth: `${width}rem`, left: `${left}rem` }
@@ -165,7 +169,11 @@ function QuantitiesTable({
   return (
     <Card className="overflow-hidden py-0">
       <div className="overflow-x-auto overscroll-x-contain">
-        <table aria-label="Wiersze Pliku zbiorczego" className="border-separate border-spacing-0 text-sm">
+        <table
+          aria-label="Wiersze Pliku zbiorczego"
+          className="table-fixed border-separate border-spacing-0 text-sm"
+          style={{ width: `${PINNED_WIDTH + columns.length * QUANTITY_WIDTH}rem` }}
+        >
           <thead>
             <tr>
               {PINNED.map((column, index) => (
@@ -174,15 +182,20 @@ function QuantitiesTable({
                   scope="col"
                   style={pinnedStyle(column)}
                   className={cn(
-                    "sticky z-20 border-b bg-muted px-2 py-2 text-left align-bottom text-xs font-medium text-muted-foreground",
+                    "sticky z-20 overflow-hidden border-b bg-muted px-1.5 py-2 text-left align-bottom text-[0.625rem] leading-tight font-medium text-muted-foreground",
                     index === PINNED.length - 1 && "border-r"
                   )}
                 >
-                  <span className="block truncate">{column.title}</span>
+                  <span className="line-clamp-2 break-words hyphens-auto">{column.title}</span>
                 </th>
               ))}
               {columns.map((column) => (
-                <th key={column.column} scope="col" className="w-18 min-w-18 border-b border-l bg-muted p-0 align-bottom">
+                <th
+                  key={column.column}
+                  scope="col"
+                  style={{ width: `${QUANTITY_WIDTH}rem` }}
+                  className="overflow-hidden border-b border-l bg-muted p-0 align-bottom"
+                >
                   <ColumnHeader column={column} />
                 </th>
               ))}
@@ -204,19 +217,19 @@ function ColumnHeader({ column }: { column: PriceListItem }) {
   const content = (
     <>
       <span className="font-mono text-xs font-semibold text-foreground">{column.column}</span>
-      <span className="line-clamp-2 text-[0.6875rem] leading-tight font-normal text-muted-foreground">{column.name}</span>
+      <span className="line-clamp-2 text-[0.625rem] leading-tight font-normal break-words hyphens-auto text-muted-foreground">{column.name}</span>
     </>
   )
 
   if (column.name === "") {
-    return <div className="flex h-full flex-col items-center justify-end gap-0.5 px-1.5 py-2">{content}</div>
+    return <div className="flex h-full flex-col items-center justify-end gap-0.5 px-1 py-2">{content}</div>
   }
 
   return (
     <Popover>
       <PopoverTrigger
         aria-label={`${column.column}: ${column.name}`}
-        className="flex w-full flex-col items-center justify-end gap-0.5 px-1.5 py-2 text-center transition-colors active:bg-foreground/5 data-[popup-open]:bg-foreground/5"
+        className="flex w-full flex-col items-center justify-end gap-0.5 px-1 py-2 text-center transition-colors active:bg-foreground/5 data-[popup-open]:bg-foreground/5"
       >
         {content}
       </PopoverTrigger>
@@ -239,7 +252,7 @@ function Row({ row }: { row: KindTableRow }) {
       <th
         scope="row"
         style={pinnedStyle(NUMBER)}
-        className={cn("sticky z-10 border-b px-2 text-left font-mono text-xs font-medium tabular-nums", tint)}
+        className={cn("sticky z-10 h-10 border-b px-1.5 text-left align-middle font-mono text-sm text-muted-foreground tabular-nums", tint)}
       >
         {row.row}
         <span className="sr-only"> {label}</span>
@@ -271,7 +284,7 @@ function FullText({ text, label }: { text: string; label: string }) {
     <Popover>
       <PopoverTrigger
         aria-label={`${label}: ${text}`}
-        className="block h-10 w-full truncate px-2 text-left transition-colors active:bg-foreground/5 data-[popup-open]:bg-foreground/5"
+        className="block h-10 w-full truncate px-1.5 text-left transition-colors active:bg-foreground/5 data-[popup-open]:bg-foreground/5"
       >
         {text}
       </PopoverTrigger>
@@ -283,7 +296,7 @@ function FullText({ text, label }: { text: string; label: string }) {
   )
 }
 
-/** Komórka N:AP: wartość narzędzia szara, wartość taty na zielono, pusta i 0 bez niczego. */
+/** Komórka N:AP: kolumna narzędzia szara, wpis taty na zielono, pusta i 0 bez niczego. */
 function QuantityCell({ cell, tint }: { cell: KindTableCell; tint: string }) {
   const shown = cell.value === 0 ? "" : cell.value === "nieliczbowa" ? "?" : String(cell.value)
 
@@ -291,7 +304,7 @@ function QuantityCell({ cell, tint }: { cell: KindTableCell; tint: string }) {
     <td
       data-source={cell.source}
       className={cn(
-        "h-10 border-b border-l px-2 text-center font-mono text-sm tabular-nums",
+        "h-10 border-b border-l px-1 text-center font-mono text-sm tabular-nums",
         cell.source === "tata" ? "bg-success/25 font-semibold text-foreground" : tint,
         cell.source === "tool" && "text-muted-foreground"
       )}

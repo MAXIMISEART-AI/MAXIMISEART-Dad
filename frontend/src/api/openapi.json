@@ -2215,7 +2215,7 @@
           "value"
         ],
         "title": "KindTableCell",
-        "description": "Komórka N:AP wiersza na stronie rodzaju: wartość narzędzia, wartość taty, która robi wiersz, albo nic (0)."
+        "description": "Komórka N:AP wiersza na stronie rodzaju: wartość z pliku w kolumnie narzędzia, wpis taty, który robi wiersz, albo nic (0)."
       },
       "KindTableReady": {
         "properties": {
