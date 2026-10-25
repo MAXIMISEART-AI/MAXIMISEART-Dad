@@ -312,7 +312,7 @@ def test_zgloszenie_ktorego_nie_da_sie_zapisac_w_kolejce_daje_komunikat(tmp_path
     run_id = stopped_for_maks(centrum)
     diagnose(centrum, run_id)
     queue = tmp_path / "config" / "zgloszenia" / "kolejka"
-    shutil.rmtree(queue)  # Logi Uruchomienia w kolejce
+    assert wait_for(lambda: removed(queue))  # Logi Uruchomienia w kolejce
     queue.write_text("", encoding="utf-8")  # plik zamiast folderu: zapis się nie uda
 
     state = send(centrum, run_id)
@@ -353,6 +353,18 @@ def test_niezapisane_zgloszenie_powracajacego_problemu_zostawia_jego_poprzednie_
     items = centrum.client.get("/api/notifications").json()["items"]
     assert [(item["kind"], item["state"]) for item in items] == [("zgloszenie", "rozwiazana")]
     assert [case["number"] for case in cases(centrum)] == [1]
+
+
+def removed(folder: Path) -> bool:
+    """Usuwa ``folder``; ``False``, gdy na Windows przejście kolejki bez klucza czyta w tej chwili jego plik."""
+
+    try:
+        shutil.rmtree(folder)
+    except FileNotFoundError:
+        return True
+    except OSError:
+        return False
+    return True
 
 
 def current_report(centrum: PreparingCentrum) -> object:
