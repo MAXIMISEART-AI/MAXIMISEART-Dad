@@ -16,6 +16,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "tools"))
 from mutacje import Edit, Mutation, check_all
 
 DAD_NOTES = Path("src/rozliczenia/centrum/dad_notes.py")
+APP = Path("src/rozliczenia/centrum/app.py")
+RUN_CARDS = Path("src/rozliczenia/centrum/run_cards.py")
 TOOL_UPDATES = Path("src/rozliczenia/centrum/tool_updates.py")
 WORKBOOK_FILES = Path("src/rozliczenia/workbook_files.py")
 QUANTITIES_TO_FILL = Path("src/rozliczenia/quantities_to_fill.py")
@@ -23,6 +25,7 @@ SETTINGS = Path("src/rozliczenia/centrum/settings.py")
 STOPS = Path("src/rozliczenia/centrum/stops.py")
 RUN_VIEW = Path("src/rozliczenia/centrum/run_view.py")
 RUNNER = ".agents/skills/verify-centrum-rozliczen/scripts/run_centrum_verification.py"
+KARTA = (RUNNER, "--feature", "karta-z-logow")
 UWAGA = (RUNNER, "--feature", "uwaga-taty")
 AKTUALIZACJA = (RUNNER, "--feature", "aktualizacja")
 UZUPELNIENIE = (RUNNER, "--feature", "uzupelnienie")
@@ -31,6 +34,24 @@ PRZYGOTOWANIE = (RUNNER, "--feature", "przygotowanie-pliku-zbiorczego")
 PRZEBIEG = (RUNNER, "--feature", "przebieg-rozliczen")
 
 MUTATIONS = (
+    Mutation(
+        "po starcie Centrum bez ostatniego Uruchomienia",
+        (
+            Edit(
+                APP,
+                "        previous=cards.last(),\n",
+                "        previous=None,\n",
+            ),
+        ),
+        KARTA,
+        "karta Uruchomienia ginie z zamknięciem Centrum",
+    ),
+    Mutation(
+        "Urwane Uruchomienie bez karty",
+        (Edit(RUN_CARDS, "            return self._interrupted(started)\n", "            return None\n"),),
+        KARTA,
+        "po starcie Centrum tata nie wie, że Uruchomienie urwało się w trakcie",
+    ),
     Mutation(
         "komentarz z odnośnikiem do odrzuconych Logów nie powstaje",
         (

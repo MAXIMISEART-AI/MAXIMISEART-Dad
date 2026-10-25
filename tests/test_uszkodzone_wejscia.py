@@ -418,6 +418,7 @@ DIAGNOSIS_ENTRIES = ("diagnoza[przygotowanie]", "diagnoza[przebieg]")
 NOT_SWEPT: dict[str, str] = {
     "getHealth": "tożsamość Centrum, nie czyta plików taty",
     "decideRun": "Decyzja taty tylko wznawia Uruchomienie, którego odczyty sprawdzają podglądy",
+    "getRunCard": "czyta tylko Logi Uruchomienia, pliki Centrum, nie pliki taty; zepsute Logi: test_centrum_karta_z_logow",
     "startToolUpdate": "aktualizacja zmienia katalog narzędzia, nie pliki taty (test_centrum_aktualizacja)",
     "reportToolUpdate": "wymaga nieudanej aktualizacji; klucz i wysłane Zgłoszenia sprawdza reportRun",
     "closeCentrum": "kończy Centrum testu",

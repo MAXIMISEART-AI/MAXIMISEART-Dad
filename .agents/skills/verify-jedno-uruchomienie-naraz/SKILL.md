@@ -44,7 +44,7 @@ after a new version, until the restart guardian has started and
 
 | Covered code | What the check relies on |
 | --- | --- |
-| `runs.py` `RunHost.start`, `shutdown_refusal`, `decide`, `finished`, `publish` | check and claim of `_run` under `_lock`; refusal while a run has not ended; an accepted shutdown sets `_closing` under the same lock |
+| `runs.py` `RunHost.start`, `shutdown_refusal`, `decide`, `finished`, `publish` | check and claim of `_run` under `_lock`; refusal while a run has not ended; an accepted shutdown sets `_closing` under the same lock; the start file (`run_started`, `run_cards.RunCards`) written outside the lock, after the claim and before the thread |
 | `runs.py` `RunHost.begin_update`, `end_update`, `_busy_locked` | check and claim of `_updating` under `_lock`; refusal while closing, updating or running |
 | `runs.py` `_Run.work`, `confirm`, `answer` | when `ended` is set; after-run actions (`RunHost.after`) before `finished`; waiting for the Decyzja on `_decided` |
 | `shutdown.py` `Shutdown.request`, `wait`, `refuse_while`, `close_for_update` | refusal check, then `_requested.set()`; `close_for_update` sets it without the check |
@@ -52,11 +52,11 @@ after a new version, until the restart guardian has started and
 | `app.py` `create_app`: `shutdown.refuse_while(runs.shutdown_refusal)` | the wiring the harness copies |
 | `server.py` `serve.stop_when_asked` and uvicorn graceful shutdown | modelled by hand (see below) |
 
-**Sync commit: `3356ca7`.** At this commit the checker was confirmed to describe
+**Sync commit: `3ac432a`.** At this commit the checker was confirmed to describe
 the covered code. To see whether it needs another look:
 
 ```bash
-git log --oneline 3356ca7..HEAD -- src/rozliczenia/centrum/runs.py src/rozliczenia/centrum/shutdown.py src/rozliczenia/centrum/server.py src/rozliczenia/centrum/app.py src/rozliczenia/centrum/tool_updates.py
+git log --oneline 3ac432a..HEAD -- src/rozliczenia/centrum/runs.py src/rozliczenia/centrum/shutdown.py src/rozliczenia/centrum/server.py src/rozliczenia/centrum/app.py src/rozliczenia/centrum/tool_updates.py
 ```
 
 For every listed commit, read its diff against the table. Move the sync commit
@@ -107,7 +107,8 @@ Replaced: `ToolUpdates` by a „Zaktualizuj narzędzie” tab that calls the rea
 `begin_update`, logs and starts the update thread, and a thread whose Git, pip and
 guardian work is one step ending either without a new version (or in a failure),
 then `end_update`, or with the guardian started, then the real
-`Shutdown.close_for_update`. Replaced: `run_process` by an engine with one work step, an optional Decyzja
+`Shutdown.close_for_update`. Replaced: the last Uruchomienie before Centrum's start (`previous`) by none, and the start file (`run_started`)
+by one step that writes nothing. Replaced: `run_process` by an engine with one work step, an optional Decyzja
 through the real `_Run.confirm` (both variants are explored) and an end step. Every
 Uruchomienie ends in success. Modelled by hand: after `Shutdown.wait()` returns,
 the server may end at any moment when no HTTP request is in flight. This is
