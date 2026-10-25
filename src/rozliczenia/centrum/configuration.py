@@ -6,14 +6,15 @@ Centrum tylko zamienia jego wynik na stan dla przeglądarki, z tym samym
 komunikatem w trzech częściach, którym zatrzymałby się proces używający tego
 pliku. Niczego w katalogu konfiguracji nie zapisuje. Te same Sprawdzania
 (``ConfigurationFiles.templates``, ``workers_problem``) wykonuje Diagnoza.
+Karta startu Uruchomienia pyta tu, które skoroszyty wejściowe procesu są otwarte w Excelu (``open_in_excel``).
 """
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Final, assert_never
+from typing import Final, Literal, NamedTuple, assert_never
 
 from fastapi import APIRouter
 
@@ -55,6 +56,43 @@ class ConfigurationFiles:
             Template("Wzorzec pliku zbiorczego", "preparation", ProcessTemplate.collective(self.collective_template)),
             Template("Wzorzec rozliczenia pracownika", "settlement", ProcessTemplate.worker(self.worker_template)),
         )
+
+    def template_inputs(self, process: contract.ProcessKey) -> list[InputWorkbook]:
+        """Wzorce procesu ``process`` jako skoroszyty wejściowe, w kolejności Konfiguracji."""
+
+        return [
+            InputWorkbook(template.label, template.path, "template")
+            for template in self.templates()
+            if template.used_by == process
+        ]
+
+
+InputKind = Literal["data_file", "template"]
+
+
+class InputWorkbook(NamedTuple):
+    """Skoroszyt, który proces czyta: etykieta dla taty, ścieżka i rodzaj, od którego zależy rada."""
+
+    label: str
+    path: Path
+    kind: InputKind
+
+
+# Plik danych tata uzupełnia, więc go zapisuje; zmiana zapisana we Wzorcu trafiłaby do każdego pliku z niego.
+_CLOSING: Final[Mapping[InputKind, str]] = {
+    "data_file": "Zapisz go i zamknij.",
+    "template": "Zamknij go bez zapisywania zmian.",
+}
+
+
+def open_in_excel(workbooks: Iterable[InputWorkbook]) -> list[str]:
+    """Zdania karty startu o skoroszytach wejściowych otwartych w Excelu, w kolejności ``workbooks``."""
+
+    return [
+        f"{label} jest otwarty w Excelu. {_CLOSING[kind]}"
+        for label, path, kind in workbooks
+        if workbook_files.is_open_in_excel(path)
+    ]
 
 
 _Problem = tuple[contract.TemplateProblemKind, Message]

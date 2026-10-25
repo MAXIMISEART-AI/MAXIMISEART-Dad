@@ -19,7 +19,9 @@ import {
 
 import type {
   LoggedOutcome,
+  Message,
   NextAction,
+  OpenTarget,
   PastRun,
   PeriodFile,
   PhaseProgress,
@@ -30,7 +32,7 @@ import type {
   RunRestored,
   RunSummary,
   RunView,
-  WorkerFile,
+  WorkerSettlement,
 } from "@/api/centrum"
 import { Alert, AlertAction, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
@@ -41,12 +43,12 @@ import { Spinner } from "@/components/ui/spinner"
 import { Table, TableBody, TableCell, TableRow } from "@/components/ui/table"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { Disclosure } from "@/components/disclosure"
-import { ThreePartMessage } from "@/components/three-part-message"
+import { StopMessage, ThreePartMessage } from "@/components/three-part-message"
 import { WriteAboutRun } from "@/components/write-to-maks"
 import { useChangeEntrance } from "@/lib/content-entrance"
 import { dateTime, seconds } from "@/lib/format"
 import { useRuns } from "@/lib/runs"
-import { openAndConfirm } from "@/pages/periods/open-period-path"
+import { openAndConfirm, openOrderRegisterAndConfirm, type OpenedInPeriod } from "@/pages/periods/open-period-path"
 import { CountTiles, NumberStrip } from "@/pages/runs/count-tiles"
 import { useStopDiagnosis } from "@/pages/runs/diagnosis"
 import { ConfirmRunDialog } from "@/pages/runs/run-dialogs"
@@ -310,6 +312,7 @@ function RunOutcomeSection({ run, result, reminder }: { run: RunInfo; result: Ru
         run={run}
         result={result}
         action={offersDiagnosis ? diagnosis.action : next.button}
+        live={{ filesUnchanged: result.files_unchanged, opens: result.opens, openFirst: !offersDiagnosis }}
         below={offersDiagnosis ? diagnosis.result : null}
       />
       {next.dialog}
@@ -317,22 +320,33 @@ function RunOutcomeSection({ run, result, reminder }: { run: RunInfo; result: Ru
   )
 }
 
-/** Wynik: liczby, tytuł albo Zatrzymania z akcją, ostrzeżenia, uwagi techniczne i szczegóły podsumowania. */
+type StopKind = NonNullable<RunOutcome["stop_kind"]>
+
+type DadFile = NonNullable<RunOutcome["opens"]>
+
+/** To, co przy Zatrzymaniu wie tylko bieżące Uruchomienie, a Logi Uruchomienia nie: notka o plikach i plik taty. */
+type LiveStop = { filesUnchanged: boolean; opens: DadFile | null; openFirst: boolean }
+
+/** Wynik: liczby, tytuł albo Zatrzymanie z akcją, ostrzeżenia, uwagi techniczne i szczegóły podsumowania. */
 function OutcomeBody({
   run,
   result,
   action,
+  live = null,
   below = null,
 }: {
   run: RunInfo
   result: LoggedOutcome
   action: React.ReactNode
+  live?: LiveStop | null
   below?: React.ReactNode
 }) {
+  const [stop] = result.stops
+
   return (
     <>
       {result.summary === null ? null : <NumberStrip figures={result.summary.figures} />}
-      {result.stops.length === 0 ? (
+      {stop === undefined || result.stop_kind === null ? (
         <Alert className="wejscie p-4" aria-label="Wynik">
           {result.result === "OK" ? (
             <CircleCheckIcon className="text-success!" />
@@ -343,14 +357,14 @@ function OutcomeBody({
           {action === null ? null : <AlertAction className="top-3 right-3">{action}</AlertAction>}
         </Alert>
       ) : (
-        result.stops.map((stop, index) => (
-          <ThreePartMessage
-            key={stop.what}
-            message={stop}
-            kind="stop"
-            action={index === 0 && action !== null ? action : undefined}
-          />
-        ))
+        <RunStop
+          stop={stop}
+          kind={result.stop_kind}
+          headline={result.headline}
+          period={run.period}
+          action={action}
+          live={live}
+        />
       )}
       {below}
       {result.warnings.map((warning) => (
@@ -362,7 +376,7 @@ function OutcomeBody({
           {note}
         </p>
       ))}
-      {result.summary === null ? null : <SummaryDetails summary={result.summary} dryRun={run.dry_run} />}
+      {result.summary === null ? null : <SummaryDetails summary={result.summary} run={run} />}
     </>
   )
 }
@@ -379,7 +393,7 @@ function useNextAction(run: RunInfo, action: NextAction, reminder: string) {
         action={action}
         onRun={() => setConfirming(true)}
         onRerun={() => again(run.dry_run)}
-        onOpenFolder={() => openAndConfirm(run.period, "period_folder", () => undefined)}
+        onOpen={(target) => openAndConfirm(run.period, { target })}
       />
     ),
     dialog: (
@@ -398,17 +412,76 @@ function useNextAction(run: RunInfo, action: NextAction, reminder: string) {
   }
 }
 
+const FILES_UNCHANGED = "Nic nie zapisano, Twoje pliki są bez zmian."
+
+// Zatrzymanie według Rodzaju Zatrzymania, spójnie z plakietką w Historii: czerwony błąd tylko „do Maksa”.
+const STOPS: Record<StopKind, { kind: "stop" | "to_fix" | "declined"; note: string | null }> = {
+  for_tata: { kind: "to_fix", note: null },
+  repeated: { kind: "to_fix", note: null },
+  for_maks: { kind: "stop", note: "To nie wynika z Twoich plików." },
+  declined: { kind: "declined", note: null },
+}
+
+const DAD_FILES: Record<DadFile, { label: string; open: (period: string) => void }> = {
+  order_register: { label: "Otwórz Rejestr zleceń", open: () => openOrderRegisterAndConfirm() },
+  collective_file: {
+    label: "Otwórz Plik zbiorczy",
+    open: (period) => openAndConfirm(period, { target: "collective_file" }),
+  },
+}
+
+/** Zatrzymanie na karcie wyniku: obok akcji z serwera przycisk pliku taty, w którym jest poprawka. */
+function RunStop({
+  stop,
+  kind,
+  headline,
+  period,
+  action,
+  live,
+}: {
+  stop: Message
+  kind: StopKind
+  headline: string
+  period: string
+  action: React.ReactNode
+  live: LiveStop | null
+}) {
+  const look = STOPS[kind]
+  const notes = [live?.filesUnchanged ? FILES_UNCHANGED : null, look.note].filter((note) => note !== null)
+  const file = live?.opens == null ? null : DAD_FILES[live.opens]
+
+  return (
+    <StopMessage
+      message={stop}
+      kind={look.kind}
+      title={headline}
+      notes={notes}
+      actions={
+        <>
+          {file === null ? null : (
+            <Button size="sm" variant={live?.openFirst ? "default" : "outline"} onClick={() => file.open(period)}>
+              <FileSpreadsheetIcon data-icon="inline-start" />
+              {file.label}
+            </Button>
+          )}
+          {action}
+        </>
+      }
+    />
+  )
+}
+
 /** Jedyna akcja przy wyniku; którą pokazać, mówi serwer. */
 function NextActionButton({
   action,
   onRun,
   onRerun,
-  onOpenFolder,
+  onOpen,
 }: {
   action: NextAction
   onRun: () => void
   onRerun: () => void
-  onOpenFolder: () => void
+  onOpen: (target: OpenTarget) => void
 }) {
   switch (action) {
     case "run":
@@ -420,11 +493,18 @@ function NextActionButton({
       )
     case "rerun":
       return <RerunButton onRerun={onRerun} />
-    case "open_period_folder":
+    case "open_collective_file":
       return (
-        <Button size="sm" variant="outline" onClick={onOpenFolder}>
+        <Button size="sm" onClick={() => onOpen("collective_file")}>
+          <FileSpreadsheetIcon data-icon="inline-start" />
+          Otwórz Plik zbiorczy
+        </Button>
+      )
+    case "open_worker_settlements_folder":
+      return (
+        <Button size="sm" onClick={() => onOpen("worker_settlements_folder")}>
           <FolderOpenIcon data-icon="inline-start" />
-          Folder okresu
+          Otwórz folder rozliczeń pracowników
         </Button>
       )
     default: {
@@ -465,13 +545,20 @@ function TemplateProgress({ progress }: { progress: RunProgress }) {
   )
 }
 
-/** Szczegóły wyniku z serwera: kafelki liczb (np. Zlecenia na dzień), pliki okresu i plan plików. */
-function SummaryDetails({ summary, dryRun }: { summary: RunSummary; dryRun: boolean }) {
+/** Szczegóły wyniku z serwera: kafelki liczb (np. Zlecenia na dzień), pliki okresu i Rozliczenia pracowników. */
+function SummaryDetails({ summary, run }: { summary: RunSummary; run: RunInfo }) {
+  // Po podglądzie bez zapisu pliki są tylko planem: jeszcze ich nie ma, więc nie ma czego otwierać.
+  const open = run.dry_run ? undefined : (what: OpenedInPeriod) => openAndConfirm(run.period, what)
+
   return (
     <>
       {summary.counts === null ? null : <CountTiles title={summary.counts.title} counts={summary.counts.counts} />}
-      {summary.files.length === 0 ? null : <PeriodFiles files={summary.files} />}
-      {summary.file_plan === null ? null : <FilePlan files={summary.file_plan} defaultOpen={dryRun} />}
+      {summary.files.length === 0 ? null : <PeriodFiles files={summary.files} onOpen={open} />}
+      {summary.worker_settlements === null ? null : open === undefined ? (
+        <FilePlan settlements={summary.worker_settlements} />
+      ) : (
+        <WorkerSettlements settlements={summary.worker_settlements} onOpen={open} />
+      )}
     </>
   )
 }
@@ -481,30 +568,46 @@ const PERIOD_FILE_ICONS: Record<PeriodFile["kind"], React.ReactNode> = {
   collective_file: <FileSpreadsheetIcon className="size-4 text-muted-foreground" aria-hidden />,
 }
 
-function PeriodFiles({ files }: { files: ReadonlyArray<PeriodFile> }) {
+function PeriodFiles({
+  files,
+  onOpen,
+}: {
+  files: ReadonlyArray<PeriodFile>
+  onOpen: ((what: OpenedInPeriod) => void) | undefined
+}) {
   return (
     <ul className="flex flex-wrap gap-x-6 gap-y-2 text-sm" aria-label="Pliki okresu">
       {files.map((file) => (
         <li key={file.name} className="flex items-center gap-2">
-          {PERIOD_FILE_ICONS[file.kind]}
-          {file.name}
+          {onOpen === undefined ? (
+            <>
+              {PERIOD_FILE_ICONS[file.kind]}
+              {file.name}
+            </>
+          ) : (
+            <Button variant="ghost" size="sm" className="-ml-2 text-sm font-normal" onClick={() => onOpen({ target: file.kind })}>
+              {PERIOD_FILE_ICONS[file.kind]}
+              {file.name}
+            </Button>
+          )}
         </li>
       ))}
     </ul>
   )
 }
 
-/** Plan plików: nazwa pliku każdego Wykonawcy i liczba wierszy; po podglądzie rozwinięty od razu. */
-function FilePlan({ files, defaultOpen }: { files: ReadonlyArray<WorkerFile>; defaultOpen: boolean }) {
+/** Plan plików po podglądzie: każdy Wykonawca, nazwa jego pliku i liczba zleceń; rozwinięty od razu. */
+function FilePlan({ settlements }: { settlements: ReadonlyArray<WorkerSettlement> }) {
   return (
-    <Disclosure label={`Plan plików (${files.length})`} defaultOpen={defaultOpen}>
+    <Disclosure label={`Plan plików (${settlements.length})`} defaultOpen>
       <Table aria-label="Plan plików">
         <TableBody>
-          {files.map((file) => (
-            <TableRow key={file.file}>
-              <TableCell>{file.file}</TableCell>
-              <TableCell className="text-right tabular-nums">
-                {file.rows === 0 ? <Badge variant="outline">Pusty skoroszyt</Badge> : `${file.rows} ${rowsWord(file.rows)}`}
+          {settlements.map((settlement) => (
+            <TableRow key={settlement.file}>
+              <TableCell className="font-medium">{settlement.worker}</TableCell>
+              <TableCell className="text-muted-foreground">{settlement.file}</TableCell>
+              <TableCell className="text-right">
+                <OrderCount settlement={settlement} />
               </TableCell>
             </TableRow>
           ))}
@@ -514,14 +617,70 @@ function FilePlan({ files, defaultOpen }: { files: ReadonlyArray<WorkerFile>; de
   )
 }
 
-/** „1 wiersz”, „2 wiersze”, „5 wierszy”, „22 wiersze”. */
-function rowsWord(count: number): string {
-  const lastTwo = count % 100
-  const last = count % 10
+/** Zapisane Rozliczenia pracowników: Wykonawca, liczba zleceń i otwarcie jego pliku jednym kliknięciem. */
+function WorkerSettlements({
+  settlements,
+  onOpen,
+}: {
+  settlements: ReadonlyArray<WorkerSettlement>
+  onOpen: (what: OpenedInPeriod) => void
+}) {
+  const title = `Rozliczenia pracowników (${settlements.length})`
 
-  if (count === 1) {
-    return "wiersz"
+  return (
+    <section className="flex flex-col gap-2" aria-label="Rozliczenia pracowników">
+      <h3 className="text-sm font-medium">{title}</h3>
+      <Table aria-label="Rozliczenia pracowników">
+        <TableBody>
+          {settlements.map((settlement) => (
+            <TableRow key={settlement.file}>
+              <TableCell className="font-medium">{settlement.worker}</TableCell>
+              <TableCell>
+                <OrderCount settlement={settlement} />
+              </TableCell>
+              <TableCell className="text-right">
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        aria-label={`Otwórz ${settlement.file}`}
+                        onClick={() => onOpen({ worker: settlement.worker })}
+                      />
+                    }
+                  >
+                    <FileSpreadsheetIcon data-icon="inline-start" />
+                    Otwórz
+                  </TooltipTrigger>
+                  <TooltipContent>{settlement.file}</TooltipContent>
+                </Tooltip>
+              </TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    </section>
+  )
+}
+
+const PLURAL = new Intl.PluralRules("pl-PL")
+
+const ORDER_FORMS: Partial<Record<Intl.LDMLPluralRule, string>> = { one: "zlecenie", few: "zlecenia" }
+
+/** „1 zlecenie”, „2 zlecenia”, „5 zleceń”, „22 zlecenia”; pusty szablon ma oznaczenie, nie tylko zero. */
+function OrderCount({ settlement }: { settlement: WorkerSettlement }) {
+  if (settlement.empty) {
+    return (
+      <span className="inline-flex items-center gap-2 text-muted-foreground">
+        <Badge variant="outline">pusty</Badge> 0 zleceń w tym tygodniu
+      </span>
+    )
   }
 
-  return last >= 2 && last <= 4 && (lastTwo < 12 || lastTwo > 14) ? "wiersze" : "wierszy"
+  return (
+    <span className="tabular-nums">
+      {settlement.orders} {ORDER_FORMS[PLURAL.select(settlement.orders)] ?? "zleceń"}
+    </span>
+  )
 }

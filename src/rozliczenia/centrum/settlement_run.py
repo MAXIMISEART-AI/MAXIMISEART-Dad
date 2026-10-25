@@ -11,16 +11,17 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date
+from pathlib import Path
 from typing import Any, Final
 
 from rozliczenia.centrum import contract, run_view
-from rozliczenia.centrum.configuration import ConfigurationFiles
+from rozliczenia.centrum.configuration import ConfigurationFiles, InputWorkbook, open_in_excel
 from rozliczenia.centrum.metrics import previewed_periods
-from rozliczenia.centrum.period_board import located_period_folder, read_board, requested_period
+from rozliczenia.centrum.period_board import located_period_folder, observed_period_folder, read_board, requested_period
 from rozliczenia.centrum.runs import PreparedRun
 from rozliczenia.domain import SettlementSummary
 from rozliczenia.settings import SettingsStore
-from rozliczenia.period_folder import PeriodStatus, collective_file_name, period_status_label
+from rozliczenia.period_folder import PeriodStatus, collective_file_name, period_status_label, scan_period_folders
 from rozliczenia.settlement_period import SettlementPeriod, last_complete_period
 from rozliczenia.input_checks import Readers
 from rozliczenia.process_run import Process
@@ -59,6 +60,8 @@ class SettlementEntry:
             rows[0].token if rows else last_complete_period(self.today()).token,
         )
         previewed = previewed_periods(MetricsStore(self.process.metrics_path(), self.process.counter_names))
+        collective_files = _collective_files(periods_directory, rows) if periods_directory is not None else {}
+        open_templates = open_in_excel(self.configuration.template_inputs(_KEY))
         return contract.ProcessSetup(
             process=_KEY,
             title=self.process.name,
@@ -66,7 +69,15 @@ class SettlementEntry:
             reminder=_VIEW.reminder,
             confirms_readiness=_VIEW.confirms_readiness,
             preview_hint=_VIEW.preview_hint,
-            periods=[_choice(row, previewed=row.token in previewed) for row in rows],
+            periods=[
+                _choice(
+                    row,
+                    previewed=row.token in previewed,
+                    open_files=open_in_excel([InputWorkbook("Plik zbiorczy", collective_files[row.token], "data_file")])
+                    + open_templates,
+                )
+                for row in rows
+            ],
             preselected_period=preselected,
             blocker=_blocker(board, rows),
         )
@@ -94,7 +105,14 @@ class SettlementEntry:
         )
 
 
-def _choice(row: contract.PeriodRow, *, previewed: bool) -> contract.PeriodChoice:
+def _collective_files(periods_directory: Path, rows: list[contract.PeriodRow]) -> dict[str, Path]:
+    """Plik zbiorczy każdego okresu do wyboru, w tym Folderze okresu, który pokazuje Tablica okresów."""
+
+    folders = scan_period_folders(periods_directory)
+    return {row.token: observed_period_folder(folders, SettlementPeriod(row.tuesday)).collective_file for row in rows}
+
+
+def _choice(row: contract.PeriodRow, *, previewed: bool, open_files: list[str]) -> contract.PeriodChoice:
     return contract.PeriodChoice(
         token=row.token,
         tuesday=row.tuesday,
@@ -103,6 +121,7 @@ def _choice(row: contract.PeriodRow, *, previewed: bool) -> contract.PeriodChoic
         last_complete=row.last_complete,
         previewed=previewed,
         collective_file=collective_file_name(SettlementPeriod(row.tuesday)),
+        open_in_excel=open_files,
     )
 
 

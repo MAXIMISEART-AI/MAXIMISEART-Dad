@@ -19,10 +19,16 @@ DAD_NOTES = Path("src/rozliczenia/centrum/dad_notes.py")
 APP = Path("src/rozliczenia/centrum/app.py")
 RUN_CARDS = Path("src/rozliczenia/centrum/run_cards.py")
 TOOL_UPDATES = Path("src/rozliczenia/centrum/tool_updates.py")
+SETTINGS = Path("src/rozliczenia/centrum/settings.py")
+STOPS = Path("src/rozliczenia/centrum/stops.py")
+RUN_VIEW = Path("src/rozliczenia/centrum/run_view.py")
 RUNNER = ".agents/skills/verify-centrum-rozliczen/scripts/run_centrum_verification.py"
 KARTA = (RUNNER, "--feature", "karta-z-logow")
 UWAGA = (RUNNER, "--feature", "uwaga-taty")
 AKTUALIZACJA = (RUNNER, "--feature", "aktualizacja")
+DIAGNOZA = (RUNNER, "--feature", "diagnoza")
+PRZYGOTOWANIE = (RUNNER, "--feature", "przygotowanie-pliku-zbiorczego")
+PRZEBIEG = (RUNNER, "--feature", "przebieg-rozliczen")
 
 MUTATIONS = (
     Mutation(
@@ -90,6 +96,30 @@ MUTATIONS = (
         ),
         AKTUALIZACJA,
         "karta mówi „Masz najnowszą wersję.” o Wydaniu, którego Centrum już nie zna",
+    ),
+    Mutation(
+        "„Otwórz Rejestr zleceń” niczego nie otwiera",
+        (Edit(SETTINGS, "        platform.open_path(register)\n", "        pass\n"),),
+        DIAGNOZA,
+        "tata klika „Otwórz Rejestr zleceń” przy Zatrzymaniu do poprawy, a Excel się nie otwiera",
+    ),
+    Mutation(
+        "odmowa w Decyzji taty jak Zatrzymanie dla taty",
+        (Edit(STOPS, '        if stop.kind == "declined":\n', "        if False:\n"),),
+        PRZYGOTOWANIE,
+        "karta pokazuje odmowę taty jako Zatrzymanie do poprawy zamiast spokojnego „Przerwano”",
+    ),
+    Mutation(
+        "po Przebiegu rozliczeń akcją główną jest Plik zbiorczy",
+        (Edit(RUN_VIEW, '    result_action="open_worker_settlements_folder",\n', '    result_action="open_collective_file",\n'),),
+        PRZEBIEG,
+        "po zapisie Rozliczeń pracowników karta proponuje otwarcie Pliku zbiorczego zamiast ich folderu",
+    ),
+    Mutation(
+        "pusty szablon nie jest oznaczony",
+        (Edit(RUN_VIEW, '                empty=result.status == "PUSTY_SZABLON",\n', "                empty=False,\n"),),
+        PRZEBIEG,
+        "Rozliczenie pracownika bez zleceń wygląda jak zapisane, bez oznaczenia „pusty”",
     ),
 )
 

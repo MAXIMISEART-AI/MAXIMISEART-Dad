@@ -191,7 +191,7 @@ The assertions read the result through the contract model it is printed
 from (`ProcessResult` in `tools/uruchom_proces.py`), never as a raw dict, so a
 field renamed or dropped in the contract fails the proof instead of passing it
 unchecked. They check the contract fields Dad sees on the Uruchomienie card:
-`result`, the plan or summary in `summary` (figures, `file_plan`, period
+`result`, the plan or summary in `summary` (figures, `worker_settlements`, period
 files, Zlecenia na dzień), `warnings` and `stop` by their Komunikat `code`,
 and `progress` (the four stages completed in order, Szablony pracowników
 completed of total, written and empty). The default fixture plans and writes

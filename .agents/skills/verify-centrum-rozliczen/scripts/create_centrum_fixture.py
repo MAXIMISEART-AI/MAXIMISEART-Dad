@@ -15,7 +15,9 @@ Przebieg rozliczeń for that period needs checking.
 The tool itself is a synthetic Git clone in ``<root>/aktualizacja/klon`` whose
 "origin" is a local bare repository, ``<root>/aktualizacja/origin.git``, one commit
 ahead of the clone: Aktualizacja narzędzia in this run moves that clone, never
-the checkout the verification runs from, and never reaches GitHub. The clone's
+the checkout the verification runs from, and never reaches GitHub. The clone
+stands on the first version, the Wydanie ``v0.0.1`` (an annotated tag it got
+from the origin, as an install from the README leaves it). The clone's
 ``config/`` holds Dad's files, among them his locally changed konfiguracja
 wykonawców, which the newest commit stops tracking. Its
 ``run_centrum.py``, which the restart guardian starts after an update, is a shim
@@ -57,6 +59,8 @@ LAST_COMPLETE = "06_12_10_2026"
 NEEDS_CHECK = "29_05_10_2026"
 UNKNOWN_WORKER = "wykonawca.spoza.konfiguracji"
 WORKERS = ("Wykonawca Testowy A", "Wykonawca Testowy B", "Wykonawca Testowy C")
+# A Wykonawca of the konfiguracja wykonawców without orders: his Szablon pracownika stays empty.
+EMPTY_WORKER = "Wykonawca Testowy D"
 # A synthetic row value inside every workbook. Centrum must never read or show workbook content,
 # so this marker must never appear in evidence (centrum_self_test.py checks it).
 ROW_MARKER = "CENTRUM-SYN-ROW"
@@ -103,7 +107,7 @@ SETTLEMENT_RUNS: tuple[MetricRun, ...] = (
     ("2026-10-01T15:40:00+00:00", "RUN", "22_28_09_2026", "BLAD_KRYTYCZNY", (500, 0, 0, 0)),
     ("2026-10-01T15:46:00+00:00", "RUN", "22_28_09_2026", "OK", (500, 3400, 800, 8000)),
 )
-WORKER_IDS = ("wykonawca.a", "wykonawca.b", "wykonawca.c")
+WORKER_IDS = ("wykonawca.a", "wykonawca.b", "wykonawca.c", "wykonawca.d")
 INTERNAL_TEMPLATE = "Wzorzec rozliczenia wewnętrznego.xlsx"
 COLLECTIVE_TEMPLATE = "Wzorzec pliku zbiorczego.xlsx"
 WORKER_TEMPLATE = "Wzorzec rozliczenia pracownika.xlsx"
@@ -192,7 +196,9 @@ def _configuration(config: Path) -> dict[str, str]:
     worker_config = config / "worker_mapping.yaml"
     worker_config.write_text(
         yaml.safe_dump(
-            {"schema_version": 1, "workers": dict(zip(WORKER_IDS, WORKERS, strict=True))}, allow_unicode=True, sort_keys=False
+            {"schema_version": 1, "workers": dict(zip(WORKER_IDS, (*WORKERS, EMPTY_WORKER), strict=True))},
+            allow_unicode=True,
+            sort_keys=False,
         ),
         encoding="utf-8",
     )
@@ -455,7 +461,7 @@ DAD_FILES = {
 
 
 def _tool_clone(root: Path) -> dict[str, object]:
-    """The run's tool: a clone on the first version with Dad's files, and a local "origin" one version ahead.
+    """The run's tool: a clone on the first version (Wydanie v0.0.1) with Dad's files, and a local "origin" one version ahead.
 
     The newest version stops tracking the konfiguracja wykonawców, which Dad changed locally: the first
     update after #161 on Dad's computer. One version later (``libraries``, on the origin's branch
@@ -471,6 +477,7 @@ def _tool_clone(root: Path) -> dict[str, object]:
     (publisher / "run_centrum.py").write_text(shim, encoding="utf-8")
     (publisher / WORKER_MAPPING).write_text("schema_version: 1\nworkers:\n  przyklad: Przykład\n", encoding="utf-8")
     first = _publish(publisher, 1, "Pierwsza wersja narzędzia")
+    _git(publisher, "tag", "--annotate", "--message", "Wydanie v0.0.1", "v0.0.1")
     _git(tool, "clone", "--quiet", "--bare", str(publisher), str(origin))
     _git(tool, "clone", "--quiet", str(origin), str(clone))
     for name, content in DAD_FILES.items():
@@ -526,14 +533,14 @@ def create(root: Path, variant: str | None = None) -> dict[str, object]:
         "metrics": _metrics(root),
         # Konfiguracja: the files Centrum checks, and the Wykonawcy in the order of the konfiguracja wykonawców
         "configuration": configuration,
-        "workers": list(WORKERS),
+        "workers": [*WORKERS, EMPTY_WORKER],
         # Aktualizacja narzędzia: the run's tool clone, its local "origin", both commits, and Dad's files in the clone
         "tool": _tool_clone(root),
         # Przygotowanie pliku zbiorczego of the last complete period from the Rejestr zleceń above
         "preparation": EXPECTED_PREPARATION,
-        # Przebieg rozliczeń: one Wiersz danych per Wykonawca after Przygotowanie of the last complete period,
-        # and the period whose Podgląd bez zapisu needs checking
-        "settlement": {"rows_per_worker": [1, 1, 1], "needs_check": NEEDS_CHECK},
+        # Przebieg rozliczeń: one Wiersz danych per Wykonawca with orders after Przygotowanie of the last complete
+        # period, none for the last one, and the period whose Podgląd bez zapisu needs checking
+        "settlement": {"rows_per_worker": [1, 1, 1, 0], "needs_check": NEEDS_CHECK},
         # Dad's own layout with months as billing cycles, for uklad-folderow-taty
         "dad_layout": _dad_layout(root),
         # token, Status okresu, number of Rozliczenia pracowników, last complete period

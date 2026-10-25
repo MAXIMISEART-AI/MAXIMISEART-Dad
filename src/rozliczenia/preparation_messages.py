@@ -234,6 +234,7 @@ def _register_open_in_excel(register_path: Path) -> Message:
 
     return Message(
         code="REJESTR_OTWARTY",
+        dad_file="order_register",
         what="Rejestr zleceń jest otwarty w Excelu. Nie utworzono żadnego pliku.",
         where=file_label(register_path),
         action=(
@@ -249,6 +250,7 @@ def _register_inaccessible(register_path: Path) -> Message:
 
     return Message(
         code="NIEDOSTEPNY_REJESTR",
+        dad_file="order_register",
         what=(
             "Nie można teraz odczytać Rejestru zleceń. Plik może być zajęty przez inny program "
             "albo czekać na pobranie z OneDrive. Nie utworzono żadnego pliku."
@@ -266,6 +268,7 @@ def _register_unreadable(register_path: Path) -> Message:
 
     return Message(
         code="USZKODZONY_REJESTR",
+        dad_file="order_register",
         what=(
             "Nie można odczytać Rejestru zleceń. Plik jest uszkodzony "
             "albo nie jest skoroszytem .xlsx. Nie utworzono żadnego pliku."
@@ -290,6 +293,7 @@ def register_without_headers(register_path: Path, sheet: str, headers: Sequence[
     fix = "nagłówek" if single else "nagłówki"
     return Message(
         code="BRAK_NAGLOWKA_REJESTRU",
+        dad_file="order_register",
         what=f"W Rejestrze zleceń brakuje {noun} {_header_list(headers)}. Nie utworzono żadnego pliku.",
         where=f"plik {register_path.name}, arkusz {sheet}, wiersz 1",
         action=(
@@ -305,6 +309,7 @@ def register_with_duplicated_headers(register_path: Path, sheet: str, headers: S
     single = len(headers) == 1
     return Message(
         code="POWTORZONY_NAGLOWEK_REJESTRU",
+        dad_file="order_register",
         what=(
             f"W Rejestrze zleceń {'nagłówek' if single else 'nagłówki'} {_header_list(headers)} "
             f"{'występuje' if single else 'występują'} więcej niż raz, "
@@ -323,6 +328,7 @@ def register_without_data_sheet(register_path: Path, required_headers: Sequence[
 
     return Message(
         code="BRAK_ARKUSZA_ZLECEN",
+        dad_file="order_register",
         what=(
             "W Rejestrze zleceń nie znaleziono arkusza ze zleceniami, czyli arkusza "
             "z wymaganymi nagłówkami w pierwszym wierszu. Nie utworzono żadnego pliku."
@@ -340,6 +346,7 @@ def period_orders_in_many_sheets(register_path: Path, sheets: Sequence[str], per
 
     return Message(
         code="ZLECENIA_W_WIELU_ARKUSZACH",
+        dad_file="order_register",
         what=(
             "Zlecenia tego okresu są w więcej niż jednym arkuszu Rejestru zleceń, "
             "więc nie wiadomo, który arkusz jest właściwy. Nie utworzono żadnego pliku."
@@ -422,6 +429,7 @@ def rows_without_date(register_path: Path, sheet: str, row_numbers: Sequence[int
     subject = "jest wiersz z danymi" if len(row_numbers) == 1 else "są wiersze z danymi"
     return Message(
         code="WIERSZ_BEZ_DATY",
+        dad_file="order_register",
         what=(
             f"Między zleceniami okresu {subject} bez poprawnej daty w kolumnie DATA GODZ. POCZ. "
             "Nie utworzono żadnego pliku."
@@ -468,6 +476,7 @@ def invalid_successful_values(
         groups.append("inna wartość: " + ", ".join(labels))
     return Message(
         code="ZLE_SKUTECZNE",
+        dad_file="order_register",
         what=f"{count} {_orders_without_successful_phrase(count)} tak ani nie w SKUTECZNE. Nie utworzono żadnego pliku.",
         where=f"{_register_location(register_path, sheet)}, {'; '.join(groups)}",
         action=(
@@ -523,6 +532,7 @@ def unknown_workers(
     rows = "; ".join(f"{identifier}: {_rows_label(row_numbers)}" for identifier, row_numbers in workers)
     return Message(
         code="NIEZNANY_WYKONAWCA",
+        dad_file="order_register",
         what=f"{subject} spoza konfiguracji wykonawców: {identifiers}. Nie utworzono żadnego pliku.",
         where=f"{_register_location(register_path, sheet)}, {rows}",
         action=(
@@ -538,6 +548,7 @@ def no_period_orders(register_path: Path, sheet: str, period: str) -> Message:
 
     return Message(
         code="BRAK_ZLECEN_OKRESU",
+        dad_file="order_register",
         what="W Rejestrze zleceń nie ma żadnego zlecenia z tego okresu. Nie utworzono żadnego pliku.",
         where=f"{_register_location(register_path, sheet)}, okres {period}",
         action=(
@@ -653,6 +664,7 @@ def incomplete_period_refused(period: str, continue_hint: str) -> Message:
 
     return Message(
         code="PRZERWANO_NIEPELNY_OKRES",
+        dad_file="order_register",
         what="Przerwano z powodu niepełnego okresu, zgodnie z odpowiedzią. Nie utworzono żadnego pliku.",
         where=f"okres {period}",
         action=(

@@ -1,0 +1,69 @@
+"""``tools/na_scalonych_pr.py`` uruchamia polecenie z narzędziami checkoutu na wskazanym commicie, bez dotykania checkoutu."""
+
+from __future__ import annotations
+
+from pathlib import Path
+import shutil
+import subprocess
+import sys
+
+from tests.fixtures.git_repo import commit, repository
+
+ROOT = Path(__file__).resolve().parents[1]
+SCRIPT = "import pathlib\nprint(pathlib.Path('src/dane.txt').read_text().strip(), '{}')\n"
+
+
+def _repo(tmp_path: Path) -> tuple[Path, str]:
+    repo = repository(tmp_path / "repo", {".gitignore": "__pycache__/\n", "src/dane.txt": "stare dane\n", "tools/wypisz.py": SCRIPT.format("stare narzędzie")})
+    shutil.copy2(ROOT / "tools" / "na_scalonych_pr.py", repo / "tools" / "na_scalonych_pr.py")
+    first = commit(repo, "pierwszy")
+    (repo / "src" / "dane.txt").write_text("nowe dane\n", encoding="utf-8")
+    commit(repo, "drugi")
+    return repo, first
+
+
+def _run(repo: Path, *arguments: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [sys.executable, str(repo / "tools" / "na_scalonych_pr.py"), "--wyniki", str(repo.parent / "wyniki"), *arguments],
+        cwd=repo,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        timeout=120,
+        check=False,
+    )
+
+
+def test_polecenie_biegnie_na_commicie_z_narzedziami_checkoutu_takze_niezacommitowanymi(tmp_path: Path) -> None:
+    repo, first = _repo(tmp_path)
+    (repo / "tools" / "wypisz.py").write_text(SCRIPT.format("nowe narzędzie"), encoding="utf-8")
+
+    done = _run(repo, "--commit", first, "--", "tools/wypisz.py")
+
+    assert done.returncode == 0, done.stdout + done.stderr
+    line, summary = done.stdout.splitlines()
+    assert line.startswith(f"{first[:8]} | {first[:8]} | ") and "| kod 0 | stare dane nowe narzędzie |" in line
+    assert summary == "NA SCALONYCH PR OK | 1 PR-ów"
+    assert (repo / "src" / "dane.txt").read_text(encoding="utf-8") == "nowe dane\n"
+    assert (repo.parent / "wyniki" / f"{first[:8]}.txt").read_text(encoding="utf-8").strip() == "stare dane nowe narzędzie"
+
+
+def test_polecenie_z_kodem_innym_niz_zero_konczy_sie_fail_z_nazwa_commitu(tmp_path: Path) -> None:
+    repo, first = _repo(tmp_path)
+    (repo / "tools" / "pada.py").write_text("print('zle')\nraise SystemExit(3)\n", encoding="utf-8")
+
+    done = _run(repo, "--commit", first, "--", "tools/pada.py")
+
+    assert done.returncode == 1, done.stdout + done.stderr
+    assert "| kod 3 | zle |" in done.stdout
+    assert done.stdout.splitlines()[-1] == f"NA SCALONYCH PR FAIL | {first[:8]}"
+
+
+def test_narzedzia_z_rewizji_zamiast_z_checkoutu(tmp_path: Path) -> None:
+    repo, first = _repo(tmp_path)
+    (repo / "tools" / "wypisz.py").write_text(SCRIPT.format("nowe narzędzie"), encoding="utf-8")
+
+    done = _run(repo, "--narzedzia", first, "--commit", first, "--", "tools/wypisz.py")
+
+    assert done.returncode == 0, done.stdout + done.stderr
+    assert "| kod 0 | stare dane stare narzędzie |" in done.stdout

@@ -497,6 +497,7 @@ def harness(scheduler: Scheduler) -> Iterator[World]:
             technical_notes=(),
             metrics_saved=True,
             progress=ProgressProjection().snapshot,
+            files_unchanged=False,
         )
 
     class NoStops:

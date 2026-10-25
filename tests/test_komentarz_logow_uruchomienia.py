@@ -3,7 +3,7 @@
 Logi ponad limit komentarza GitHuba wymagałyby przez HTTP setek Komunikatów, więc podział sprawdza wysyłka
 zbudowana wprost z rekordu (``logi_post``): jej części to dokładnie komentarze, które kolejka dopisuje do issue.
 Podsumowanie ma tu tylko przypadki bez taniej drogi przez HTTP z fikstur Przebiegu: nazwa Przygotowania,
-powtórki kodów, powtórzone Zatrzymanie, czas w sekundach albo nieznany, brak commitu i sprawdzenia Diagnozy,
+powtórki kodów, powtórzone Zatrzymanie, Zatrzymanie po odmowie w Decyzji taty, czas w sekundach albo nieznany, brak commitu i sprawdzenia Diagnozy,
 które nie przeszły albo których nie sprawdzono. Resztę sprawdza ``test_centrum_logi_w_skrzynce.py``.
 """
 
@@ -69,6 +69,10 @@ SUMMARY_LINES: dict[str, tuple[dict[str, Any], list[str]]] = {
         {"result": "BLAD_KRYTYCZNY", "ending": "stop", "stop_kind": "repeated", "messages": [STOP]},
         ["- Wynik: BLAD_KRYTYCZNY, powtórzone Zatrzymanie dla taty"],
     ),
+    "odmowa-w-decyzji-taty": (
+        {"result": "BLAD_KRYTYCZNY", "ending": "declined", "stop_kind": "declined", "messages": [STOP]},
+        ["- Wynik: BLAD_KRYTYCZNY, Zatrzymanie po odmowie w Decyzji taty"],
+    ),
     "czas-nieznany": (
         {"result": "BLAD_KRYTYCZNY", "ending": "unexpected", "stop_kind": "for_maks", "duration_ms": None},
         ["- Czas: nieznany"],
@@ -106,6 +110,10 @@ SUMMARY_LINES: dict[str, tuple[dict[str, Any], list[str]]] = {
             }
         },
         ["- Diagnoza: `NIE_ZNALEZIONO_PRZYCZYNY`"],
+    ),
+    "z-wydaniem": (
+        {"tool": {"wydanie": "0.10.0", "commit": "3c1d0a9e5b7f4c2d8e6a1b0f9c8d7e6a5b4c3d2e"}},
+        ["- Wydanie: 0.10.0, commit 3c1d0a9"],
     ),
     "bez-commitu": (
         {"tool": {"wydanie": None, "commit": None}},

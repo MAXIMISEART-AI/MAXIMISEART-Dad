@@ -9,11 +9,11 @@ from fastapi.testclient import TestClient
 
 from tests.fixtures.centrum import views_until
 
-LIVE_ONLY = ("diagnosis", "report")
+LIVE_ONLY = ("diagnosis", "report", "files_unchanged", "opens")
 
 
 def restored(live: dict[str, Any], started_at: str) -> dict[str, Any]:
-    """Karta z Logów zakończonego Uruchomienia: karta na żywo bez Diagnozy, Zgłoszenia i liczb postępu."""
+    """Karta z Logów zakończonego Uruchomienia: karta na żywo bez pól, których Logi nie niosą, i bez liczb postępu."""
 
     result = {key: value for key, value in live["result"].items() if key not in LIVE_ONLY}
     return copy.deepcopy(

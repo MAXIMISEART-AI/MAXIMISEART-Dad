@@ -50,13 +50,15 @@ class ProcessView(Generic[InputsT, SummaryT]):
 
     Deklaracja procesu: ``reminder`` to przypomnienie przed uruchomieniem, ``confirms_readiness``
     mówi, czy „Uruchom” potwierdza Gotowość Pliku zbiorczego, ``preview_hint`` to podpowiedź
-    „Podgląd bez zapisu”, a ``done`` tytuł wyniku po zapisie.
+    „Podgląd bez zapisu”, ``done`` to tytuł wyniku po zapisie, a ``result_action`` otwiera to, co proces
+    zapisał, jako akcja po wyniku.
     """
 
     reminder: str
     confirms_readiness: bool
     preview_hint: str
     done: str
+    result_action: contract.ResultAction
     _figures: Callable[[ProgressSnapshot, bool], list[contract.Figure]]
     _summary: Callable[[SummaryT, bool], contract.RunSummary]
 
@@ -120,7 +122,15 @@ def _settlement_summary(summary: SettlementSummary, dry_run: bool) -> contract.R
         figures=figures,
         counts=None,
         files=[],
-        file_plan=[contract.WorkerFile(file=result.output_file.name, rows=result.rows) for result in summary.results],
+        worker_settlements=[
+            contract.WorkerSettlement(
+                worker=result.worker_name,
+                file=result.output_file.name,
+                orders=result.rows,
+                empty=result.status == "PUSTY_SZABLON",
+            )
+            for result in summary.results
+        ],
     )
 
 
@@ -148,7 +158,7 @@ def _preparation_summary(summary: PreparationSummary, _dry_run: bool) -> contrac
             contract.PeriodFile(name=summary.internal_settlement_file.name, kind="internal_settlement"),
             contract.PeriodFile(name=summary.collective_file.name, kind="collective_file"),
         ],
-        file_plan=None,
+        worker_settlements=None,
     )
 
 
@@ -157,6 +167,7 @@ SETTLEMENT: Final[ProcessView[SettlementInputs, SettlementSummary]] = ProcessVie
     confirms_readiness=True,
     preview_hint="Nic nie zostanie zapisane. Zobaczysz plan plików każdego Wykonawcy.",
     done="Rozliczenia pracowników gotowe",
+    result_action="open_worker_settlements_folder",
     _figures=_settlement_figures,
     _summary=_settlement_summary,
 )
@@ -165,6 +176,7 @@ PREPARATION: Final[ProcessView[PreparationInputs, PreparationSummary]] = Process
     confirms_readiness=False,
     preview_hint="Nic nie zostanie zapisane. Zobaczysz plan i nazwy obu plików.",
     done="Plik zbiorczy przygotowany",
+    result_action="open_collective_file",
     _figures=_preparation_figures,
     _summary=_preparation_summary,
 )

@@ -117,8 +117,13 @@ class RunCards:
 
     def _restored(self, record: RunLog) -> contract.RunRestored:
         info = self._info(record.run_id, record.process, record.mode, record.period)
-        done = self._entries[info.process].view.done
-        headline, next_action = verdict(ending=record.ending, result=record.result, dry_run=info.dry_run, done=done)
+        headline, next_action = verdict(
+            ending=record.ending,
+            stop_kind=record.stop_kind,
+            result=record.result,
+            dry_run=info.dry_run,
+            view=self._entries[info.process].view,
+        )
         messages = {
             kind: [
                 contract.Message(what=message.what, where=message.where, action=message.action)

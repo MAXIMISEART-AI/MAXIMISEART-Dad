@@ -12,7 +12,7 @@ from datetime import date, timedelta
 from typing import Any, Final
 
 from rozliczenia.centrum import contract, run_view
-from rozliczenia.centrum.configuration import ConfigurationFiles
+from rozliczenia.centrum.configuration import ConfigurationFiles, InputWorkbook, open_in_excel
 from rozliczenia.centrum.metrics import previewed_periods
 from rozliczenia.centrum.period_board import observed_period_folder, requested_period
 from rozliczenia.centrum.runs import PreparedRun
@@ -54,6 +54,8 @@ class PreparationEntry:
         periods = [SettlementPeriod(last_complete.tuesday - timedelta(weeks=week)) for week in range(_CHOSEN_WEEKS)]
         previewed = previewed_periods(MetricsStore(self.process.metrics_path(), self.process.counter_names))
         folders = scan_period_folders(settings.periods_directory) if settings.periods_directory is not None else None
+        register = [] if settings.register is None else [InputWorkbook("Rejestr zleceń", settings.register, "data_file")]
+        open_files = open_in_excel([*register, *self.configuration.template_inputs(_KEY)])
         return contract.ProcessSetup(
             process=_KEY,
             title=self.process.name,
@@ -62,7 +64,13 @@ class PreparationEntry:
             confirms_readiness=_VIEW.confirms_readiness,
             preview_hint=_VIEW.preview_hint,
             periods=[
-                _choice(folders, period, last_complete=period == last_complete, previewed=period.token in previewed)
+                _choice(
+                    folders,
+                    period,
+                    last_complete=period == last_complete,
+                    previewed=period.token in previewed,
+                    open_files=open_files,
+                )
                 for period in periods
             ],
             preselected_period=last_complete.token,
@@ -104,7 +112,12 @@ def _blocker(settings: Settings) -> str | None:
 
 
 def _choice(
-    folders: PeriodFolders | None, period: SettlementPeriod, *, last_complete: bool, previewed: bool
+    folders: PeriodFolders | None,
+    period: SettlementPeriod,
+    *,
+    last_complete: bool,
+    previewed: bool,
+    open_files: list[str],
 ) -> contract.PeriodChoice:
     status = observed_period_folder(folders, period).observe().status if folders is not None else "no_period_files"
     return contract.PeriodChoice(
@@ -115,5 +128,6 @@ def _choice(
         last_complete=last_complete,
         previewed=previewed,
         collective_file=None,
+        open_in_excel=open_files,
     )
 
