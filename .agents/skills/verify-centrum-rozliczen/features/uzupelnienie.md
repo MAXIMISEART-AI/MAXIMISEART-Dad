@@ -8,14 +8,19 @@ reguły` and `Wiersze z opisu` (done rows crossed out, a kind with no rows or
 all rows done ticked, never red), how many rows hold a value in each column
 from the technician's description, and `Otwórz Plik zbiorczy`. Centrum reads
 the saved Plik zbiorczy on every read, also while Excel holds it, and never
-changes it. A Plik zbiorczy it cannot read is a calm three-part Komunikat.
+changes it. A Plik zbiorczy it cannot read is a calm three-part Komunikat. The
+page is live (#419): while visible it asks every 3 s for the saved version
+(`GET /api/periods/<token>/collective-file-version`, `stat` only) and reads the
+view again only when it changed; a failed read keeps the last good state with
+its time for about a minute, then the Komunikat.
 
 ## Sub-features
 
 - `uzupelnienie-karta`: the card `Następny krok` for the last complete period with Status `Plik zbiorczy przygotowany` has `Uzupełnij` as its primary action and `Podgląd bez zapisu` next to it.
 - `uzupelnienie-podsumowanie`: `Uzupełnij` opens `#/uzupelnienie/06_12_10_2026` with the period token in the title row; the counters, row numbers and column counters equal `GET /api/periods/<token>/quantities-to-fill`; the sidebar highlights Okresy; the view is measured as page `uzupelnienie`.
-- `uzupelnienie-wpis-taty`: one value Dad types in column Y of row 18 (harness, openpyxl) makes, after a reload, row 18 done (`1 z 2`) and column Y count one more row; nothing else changes.
+- `uzupelnienie-wpis-taty`: one value Dad types in column Y of row 18 (harness, openpyxl) while the summary is open makes, without a click or reload, row 18 done (`1 z 2`) and column Y count one more row; nothing else changes, and an unchanged file is not read again.
 - `uzupelnienie-blokada-excela`: Excel's lock file `~$…` next to the Plik zbiorczy changes neither the server's answer nor the screen.
+- `uzupelnienie-odczyt-nieudany`: a Plik zbiorczy Centrum cannot read (being saved) keeps the last good state on screen with `Stan z <HH:MM>.` and no Komunikat; once it reads again the time disappears by itself.
 - `uzupelnienie-otworz`: `Otwórz Plik zbiorczy` opens the period's Plik zbiorczy (`opened.jsonl`).
 - `uzupelnienie-powrot`: the link `Okresy` leads back and Wstecz returns to the same summary.
 - `uzupelnienie-bez-pliku`: a period without a Plik zbiorczy shows the server's three-part Komunikat (label `Komunikat`), not a failure, and the Centrum log has `uzupelnienie-odczyt-nieudany` with the period.
@@ -34,17 +39,18 @@ Preconditions:
 
 - **Card.** On Okresy, region `Następny krok` shows `06_12_10_2026` and `Utwórz rozliczenia pracowników`, button `Uzupełnij` (an `<a>` rendered as a button) and button `Podgląd bez zapisu`. `GET /api/periods` (`api/uzupelnienie-karta.json`) has the last complete period with `status: collective_file_prepared`. Screenshot `220`.
 - **Summary.** Click `Uzupełnij`: the URL ends in `#/uzupelnienie/06_12_10_2026`, heading level 1 `Uzupełnienie pliku zbiorczego`, the token in `main`. `GET /api/periods/06_12_10_2026/quantities-to-fill` (`api/uzupelnienie-podsumowanie.json`) is `ready` with rows `[18, 20]` and `[19]`, none done. Regions `Wiersze bez reguły` and `Wiersze z opisu` each show `<done> z <rows>`, the image `Zrobione` or `Do uzupełnienia` after the kind's `done`, and list items with the row numbers in order (a done row reads `18 zrobiony`; a kind without rows says `Nie ma takich wierszy.`). Region `Kolumny z opisu technika` has one `dt` per column (Y, AB, AD, AJ, AK, AL, AM) and its `dd` `nic nie wpisano`, `wpisane w 1 wierszu` or `wpisane w N wierszach`. The sidebar link `Okresy` has `data-active`. A `pomiar` line with `strona=uzupelnienie` and `getQuantitiesToFill:` reaches the Centrum log. Screenshot `221`.
-- **Dad's value.** Harness (labelled in `drive.txt`): openpyxl writes `1` into Y18 of the run's Plik zbiorczy, saves and closes it, with no lock file. `page.reload()`: the answer (`api/uzupelnienie-po-wpisie.json`) has row 18 done, row 20 not, column Y one more row, everything else unchanged; the screen shows `1 z 2` and `18 zrobiony`. Screenshot `222` in the light theme (the drive switches the theme for it and back).
-- **Excel's lock.** Write `~$Rozliczenie 06_12_10_2026 - zbiorcze.xlsx` next to the file and reload: the answer (`api/uzupelnienie-blokada-excela.json`) equals the previous one, and so does the screen. Screenshot `223`.
+- **Dad's value, live.** The drive marks the page (`window.__bez_przeladowania`) and records its requests. Harness (labelled in `drive.txt`): openpyxl writes `1` into Y18 of the run's Plik zbiorczy, saves and closes it, with no lock file. Without a click or reload, region `Wiersze bez reguły` shows `1 z 2` within 10 s, the mark survives, and at least one `GET …/collective-file-version` went out. The answer (`api/uzupelnienie-po-wpisie.json`) has row 18 done, row 20 not, column Y one more row, everything else unchanged; the screen shows `1 z 2` and `18 zrobiony`. Two more version checks bring no further `GET …/quantities-to-fill`. Screenshot `222` in the light theme (the drive switches the theme for it and back).
+- **Excel's lock.** Write `~$Rozliczenie 06_12_10_2026 - zbiorcze.xlsx` next to the file and reload: the answer (`api/uzupelnienie-blokada-excela.json`) equals the previous one apart from its `read` stamp, and so does the screen. Screenshot `223`.
+- **Failed read.** Remove the lock file and overwrite the Plik zbiorczy with bytes that are not a workbook (Excel mid-save). Within 10 s a `status` reads `Stan z <HH:MM>.`; the answer (`api/uzupelnienie-odczyt-nieudany.json`) is `ready` with `read.retrying: true` and otherwise equals the previous one; the screen shows the same counters and no `Komunikat`. Screenshot `229`. Write the saved bytes back: the `status` disappears within 10 s. The Komunikat after a minute is proven by `tests/test_centrum_uzupelnienie_na_zywo.py` on the Centrum clock, not in the browser.
 - **Open.** Click `Otwórz Plik zbiorczy`: the last line of `opened.jsonl` is the period's Plik zbiorczy, and the toast names it.
 - **Back.** Click link `Okresy` in `main`: heading `Okresy`. `page.go_back()`: heading `Uzupełnienie pliku zbiorczego` again.
 - **Restore.** In `finally` the drive writes back the Plik zbiorczy's original bytes and removes the lock file.
 - **No Plik zbiorczy.** Open `#/uzupelnienie/15_21_09_2026` (empty Folder okresu): label `Komunikat` shows the answer's `what`, `where` and `action` (`api/uzupelnienie-bez-pliku.json`, `state: problem`), no alert `Nie udało się …`, and the Centrum log has `uzupelnienie-odczyt-nieudany … okres=15_21_09_2026`. Screenshot `224`.
-- **Proof.** Screenshots `220`–`224`, `api/uzupelnienie-*.json`, checks in `drive.txt`.
+- **Proof.** Screenshots `220`–`224` and `229`, `api/uzupelnienie-*.json`, checks in `drive.txt`.
 
 ## Gotchas
 
 - Restore the Plik zbiorczy: `przebieg-rozliczen` continues from it, and a value left in Y18 would reach a Rozliczenie pracownika and the Kontrola ilości.
 - `Uzupełnij` has role `button`, not `link`: it is a Base UI `Button` rendered as `<a>`, like the bell.
-- The page has no polling (#419): a change in the file shows after a reload or a return to the tab.
+- Headless Chromium reports the tab as visible, so the page keeps asking for the saved version during the whole drive; a step that counts requests counts only its own.
 - Delete the lock file in `finally`; a leftover `~$…` makes Przebieg rozliczeń stop with „Plik zbiorczy otwarty”.

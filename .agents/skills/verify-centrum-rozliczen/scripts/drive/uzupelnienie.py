@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from openpyxl import load_workbook
 from openpyxl.utils import column_index_from_string
@@ -15,6 +16,9 @@ from drive.przygotowanie_pliku_zbiorczego import drive_preparation
 FEATURE = "uzupelnienie"
 SUMMARY = f"#/uzupelnienie/{LAST_COMPLETE}"
 API = f"/api/periods/{LAST_COMPLETE}/quantities-to-fill"
+VERSION_API = f"/api/periods/{LAST_COMPLETE}/collective-file-version"
+# The page asks about the saved version every 3 s (frontend/src/lib/use-live-file.ts); a full read follows.
+LIVE_TIMEOUT_MS = 10_000
 KIND_TITLES = {"without_rule": "Wiersze bez reguły", "from_description": "Wiersze z opisu"}
 # The fixture's Plik zbiorczy after Przygotowanie: rows 18 and 20 carry a device the Reguły ilości do not know,
 # row 19 is prewencja (create_centrum_fixture.py, DEVICES).
@@ -34,6 +38,12 @@ def _ready(run: Run, name: str) -> dict[str, object]:
     answer = run.api(API, name)
     run.check(answer["state"] == "ready", f"{name}: the server read the Plik zbiorczy")
     return answer
+
+
+def _without_read(answer: dict[str, object]) -> dict[str, object]:
+    """The answer without its read stamp: the time of every read differs."""
+
+    return {key: value for key, value in answer.items() if key != "read"}
 
 
 def _rows(answer: dict[str, object]) -> dict[str, list[tuple[int, bool]]]:
@@ -175,16 +185,30 @@ def _drive(run: Run, page: Page, collective_file: Path, lock: Path) -> None:
 
     run.step(FEATURE, "uzupelnienie-wpis-taty")
     row = EXPECTED_ROWS["without_rule"][0]
+    asked: list[str] = []
+    page.on("request", lambda request: asked.append(urlsplit(request.url).path))
+    page.evaluate("() => { window.__bez_przeladowania = true }")
     _write_dad_value(collective_file, row)
     run.check(not lock.exists(), f"harness: one value typed into column {DAD_COLUMN} of row {row}, saved and closed")
-    page.reload()
+    without_rule = page.get_by_role("region", name=KIND_TITLES["without_rule"], exact=True)
+    expect(without_rule).to_contain_text("1 z 2", timeout=LIVE_TIMEOUT_MS)
+    run.check(
+        page.evaluate("() => window.__bez_przeladowania === true") and asked.count(VERSION_API) >= 1,
+        f"the counter changed to 1 z 2 without a click or reload, after {asked.count(VERSION_API)} "
+        "check(s) of the saved version",
+    )
     after = _ready(run, "uzupelnienie-po-wpisie")
     columns_before, columns_after = _columns(before), _columns(after)
     run.check(
         _rows(after) == {**_rows(before), "without_rule": [(18, True), (20, False)]}
         and columns_after == {**columns_before, DAD_COLUMN: columns_before[DAD_COLUMN] + 1},
-        f"after a reload row {row} is done and only column {DAD_COLUMN} counts one more row",
+        f"row {row} is done and only column {DAD_COLUMN} counts one more row",
     )
+    views = asked.count(API)
+    for _ in range(2):
+        with page.expect_request(lambda request: urlsplit(request.url).path == VERSION_API, timeout=LIVE_TIMEOUT_MS):
+            pass
+    run.check(asked.count(API) == views, "two more checks of the unchanged saved version read nothing again")
     _check_screen(run, page, after, "after Dad's value")
     switched = _light_theme(page)
     run.capture(page, "222-uzupelnienie-po-wpisie")
@@ -196,11 +220,31 @@ def _drive(run: Run, page: Page, collective_file: Path, lock: Path) -> None:
     page.reload()
     held = _ready(run, "uzupelnienie-blokada-excela")
     run.check(
-        held == after,
+        _without_read(held) == _without_read(after),
         "with Excel's lock file next to the Plik zbiorczy the server reads its last saved version unchanged",
     )
     _check_screen(run, page, held, "with Excel's lock file")
     run.capture(page, "223-uzupelnienie-blokada-excela")
+
+    run.step(FEATURE, "uzupelnienie-odczyt-nieudany")
+    lock.unlink()
+    saved = collective_file.read_bytes()
+    collective_file.write_bytes(b"Excel zapisuje")
+    status = page.get_by_role("status").filter(has_text="Stan z")
+    expect(status).to_be_visible(timeout=LIVE_TIMEOUT_MS)
+    kept = _ready(run, "uzupelnienie-odczyt-nieudany")
+    read = kept["read"]
+    assert isinstance(read, dict)
+    run.check(
+        read["retrying"] is True and _without_read(kept) == _without_read(held),
+        "a Plik zbiorczy Centrum cannot read keeps the last good state, marked as retried",
+    )
+    _check_screen(run, page, kept, "while the read fails")
+    expect(page.get_by_label("Komunikat", exact=True)).to_have_count(0)
+    run.capture(page, "229-uzupelnienie-odczyt-nieudany")
+    collective_file.write_bytes(saved)
+    expect(status).to_have_count(0, timeout=LIVE_TIMEOUT_MS)
+    run.check(True, "once the file reads again the time disappears, without a click")
 
     run.step(FEATURE, "uzupelnienie-otworz")
     page.get_by_role("button", name="Otwórz Plik zbiorczy", exact=True).click()
