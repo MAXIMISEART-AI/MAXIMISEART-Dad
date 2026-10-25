@@ -2,7 +2,8 @@
 
 Mapa to pamięć skilla: agent wybiera z niej funkcję do sprawdzenia, a harness skilla prowadzi funkcje z krotek
 ``FEATURES`` i ``EXPLICIT_FEATURES`` w swoich skryptach i z modułów pakietu ``scripts/<pakiet>/``. Rozjazd mapy z kodem
-czerwieni CI, a nie dopiero przebieg skilla u agenta.
+czerwieni CI, a nie dopiero przebieg skilla u agenta. Plik funkcji skilla z funkcjami w kodzie odpowiada funkcji z kodu,
+więc ``features/README.md`` takiego skilla nie musi linkować plików; skill bez funkcji w kodzie listuje je w README.
 """
 
 from __future__ import annotations
@@ -65,24 +66,23 @@ def _package_modules(skill: Path) -> list[Feature]:
     ]
 
 
+def _linked(skill: Path) -> list[str]:
+    return LINK.findall(HTML_COMMENT.sub("", (skill / "features" / "README.md").read_text(encoding="utf-8")))
+
+
 @pytest.mark.parametrize("skill", MAPS, ids=lambda skill: skill.name)
-def test_kazdy_plik_funkcji_ma_link_w_mapie_skilla(skill: Path) -> None:
-    index = skill / "features" / "README.md"
-    linked = LINK.findall(HTML_COMMENT.sub("", index.read_text(encoding="utf-8"))) if index.is_file() else []
+def test_mapa_skilla_ma_readme_bez_linkow_do_brakujacych_plikow(skill: Path) -> None:
+    assert (skill / "features" / "README.md").is_file(), (
+        f"{skill.name}/features/ nie ma README.md: dopisz konwencje mapy i ## Feature entry contract"
+    )
     files = [path.name for path in _feature_files(skill)]
 
     problems = [
         f"{skill.name}/features/README.md linkuje {name}, którego nie ma: dopisz plik funkcji albo usuń link"
-        for name in linked
+        for name in _linked(skill)
         if name not in files
-    ] + [
-        f"{skill.name}/features/{name} nie ma linku w features/README.md: "
-        f"dopisz w sekcji ## Features linię `- [Nazwa funkcji](./{name}) covers …`"
-        for name in files
-        if name not in linked
     ]
 
-    assert index.is_file(), f"{skill.name}/features/ nie ma README.md: dopisz mapę funkcji z linkiem do każdego pliku"
     assert problems == [], "\n".join(problems)
 
 
@@ -114,6 +114,18 @@ def test_kazdy_plik_funkcji_ma_naglowki_h2_z_szablonu(skill: Path) -> None:
 CODE_MAPS = [skill for skill in MAPS if _code_features(skill) or _package_modules(skill)]
 
 
+@pytest.mark.parametrize("skill", [skill for skill in MAPS if skill not in CODE_MAPS], ids=lambda skill: skill.name)
+def test_mapa_skilla_bez_funkcji_w_kodzie_linkuje_kazdy_plik_funkcji(skill: Path) -> None:
+    problems = [
+        f"{skill.name}/features/{path.name} nie ma linku w features/README.md: "
+        f"dopisz w sekcji ## Features linię `- [Nazwa funkcji](./{path.name}) covers …`"
+        for path in _feature_files(skill)
+        if path.name not in _linked(skill)
+    ]
+
+    assert problems == [], "\n".join(problems)
+
+
 @pytest.mark.parametrize("skill", CODE_MAPS, ids=lambda skill: skill.name)
 def test_kazda_funkcja_z_kodu_skilla_ma_plik_w_mapie_i_wpis_w_skill_md(skill: Path) -> None:
     files = {path.stem for path in _feature_files(skill)}
@@ -122,7 +134,7 @@ def test_kazda_funkcja_z_kodu_skilla_ma_plik_w_mapie_i_wpis_w_skill_md(skill: Pa
 
     without_file = [
         f"funkcja `{feature.name}` z {feature.source} nie ma pliku {skill.name}/features/{feature.name}.md: "
-        "dopisz go według ## Feature entry contract z features/README.md i link do niego w tej mapie"
+        "dopisz go według ## Feature entry contract z features/README.md"
         for feature in [*_code_features(skill), *_package_modules(skill)]
         if feature.name not in files
     ]
@@ -144,7 +156,7 @@ def test_kazdy_plik_funkcji_i_modul_pakietu_ma_funkcje_w_kodzie_skilla(skill: Pa
 
     problems = [
         f"{skill.name}/features/{path.name} nie ma funkcji w kodzie: dopisz `{path.stem}` do {lists} "
-        "i jej moduł albo usuń plik i jego link z features/README.md"
+        "i jej moduł albo usuń plik"
         for path in _feature_files(skill)
         if path.stem not in driven
     ] + [
