@@ -21,6 +21,7 @@ import { useContentEntrance } from "@/lib/content-entrance"
 import { useSettings } from "@/lib/settings"
 import { useResource } from "@/lib/use-resource"
 import { KindPage } from "@/pages/filling/kind-page"
+import { ReadyForSettlement } from "@/pages/filling/ready-for-settlement"
 import { openAndConfirm } from "@/pages/periods/open-period-path"
 
 const TITLE = "Uzupełnienie pliku zbiorczego"
@@ -85,6 +86,7 @@ export function FillingPage() {
       />
       {/* Inny okres albo nowe pliki taty to nowy odczyt; zmiana motywu nim nie jest. */}
       <FillingContent key={`${token}/${filesVersion}`} token={token} />
+      <ReadyForSettlement token={token} />
     </>
   )
 }

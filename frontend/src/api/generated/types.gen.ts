@@ -13,7 +13,7 @@ export type ApiTiming = {
     /**
      * Operation
      */
-    operation: 'getHealth' | 'getSettings' | 'chooseRegister' | 'openRegister' | 'choosePeriodsDirectory' | 'changeTheme' | 'getPeriodBoard' | 'openPeriodPath' | 'getQuantitiesToFill' | 'getKindTable' | 'openWorkerSettlement' | 'getRunSetup' | 'startRun' | 'decideRun' | 'diagnoseRun' | 'reportRun' | 'getRunCard' | 'getNotifications' | 'markNotificationsRead' | 'getMetrics' | 'getConfiguration' | 'startToolUpdate' | 'getToolUpdate' | 'reportToolUpdate' | 'getDadNoteRuns' | 'draftDadNote' | 'sendDadNote' | 'closeCentrum';
+    operation: 'getHealth' | 'getSettings' | 'chooseRegister' | 'openRegister' | 'choosePeriodsDirectory' | 'changeTheme' | 'getPeriodBoard' | 'openPeriodPath' | 'getQuantitiesToFill' | 'getWithoutQuantity' | 'getKindTable' | 'openWorkerSettlement' | 'getRunSetup' | 'startRun' | 'decideRun' | 'diagnoseRun' | 'reportRun' | 'getRunCard' | 'getNotifications' | 'markNotificationsRead' | 'getMetrics' | 'getConfiguration' | 'startToolUpdate' | 'getToolUpdate' | 'reportToolUpdate' | 'getDadNoteRuns' | 'draftDadNote' | 'sendDadNote' | 'closeCentrum';
     /**
      * Browser Ms
      */
@@ -1999,6 +1999,40 @@ export type ViewTiming = {
 };
 
 /**
+ * WithoutQuantityRead
+ *
+ * Wiersze z listą (bez reguły, z opisu), w których tata nic jeszcze nie wpisał, rosnąco.
+ *
+ * ``sentence`` to zdanie okna „Uruchomić z zapisem?”, np. „3 wiersze bez ilości: 118, 203, 244”; ``None`` bez wierszy.
+ */
+export type WithoutQuantityRead = {
+    /**
+     * State
+     */
+    state: 'read';
+    /**
+     * Rows
+     */
+    rows: Array<number>;
+    /**
+     * Sentence
+     */
+    sentence: string | null;
+};
+
+/**
+ * WithoutQuantityUnread
+ *
+ * Pliku zbiorczego nie udało się odczytać, więc nie wiadomo, które wiersze są bez ilości; start zostaje możliwy.
+ */
+export type WithoutQuantityUnread = {
+    /**
+     * State
+     */
+    state: 'unread';
+};
+
+/**
  * WorkerSettlement
  *
  * Rozliczenie pracownika jednego Wykonawcy: nazwa pliku, liczba jego zleceń w okresie i czy szablon jest pusty.
@@ -2417,6 +2451,50 @@ export type GetKindTableResponses = {
 };
 
 export type GetKindTableResponse = GetKindTableResponses[keyof GetKindTableResponses];
+
+export type GetWithoutQuantityData = {
+    body?: never;
+    path: {
+        /**
+         * Token
+         */
+        token: string;
+    };
+    query?: never;
+    url: '/api/periods/{token}/without-quantity';
+};
+
+export type GetWithoutQuantityErrors = {
+    /**
+     * Not Found
+     */
+    404: Problem;
+    /**
+     * Conflict
+     */
+    409: Problem;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type GetWithoutQuantityError = GetWithoutQuantityErrors[keyof GetWithoutQuantityErrors];
+
+export type GetWithoutQuantityResponses = {
+    /**
+     * Response Getwithoutquantity
+     *
+     * Successful Response
+     */
+    200: ({
+        state: 'read';
+    } & WithoutQuantityRead) | ({
+        state: 'unread';
+    } & WithoutQuantityUnread);
+};
+
+export type GetWithoutQuantityResponse = GetWithoutQuantityResponses[keyof GetWithoutQuantityResponses];
 
 export type OpenWorkerSettlementData = {
     body: WorkerSettlementRequest;

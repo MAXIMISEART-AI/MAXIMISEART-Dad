@@ -147,6 +147,24 @@ MUTATIONS = (
         "tata nie rozpozna zlecenia po opisie technika i musi szukać wiersza w Excelu",
     ),
     Mutation(
+        "ustawienie Przebiegu nie wymienia wierszy bez ilości",
+        (Edit(QUANTITIES_TO_FILL, "for row in kind.rows if not row.done))", "for row in kind.rows if False))"),),
+        UZUPELNIENIE,
+        "tata potwierdza Gotowość, a okno „Uruchomić z zapisem?” milczy o wierszach, w których nie ma ilości",
+    ),
+    Mutation(
+        "nieczytelny Plik zbiorczy psuje ustawienie Przebiegu",
+        (
+            Edit(
+                FILLING,
+                '    except WorkbookError:\n        return contract.WithoutQuantityUnread(state="unread")\n',
+                "    except WorkbookError:\n        raise\n",
+            ),
+        ),
+        UZUPELNIENIE,
+        "przy uszkodzonym Pliku zbiorczym jednego okresu tata nie może uruchomić żadnego Przebiegu rozliczeń",
+    ),
+    Mutation(
         "„Otwórz Rejestr zleceń” niczego nie otwiera",
         (Edit(SETTINGS, "        platform.open_path(register)\n", "        pass\n"),),
         DIAGNOZA,

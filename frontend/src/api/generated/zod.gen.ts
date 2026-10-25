@@ -18,6 +18,7 @@ export const zApiTiming = z.object({
         'getPeriodBoard',
         'openPeriodPath',
         'getQuantitiesToFill',
+        'getWithoutQuantity',
         'getKindTable',
         'openWorkerSettlement',
         'getRunSetup',
@@ -1092,6 +1093,28 @@ export const zViewTiming = z.object({
 });
 
 /**
+ * WithoutQuantityRead
+ *
+ * Wiersze z listą (bez reguły, z opisu), w których tata nic jeszcze nie wpisał, rosnąco.
+ *
+ * ``sentence`` to zdanie okna „Uruchomić z zapisem?”, np. „3 wiersze bez ilości: 118, 203, 244”; ``None`` bez wierszy.
+ */
+export const zWithoutQuantityRead = z.object({
+    state: z.literal('read'),
+    rows: z.array(z.int()),
+    sentence: z.string().nullable()
+});
+
+/**
+ * WithoutQuantityUnread
+ *
+ * Pliku zbiorczego nie udało się odczytać, więc nie wiadomo, które wiersze są bez ilości; start zostaje możliwy.
+ */
+export const zWithoutQuantityUnread = z.object({
+    state: z.literal('unread')
+});
+
+/**
  * WorkerSettlement
  *
  * Rozliczenie pracownika jednego Wykonawcy: nazwa pliku, liczba jego zleceń w okresie i czy szablon jest pusty.
@@ -1436,6 +1459,20 @@ export const zGetKindTablePath = z.object({
 export const zGetKindTableResponse = z.discriminatedUnion('state', [
     zKindTableReady,
     zQuantitiesToFillProblem
+]);
+
+export const zGetWithoutQuantityPath = z.object({
+    token: z.string()
+});
+
+/**
+ * Response Getwithoutquantity
+ *
+ * Successful Response
+ */
+export const zGetWithoutQuantityResponse = z.discriminatedUnion('state', [
+    zWithoutQuantityRead,
+    zWithoutQuantityUnread
 ]);
 
 export const zOpenWorkerSettlementBody = zWorkerSettlementRequest;

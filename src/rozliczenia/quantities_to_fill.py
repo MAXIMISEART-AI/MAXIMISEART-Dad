@@ -125,6 +125,12 @@ class QuantitiesToFill:
     description_filled: Mapping[str, int]
     """Każda kolumna z opisu technika (``DESCRIPTION_COLUMNS``) → liczba wierszy, w których tata coś wpisał."""
 
+    @property
+    def without_quantity(self) -> tuple[int, ...]:
+        """Numery wierszy z listą, w których tata nic jeszcze nie wpisał, rosnąco: wiersze „bez ilości” Gotowości."""
+
+        return tuple(sorted(row.number for kind in self.kinds for row in kind.rows if not row.done))
+
 
 def quantities_to_fill(rows: Sequence[NumberedOrder]) -> QuantitiesToFill:
     listed: dict[FillKind, list[RowToFill]] = {kind: [] for kind in FillKind}
