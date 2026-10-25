@@ -82,11 +82,9 @@ def _claimed(directory: Path) -> bool:
     """Czy to przejście może wysyłać z ``directory``; inaczej prosi trwające przejście o następne."""
 
     with _PASSES_LOCK:
-        if directory in _PASSES:
-            _PASSES[directory] = True
-            return False
-        _PASSES[directory] = False
-        return True
+        alone = directory not in _PASSES
+        _PASSES[directory] = not alone
+        return alone
 
 
 def _released(directory: Path) -> bool:
