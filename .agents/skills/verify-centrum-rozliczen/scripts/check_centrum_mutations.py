@@ -23,6 +23,7 @@ KEYED_BOX = Path("src/rozliczenia/centrum/keyed_box.py")
 OUTBOX = Path("src/rozliczenia/centrum/outbox.py")
 WORKBOOK_FILES = Path("src/rozliczenia/workbook_files.py")
 QUANTITIES_TO_FILL = Path("src/rozliczenia/quantities_to_fill.py")
+LIVE_FILE = Path("src/rozliczenia/centrum/live_file.py")
 FILLING = Path("src/rozliczenia/centrum/filling.py")
 SETTINGS = Path("src/rozliczenia/centrum/settings.py")
 STOPS = Path("src/rozliczenia/centrum/stops.py")
@@ -139,6 +140,18 @@ MUTATIONS = (
         (Edit(QUANTITIES_TO_FILL, "CellSource.EMPTY if value == 0 else CellSource.TATA", "CellSource.EMPTY"),),
         UZUPELNIENIE,
         "wiersz, który tata uzupełnił w Excelu, zostaje na liście do zrobienia",
+    ),
+    Mutation(
+        "znacznik zapisu się nie zmienia",
+        (Edit(LIVE_FILE, '    return f"{status.st_mtime_ns}-{status.st_size}"\n', '    return "zapis"\n'),),
+        UZUPELNIENIE,
+        "tata wpisuje w Excelu, a strona Uzupełnienia stoi, dopóki jej nie odświeży",
+    ),
+    Mutation(
+        "nieudany odczyt od razu Komunikatem",
+        (Edit(FILLING, "        if failing.kept is not None:\n", "        if False:\n"),),
+        UZUPELNIENIE,
+        "każdy zapis Excela albo synchronizacja OneDrive miga tacie Komunikatem zamiast ostatniego stanu",
     ),
     Mutation(
         "strona rodzaju gubi CZYNNOŚCI ZREALIZOWANE",

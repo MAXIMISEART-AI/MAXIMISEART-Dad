@@ -13,8 +13,8 @@
     "bundle_wzgledny": 0.02
   },
   "bundle_bajty": {
-    "js": 697233,
-    "css": 99891
+    "js": 724723,
+    "css": 104520
   },
   "scenariusze": {
     "okresy/zimny-start": {
@@ -351,6 +351,25 @@
         "GET /api/runs/events": 1,
         "GET /api/settings": 1,
         "POST /api/view-timings": 1
+      }
+    },
+    "uzupelnienie/pytanie-o-zapis": {
+      "mediana_ms": {
+        "4x": 4,
+        "6x": 3
+      },
+      "zapytania_api": {
+        "GET /api/periods/06_12_10_2026/collective-file-version": 3
+      }
+    },
+    "uzupelnienie/zmiana-pliku": {
+      "mediana_ms": {
+        "4x": 52,
+        "6x": 51
+      },
+      "zapytania_api": {
+        "GET /api/periods/06_12_10_2026/collective-file-version": 1,
+        "GET /api/periods/06_12_10_2026/quantities-to-fill": 1
       }
     }
   }

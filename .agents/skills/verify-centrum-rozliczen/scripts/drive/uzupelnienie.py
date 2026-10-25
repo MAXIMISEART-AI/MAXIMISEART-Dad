@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 import re
+from urllib.parse import urlsplit
 import urllib.request
 
 from openpyxl import load_workbook
@@ -19,6 +20,9 @@ from drive.przygotowanie_pliku_zbiorczego import drive_preparation
 FEATURE = "uzupelnienie"
 SUMMARY = f"#/uzupelnienie/{LAST_COMPLETE}"
 API = f"/api/periods/{LAST_COMPLETE}/quantities-to-fill"
+VERSION_API = f"/api/periods/{LAST_COMPLETE}/collective-file-version"
+# The page asks about the saved version every 3 s (frontend/src/lib/use-live-file.ts); a full read follows.
+LIVE_TIMEOUT_MS = 10_000
 KIND_TITLES = {"without_rule": "Wiersze bez reguły", "from_description": "Wiersze z opisu"}
 # The fixture's Plik zbiorczy after Przygotowanie: rows 18 and 20 carry a device the Reguły ilości do not know,
 # row 19 is prewencja (create_centrum_fixture.py, DEVICES).
@@ -44,6 +48,12 @@ def _ready(run: Run, name: str) -> dict[str, object]:
     answer = run.api(API, name)
     run.check(answer["state"] == "ready", f"{name}: the server read the Plik zbiorczy")
     return answer
+
+
+def _without_read(answer: dict[str, object]) -> dict[str, object]:
+    """The answer without its read stamp: the time of every read differs."""
+
+    return {key: value for key, value in answer.items() if key != "read"}
 
 
 def _rows(answer: dict[str, object]) -> dict[str, list[tuple[int, bool]]]:
@@ -235,14 +245,41 @@ def _drive_kind(run: Run, page: Page, kind: str, shot: str) -> dict[str, object]
     return answer
 
 
-def _write_dad_value(collective_file: Path, row: int) -> None:
+def _live_kind_cell(run: Run, page: Page, collective_file: Path, table_answer: dict[str, object]) -> None:
+    """Dad types the missing quantity of row 20 while its kind's table is open, then deletes it again.
+
+    ``table_answer`` is the kind's earlier answer: the row texts it hides in the ARIA snapshot have not changed.
+    """
+
+    row = EXPECTED_ROWS["without_rule"][1]
+    page.get_by_role("region", name=KIND_TITLES["without_rule"], exact=True).get_by_role("link").click()
+    table = page.get_by_role("table", name="Wiersze Pliku zbiorczego", exact=True)
+    line = table.locator("tr", has=page.get_by_role("rowheader", name=str(row)))
+    expect(line).to_have_attribute("data-state", "to_fill")
+    page.evaluate("() => { window.__bez_przeladowania = true }")
+    _write_dad_value(collective_file, row)
+    expect(line).to_have_attribute("data-state", "done", timeout=LIVE_TIMEOUT_MS)
+    expect(line.locator("td[data-source='tata']")).to_have_text(["1"])
+    run.check(
+        page.evaluate("() => window.__bez_przeladowania === true"),
+        f"harness typed 1 into {DAD_COLUMN}{row}: the row turns done with Dad's green value without a click or reload",
+    )
+    _capture(run, page, "227-uzupelnienie-tabela-na-zywo", table_answer)
+    _write_dad_value(collective_file, row, None)
+    expect(line).to_have_attribute("data-state", "to_fill", timeout=LIVE_TIMEOUT_MS)
+    run.check(True, f"harness deleted {DAD_COLUMN}{row} again: the row is to fill again by itself")
+    page.get_by_role("main").get_by_role("link", name="Podsumowanie", exact=True).click()
+    expect(page.get_by_role("region", name=KIND_TITLES["without_rule"], exact=True)).to_contain_text("1 z 2")
+
+
+def _write_dad_value(collective_file: Path, row: int, value: int | None = 1) -> None:
     """Dad types one quantity in Excel and saves (harness: openpyxl edits the run's Plik zbiorczy, no lock file)."""
 
     workbook = load_workbook(collective_file)
     try:
         sheet = workbook.active
         assert isinstance(sheet, Worksheet)
-        sheet.cell(row, column_index_from_string(DAD_COLUMN)).value = 1
+        sheet.cell(row, column_index_from_string(DAD_COLUMN)).value = value
         workbook.save(collective_file)
     finally:
         workbook.close()
@@ -339,16 +376,30 @@ def _drive(run: Run, page: Page, collective_file: Path, lock: Path) -> None:
 
     run.step(FEATURE, "uzupelnienie-wpis-taty")
     row = EXPECTED_ROWS["without_rule"][0]
+    asked: list[str] = []
+    page.on("request", lambda request: asked.append(urlsplit(request.url).path))
+    page.evaluate("() => { window.__bez_przeladowania = true }")
     _write_dad_value(collective_file, row)
     run.check(not lock.exists(), f"harness: one value typed into column {DAD_COLUMN} of row {row}, saved and closed")
-    page.reload()
+    region = page.get_by_role("region", name=KIND_TITLES["without_rule"], exact=True)
+    expect(region).to_contain_text("1 z 2", timeout=LIVE_TIMEOUT_MS)
+    run.check(
+        page.evaluate("() => window.__bez_przeladowania === true") and asked.count(VERSION_API) >= 1,
+        f"the counter changed to 1 z 2 without a click or reload, after {asked.count(VERSION_API)} "
+        "check(s) of the saved version",
+    )
     after = _ready(run, "uzupelnienie-po-wpisie")
     columns_before, columns_after = _columns(before), _columns(after)
     run.check(
         _rows(after) == {**_rows(before), "without_rule": [(18, True), (20, False)]}
         and columns_after == {**columns_before, DAD_COLUMN: columns_before[DAD_COLUMN] + 1},
-        f"after a reload row {row} is done and only column {DAD_COLUMN} counts one more row",
+        f"row {row} is done and only column {DAD_COLUMN} counts one more row",
     )
+    views = asked.count(API)
+    for _ in range(2):
+        with page.expect_request(lambda request: urlsplit(request.url).path == VERSION_API, timeout=LIVE_TIMEOUT_MS):
+            pass
+    run.check(asked.count(API) == views, "two more checks of the unchanged saved version read nothing again")
     _check_screen(run, page, after, "after Dad's value")
     switched = _light_theme(page)
     run.capture(page, "222-uzupelnienie-po-wpisie")
@@ -368,16 +419,42 @@ def _drive(run: Run, page: Page, collective_file: Path, lock: Path) -> None:
     run.step(FEATURE, "uzupelnienie-tabela-z-opisu")
     _drive_kind(run, page, "from_description", "226-uzupelnienie-z-opisu")
 
+    run.step(FEATURE, "uzupelnienie-tabela-na-zywo")
+    _live_kind_cell(run, page, collective_file, without_rule)
+
     run.step(FEATURE, "uzupelnienie-blokada-excela")
     lock.write_bytes(b"\x00" * 165)
     page.reload()
     held = _ready(run, "uzupelnienie-blokada-excela")
+    held_read = held["read"]
+    assert isinstance(held_read, dict)
+    expect(page.get_by_role("status").filter(has_text="Stan z")).to_have_count(0)
     run.check(
-        held == after,
+        held_read["retrying"] is False and _without_read(held) == _without_read(after),
         "with Excel's lock file next to the Plik zbiorczy the server reads its last saved version unchanged",
     )
     _check_screen(run, page, held, "with Excel's lock file")
     run.capture(page, "223-uzupelnienie-blokada-excela")
+
+    run.step(FEATURE, "uzupelnienie-odczyt-nieudany")
+    lock.unlink()
+    saved = collective_file.read_bytes()
+    collective_file.write_bytes(b"Excel zapisuje")
+    status = page.get_by_role("status").filter(has_text="Stan z")
+    expect(status).to_be_visible(timeout=LIVE_TIMEOUT_MS)
+    kept = _ready(run, "uzupelnienie-odczyt-nieudany")
+    read = kept["read"]
+    assert isinstance(read, dict)
+    run.check(
+        read["retrying"] is True and _without_read(kept) == _without_read(held),
+        "a Plik zbiorczy Centrum cannot read keeps the last good state, marked as retried",
+    )
+    _check_screen(run, page, kept, "while the read fails")
+    expect(page.get_by_label("Komunikat", exact=True)).to_have_count(0)
+    run.capture(page, "229-uzupelnienie-odczyt-nieudany")
+    collective_file.write_bytes(saved)
+    expect(status).to_have_count(0, timeout=LIVE_TIMEOUT_MS)
+    run.check(True, "once the file reads again the time disappears, without a click")
 
     run.step(FEATURE, "uzupelnienie-otworz")
     page.get_by_role("button", name="Otwórz Plik zbiorczy", exact=True).click()
@@ -392,7 +469,8 @@ def _drive(run: Run, page: Page, collective_file: Path, lock: Path) -> None:
     run.check(True, "the link Okresy leads back, and Wstecz returns to the summary of the same period")
 
     run.step(FEATURE, "uzupelnienie-gotowe")
-    lock.unlink()
+    # `uzupelnienie-odczyt-nieudany` already removed it.
+    lock.unlink(missing_ok=True)
     run.check(not lock.exists(), "harness: Dad closed Excel, so no lock file keeps Uruchom disabled")
     expected = _without_quantity(_ready(run, "uzupelnienie-gotowe-podsumowanie"))
     answer = _go_to_settlement(run, page, LAST_COMPLETE, "uzupelnienie-gotowe")

@@ -377,6 +377,69 @@
         }
       }
     },
+    "/api/periods/{token}/collective-file-version": {
+      "get": {
+        "tags": [
+          "okresy"
+        ],
+        "summary": "Collective File Version",
+        "description": "Znacznik zapisu Pliku zbiorczego bez otwierania skoroszytu: strona porównuje go z ``read.version``.",
+        "operationId": "getCollectiveFileVersion",
+        "parameters": [
+          {
+            "name": "token",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CollectiveFileVersion"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/periods/{token}/open": {
       "post": {
         "tags": [
@@ -1623,6 +1686,7 @@
               "getPeriodBoard",
               "openPeriodPath",
               "getQuantitiesToFill",
+              "getCollectiveFileVersion",
               "getWithoutQuantity",
               "getKindTable",
               "openWorkerSettlement",
@@ -1812,6 +1876,61 @@
         ],
         "title": "Closing",
         "description": "Centrum przyjęło prośbę o zamknięcie i kończy pracę po tej odpowiedzi."
+      },
+      "CollectiveFileRead": {
+        "properties": {
+          "version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Version"
+          },
+          "read_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Read At"
+          },
+          "retrying": {
+            "type": "boolean",
+            "title": "Retrying"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "version",
+          "read_at",
+          "retrying"
+        ],
+        "title": "CollectiveFileRead",
+        "description": "Odczyt Pliku zbiorczego za widokiem: znacznik zapisu przed odczytem i godzina odczytu.\n\n``retrying``: późniejsze odczyty się nie udały, więc to ostatni dobry stan, a strona ponawia odczyt."
+      },
+      "CollectiveFileVersion": {
+        "properties": {
+          "version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Version"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "version"
+        ],
+        "title": "CollectiveFileVersion",
+        "description": "Znacznik zapisu Pliku zbiorczego (czas zmiany i rozmiar); ``None``, gdy pliku nie widać."
       },
       "Configuration": {
         "properties": {
@@ -2370,6 +2489,9 @@
             "const": "ready",
             "title": "State"
           },
+          "read": {
+            "$ref": "#/components/schemas/CollectiveFileRead"
+          },
           "kind": {
             "$ref": "#/components/schemas/FillKind"
           },
@@ -2392,6 +2514,7 @@
         "type": "object",
         "required": [
           "state",
+          "read",
           "kind",
           "columns",
           "rows"
@@ -3477,16 +3600,28 @@
           },
           "message": {
             "$ref": "#/components/schemas/Message"
+          },
+          "version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Version"
           }
         },
         "additionalProperties": false,
         "type": "object",
         "required": [
           "state",
-          "message"
+          "message",
+          "version"
         ],
         "title": "QuantitiesToFillProblem",
-        "description": "Pliku zbiorczego nie udało się odczytać; Komunikat go nazywa."
+        "description": "Pliku zbiorczego nie udało się odczytać; Komunikat go nazywa, a ``version`` to znacznik zapisu przed odczytem."
       },
       "QuantitiesToFillReady": {
         "properties": {
@@ -3494,6 +3629,9 @@
             "type": "string",
             "const": "ready",
             "title": "State"
+          },
+          "read": {
+            "$ref": "#/components/schemas/CollectiveFileRead"
           },
           "kinds": {
             "items": {
@@ -3514,6 +3652,7 @@
         "type": "object",
         "required": [
           "state",
+          "read",
           "kinds",
           "description_columns"
         ],

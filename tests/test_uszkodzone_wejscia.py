@@ -387,6 +387,9 @@ ENTRIES: dict[str, Entry] = {
         "openPeriodPath", "POST", f"/api/periods/{SETTLEMENT_PERIOD}/open", {"target": "collective_file"}
     ),
     "getQuantitiesToFill": _route("getQuantitiesToFill", "GET", f"/api/periods/{SETTLEMENT_PERIOD}/quantities-to-fill"),
+    "getCollectiveFileVersion": _route(
+        "getCollectiveFileVersion", "GET", f"/api/periods/{SETTLEMENT_PERIOD}/collective-file-version"
+    ),
     "getWithoutQuantity": _route("getWithoutQuantity", "GET", f"/api/periods/{SETTLEMENT_PERIOD}/without-quantity"),
     "getKindTable": _route("getKindTable", "GET", f"/api/periods/{SETTLEMENT_PERIOD}/quantities-to-fill/without_rule"),
     # Rozliczenia pracownika w świecie nie ma, bo zatrzymałoby Przebieg rozliczeń; operacja go nie czyta, a ścieżkę

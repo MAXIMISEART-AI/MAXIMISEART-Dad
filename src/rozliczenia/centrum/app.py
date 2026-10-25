@@ -173,7 +173,7 @@ def create_app(
         cloud_files or CloudFiles.of_system(),
         lambda: box.judge(wait_s=report_search_deadline_s),
     )
-    app.include_router(filling_router(store, log, surroundings.cloud_files))
+    app.include_router(filling_router(store, log, surroundings.cloud_files, clock=clock))
     # Kontrola ilości, Logi Uruchomienia, Uwagi taty i Zgłoszenia: w kolejce Skrzynki, wysyłane w tle (ADR 0007, 0013,
     # 0015); numer issue Uwagi albo Zgłoszenia trafia do jego Sprawy taty.
 

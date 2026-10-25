@@ -48,6 +48,24 @@ godzinami, z Plikiem zbiorczym otwartym w Excelu, więc strona, która wymaga za
   po wpisie taty. Test Maksa na laptopie taty się nie udał, a to, czy Windows daje czytać plik, który trzyma
   Excel, sprawdzi dopiero pierwsze wdrożenie przez wpis `uzupelnienie-odczyt-nieudany` w dzienniku. Gdy
   założenie nie działa, zabezpieczeniem jest wskazówka „Nie widzisz zmian? Zapisz w Excelu (Ctrl+S)”.
+- **Na żywo (#419).** Widoczna strona co 3 s pyta o znacznik zapisu Pliku zbiorczego (czas zmiany i rozmiar z
+  `stat`, bez otwierania skoroszytu) i czyta widok dopiero po jego zmianie. Gdy odczyt się nie uda, Centrum przez
+  minutę oddaje ostatni dobry odczyt z jego godziną, a dopiero potem Komunikat. Ten odczyt jest jedynym, co Centrum
+  pamięta: tylko w pamięci procesu, po każdym dobrym odczycie, i pokazuje go tylko podczas serii nieudanych prób,
+  więc zmienia tylko to, co strona pokazuje podczas porażki. Po ponownym starcie Centrum go nie ma, a źródłem stanu
+  dalej jest plik. Przejścia serii nieudanych prób opisuje tabela w `LastGoodReads` (`live_file.py`). Kończy ją
+  dobry odczyt. Serię, która jeszcze nie oddała Komunikatu, kończy też cisza dłuższa niż kilka odstępów
+  odpytywania (ukryta karta, także zasłonięta przez zmaksymalizowany Excel), ale tylko wtedy, gdy znacznik zapisu
+  zmienił się od ostatniej porażki. Bez zmiany znacznika seria trwa, więc trwała porażka oglądana zrywami daje
+  Komunikat po około minucie, jak mówi historia 24. Plik może jednak wrócić bez zmiany znacznika (zdjęta blokada
+  albo przywrócone prawa dostępu); wtedy Komunikat znika najpóźniej przy powrocie do karty, bo `useResource`
+  czyta wtedy plik od nowa, a dobry odczyt kończy serię. Przerwę mierzy się od końca ostatniej porażki
+  do początku następnej próby, więc wolny nieudany odczyt (OneDrive pobiera plik) nie przerywa serii. Seria
+  z Komunikatem, także oddanym od razu z braku dobrego odczytu, trwa do dobrego odczytu, bo po Komunikacie strona
+  nie ponawia odczytu sama. Do dziennika trafia przyczyna (kod Komunikatu), której tam nie ma od ostatniego
+  dobrego odczytu. Znany przypadek: po Komunikacie i naprawie pliku, której nikt nie czytał, chwilowa porażka
+  przy następnej wizycie od razu daje Komunikat bez nowego wpisu. Znika on przy następnej zmianie znacznika,
+  zwykle po sekundach.
 
 ## Odrzucone warianty
 

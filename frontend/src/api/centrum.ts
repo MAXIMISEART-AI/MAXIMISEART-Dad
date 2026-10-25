@@ -39,6 +39,7 @@ import {
   zGetNotificationsResponse,
   zGetPeriodBoardResponse,
   zGetQuantitiesToFillResponse,
+  zGetCollectiveFileVersionResponse,
   zGetKindTableResponse,
   zGetRunCardResponse,
   zGetWithoutQuantityResponse,
@@ -59,6 +60,7 @@ import {
 
 export type {
   Choice,
+  CollectiveFileRead,
   Configuration,
   Count,
   DadNoteDraft,
@@ -217,6 +219,15 @@ export function getQuantitiesToFill(token: string) {
     zGetQuantitiesToFillResponse,
     "getQuantitiesToFill",
     `/api/periods/${encodeURIComponent(token)}/quantities-to-fill`
+  )
+}
+
+/** Znacznik zapisu Pliku zbiorczego okresu: serwer odpowiada z `stat`, bez otwierania skoroszytu. */
+export function getCollectiveFileVersion(token: string) {
+  return call(
+    zGetCollectiveFileVersionResponse,
+    "getCollectiveFileVersion",
+    `/api/periods/${encodeURIComponent(token)}/collective-file-version`
   )
 }
 
