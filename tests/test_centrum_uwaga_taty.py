@@ -9,10 +9,10 @@ from typing import Any
 
 import pytest
 
-from rozliczenia.centrum.dad_notes import DELIVERY_WAIT_S
+from rozliczenia.centrum.outbox import DELIVERY_WAIT_S, RETRY_S
 from rozliczenia.centrum.report_box import Refused, SendOutcome, Unreachable
 
-from tests.fixtures.centrum import TOOL_COMMIT, Centrum, FakeIssue, centrum, dad_cases
+from tests.fixtures.centrum import TOOL_COMMIT, Centrum, FakeIssue, case_states, centrum, dad_cases
 from tests.fixtures.potomne import wait_for
 
 KEY = "github_pat_SYNTETYCZNY_KLUCZ_ZGLOSZEN"
@@ -130,7 +130,7 @@ def test_uwaga_bez_skrzynki_czeka_w_kolejce_i_wychodzi_przy_nastepnym_starcie_ce
     restarted = with_key(tmp_path)
     with restarted.client:
         assert restarted.report_box.wait_until(lambda box: len(box.issues) == 1)
-        assert wait_for(lambda: notes(tmp_path)[0]["number"] is not None)
+        assert wait_for(lambda: case_states(restarted.client, "uwaga") == ["wyslana"])
 
     [issue] = dad_note_issues(restarted)
     assert (issue.title, issue.body) == (TITLE, f"{BODY}\n\n{VERSION_LINE}")
@@ -151,3 +151,16 @@ def test_uwaga_ktorej_kolejka_nie_zapisala_jest_odmowa_bez_sladu_w_stanie_uwag(t
     }
     assert started.report_box.issues == []
     assert notes(tmp_path) == []
+
+
+def test_uwaga_bez_sieci_wysyla_sie_sama_minute_po_powrocie_sieci_bez_restartu(tmp_path: Path) -> None:
+    started = with_key(tmp_path)
+    started.report_box.outcomes.append(Unreachable())
+    assert started.client.post("/api/dad-notes", json={"title": TITLE, "body": BODY}).json() == {"state": "waiting"}
+
+    started.clock.advance(RETRY_S)
+
+    assert started.report_box.wait_until(lambda box: len(box.issues) == 1)
+    assert wait_for(lambda: case_states(started.client, "uwaga") == ["wyslana"])
+    assert notes(tmp_path)[0]["number"] == dad_note_issues(started)[0].number
+    assert wait_for(lambda: queued(tmp_path) == [])

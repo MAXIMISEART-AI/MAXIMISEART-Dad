@@ -1,5 +1,5 @@
 import * as React from "react"
-import { CircleCheckIcon, ClockIcon, RotateCcwIcon, SendIcon } from "lucide-react"
+import { CircleCheckIcon, ClockIcon, HourglassIcon, RotateCcwIcon, SendIcon } from "lucide-react"
 
 import { failureMessage } from "@/api/client"
 import type { ReportDraft, RunOutcome } from "@/api/centrum"
@@ -13,10 +13,10 @@ type ReportState = NonNullable<RunOutcome["report"]>
 
 /**
  * Zgłoszenie do Maksa (przy Zatrzymaniu albo nieudanej Aktualizacji narzędzia): podgląd i „Wyślij do Maksa”,
- * potwierdzenie po wysłaniu albo Komunikat z „Spróbuj ponownie”, gdy Zgłoszenie czeka w pliku. Gdy ten problem
- * ma już otwarte Zgłoszenie, zamiast przycisku jest „już wysłane i czeka na naprawę”. Stan liczy serwer, a `send`
- * prosi go o wysyłkę; `draft` przy Zatrzymaniu jest dopiero po Diagnozie, więc przed nią widać tylko
- * potwierdzenie albo zapisane Zgłoszenie.
+ * potwierdzenie po wysłaniu, „czeka” na internet albo klucz, gdy Zgłoszenie jest w kolejce i wyjdzie samo, albo
+ * Komunikat z „Spróbuj ponownie”, gdy nie dało się go zapisać. Gdy ten problem ma już otwarte Zgłoszenie, zamiast
+ * przycisku jest „już wysłane i czeka na naprawę”. Stan liczy serwer, a `send` prosi go o wysyłkę; `draft` przy
+ * Zatrzymaniu jest dopiero po Diagnozie, więc przed nią widać tylko stan.
  */
 export function ReportToMaks({
   send: sendReport,
@@ -31,14 +31,15 @@ export function ReportToMaks({
   primary: boolean
 }) {
   const [sending, setSending] = React.useState(false)
-  const [answer, setAnswer] = React.useState<ReportState | null>(null)
-  const state = answer ?? report
+  // Odpowiedź na kliknięcie ważna tylko do następnego stanu od serwera: kolejka może potem wysłać Zgłoszenie sama.
+  const [answer, setAnswer] = React.useState<{ to: ReportState; state: ReportState } | null>(null)
+  const state = answer !== null && answer.to === report ? answer.state : report
 
   const send = () => {
     setSending(true)
 
     sendReport()
-      .then(setAnswer, (failure: Error) => {
+      .then((answered) => setAnswer({ to: report, state: answered }), (failure: Error) => {
         toast.add({ title: "Nie udało się", description: failureMessage(failure), type: "error" })
       })
       .finally(() => setSending(false))
@@ -62,7 +63,19 @@ export function ReportToMaks({
     )
   }
 
-  if (state.state === "saved") {
+  if (state.state === "queued") {
+    return (
+      <div className="flex flex-col items-start gap-1">
+        <p role="status" className="wejscie flex items-center gap-2 text-sm">
+          <HourglassIcon className="size-4 text-muted-foreground" aria-hidden />
+          {QUEUED_TEXT[state.waits_for]}
+        </p>
+        {draft === null ? null : <Preview draft={draft} />}
+      </div>
+    )
+  }
+
+  if (state.state === "not_queued") {
     return (
       <div className="flex flex-col gap-2">
         <ThreePartMessage
@@ -93,6 +106,12 @@ export function ReportToMaks({
       <Preview draft={draft} />
     </div>
   )
+}
+
+/** Na co czeka Zgłoszenie w kolejce: bez klucza albo z odrzuconym nic nie wyjdzie, dopóki tata nie powie Maksowi. */
+const QUEUED_TEXT: Record<Extract<ReportState, { state: "queued" }>["waits_for"], string> = {
+  internet: "Zgłoszenie czeka na internet. Wyśle się samo.",
+  key: "Zgłoszenie czeka na klucz do Zgłoszeń. Daj znać Maksowi.",
 }
 
 /** Dokładna treść Zgłoszenia, zwinięta: tata widzi przed wysłaniem, co dostanie Maks. */

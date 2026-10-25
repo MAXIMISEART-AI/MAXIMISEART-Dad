@@ -17,7 +17,6 @@ from contextlib import asynccontextmanager
 from dataclasses import replace
 from datetime import date
 from pathlib import Path
-import time
 from typing import Any
 import uuid
 from urllib.parse import urlsplit
@@ -26,8 +25,9 @@ from fastapi import FastAPI, Request, Response
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
+from rozliczenia.centrum.clock import SYSTEM_CLOCK, Clock
 from rozliczenia.centrum.cloud_files import CloudFiles
-from rozliczenia.centrum.configuration import ConfigurationFiles, configuration_router
+from rozliczenia.centrum.configuration import CONFIGURATION_WAIT_S, ConfigurationFiles, configuration_router
 from rozliczenia.centrum.contract import Health, Problem, Refusal
 from rozliczenia.centrum.dad_cases import DadCases
 from rozliczenia.centrum.dad_notes import after_delivery, dad_notes_router, with_logs
@@ -38,10 +38,11 @@ from rozliczenia.centrum.metrics import metrics_router, read_runs
 from rozliczenia.centrum.notifications import NOTIFICATIONS_FILE, Notifications, ReadNotifications, notifications_router
 from rozliczenia.centrum.period_board import periods_router
 from rozliczenia.centrum.platform import Platform
+from rozliczenia.centrum.keyed_box import KeyedBox, read_report_key
 from rozliczenia.centrum.report_box import GitHubReportBox, ReportBox
-from rozliczenia.centrum.outbox import ADDRESSES_FILE, QUEUE_DIRECTORY, Outbox
+from rozliczenia.centrum.outbox import ADDRESSES_FILE, QUEUE_DIRECTORY, Outbox, Post
 from rozliczenia.centrum.quantity_check_run import QuantityCheckAfterRun
-from rozliczenia.centrum.reports import SEARCH_DEADLINE_S, UNSENT_DIRECTORY, Reports, read_report_key
+from rozliczenia.centrum.reports import SEARCH_DEADLINE_S, UNSENT_DIRECTORY, Reports
 from rozliczenia.centrum.preparation_run import PreparationEntry
 from rozliczenia.centrum.processes import Processes
 from rozliczenia.centrum.run_cards import LAST_STARTED_FILE, RunCards, run_cards_router
@@ -79,7 +80,7 @@ def create_app(
     tool_freshness: ToolFreshness | None = None,
     cloud_files: CloudFiles | None = None,
     report_box: ReportBox | None = None,
-    clock: Callable[[], float] = time.monotonic,
+    clock: Clock = SYSTEM_CLOCK,
     report_search_deadline_s: float = SEARCH_DEADLINE_S,
     tool_update: ToolClone | None = None,
     guardian: GuardianLauncher | None = None,
@@ -89,6 +90,8 @@ def create_app(
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         # Powiadomienia: pierwsze pytanie skrzynki o stan spraw taty przy starcie, nie dopiero przy odczycie.
         notifications.check_in_background()
+        # Klucz do Zgłoszeń: pierwsze sprawdzenie w tle, żeby Konfiguracja nie czekała na Skrzynkę.
+        box.check_in_background()
         # Kontrole ilości, Logi i Uwagi taty, których poprzednia praca Centrum nie wysłała (brak sieci albo klucza),
         # wychodzą w tle.
         outbox.resume()
@@ -159,19 +162,24 @@ def create_app(
     # narzędzia (limit API bez klucza); Diagnoza pyta za każdym razem, a jej odpowiedź też trafia do pamięci.
     freshness = tool_freshness or ToolFreshness.of_system()
     release = RememberedRelease(freshness.release, clock=clock)
-    # Diagnoza: commit `main` z GitHuba i atrybuty OneDrive to granice komputera taty, podstawiane w testach.
-    surroundings = Surroundings(replace(freshness, release=release.fresh), cloud_files or CloudFiles.of_system())
-    app.include_router(filling_router(store, log, surroundings.cloud_files, clock=clock))
     # Sprawy taty: wysłane Zgłoszenia i Uwagi taty w jednym pliku stanu obok Ustawień taty (ADR 0015).
     config = settings_path.parent
     cases = DadCases(config, log)
     # Zgłoszenia do Maksa: skrzynka obok platformy, klucz obok Ustawień taty (ADR 0007).
-    box = report_box or GitHubReportBox()
-    reports = Reports(
-        config, box, log, surroundings.tool_freshness.local, cases, search_deadline_s=report_search_deadline_s
+    box = KeyedBox(report_box or GitHubReportBox(), lambda: read_report_key(config), clock=clock)
+    # Diagnoza: commit `main` z GitHuba, atrybuty OneDrive i werdykt Skrzynki o kluczu to granice komputera taty.
+    surroundings = Surroundings(
+        replace(freshness, release=release.fresh),
+        cloud_files or CloudFiles.of_system(),
+        lambda: box.judge(wait_s=report_search_deadline_s),
     )
-    # Kontrola ilości, Logi Uruchomienia i Uwagi taty: w kolejce obok niewysłanych Zgłoszeń, wysyłane w tle
-    # (ADR 0013, 0015); numer issue Uwagi trafia do Spraw taty.
+    app.include_router(filling_router(store, log, surroundings.cloud_files, clock=clock))
+    # Kontrola ilości, Logi Uruchomienia, Uwagi taty i Zgłoszenia: w kolejce Skrzynki, wysyłane w tle (ADR 0007, 0013,
+    # 0015); numer issue Uwagi albo Zgłoszenia trafia do jego Sprawy taty.
+
+    def delivered(post: Post, number: int) -> None:
+        after_delivery(post, number, cases, outbox)
+        reports.delivered(post, number)
 
     def run_logs_address(run_id: str) -> str | None:
         return outbox.delivered(run_id, RUN_LOGS_LABEL)
@@ -182,18 +190,20 @@ def create_app(
     outbox = Outbox(
         config / UNSENT_DIRECTORY / QUEUE_DIRECTORY,
         box,
-        lambda: read_report_key(config),
         log,
-        on_delivered=lambda post, number: after_delivery(post, number, cases, outbox),
+        clock=clock,
+        on_delivered=delivered,
         prepare=lambda post: with_logs(post, cases, run_logs_address, run_logs_rejected),
         addresses=config / ADDRESSES_FILE,
+    )
+    reports = Reports(
+        box, outbox, surroundings.tool_freshness.local, cases, search_deadline_s=report_search_deadline_s
     )
     # Powiadomienia o Uwagach taty, wysłanych Zgłoszeniach i Wydaniach; przeczytane obok Ustawień taty (ADR 0015).
     notifications = Notifications(
         cases,
         ReadNotifications(config / NOTIFICATIONS_FILE, log),
         box,
-        lambda: read_report_key(config),
         surroundings.tool_freshness,
         release,
         log,
@@ -270,7 +280,11 @@ def create_app(
         )
     )
     app.include_router(metrics_router(entry_processes, today, centrum_runs))
-    app.include_router(configuration_router(configuration, surroundings.tool_freshness, release, reports.key_state, readers))
+    app.include_router(
+        configuration_router(
+            configuration, surroundings.tool_freshness, release, lambda: box.judge(wait_s=CONFIGURATION_WAIT_S), readers
+        )
+    )
     app.include_router(tool_update_router(updates))
     app.include_router(shutdown_router(shutdown))
     app.include_router(timing_router(log))

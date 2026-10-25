@@ -1243,7 +1243,10 @@
                       "$ref": "#/components/schemas/ReportWaiting"
                     },
                     {
-                      "$ref": "#/components/schemas/ReportSaved"
+                      "$ref": "#/components/schemas/ReportQueued"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ReportNotQueued"
                     }
                   ],
                   "discriminator": {
@@ -1252,7 +1255,8 @@
                       "ready": "#/components/schemas/ReportReady",
                       "sent": "#/components/schemas/ReportSent",
                       "waiting": "#/components/schemas/ReportWaiting",
-                      "saved": "#/components/schemas/ReportSaved"
+                      "queued": "#/components/schemas/ReportQueued",
+                      "not_queued": "#/components/schemas/ReportNotQueued"
                     }
                   },
                   "title": "Response Reportrun"
@@ -1597,7 +1601,10 @@
                       "$ref": "#/components/schemas/ReportWaiting"
                     },
                     {
-                      "$ref": "#/components/schemas/ReportSaved"
+                      "$ref": "#/components/schemas/ReportQueued"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ReportNotQueued"
                     }
                   ],
                   "title": "Response Reporttoolupdate",
@@ -1607,7 +1614,8 @@
                       "ready": "#/components/schemas/ReportReady",
                       "sent": "#/components/schemas/ReportSent",
                       "waiting": "#/components/schemas/ReportWaiting",
-                      "saved": "#/components/schemas/ReportSaved"
+                      "queued": "#/components/schemas/ReportQueued",
+                      "not_queued": "#/components/schemas/ReportNotQueued"
                     }
                   }
                 }
@@ -1992,7 +2000,8 @@
             "type": "string",
             "enum": [
               "ready",
-              "missing_key"
+              "missing_key",
+              "refused_key"
             ],
             "title": "Reports"
           }
@@ -3784,6 +3793,26 @@
         "title": "ReportDraft",
         "description": "Dokładna treść Zgłoszenia, które „Wyślij do Maksa” wyśle do skrzynki Zgłoszeń: tytuł i treść Markdown."
       },
+      "ReportNotQueued": {
+        "properties": {
+          "state": {
+            "type": "string",
+            "const": "not_queued",
+            "title": "State"
+          },
+          "message": {
+            "$ref": "#/components/schemas/Message"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "state",
+          "message"
+        ],
+        "title": "ReportNotQueued",
+        "description": "Zgłoszenia nie udało się zapisać w kolejce, więc nic go nie wyśle; ``message`` mówi, co zrobić."
+      },
       "ReportNotification": {
         "properties": {
           "id": {
@@ -3832,6 +3861,31 @@
         "title": "ReportNotification",
         "description": "Powiadomienie o Zgłoszeniu, nazwanym „Co się stało” jego Komunikatu, bez kodu."
       },
+      "ReportQueued": {
+        "properties": {
+          "state": {
+            "type": "string",
+            "const": "queued",
+            "title": "State"
+          },
+          "waits_for": {
+            "type": "string",
+            "enum": [
+              "internet",
+              "key"
+            ],
+            "title": "Waits For"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "state",
+          "waits_for"
+        ],
+        "title": "ReportQueued",
+        "description": "Zgłoszenie czeka w kolejce Skrzynki na tym komputerze i wyjdzie samo; ``waits_for``: na internet albo na klucz\ndo Zgłoszeń od Maksa (brak klucza albo klucz, którego Skrzynka odmówiła)."
+      },
       "ReportReady": {
         "properties": {
           "state": {
@@ -3848,26 +3902,6 @@
         "title": "ReportReady",
         "description": "Zgłoszenia tego problemu jeszcze nie wysłano; „Wyślij do Maksa” wyśle podgląd z Diagnozy."
       },
-      "ReportSaved": {
-        "properties": {
-          "state": {
-            "type": "string",
-            "const": "saved",
-            "title": "State"
-          },
-          "message": {
-            "$ref": "#/components/schemas/Message"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "state",
-          "message"
-        ],
-        "title": "ReportSaved",
-        "description": "Zgłoszenia nie wysłano (brak klucza, odmowa albo brak połączenia); zwykle czeka w pliku na tym komputerze.\n\n``message`` mówi, który plik przesłać Maksowi mailem i kiedy spróbować ponownie, a gdy i zapis pliku\nsię nie udał (pliku nie ma), że treść trzeba przesłać z podglądu."
-      },
       "ReportSent": {
         "properties": {
           "state": {
@@ -3882,7 +3916,7 @@
           "state"
         ],
         "title": "ReportSent",
-        "description": "Zgłoszenie tego problemu wysłano w tym Uruchomieniu; czeka na naprawę."
+        "description": "Zgłoszenie tego problemu wysłano z tego uchwytu (albo kolejka dostarczyła je później); czeka na naprawę."
       },
       "ReportWaiting": {
         "properties": {
@@ -4305,14 +4339,18 @@
                     "$ref": "#/components/schemas/ReportWaiting"
                   },
                   {
-                    "$ref": "#/components/schemas/ReportSaved"
+                    "$ref": "#/components/schemas/ReportQueued"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ReportNotQueued"
                   }
                 ],
                 "discriminator": {
                   "propertyName": "state",
                   "mapping": {
+                    "not_queued": "#/components/schemas/ReportNotQueued",
+                    "queued": "#/components/schemas/ReportQueued",
                     "ready": "#/components/schemas/ReportReady",
-                    "saved": "#/components/schemas/ReportSaved",
                     "sent": "#/components/schemas/ReportSent",
                     "waiting": "#/components/schemas/ReportWaiting"
                   }
@@ -4730,15 +4768,19 @@
                 "$ref": "#/components/schemas/ReportWaiting"
               },
               {
-                "$ref": "#/components/schemas/ReportSaved"
+                "$ref": "#/components/schemas/ReportQueued"
+              },
+              {
+                "$ref": "#/components/schemas/ReportNotQueued"
               }
             ],
             "title": "Report",
             "discriminator": {
               "propertyName": "state",
               "mapping": {
+                "not_queued": "#/components/schemas/ReportNotQueued",
+                "queued": "#/components/schemas/ReportQueued",
                 "ready": "#/components/schemas/ReportReady",
-                "saved": "#/components/schemas/ReportSaved",
                 "sent": "#/components/schemas/ReportSent",
                 "waiting": "#/components/schemas/ReportWaiting"
               }

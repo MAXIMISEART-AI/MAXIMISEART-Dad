@@ -33,7 +33,6 @@ from rozliczenia.process_run import Finished, Process, ProcessInputs
 
 from tests.fixtures.centrum import (
     CENTRUM,
-    FakeClock,
     FakeGitHub,
     FakeOneDrive,
     FakePlatform,
@@ -42,6 +41,7 @@ from tests.fixtures.centrum import (
     MetricsPaths,
     finished_view,
 )
+from tests.fixtures.clock import ManualClock
 from tests.fixtures.potomne import wait_for
 from tests.fixtures.preparation import PERIOD, PreparationFixture, RegisterRow, make_preparation_fixture
 from tests.fixtures.settlement import SOURCE_NAME, write_mapping, write_source, write_template
@@ -107,7 +107,7 @@ class Surroundings:
     github: FakeGitHub = field(default_factory=FakeGitHub)
     onedrive: FakeOneDrive | None = field(default_factory=FakeOneDrive)
     report_box: FakeReportBox = field(default_factory=lambda: FakeReportBox(background=RUN_LOGS_IN_BACKGROUND))
-    clock: FakeClock = field(default_factory=FakeClock)
+    clock: ManualClock = field(default_factory=ManualClock)
     tool: ToolRepository | None = None
     update_hold: threading.Event | None = None
     installer: FakeInstaller = field(default_factory=FakeInstaller)

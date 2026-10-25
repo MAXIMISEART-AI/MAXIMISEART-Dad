@@ -11,10 +11,11 @@ from typing import Any, NoReturn
 
 import pytest
 
+from rozliczenia.centrum.report_box import Refused, Unreachable
 from rozliczenia.input_checks import FILE_READERS
 from rozliczenia.template_file import TemplateFile
 
-from tests.fixtures.centrum import NO_RELEASE, FakeGitHub, finished_view, phase_states, view_timing, views_until
+from tests.fixtures.centrum import NO_RELEASE, FakeGitHub, FakeReportBox, finished_view, phase_states, view_timing, views_until
 from tests.fixtures.centrum_processes import (
     PreparingCentrum,
     SettlingCentrum,
@@ -201,8 +202,13 @@ def check_states(diagnosis: dict[str, Any]) -> dict[str, str]:
     return {check["label"]: check["state"] for check in diagnosis["checks"]}
 
 
+def with_key(centrum: PreparingCentrum) -> None:
+    (centrum.tmp_path / "config" / "zgloszenia-klucz.txt").write_text("github_pat_SYNTETYCZNY\n", encoding="utf-8")
+
+
 def test_diagnoza_bez_przyczyny_na_komputerze_kaze_wyslac_do_maksa(tmp_path: Path) -> None:
     centrum = preparing_centrum(tmp_path)
+    with_key(centrum)
     run_id = stopped_for_maks(centrum)
 
     diagnosis = diagnose(centrum, run_id)
@@ -279,6 +285,7 @@ def test_diagnoza_przygotowania_sprawdza_po_kolei_ustawienia_onedrive_rejestr_wz
         ("Folder okresu", "Folderu 08_14_09_2026 jeszcze nie ma."),
         ("Pliki okresu w Excelu", "Żaden plik okresu nie jest otwarty w Excelu."),
         ("Aktualność narzędzia", "Najnowsza wersja z GitHuba, commit 3c1d0a9."),
+        ("Klucz do Zgłoszeń", "Na tym komputerze nie ma klucza do Zgłoszeń. Zgłoszenie poczeka, aż Maks go wpisze."),
         ("Dziennik Centrum rozliczeń", "Ostatnie wpisy od startu Centrum: 4."),
     ]
 
@@ -463,7 +470,7 @@ def test_nieoczekiwany_wyjatek_ktory_wraca_w_diagnozie_zostawia_sprawdzenie_nies
     assert check_states(diagnosis)["Dziennik Centrum rozliczeń"] == "passed"
     assert (diagnosis["explanation"], diagnosis["next_action"]) == (NOT_FOUND, "report")
     assert 'nieoczekiwany-wyjatek typ=RuntimeError miejsce="Diagnoza: Rejestr zleceń"' in diagnosis["report"]["body"]
-    assert (report.status_code, report.json()["state"]) == (200, "saved")
+    assert (report.status_code, report.json()["state"]) == (200, "queued")
 
 
 def test_nieoczekiwany_wyjatek_czytnika_wzorca_w_przebiegu_wraca_w_jego_diagnozie(tmp_path: Path) -> None:
@@ -572,6 +579,7 @@ def test_diagnoza_przebiegu_sprawdza_wzorzec_pracownika_i_plik_zbiorczy(tmp_path
         ("Folder okresu", "passed"),
         ("Pliki okresu w Excelu", "passed"),
         ("Aktualność narzędzia", "passed"),
+        ("Klucz do Zgłoszeń", "failed"),
         ("Dziennik Centrum rozliczeń", "passed"),
     ]
     assert check(passing, "Folder okresu") == ("passed", "Pliki okresu: Plik zbiorczy.")
@@ -619,6 +627,57 @@ def files_of(root: Path) -> dict[str, bytes]:
 def check(diagnosis: dict[str, Any], label: str) -> tuple[str, str]:
     found = next(check for check in diagnosis["checks"] if check["label"] == label)
     return found["state"], found["detail"]
+
+
+REFUSED_KEY = ("failed", "Skrzynka Zgłoszeń odrzuca klucz. Zgłoszenie poczeka, aż Maks go wymieni.")
+
+
+def box_now_answers(centrum: PreparingCentrum, failure: Refused | Unreachable) -> None:
+    """Skrzynka od teraz odpowiada ``failure``; przyjęcie klucza przez Logi Uruchomienia z tej pracy Centrum wygasa."""
+
+    centrum.surroundings.report_box.search_failure = failure
+    centrum.surroundings.clock.advance(minutes=10)
+
+
+def test_diagnoza_pokazuje_odrzucony_klucz_jako_sprawdzenie_a_wyjasnieniem_zostaje_brak_wzorca(tmp_path: Path) -> None:
+    centrum = preparing_centrum(tmp_path)
+    with_key(centrum)
+    centrum.fixture.collective_template_path.unlink()
+    stopped = run_to_end(centrum, dry_run=True)
+    box_now_answers(centrum, Refused())
+
+    diagnosis = diagnose(centrum, stopped["run"]["id"])
+
+    assert check(diagnosis, "Klucz do Zgłoszeń") == REFUSED_KEY
+    assert diagnosis["explanation"] == stopped["result"]["stops"][0]
+    assert f"| Klucz do Zgłoszeń | nie przeszło | {REFUSED_KEY[1]} |" in diagnosis["report"]["body"]
+
+
+def test_diagnoza_bez_innej_przyczyny_i_z_odrzuconym_kluczem_nie_znajduje_przyczyny(tmp_path: Path) -> None:
+    centrum = preparing_centrum(tmp_path)
+    with_key(centrum)
+    run_id = stopped_for_maks(centrum)
+    box_now_answers(centrum, Refused())
+
+    diagnosis = diagnose(centrum, run_id)
+
+    assert check(diagnosis, "Klucz do Zgłoszeń") == REFUSED_KEY
+    assert (diagnosis["explanation"], diagnosis["next_action"]) == (NOT_FOUND, "report")
+
+
+def test_diagnoza_z_kluczem_bez_sieci_go_nie_sprawdzila(tmp_path: Path) -> None:
+    offline = FakeReportBox(search_failure=Unreachable())  # także Logi Uruchomienia nie dochodzą do skrzynki
+    centrum = preparing_centrum(tmp_path, surroundings=Surroundings(report_box=offline))
+    with_key(centrum)
+    run_id = stopped_for_maks(centrum)
+
+    diagnosis = diagnose(centrum, run_id)
+
+    assert check(diagnosis, "Klucz do Zgłoszeń") == (
+        "not_checked",
+        "Nie sprawdzono: brak połączenia ze Skrzynką Zgłoszeń.",
+    )
+    assert (diagnosis["explanation"], diagnosis["next_action"]) == (NOT_FOUND, "report")
 
 
 NEWER_MAIN = "9a8b7c6d5e4f3a2b1c0d9e8f7a6b5c4d3e2f1a0b"

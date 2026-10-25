@@ -34,7 +34,12 @@ NOT_CHECKED_UNEXPECTED = "Nie udało się sprawdzić: nieoczekiwany błąd."
 # The Centrum log entry of a check that failed itself: the exception type and the check, never its text.
 UNEXPECTED_IN_DIAGNOSIS = 'nieoczekiwany-wyjatek typ=RuntimeError miejsce="Diagnoza: Rejestr zleceń"'
 UNEXPECTED_CODE = "BLAD_NIEOCZEKIWANY"
-NO_KEY = "Nie wysłano Zgłoszenia: na tym komputerze nie ma klucza do Zgłoszeń."
+FOR_KEY = "Zgłoszenie czeka na klucz do Zgłoszeń. Daj znać Maksowi."
+KEY_CHECK = "Klucz do Zgłoszeń"
+NO_KEY = "Na tym komputerze nie ma klucza do Zgłoszeń. Zgłoszenie poczeka, aż Maks go wpisze."
+KEY_REFUSED = "Skrzynka Zgłoszeń odrzuca klucz. Zgłoszenie poczeka, aż Maks go wymieni."
+# A key of its own: the skrzynka refuses it here, and Centrum remembers that refusal per key for a quarter of an hour.
+REFUSED_KEY = "github_pat_VERIFY_DIAGNOZA_ODRZUCONY"
 PROPOSAL = "Jest też nowsza wersja narzędzia."
 OTHER_MAIN = "e" * 40
 CHECKS = (
@@ -47,6 +52,7 @@ CHECKS = (
     "Folder okresu",
     "Pliki okresu w Excelu",
     "Aktualność narzędzia",
+    KEY_CHECK,
     "Dziennik Centrum rozliczeń",
 )
 
@@ -226,10 +232,16 @@ def drive_diagnosis(run: Run, page: Page) -> None:
     answer = diagnosis_answer(run, str(run_info["id"]), "diagnoza-bez-przyczyny")
     results = answer["checks"]
     assert isinstance(results, list)
+    states = {check["label"]: check["state"] for check in results}
     run.check(
-        answer["next_action"] == "report" and {check["state"] for check in results} == {"passed"},
-        "with every check passing the Diagnoza finds no cause on this computer",
+        answer["next_action"] == "report"
+        and states.pop(KEY_CHECK) == "failed"
+        and set(states.values()) == {"passed"},
+        "with every check of the files passing the Diagnoza finds no cause; the missing key failed but is no cause",
     )
+    key_item = diagnosis.get_by_role("list", name="Sprawdzono").get_by_role("listitem").filter(has_text=KEY_CHECK)
+    diagnosis.get_by_role("button", name=f"Sprawdzono ({len(CHECKS)})", exact=True).click()
+    expect(key_item).to_contain_text(f"{KEY_CHECK} · {NO_KEY}")
     run.check(_snapshot(untouched) == before, "the Rejestr zleceń, the Wzorce and the konfiguracja wykonawców are unchanged")
     log = (run.root / "logs" / "centrum-rozliczen.log").read_text(encoding="utf-8")
     run.check(
@@ -329,16 +341,49 @@ def drive_diagnosis(run: Run, page: Page) -> None:
 
     run.step(FEATURE, "diagnoza-nieoczekiwany-wyjatek-zgloszenie")
     config = Path(run.fixture["settings"]).parent
-    (config / "zgloszenia-klucz.txt").unlink(missing_ok=True)  # never there before features/zgloszenie.md
-    unsent = config / "zgloszenia" / f"Zgłoszenie {UNEXPECTED_CODE} {PERIOD}.md"
+    key_file = config / "zgloszenia-klucz.txt"
+    key_file.unlink(missing_ok=True)  # never there before features/zgloszenie.md
     diagnosis.get_by_role("button", name="Wyślij do Maksa", exact=True).click()
-    saved = diagnosis.get_by_label("Ostrzeżenie")
-    expect(saved).to_contain_text(NO_KEY)
-    expect(saved.get_by_role("button", name="Spróbuj ponownie", exact=True)).to_be_visible()
+    expect(diagnosis.get_by_role("status").filter(has_text=FOR_KEY)).to_be_visible()
+    [queued_report] = [
+        post
+        for post in (json.loads(path.read_text(encoding="utf-8")) for path in queue.glob("*-zgloszenie-*.json"))
+        if post["target"]["title"] == title
+    ]
     run.check(
-        unsent.read_text(encoding="utf-8") == f"# {title}\n\n{body}",
-        "Wyślij do Maksa works after the nieoczekiwany wyjątek: without a key the preview waits in a file",
+        "".join(queued_report["parts"]) == body,
+        "Wyślij do Maksa works after the nieoczekiwany wyjątek: without a key the preview waits in the queue",
     )
     report = finished_result(run, "diagnoza-nieoczekiwany-wyjatek-zgloszenie")["report"]
-    run.check(isinstance(report, dict) and report["state"] == "saved", "the server keeps the saved Zgłoszenie in the result")
+    run.check(
+        report == {"state": "queued", "waits_for": "key"}, "the server keeps the queued Zgłoszenie in the result"
+    )
     run.capture(page, "59-diagnoza-nieoczekiwany-wyjatek-zgloszenie")
+
+    run.step(FEATURE, "diagnoza-klucz-odrzucony")
+    refusing = run.root / "skrzynka-zgloszen" / "odmawia-klucza"
+    print("  harness: Maks writes a key the skrzynka refuses (an expired token)", flush=True)
+    refusing.parent.mkdir(exist_ok=True)
+    refusing.touch()
+    key_file.write_text(REFUSED_KEY + "\n", encoding="utf-8")
+    try:
+        page.reload()
+        expect(diagnosis.get_by_label("Wyjaśnienie Diagnozy")).to_contain_text(NOT_FOUND)
+        diagnosis.get_by_role("button", name=f"Sprawdzono ({len(CHECKS)})", exact=True).click()
+        key_item = diagnosis.get_by_role("list", name="Sprawdzono").get_by_role("listitem").filter(has_text=KEY_CHECK)
+        expect(key_item).to_contain_text(f"{KEY_CHECK} · {KEY_REFUSED}")
+        expect(key_item.get_by_label("nie przeszło")).to_be_visible()
+        unexpected_run = current_run(run, "diagnoza-klucz-odrzucony")["run"]
+        assert isinstance(unexpected_run, dict)
+        answer = diagnosis_answer(run, str(unexpected_run["id"]), "diagnoza-klucz-odrzucony")
+        explanation = answer["explanation"]
+        assert isinstance(explanation, dict) and isinstance(answer["checks"], list)
+        run.check(
+            explanation["what"] == NOT_FOUND
+            and {"label": KEY_CHECK, "state": "failed", "detail": KEY_REFUSED} in answer["checks"],
+            "a refused key is a failed check of the Diagnoza, never its explanation",
+        )
+        run.capture(page, "59b-diagnoza-klucz-odrzucony")
+    finally:
+        refusing.unlink()
+        key_file.unlink()

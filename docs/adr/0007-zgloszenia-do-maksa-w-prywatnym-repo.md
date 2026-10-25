@@ -7,8 +7,9 @@ Zaakceptowana. Zmienia trzy zdania
 
 - regułę prywatności, dla jednej treści: Zgłoszenia;
 - „Własne pliki Centrum to tylko ustawienia taty i dziennik pochodzenia
-  Uruchomień”: dochodzą klucz do Zgłoszeń, stan wysłanych Zgłoszeń i katalog
-  niewysłanych Zgłoszeń, wszystkie w `config/` poza Gitem;
+  Uruchomień”: dochodzą klucz do Zgłoszeń, stan wysłanych Zgłoszeń i kolejka
+  Skrzynki Zgłoszeń (`config/zgloszenia/kolejka/`), wszystkie w `config/` poza
+  Gitem;
 - „Nie ma … zdalnego dostępu”: Centrum nadal nie przyjmuje połączeń spoza
   komputera taty, ale samo łączy się z API GitHuba w przypadkach wymienionych
   niżej.
@@ -36,16 +37,39 @@ pierwszy sekret na jego komputerze:
   Zgłoszeń, uprawnienie Issues (odczyt i zapis), ważność najwyżej rok. Maks
   wpisuje go do `config/zgloszenia-klucz.txt` poza Gitem; tata nie ma pola na
   klucz. Klucz nie trafia do odpowiedzi Centrum, dziennika, Zgłoszenia ani
-  przeglądarki; Konfiguracja pokazuje tylko „gotowe” albo „brak klucza”.
+  przeglądarki; Konfiguracja pokazuje tylko „gotowe”, „brak klucza” albo
+  „klucz odrzucony” (#426).
+- Co Skrzynka mówi o kluczu, wie jedno miejsce (`KeyedBox`): odmowa przy
+  zakładaniu issue albo liście issue odrzuca klucz, każda inna odpowiedź go
+  przyjmuje, a brak sieci niczego nie zmienia. Limit zapytań GitHuba (403 z
+  „rate limit” w treści) to brak sieci, nie odmowa. Odmowy komentarza werdykt
+  nie liczy, bo to 404 issue, które Maks usunął. Gdy żadna wysyłka nie
+  odpowiedziała niedawno, Konfiguracja i Diagnoza zlecają jedno tanie pytanie
+  (lista otwartych Zgłoszeń); Konfiguracja czeka na nie najwyżej sekundę.
+  Odrzucony klucz przez kwadrans nie idzie do Skrzynki, a nowy klucz Maksa jest
+  sprawdzany od razu. Diagnoza pokazuje stan klucza jako sprawdzenie, które
+  nigdy nie jest wyjaśnieniem Zatrzymania.
 - Skrzynka Zgłoszeń jest adapterem wstrzykiwanym do Centrum obok platformy.
   Testy i `verify-centrum-rozliczen` nigdy nie łączą się z prawdziwym GitHubem.
-- Gdy wysyłka się nie uda (brak klucza, odmowa, brak połączenia), Zgłoszenie
-  zostaje jako plik Markdown w `config/zgloszenia/` poza Gitem, tata dostaje
-  Komunikat i może przesłać plik mailem albo spróbować ponownie.
-- Wysłane Zgłoszenia (odcisk problemu, numer issue, commit narzędzia) Centrum
-  pamięta w `config/zgloszenia-wyslane.json` poza Gitem. Jeden problem ma jedno
-  otwarte Zgłoszenie: przed wysłaniem Centrum szuka w skrzynce otwartego
-  Zgłoszenia z tym samym odciskiem (wiersz `Odcisk problemu` w treści). Gdy
+- „Wyślij do Maksa” kładzie dokładnie podgląd w kolejce Skrzynki Zgłoszeń
+  (#426), tej samej co Kontrole ilości, Logi i Uwagi (ADR 0015), i czeka na
+  Skrzynkę najwyżej 5 s. Bez sieci albo klucza Zgłoszenie czeka w kolejce, a
+  kolejka sama ponawia wysyłkę co minutę. Karta mówi, czy czeka na internet,
+  czy na klucz od Maksa, a Powiadomienia pokazują je jako czekające.
+  Komunikat (`ZGLOSZENIE_NIEZAPISANE`) jest tylko wtedy, gdy nie da się zapisać
+  pliku kolejki. Dawniej niewysłane Zgłoszenie zostawało plikiem Markdown w
+  `config/zgloszenia/` z Komunikatem „prześlij mailem”. Centrum nigdy nie
+  działało u taty w tej wersji, więc nie ma kodu, który przenosi takie pliki
+  do kolejki: plik, który by został, Maks wyśle ręcznie albo usunie, a
+  Kontrola ilości dalej oczekuje w `config/zgloszenia/` tylko kolejki.
+- Sprawy Zgłoszeń (odcisk problemu, numer issue, commit narzędzia) Centrum
+  pamięta jako Sprawy taty w `config/sprawy-taty.json` poza Gitem; sprawa w kolejce nie
+  ma jeszcze numeru i dostaje go przy dostarczeniu. Jeden problem ma jedno
+  otwarte Zgłoszenie: kolejka szuka w skrzynce otwartego Zgłoszenia z tym
+  samym odciskiem (wiersz `Odcisk problemu` w treści) i przejmuje je zamiast
+  zakładać nowe, także po przerwaniu między założeniem issue a znacznikiem
+  dostarczenia. Problem, którego Zgłoszenie czeka w kolejce, nie trafia do niej
+  drugi raz. Gdy
   Maks je zamknął, a problem wraca, nowe Zgłoszenie ma odnośnik do
   poprzedniego. Bez odpowiedzi skrzynki problem wysłany z tego komputera
   czeka na naprawę, także po restarcie Centrum.

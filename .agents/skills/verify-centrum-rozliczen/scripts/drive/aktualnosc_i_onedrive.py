@@ -98,7 +98,7 @@ def _shown_checks(page: Page) -> Locator:
     """Opens the collapsed list `Sprawdzono` of the Diagnoza and returns its items."""
 
     diagnosis = page.get_by_role("region", name="Diagnoza")
-    diagnosis.get_by_role("button", name="Sprawdzono (10)", exact=True).click()
+    diagnosis.get_by_role("button", name="Sprawdzono (11)", exact=True).click()
     return diagnosis.get_by_role("list", name="Sprawdzono").get_by_role("listitem")
 
 
