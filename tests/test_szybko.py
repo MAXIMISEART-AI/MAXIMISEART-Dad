@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 import re
@@ -261,6 +262,98 @@ def test_zmiana_konfiguracji_albo_conftest_uruchamia_pelny_zestaw(tmp_path: Path
     assert answered.returncode == 1
 
 
+def test_zmiana_konfiguracji_zostawia_ci_testy_ponad_budzet_i_mowi_ktore(tmp_path: Path) -> None:
+    repo = _repo(tmp_path)
+    times = {test: 0.1 for test in BASE_FILES if szybko._is_test(test)} | {"tests/test_zawsze_pada.py": 9000.0}
+    _write(repo, str(szybko.TIMES), json.dumps(times))
+    commit(repo, "tabela czasów")
+    git(repo, "update-ref", "refs/remotes/origin/main", "HEAD")
+    with (repo / "pyproject.toml").open("a", encoding="utf-8") as file:
+        file.write("\n")
+
+    answered = _szybko(repo)
+
+    lines = answered.stdout.splitlines()
+    assert re.fullmatch(r"zostawione CI: 1 z \d+ plików testów \(~9000 s w CI\): test_zawsze_pada\.py", lines[-2]), answered.stdout
+    assert (answered.returncode, lines[-1]) == (0, "SZYBKO OK"), answered.stdout
+
+
+# Zmieniony ``src/a.py`` i ``docs/dane.md``: ``test_dane`` czyta ``docs/dane.md``, a ``src/czyta.py`` czyta go dla
+# ``test_czyta``.
+FROZEN = szybko.Dependencies(
+    depends_on={
+        "tests/test_a_drogi.py": {"src/a.py"},
+        "tests/test_a_tani.py": {"src/a.py"},
+        "src/b.py": {"src/a.py"},
+        "tests/test_b.py": {"src/b.py"},
+        "src/c.py": {"src/b.py"},
+        "tests/test_c_drogi.py": {"src/c.py"},
+        "tests/test_c_tani.py": {"src/c.py"},
+        "tests/test_c_bez_czasu.py": {"src/c.py"},
+        "tests/test_czyta.py": {"src/czyta.py"},
+        "tests/test_obok.py": {"src/obok.py"},
+        "src/d.py": {"src/czyta.py", "src/a.py"},
+    },
+    folder_files={"tests/test_dane.py": {"docs/dane.md"}, "src/czyta.py": {"docs/dane.md"}},
+)
+FROZEN_CHANGE = {"src/a.py", "docs/dane.md"}
+FROZEN_TIMES = {
+    "tests/test_a_drogi.py": 33.0,
+    "tests/test_a_tani.py": 1.0,
+    "tests/test_dane.py": 1.0,
+    "tests/test_b.py": 4.0,
+    "tests/test_czyta.py": 3.0,
+    "tests/test_c_drogi.py": 200.0,
+    "tests/test_c_tani.py": 2.0,
+    "tests/test_obok.py": 2.0,
+}
+
+
+def test_odleglosc_od_zmiany_to_najkrotsza_droga_w_grafie_zaleznosci() -> None:
+    distances = FROZEN.distances_from(FROZEN_CHANGE)
+
+    assert distances == {
+        "src/a.py": 0,
+        "docs/dane.md": 0,
+        "tests/test_a_drogi.py": 1,
+        "tests/test_a_tani.py": 1,
+        "src/b.py": 1,
+        "tests/test_dane.py": 1,
+        "src/czyta.py": 1,
+        "src/d.py": 1,
+        "tests/test_b.py": 2,
+        "tests/test_czyta.py": 2,
+        "src/c.py": 2,
+        "tests/test_c_drogi.py": 3,
+        "tests/test_c_tani.py": 3,
+        "tests/test_c_bez_czasu.py": 3,
+    }
+    assert FROZEN.affected_by(FROZEN_CHANGE) == set(distances)
+
+
+@pytest.mark.parametrize(
+    ("budget_s", "deferred"),
+    [
+        # 4 workery po 10 s: odległość 1 zajmuje 35 s, test_czyta (3 s) i test_c_tani (2 s) dopełniają dokładnie 40 s,
+        # a bliższy test_b (4 s) już się nie mieści.
+        (10.0, ("tests/test_b.py", "tests/test_c_bez_czasu.py", "tests/test_c_drogi.py")),
+        (0.0, ("tests/test_b.py", "tests/test_c_bez_czasu.py", "tests/test_c_drogi.py", "tests/test_c_tani.py", "tests/test_czyta.py")),
+    ],
+    ids=["budżet na część dalszych", "budżet zerowy"],
+)
+def test_plan_bierze_zawsze_odleglosc_1_a_dalsze_w_budzecie_i_nazywa_zostawione(budget_s: float, deferred: tuple[str, ...]) -> None:
+    tests = sorted(path for path in FROZEN.affected_by(FROZEN_CHANGE) if szybko._is_test(path))
+
+    chosen = szybko.plan(tests, FROZEN.distances_from(FROZEN_CHANGE), FROZEN_TIMES, budget_s)
+
+    # Plik spoza tabeli kosztuje tyle, co mediana tabeli: 2,5 s.
+    costs = {**dict.fromkeys(tests, 2.5), **FROZEN_TIMES}
+    assert chosen.deferred == deferred
+    assert sorted(chosen.run + chosen.deferred) == tests
+    assert chosen.deferred_s == sum(costs[test] for test in deferred)
+    assert {"tests/test_a_drogi.py", "tests/test_a_tani.py", "tests/test_dane.py"} <= set(chosen.run)
+
+
 def test_testy_struktury_biegna_przy_zmianie_ktora_ich_nie_dotyka(tmp_path: Path) -> None:
     repo = _repo(tmp_path, structure="assert False")
     _write(repo, "docs/notatka.md", "nowa\n")
@@ -284,6 +377,22 @@ def test_testy_struktury_biegna_tez_na_mergu_z_baza_ktora_poszla_dalej(tmp_path:
     git(repo, "checkout", "--quiet", "-b", "galaz", "HEAD~1")
     _write(repo, "docs/adr/0002-z-galezi.md", "# ADR 0002\n")
     commit(repo, "ADR 0002 na gałęzi")
+
+    answered = _szybko(repo)
+
+    last = answered.stdout.splitlines()[-1]
+    assert (answered.returncode, last) == (1, "SZYBKO FAIL | testy struktury po mergu z origin/main"), answered.stdout
+
+
+def test_proces_testu_struktury_na_mergu_importuje_kod_z_mergu(tmp_path: Path) -> None:
+    imports = "import subprocess\n    import sys\n\n    code = 'from pakiet.b import inna; assert inna() == 1'\n"
+    repo = _repo(tmp_path, structure=f"{imports}    assert subprocess.run([sys.executable, '-c', code], check=False).returncode == 0")
+    git(repo, "checkout", "--quiet", "-b", "inna-galaz")
+    _write(repo, "src/pakiet/b.py", "def inna() -> int:\n    return 2\n")
+    git(repo, "update-ref", "refs/remotes/origin/main", commit(repo, "inna na main"))
+    git(repo, "checkout", "--quiet", "-b", "galaz", "HEAD~1")
+    _write(repo, "docs/notatka.md", "z gałęzi\n")
+    commit(repo, "notatka na gałęzi")
 
     answered = _szybko(repo)
 
