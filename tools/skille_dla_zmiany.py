@@ -8,12 +8,12 @@ wykonują skrypty skilla: ich importem (przechodnio) albo skryptem ``.py``, któ
 jego importami. Tych plików ``pilnuje`` nie musi wymieniać. Skill bez klucza albo z kluczem, którego nie da się
 odczytać, obowiązuje zawsze.
 
-Każdy skill, który obowiązuje, dostaje linię ``<skill>: <plik> (<glob>), …``. Skill z kluczem ``ci:`` liczy zadanie
-CI Mutation checks (``tools/mutacje_skilli.py``), więc trafia do linii ``LICZY CI: <skille po przecinku>``, a nie do
-listy skilli, które agent uruchamia sam. Ostatnia linia to ``SKILLE VERIFY: <skille po przecinku>`` albo
-``SKILLE VERIFY: brak``: skille bez ``ci:`` (Excel na Macu, Windows przez GitHub) i skille, których ``ci:`` nie da się
-odczytać. Gdy git nie wyznaczy zmiany (np. nie ma bazy), ostatnia linia to ``SKILLE VERIFY: nieznane (<powód>)``, a
-kod wyjścia 1.
+Każdy skill, który obowiązuje, dostaje linię ``<skill>: <plik> (<glob>), …``. Ostatnia linia to
+``SKILLE VERIFY: <skille po przecinku>`` albo ``SKILLE VERIFY: brak``: każdy skill, który obowiązuje, także taki,
+którego polecenia liczy CI, bo jego workflow ma kroki, których CI nie zrobi (osąd, prawdziwe Wzorce, Excel na Macu).
+Przed nią linia ``LICZY CI: <skill> (<polecenie>, …); …`` wymienia polecenia tych skilli, które liczy CI na tym SHA
+(``ci_runs``), więc agent nie uruchamia ich lokalnie poza odtworzeniem czerwonego kroku CI. Gdy git nie wyznaczy
+zmiany (np. nie ma bazy), ostatnia linia to ``SKILLE VERIFY: nieznane (<powód>)``, a kod wyjścia 1.
 
     .venv/bin/python tools/skille_dla_zmiany.py            # macOS i Linux
     py -3 tools/skille_dla_zmiany.py origin/main           # Windows
@@ -26,6 +26,7 @@ import ast
 from collections.abc import Iterable
 from fnmatch import fnmatchcase
 from pathlib import Path
+import re
 import subprocess
 
 from mutacje_skilli import PATTERN, ROOT, SKILLS, ci_command, closure, guarded
@@ -34,6 +35,9 @@ from szybko import references
 VERDICT = "SKILLE VERIFY"
 IN_CI = "LICZY CI"
 SHOWN = 3
+WORKFLOW = ROOT / ".github" / "workflows" / "ci.yml"
+# Wywołanie skryptu skilla: skill, ścieżka skryptu w ``scripts/`` i argumenty do końca linii.
+SKILL_COMMAND = re.compile(r"\.agents/skills/([\w-]+)/scripts/([\w/]+\.py)((?:[ \t]+[^\s`\"']+)*)")
 
 
 def _names(*arguments: str) -> set[str]:
@@ -92,11 +96,22 @@ def _reasons(skill_md: Path, files: Iterable[str]) -> list[str]:
     return found
 
 
-def _in_ci(skill_md: Path) -> bool:
+def ci_runs(skill: Path) -> list[tuple[str, ...]]:
+    """Polecenia skilla (nazwa skryptu z argumentami), które liczy CI.
+
+    To polecenie ``ci:`` i skrypty mutacji (zadanie Mutation checks) oraz wywołania skryptów skilla w krokach
+    ``ci.yml``. Klucz ``ci:``, którego nie da się odczytać, pomija: Mutation checks i tak na nim pada.
+    """
+
     try:
-        return ci_command(skill_md) is not None
+        command = ci_command(skill / "SKILL.md")
     except ValueError:
-        return False
+        command = None
+    runs = [(Path(command[0]).name, *command[1:])] if command else []
+    runs += [(script.name,) for script in sorted(skill.glob(f"scripts/{PATTERN}"))]
+    workflow = WORKFLOW.read_text(encoding="utf-8") if WORKFLOW.is_file() else ""
+    runs += [(Path(script).name, *arguments.split()) for name, script, arguments in SKILL_COMMAND.findall(workflow) if name == skill.name]
+    return list(dict.fromkeys(runs))
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -114,11 +129,13 @@ def main(argv: list[str] | None = None) -> int:
     for skill_md in sorted(SKILLS.glob("verify-*/SKILL.md")):
         found = _reasons(skill_md, files)
         if found:
-            (in_ci if _in_ci(skill_md) else chosen).append(skill_md.parent.name)
+            chosen.append(skill_md.parent.name)
+            if runs := ci_runs(skill_md.parent):
+                in_ci.append(f"{skill_md.parent.name} ({', '.join(' '.join(run) for run in runs)})")
             more = f" i {len(found) - SHOWN} innych" if len(found) > SHOWN else ""
             print(f"{skill_md.parent.name}: {', '.join(found[:SHOWN])}{more}")
     if in_ci:
-        print(f"{IN_CI}: {', '.join(in_ci)}")
+        print(f"{IN_CI}: {'; '.join(in_ci)}")
     print(f"{VERDICT}: {', '.join(chosen) or 'brak'}")
     return 0
 

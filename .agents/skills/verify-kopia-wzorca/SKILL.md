@@ -16,6 +16,15 @@ ci: .agents/skills/verify-kopia-wzorca/scripts/check_template_copy.py --no-shrin
 
 # Verify kopia Wzorca
 
+## What CI runs and what stays local
+
+CI runs `check_template_copy.py --no-shrink` (the `ci:` key, which is also the baseline of
+`check_copy_mutations.py`), the mutations and `tests/test_kopia_wzorca.py` whenever a change touches
+this skill. Run them locally only to reproduce a red CI step. What stays with you: the options CI never
+runs, fresh seeds after a larger change to `template_copy.py` (`--seed`) and Dad's real Wzorzec
+(`--wzorzec`, on Maks's Mac), both as background commands; and reading a red run as „When the check
+fails” says.
+
 ## The promise
 
 Przebieg rozliczeń does not load and save each Rozliczenie pracownika with openpyxl. It copies the
@@ -96,9 +105,7 @@ On macOS or Linux use `.venv/bin/python` instead of `py -3`. It needs the repo's
 dependencies (`hypothesis` is in `requirements.txt` and the `dev` extra), takes about
 85 s on a Mac M4 Max when it passes and runs in CI as `tests/test_kopia_wzorca.py`. Most of that
 is the openpyxl reference, which copies the font and fill of every written cell. A failing run
-spends up to a minute more shrinking the counterexample (`SHRINK_SECONDS`). Mutation checks also
-runs it before this skill's mutations (the `ci:` key), so run it locally only to reproduce a red CI
-step. In a worktree,
+spends up to a minute more shrinking the counterexample (`SHRINK_SECONDS`). In a worktree,
 create its own `.venv` first (`tools/setup_worktree.py`); the script refuses to run against another checkout's
 `src`.
 

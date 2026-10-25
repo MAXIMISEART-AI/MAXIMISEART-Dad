@@ -23,6 +23,15 @@ and never uses a real customer workbook; the only exceptions are the local
 `preparation-real-templates` and `chain-real-templates` variants, which copy
 the real Wzorce from `config/`.
 
+## What CI runs and what stays local
+
+CI runs `run_verification.py --variant all` in the E2E step of pytest on Windows, and
+`quantity_rules_conformance.py` (the `ci:` key) and `check_quantity_rules_mutations.py` in Mutation
+checks. Run them locally only to reproduce a red CI step, or the one variant you work on. What stays
+with you on the Mac, as background commands: `preparation-real-templates` and `chain-real-templates`
+on the real Wzorce in `config/` after changes to formatting or template handling, because CI has no
+real Wzorce.
+
 ## Launch
 
 Run the proof in PowerShell from the repository root (the script path is relative to it):

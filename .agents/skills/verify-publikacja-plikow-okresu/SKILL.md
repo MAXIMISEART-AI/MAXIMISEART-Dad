@@ -8,6 +8,14 @@ ci: .agents/skills/verify-publikacja-plikow-okresu/scripts/explore_publication.p
 
 # Verify publikacja plików okresu
 
+## What CI runs and what stays local
+
+CI runs `explore_publication.py` (the `ci:` key), `check_publication_mutations.py` and
+`tests/test_publikacja_plikow_okresu.py` whenever a change touches this skill. Run them locally only
+to reproduce a red CI step, or one scope while you work on it. What stays with you: „Does the change
+touch it?” (a change that makes Przygotowanie publish around `write_period_files` escapes the check
+altogether) and sorting a red run as „When the check fails” says.
+
 ## The promise
 
 - **NIENADPISYWANIE**: publishing the period files never removes, replaces, or
@@ -42,9 +50,8 @@ py -3 .agents\skills\verify-publikacja-plikow-okresu\scripts\explore_publication
 
 On macOS or Linux use `.venv/bin/python` instead of `py -3`. It takes about 3 s, needs
 nothing beyond the repo's Python, and runs in CI as
-`tests/test_publikacja_plikow_okresu.py` and before this skill's mutations (the
-`ci:` key). Run it locally only to reproduce a red CI step, or one scope while
-you work on it. In a worktree the script checks the worktree's own `src`.
+`tests/test_publikacja_plikow_okresu.py`. In a worktree the script checks the
+worktree's own `src`.
 
 The last line is the verdict:
 

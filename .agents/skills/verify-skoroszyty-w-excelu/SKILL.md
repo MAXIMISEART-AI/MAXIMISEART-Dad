@@ -35,6 +35,12 @@ parsing typed text (`25,5`), and his real Słownik behind the external link.
 The Hiperłącza in `A:AT` (one on each `NUMER ZL.`) are checked in the bytes Excel saved and
 Przebieg rozliczeń wrote, not as Excel shows them or opens them on a click.
 
+## What CI runs and what stays local
+
+CI runs only `check_excel_cleanup_mutations.py` (the mutations of the sweep and the quit) in
+Mutation checks. Everything else needs Excel on the Mac: drive it yourself whenever
+`tools/skille_dla_zmiany.py` lists this skill.
+
 ## Launch
 
 From the repository root, after `tools/setup_worktree.py` in a worktree:

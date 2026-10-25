@@ -16,6 +16,15 @@ in his browser. This skill launches the real app on a synthetic fixture, clicks
 Dad's path in headless Chromium, and checks every visible result against the
 server's answer and the files on disk.
 
+## What CI runs and what stays local
+
+CI runs `run_centrum_verification.py --feature all` (the `ci:` key) and `check_centrum_mutations.py`
+in Mutation checks on Windows whenever a change touches this skill; a red run leaves its evidence in
+the `mutation-checks-evidence-<part>` artifact. Run `all` and the mutations locally only to reproduce
+a red Mutation checks step. What stays with you: drive the feature you change, as a background
+command, and look at its screenshots after a UI change, because a passing run does not judge visual
+quality. `wydajnosc` is never part of `all` and runs only locally (`features/wydajnosc.md`).
+
 ## Launch
 
 Run from the repository root (Windows: `py -3`; macOS/Linux: `.venv/bin/python`); `--run-dir` can point anywhere:
@@ -23,10 +32,6 @@ Run from the repository root (Windows: `py -3`; macOS/Linux: `.venv/bin/python`)
 ```powershell
 py -3 .agents\skills\verify-centrum-rozliczen\scripts\run_centrum_verification.py
 ```
-
-CI runs `all` (the `ci:` key) in Mutation checks on Windows whenever a change touches this
-skill. Locally drive only the feature you work on, as a background command, or reproduce a red
-Mutation checks step.
 
 `--feature ustawienia`, `--feature tablica-okresow`, `--feature uklad-folderow-taty`, `--feature konfiguracja`, `--feature aktualizacja`,
 `--feature metryki`, `--feature blad-odczytu`, `--feature przygotowanie-pliku-zbiorczego`, `--feature uzupelnienie`,

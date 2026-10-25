@@ -78,6 +78,7 @@ STRUCTURE = (
     "tests/test_skille_dla_zmiany.py::test_agents_md_nie_wymienia_skilli_verify",
     "tests/test_skille_dla_zmiany.py::test_kazdy_skill_verify_deklaruje_pilnuje",
     "tests/test_skille_dla_zmiany.py::test_skill_nie_kaze_uruchamiac_przed_pushem_tego_co_liczy_ci",
+    "tests/test_skille_dla_zmiany.py::test_skill_z_poleceniami_w_ci_mowi_co_liczy_ci_a_co_zostaje_lokalnie",
     "tests/test_skrypty_bez_instalacji.py",
     "tests/test_struktura_testow.py",
     "tests/test_systemowy_python.py",

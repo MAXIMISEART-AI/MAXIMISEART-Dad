@@ -11,6 +11,15 @@ ci: .agents/skills/verify-aktualizacja-narzedzia/scripts/sprawdz_aktualizacje.py
 
 # Verify Aktualizacja narzędzia (TLA+)
 
+## What CI runs and what stays local
+
+CI runs `sprawdz_aktualizacje.py` (the `ci:` key) in Mutation checks on Windows whenever a change
+touches this skill, so run it locally only while you bring the model in line or to reproduce a red
+Mutation checks step. It checks the model as committed, so it stays green on a code change the model
+does not describe yet. What stays with you on every change to the covered code is „Bring the model in
+line, then run”: read the diff against the table, change the model, break a new path in it, and run
+the check while you do. A change whose model nobody brought in line is not verified, whatever CI says.
+
 ## The promise
 
 **TataMaDzialajacaWersje**: whenever no Aktualizacja narzędzia is in progress
@@ -164,8 +173,6 @@ no longer describes.
 ```
 
 On Windows use `py -3 .agents\skills\verify-aktualizacja-narzedzia\scripts\sprawdz_aktualizacje.py`.
-CI runs it (the `ci:` key) in Mutation checks whenever a change touches this skill, so run
-it locally only while you bring the model in line or to reproduce a red Mutation checks step.
 In a worktree, create its `.venv` first (`python3 tools/setup_worktree.py`).
 No system Java is needed. The first run downloads pinned `jdk4py==25.0.2.1`
 (a Java runtime packaged for pip, about 50 MB) and `tla2tools.jar` v1.7.4
