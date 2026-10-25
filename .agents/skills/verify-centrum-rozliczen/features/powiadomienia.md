@@ -42,6 +42,7 @@ question for the list of Releases per 10 minutes.
 - `powiadomienia-aktualizacja`: the card's button starts the Aktualizacja narzędzia; v0.2.0 never was the tip of `main` in the local origin, so the card says `Masz najnowszą wersję.` and the clone stays on its commit.
 - `powiadomienia-wydanie-aktualne`: with v0.2.0 on the tool's own commit, there is no card above the list; the row `Nowa wersja 0.2.0` has the note, no button and no mark `nowe`, and `update_offered` is `false`.
 - `powiadomienia-wydania-brak-sieci`: without network, 10 minutes later Centrum asks GitHub and both rows `Nowa wersja` stay as they were, with no alert and no dot.
+- `powiadomienia-plik-niedostepny`: while another program holds `config/sprawy-taty.json` and `config/powiadomienia.json`, Maks closing an Uwaga shows the row `Rozwiązana. Będzie w następnej wersji.` and above the list the Komunikat that names both files as niedostępne, never uszkodzone; both files stay as they were. Once the program lets them go, the next read of Powiadomienia saves both and the Komunikat is gone.
 
 ## How to get to it (user POV)
 
@@ -62,7 +63,8 @@ Preconditions:
 - **Update.** Harness: the local origin's only Wydanie is the clone's `HEAD` (`release_only`; in `all` it already is). Click the card's button: the Centrum log gets one more `aktualizacja-koniec`, with `wynik=AKTUALNA`, the card shows status `Masz najnowszą wersję.` and the clone stays on `HEAD`. Screenshot `187`.
 - **Current.** Harness: remove `main-commit.txt` (GitHub's newest Wydanie is the tool's own commit), shift the clock by 10 minutes, open `#/powiadomienia` afresh: no region `Nowa wersja 0.2.0`; listitem `Nowa wersja 0.2.0` contains `SUMMARY`, has no button and no label `nowe`; the bell is plain `Powiadomienia`; `api/powiadomienia-wydanie-aktualne.json` has both Wydania without `update_offered` and read. Screenshot `188`.
 - **No network for Wydania.** Create `<root>/github/brak-sieci`, shift the clock by 10 minutes, open `#/powiadomienia` afresh: the question log grew by one, both rows `Nowa wersja` are there, no alert, no error toast, the bell is plain; `api/powiadomienia-wydania-brak-sieci.json` is unchanged. Screenshot `189`. Remove the four files of `<root>/github/` (also in `finally`).
-- **Proof.** Screenshots `180`–`189`, `api/powiadomienia-*.json`, the checks in `drive.txt`; the key is neither in the Centrum log nor in the page.
+- **State file unavailable.** Harness: close the oldest open Uwaga (`completed`) in the skrzynka, shift the clock by 10 minutes, and hold both state files (Windows: the drive keeps them open, so `os.replace` onto them fails; macOS: `chflags uchg`; Linux: the `config` folder read-only, so Centrum's temporary file fails; always undone in `finally`). Open `#/powiadomienia` afresh: `GET /api/notifications` (`api/powiadomienia-plik-niedostepny.json`) reaches a `message` whose `where` names both files; after a reload label `Komunikat` contains its three parts, both file names and `niedostępn`, but not `uszkodzon`; the Uwaga row says `Rozwiązana. Będzie w następnej wersji.`; both files on disk are unchanged. Screenshot `201`. Let the files go and open `#/powiadomienia` afresh: no label `Komunikat`, `api/powiadomienia-plik-zapisany.json` has no `message`, `config/powiadomienia.json` has the Uwaga's read id and `config/sprawy-taty.json` its closing. Screenshot `202`.
+- **Proof.** Screenshots `180`–`189`, `201`, `202`, `api/powiadomienia-*.json`, the checks in `drive.txt`; the key is neither in the Centrum log nor in the page.
 
 ## Gotchas
 
@@ -70,4 +72,6 @@ Preconditions:
 - The tab reads Powiadomienia on start, on every page change and on focus; the 10-minute limit keeps these from asking again.
 - The Zgłoszenie that `zgloszenie` closed has no `state_reason`; Centrum reads it as `completed`, so it may already be new when this feature starts.
 - Never point the app at the real GitHub skrzynka; the key is synthetic.
+- Every read of Powiadomienia while a state file is held waits for its retries (under a second per file), so poll the API with a timeout instead of expecting the Komunikat on the first answer: the Komunikat names `powiadomienia.json` only after the tab has marked the closed Uwaga read.
+- The Linux lock was never driven: CI drives Centrum on Windows, and root ignores a read-only folder, so there the Komunikat never shows and the step fails.
 - Run alone, the clone stands one commit behind the local origin; the Update step first makes the clone's `HEAD` the origin's only Wydanie, so the click never moves the clone.
