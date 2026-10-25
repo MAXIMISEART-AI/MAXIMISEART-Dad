@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import importlib.util
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import sys
@@ -162,7 +163,9 @@ def test_plik_spoza_src_ktory_wykonuja_skrypty_skilla_wskazuje_skill(tmp_path: P
     result = _run(tmp_path, base)
 
     assert _skills(result) == skills
-    assert result.stdout.splitlines()[:-1] == [f"verify-c: {changed} (wykonują go skrypty skilla)" for _ in skills]
+    assert result.stdout.splitlines()[:-1] == [f"verify-c: {changed} (wykonują go skrypty skilla)" for _ in skills] + [
+        "LICZY CI: verify-c (check_c_mutations.py)" for _ in skills
+    ]
 
 
 def test_skill_ktorego_skryptu_nie_da_sie_sparsowac_obowiazuje_zawsze(tmp_path: Path) -> None:
@@ -201,6 +204,28 @@ def test_wiele_plikow_jednego_skilla_skraca_powod(tmp_path: Path) -> None:
         "verify-a: src/a/plik0.py (src/a/*), src/a/plik1.py (src/a/*), src/a/plik2.py (src/a/*) i 2 innych",
         f"{VERDICT}verify-a",
     ]
+
+
+def test_skill_z_poleceniami_w_ci_zostaje_w_skillach_verify_a_liczy_ci_wymienia_jego_polecenia(tmp_path: Path) -> None:
+    base = _repo(
+        tmp_path,
+        {
+            **REPO,
+            ".agents/skills/verify-a/SKILL.md": "---\nname: verify-a\npilnuje:\n  - src/a/*\nci: tools/narzedzie.py --wszystko\n---\n",
+            ".agents/skills/verify-a/scripts/check_a_mutations.py": "print('MUTACJE OK')\n",
+            ".agents/skills/verify-mac/SKILL.md": "---\nname: verify-mac\npilnuje:\n  - src/a/*\n---\n",
+            ".agents/skills/verify-zly/SKILL.md": "---\nname: verify-zly\npilnuje:\n  - src/a/*\nci: docs/b.md\n---\n",
+            ".agents/skills/verify-e2e/SKILL.md": "---\nname: verify-e2e\npilnuje:\n  - src/a/*\n---\n",
+            ".agents/skills/verify-e2e/scripts/run_e2e.py": "print('e2e')\n",
+            ".github/workflows/ci.yml": "      - run: py -3 .agents/skills/verify-e2e/scripts/run_e2e.py --variant all\n",
+        },
+    )
+    _append(tmp_path, "src/a/b/gleboki.py")
+
+    result = _run(tmp_path, base)
+
+    assert _skills(result) == ["verify-a", "verify-e2e", "verify-mac", "verify-zly"]
+    assert result.stdout.splitlines()[-2] == "LICZY CI: verify-a (narzedzie.py --wszystko, check_a_mutations.py); verify-e2e (run_e2e.py --variant all)"
 
 
 def test_baza_ktorej_nie_ma_daje_nieznane_skille_i_kod_bledu(tmp_path: Path) -> None:
@@ -257,6 +282,74 @@ def test_workflow_skilla_windows_biegnie_dla_tych_samych_sciezek_co_jego_pilnuje
         "pull_request": expected,
         "push": expected,
     }, "paths workflow skilla Windows to jego pilnuje: i folder skilla: dopisz ścieżkę w obu miejscach"
+
+# Zdanie, które każe uruchomić coś przed oddaniem pracy albo pushem.
+BEFORE_PUSH = re.compile(r"before (handing|you hand|pushing|you push|opening|you open)|przed (pushem|oddaniem)", re.IGNORECASE)
+# Argumenty kontraktu skryptu skilla (``tools/skrypt_skilla.py``), które mówią, gdzie biec, a nie co sprawdzić.
+PLACE = ("--run-dir", "--root")
+CI_AND_LOCAL = "## What CI runs and what stays local"
+
+
+def _ci_commands(tool: ModuleType) -> set[tuple[str, ...]]:
+    """Polecenia skilli, które liczy CI (``ci_runs`` narzędzia); skrypt mutacji bez argumentów obejmuje każde swoje wywołanie."""
+
+    return {run for md in SKILLS.glob("*/SKILL.md") for run in tool.ci_runs(md.parent)}
+
+
+def _selecting(arguments: str) -> tuple[str, ...]:
+    """Argumenty wywołania bez ``PLACE`` i ich wartości."""
+
+    words = arguments.split()
+    return tuple(word for number, word in enumerate(words) if word not in PLACE and (number == 0 or words[number - 1] not in PLACE))
+
+
+def _paragraphs(text: str) -> list[str]:
+    """Akapity prozy, każdy z blokiem kodu, który stoi zaraz pod nim."""
+
+    found: list[str] = []
+    for chunk in re.split(r"\n\s*\n", text):
+        if chunk.lstrip().startswith("```") and found:
+            found[-1] += "\n" + chunk
+        else:
+            found.append(chunk)
+    return found
+
+
+def _mandates(tool: ModuleType, text: str, commands: set[tuple[str, ...]]) -> list[str]:
+    """Akapity, które każą przed pushem uruchomić lokalnie polecenie liczone przez CI."""
+
+    found = []
+    for paragraph in _paragraphs(text):
+        if not BEFORE_PUSH.search(paragraph):
+            continue
+        named = {(Path(script).name, *_selecting(arguments)) for _, script, arguments in tool.SKILL_COMMAND.findall(paragraph.replace("\\", "/"))}
+        # Wywołanie bez części argumentów polecenia CI to zwykle jego domyślny przebieg (``all``), więc też się liczy.
+        if any(command[: len(ci)] == ci or ci[: len(command)] == command for command in named for ci in commands):
+            found.append(paragraph.splitlines()[0])
+    return found
+
+
+def test_skill_nie_kaze_uruchamiac_przed_pushem_tego_co_liczy_ci(monkeypatch: pytest.MonkeyPatch) -> None:
+    tool = _load_tool(monkeypatch)
+    commands = _ci_commands(tool)
+
+    found = {md.parent.name: _mandates(tool, md.read_text(encoding="utf-8"), commands) for md in sorted(SKILLS.glob("*/SKILL.md"))}
+
+    assert {("run_verification.py", "--variant", "all"), ("run_centrum_verification.py", "--feature", "all")} <= commands
+    assert {skill: lines for skill, lines in found.items() if lines} == {}, (
+        "polecenie, które liczy CI, skill uruchamia lokalnie tylko do odtworzenia czerwonego kroku CI albo przy pracy nad jedną funkcją"
+    )
+
+
+def test_skill_z_poleceniami_w_ci_mowi_co_liczy_ci_a_co_zostaje_lokalnie(monkeypatch: pytest.MonkeyPatch) -> None:
+    tool = _load_tool(monkeypatch)
+    skills = [md for md in sorted(SKILLS.glob("verify-*/SKILL.md")) if tool.ci_runs(md.parent)]
+
+    without = [md.parent.name for md in skills if CI_AND_LOCAL not in md.read_text(encoding="utf-8").splitlines()]
+
+    assert {"verify-centrum-rozliczen", "verify-aktualizacja-narzedzia"} <= {md.parent.name for md in skills}
+    assert without == [], f"dopisz sekcję {CI_AND_LOCAL!r}: które polecenia liczy CI, a co z workflow zostaje lokalnie (osąd, Mac)"
+
 
 def test_agents_md_nie_wymienia_skilli_verify() -> None:
     agents = (ROOT / "AGENTS.md").read_text(encoding="utf-8")

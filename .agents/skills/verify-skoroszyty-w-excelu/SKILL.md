@@ -35,6 +35,12 @@ parsing typed text (`25,5`), and his real Słownik behind the external link.
 The Hiperłącza in `A:AT` (one on each `NUMER ZL.`) are checked in the bytes Excel saved and
 Przebieg rozliczeń wrote, not as Excel shows them or opens them on a click.
 
+## What CI runs and what stays local
+
+CI runs only `check_excel_cleanup_mutations.py` (the mutations of the sweep and the quit) in
+Mutation checks. Everything else needs Excel on the Mac: drive it yourself whenever
+`tools/skille_dla_zmiany.py` lists this skill.
+
 ## Launch
 
 From the repository root, after `tools/setup_worktree.py` in a worktree:
@@ -237,8 +243,9 @@ rm -rf ~/Library/Containers/com.microsoft.Excel/Data/maximiseart-weryfikacja/<ru
 .venv/bin/python .agents/skills/verify-rozliczenia/scripts/cleanup.py --root <run dir>/runs/<run>
 ```
 
-The sweep and the quit are guarded by mutations; it must end with `MUTACJE OK`
-(a few seconds; CI runs it in the `mutations` job):
+The sweep and the quit are guarded by mutations that CI runs in Mutation checks;
+run them locally only to reproduce a red Mutation checks step (a few seconds, it
+ends with `MUTACJE OK`):
 
 ```bash
 .venv/bin/python .agents/skills/verify-skoroszyty-w-excelu/scripts/check_excel_cleanup_mutations.py

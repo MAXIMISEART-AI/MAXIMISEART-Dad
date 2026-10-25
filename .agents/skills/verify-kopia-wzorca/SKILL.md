@@ -11,9 +11,19 @@ pilnuje:
   - src/rozliczenia/template_file.py
   - src/rozliczenia/workbook_save.py
   - tools/porownanie_rozliczen.py
+ci: .agents/skills/verify-kopia-wzorca/scripts/check_template_copy.py --no-shrink
 ---
 
 # Verify kopia Wzorca
+
+## What CI runs and what stays local
+
+CI runs `check_template_copy.py --no-shrink` (the `ci:` key, which is also the baseline of
+`check_copy_mutations.py`), the mutations and `tests/test_kopia_wzorca.py` whenever a change touches
+this skill. Run them locally only to reproduce a red CI step. What stays with you: the options CI never
+runs, fresh seeds after a larger change to `template_copy.py` (`--seed`) and Dad's real Wzorzec
+(`--wzorzec`, on Maks's Mac), both as background commands; and reading a red run as „When the check
+fails” says.
 
 ## The promise
 
@@ -219,8 +229,9 @@ Never loosen a rule or drop a value or Wzorzec to make a real counterexample dis
 
 ## After changing the checker or an intended change to the copy
 
-Prove the check can still fail. This applies broken variants to a temporary copy of the checkout
-(`tools/mutacje.py`), never to the checkout:
+CI proves the check can still fail: Mutation checks runs the script below whenever a change touches
+this skill. Run it locally only to reproduce a red Mutation checks step or after you rewrite a mutation.
+It applies broken variants to a temporary copy of the checkout (`tools/mutacje.py`), never to the checkout:
 
 ```powershell
 py -3 .agents\skills\verify-kopia-wzorca\scripts\check_copy_mutations.py
