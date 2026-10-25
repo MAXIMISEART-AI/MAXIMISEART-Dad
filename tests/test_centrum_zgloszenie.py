@@ -14,14 +14,29 @@ from pathlib import Path
 from typing import Any, NoReturn
 
 import pytest
+from fastapi.testclient import TestClient
 
 from rozliczenia.input_checks import FILE_READERS
+from rozliczenia.centrum.app import create_app
+from rozliczenia.centrum.configuration import ConfigurationFiles
 from rozliczenia.centrum.dad_cases import DAD_CASES_FILE
+from rozliczenia.centrum.log import CentrumLog
 from rozliczenia.centrum.outbox import RETRY_S
 from rozliczenia.centrum.report_box import Refused, Unreachable
 from rozliczenia.centrum.reports import SEARCH_DEADLINE_S
+from rozliczenia.centrum.shutdown import Shutdown
 
-from tests.fixtures.centrum import TOOL_COMMIT, FakeReportBox, dad_cases
+from tests.fixtures.centrum import (
+    CENTRUM,
+    TOOL_COMMIT,
+    FakeGitHub,
+    FakeOneDrive,
+    FakePlatform,
+    FakeReportBox,
+    centrum as plain_centrum,
+    dad_cases,
+)
+from tests.fixtures.clock import ManualClock
 from tests.fixtures.centrum_processes import (
     PreparingCentrum,
     Surroundings,
@@ -412,9 +427,50 @@ def key_state(centrum: PreparingCentrum) -> str:
 def test_konfiguracja_pokazuje_stan_klucza_do_zgloszen_bez_jego_wartosci(tmp_path: Path) -> None:
     centrum = preparing_centrum(tmp_path)
     missing = key_state(centrum)
-    with_key(centrum)
+    key_file = with_key(centrum)
+    ready = key_state(centrum)
+    key_file.write_bytes(codecs.BOM_UTF8 + b"\r\n")  # Notatnik zapisał pusty plik
 
-    assert (missing, key_state(centrum)) == ("missing_key", "ready")
+    assert (missing, ready, key_state(centrum)) == ("missing_key", "ready", "missing_key")
+    assert centrum.surroundings.report_box.listed == [("zgloszenie", False)]
+
+
+def test_start_centrum_sprawdza_klucz_w_skrzynce_w_tle_bez_zadnego_zapytania(tmp_path: Path) -> None:
+    config = tmp_path / "config"
+    config.mkdir()
+    (config / "zgloszenia-klucz.txt").write_text(KEY + "\n", encoding="utf-8")
+    centrum = plain_centrum(tmp_path)
+
+    with centrum.client:
+        assert centrum.report_box.searching.wait(10), "Skrzynka nie dostała sprawdzenia klucza przy starcie"
+
+    assert centrum.report_box.listed == [("zgloszenie", False)]
+
+
+def test_skrzynka_github_odrzuca_klucz_ktorego_nie_da_sie_wyslac_bez_pytania_sieci(tmp_path: Path) -> None:
+    config = tmp_path / "config"
+    config.mkdir()
+    (config / "zgloszenia-klucz.txt").write_text("klucz z Notatnika\n", encoding="utf-8")
+    log = CentrumLog(tmp_path / "logs" / "centrum-rozliczen.log")
+    app = create_app(
+        settings_path=config / "centrum-ustawienia.yaml",
+        platform=FakePlatform(),
+        log=log,
+        shutdown=Shutdown(log),
+        configuration_files=ConfigurationFiles(
+            worker_config=config / "Konfiguracja wykonawców.xlsx",
+            internal_template=config / "Wzorzec rozliczenia wewnętrznego.xlsx",
+            collective_template=config / "Wzorzec pliku zbiorczego.xlsx",
+            worker_template=config / "Wzorzec rozliczenia pracownika.xlsx",
+        ),
+        tool_freshness=FakeGitHub().freshness(),
+        cloud_files=FakeOneDrive().cloud_files(),
+        clock=ManualClock(),
+    )
+
+    answer = TestClient(app, base_url=CENTRUM, headers={"Origin": CENTRUM}).get("/api/configuration")
+
+    assert answer.json()["reports"] == "refused_key"
 
 
 def test_konfiguracja_pokazuje_klucz_odrzucony_gdy_skrzynka_odmawia_klucza(tmp_path: Path) -> None:

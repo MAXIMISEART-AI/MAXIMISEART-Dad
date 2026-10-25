@@ -66,7 +66,8 @@ class Owner:
 class Computer:
     """Katalog konfiguracji tego komputera, skrzynka Zgłoszeń, zegar i dziennik Centrum; ``reports()`` to start Centrum.
 
-    ``outbox`` to kolejka Skrzynki ostatniego startu.
+    ``outbox`` to kolejka Skrzynki ostatniego startu. Każdy kolejny start ma nowy zegar, jak nowy proces Centrum:
+    budzik kolejki poprzedniego startu już nie dzwoni.
     """
 
     tmp_path: Path
@@ -90,7 +91,7 @@ class Computer:
 
     def reports(self) -> Reports:
         if self.outbox is not None:
-            self.outbox.close()
+            self.clock = ManualClock()
         keyed = KeyedBox(self.box, lambda: read_report_key(self.config), clock=self.clock)
         outbox = Outbox(
             self.config / "zgloszenia" / "kolejka",
@@ -239,6 +240,31 @@ def test_drugi_uchwyt_tego_problemu_widzi_zgloszenie_w_kolejce_i_nie_wysyla_drug
 
     assert (owner.states, dump(second.send())) == ([FOR_KEY], FOR_KEY)
     assert (len(computer.queued()), len(computer.cases())) == (1, 1)
+
+
+def test_uchwyt_z_podgladem_sprzed_wysylki_tego_problemu_nie_wysyla_drugiego(computer: Computer) -> None:
+    reports = computer.reports()
+    first, _, _ = prepared(reports, computer)
+    second, _, _ = prepared(reports, computer)
+    first.send()
+
+    assert dump(second.send()) == FOR_KEY
+    assert (len(computer.queued()), len(computer.cases())) == (1, 1)
+
+
+def test_dwa_problemy_z_kolejki_dostaja_kazdy_numer_swojego_issue(computer: Computer) -> None:
+    reports = computer.reports()
+    for code in (NO_CONNECTION, OTHER_BRANCH):
+        handle, _, _ = prepared(reports, computer, code)
+        assert dump(handle.send()) == FOR_KEY
+
+    computer.with_key()
+    computer.clock.advance(RETRY_S)
+
+    assert computer.box.wait_until(lambda box: len(box.sent) == 2)
+    assert wait_for(lambda: None not in [case["number"] for case in computer.cases()])
+    bodies = {issue.number: issue.body.splitlines() for issue in computer.box.sent}
+    assert [fingerprint_line(case["id"]) in bodies[case["number"]] for case in computer.cases()] == [True, True]
 
 
 def test_dostarczenie_z_kolejki_zmienia_stan_kazdego_uchwytu_tego_problemu_na_wyslane(computer: Computer) -> None:

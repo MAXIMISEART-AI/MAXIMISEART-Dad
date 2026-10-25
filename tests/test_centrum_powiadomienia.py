@@ -19,7 +19,7 @@ from rozliczenia.centrum.report_box import CloseReason, Refused, Unreachable
 from rozliczenia.centrum.tool_freshness import PublishedRelease
 from rozliczenia.centrum.tool_update import Release
 
-from tests.fixtures.centrum import TOOL_COMMIT
+from tests.fixtures.centrum import TOOL_COMMIT, centrum as plain_centrum
 from tests.fixtures.centrum_processes import PreparingCentrum, preparing_centrum, stopped_for_maks
 from tests.fixtures.potomne import wait_for
 
@@ -529,3 +529,32 @@ def test_zgloszenie_wyslane_przed_kolejka_zostaje_przeczytane(tmp_path: Path) ->
 
     assert [(item["id"], item["unread"]) for item in answer["items"]] == [("zgloszenie-12-rozwiazana", False)]
     assert answer["unread"] == 0
+
+
+def queued_case(fingerprint: str, what: str) -> dict[str, object]:
+    """Zgłoszenie w pliku Spraw taty, które czeka w kolejce Skrzynki: bez numeru issue."""
+
+    return {
+        "kind": "zgloszenie",
+        "id": fingerprint,
+        "title": what,
+        "commit": TOOL_COMMIT,
+        "sent_at": "2026-10-19T08:00:00+00:00",
+        "number": None,
+        "closure": None,
+    }
+
+
+def test_dwa_zgloszenia_w_kolejce_to_dwa_powiadomienia_o_roznych_id(tmp_path: Path) -> None:
+    config = tmp_path / "config"
+    config.mkdir()
+    cases = [queued_case("0123456789abcdef", "Nie znaleziono wzorca."), queued_case("fedcba9876543210", "Brak folderu.")]
+    (config / DAD_CASES_FILE).write_text(json.dumps({"schema_version": 1, "sprawy": cases}), encoding="utf-8")
+
+    items = plain_centrum(tmp_path).client.get("/api/notifications").json()["items"]
+
+    assert sorted((item["what"], item["state"]) for item in items) == [
+        ("Brak folderu.", "czeka_na_internet"),
+        ("Nie znaleziono wzorca.", "czeka_na_internet"),
+    ]
+    assert len({item["id"] for item in items}) == 2

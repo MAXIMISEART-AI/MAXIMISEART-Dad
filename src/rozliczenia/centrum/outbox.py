@@ -250,7 +250,7 @@ def _target(entry: dict[str, Any], kind: object) -> Target | None:
     if kind == "known_issue":
         return KnownIssue(entry["label"], entry["number"]) if type(entry["number"]) is int else None
     if kind == "report_issue":
-        return ReportIssue(_string(entry["line"]), _string(entry["title"])) if entry["label"] == _REPORT_LABEL else None
+        return ReportIssue(_string(entry["line"]), _string(entry["title"]))
     if kind != "period_thread" or entry["closed"] not in _CLOSED:
         return None
     return PeriodThread(entry["label"], _string(entry["line"]), entry["closed"], _string(entry["title"]))
@@ -507,12 +507,11 @@ class Outbox:
         self._prepare = prepare
         self._addresses = addresses
         self._sequence = itertools.count(1)
-        self._lock = threading.Lock()  # _draining, _again, _retry_armed, _closed, _first_comments, _rejected_posts
+        self._lock = threading.Lock()  # _draining, _again, _retry_armed, _first_comments, _rejected_posts
         self._changed = threading.Condition(self._lock)
         self._draining = False
         self._again = False
         self._retry_armed = False
-        self._closed = False
         self._waiting_logged: WaitingCause | None = None  # tylko wątek kolejki
         self._first_comments: dict[tuple[str, Label], str | None] = {} if addresses is None else _read_addresses(addresses)
         self._undeleted: set[str] = set()  # wysłane w tej pracy Centrum, usunięcie się nie udało i jest w dzienniku
@@ -538,12 +537,6 @@ class Outbox:
     @property
     def directory(self) -> Path:
         return self._directory
-
-    def close(self) -> None:
-        """Przy zamknięciu Centrum: nastawione budzenie już nie rusza wysyłki (inna kolejka może przejąć folder)."""
-
-        with self._lock:
-            self._closed = True
 
     def delivered(self, run_id: str, label: Label) -> str | None:
         """Adres pierwszego komentarza wysyłki ``label`` z Uruchomienia ``run_id``, przyjętej przez skrzynkę.
@@ -621,8 +614,6 @@ class Outbox:
     def _woken(self) -> None:
         with self._lock:
             self._retry_armed = False
-            if self._closed:
-                return
         self.send_in_background()
 
     def _send_all(self) -> WaitingCause | None:

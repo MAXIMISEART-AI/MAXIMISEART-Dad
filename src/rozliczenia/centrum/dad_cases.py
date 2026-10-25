@@ -139,8 +139,9 @@ class DadCases:
     def numbered(self, kind: CaseKind, case_id: str, number: int) -> bool:
         """Numer issue dla czekającej sprawy ``kind`` o ``case_id``; ``False``, gdy żadna taka nie czeka.
 
-        Gdy inna sprawa tego rodzaju ma już ten numer (wysyłka przejęła otwarte Zgłoszenie znane z tego komputera),
-        czekająca znika, bo jedno issue to jedna sprawa i jedno Powiadomienie. Ten sam numer drugi raz to ``False``.
+        Gdy inna sprawa ma już ten numer (wysyłka przejęła otwarte Zgłoszenie znane z tego komputera; numery issue są
+        wspólne dla całej Skrzynki), czekająca znika, bo jedno issue to jedna sprawa i jedno Powiadomienie. Ten sam
+        numer drugi raz to ``False``.
         """
 
         found: list[Case] = []
@@ -153,7 +154,7 @@ class DadCases:
             if pending is None:
                 return cases
             found.append(pending)
-            if any(case.kind == kind and case.number == number for case in cases):
+            if any(case.number == number for case in cases):
                 return [case for case in cases if case is not pending]
             return [replace(case, number=number) if case is pending else case for case in cases]
 

@@ -95,7 +95,6 @@ def create_app(
         # wychodzą w tle.
         outbox.resume()
         yield
-        outbox.close()
 
     # Bez /docs i /openapi.json: kontrakt eksportuje tools/export_openapi.py, a Swagger ładowałby skrypty z sieci.
     app = FastAPI(

@@ -311,19 +311,6 @@ def test_po_dostarczeniu_ta_sama_przyczyna_czekania_znowu_trafia_do_dziennika(tm
     assert waiting_causes(queue) == ["brak-sieci", "brak-sieci"]
 
 
-def test_zamknieta_kolejka_nie_budzi_sie_po_porazce(tmp_path: Path) -> None:
-    queue = Queue(tmp_path, FakeReportBox(search_failure=Unreachable()))
-    queue.outbox.post(post(["treść\n"]))
-    queue.passed()
-    queue.box.search_failure = None
-
-    queue.outbox.close()
-    queue.clock.advance(RETRY_S)
-    queue.passed()
-
-    assert (queue.box.issues, len(queue.files())) == ([], 1)
-
-
 def test_tresc_ktorej_skrzynka_odmawia_zostaje_w_kolejce_a_nastepna_wychodzi_w_tym_samym_przejsciu(
     tmp_path: Path,
 ) -> None:
