@@ -116,6 +116,9 @@ REQUIRED_SCREENSHOTS = {
         "212-uzupelnienie-po-wpisie.png",
         "213-uzupelnienie-blokada-excela.png",
         "214-uzupelnienie-bez-pliku.png",
+        "215-uzupelnienie-gotowe.png",
+        "216-uzupelnienie-gotowe-potwierdzenie.png",
+        "217-uzupelnienie-gotowe-bez-odczytu.png",
     ),
     "przebieg-rozliczen": (
         "40-przebieg-nowe-uruchomienie.png",

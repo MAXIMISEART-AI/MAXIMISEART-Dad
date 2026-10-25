@@ -19,6 +19,7 @@ DAD_NOTES = Path("src/rozliczenia/centrum/dad_notes.py")
 TOOL_UPDATES = Path("src/rozliczenia/centrum/tool_updates.py")
 WORKBOOK_FILES = Path("src/rozliczenia/workbook_files.py")
 QUANTITIES_TO_FILL = Path("src/rozliczenia/quantities_to_fill.py")
+FILLING = Path("src/rozliczenia/centrum/filling.py")
 SETTINGS = Path("src/rozliczenia/centrum/settings.py")
 STOPS = Path("src/rozliczenia/centrum/stops.py")
 RUN_VIEW = Path("src/rozliczenia/centrum/run_view.py")
@@ -90,6 +91,24 @@ MUTATIONS = (
         (Edit(QUANTITIES_TO_FILL, "    return any(order.quantity(column) != 0 for", "    return False and any(order.quantity(column) != 0 for"),),
         UZUPELNIENIE,
         "wiersz, który tata uzupełnił w Excelu, zostaje na liście do zrobienia",
+    ),
+    Mutation(
+        "ustawienie Przebiegu nie wymienia wierszy bez ilości",
+        (Edit(QUANTITIES_TO_FILL, "for row in kind.rows if not row.done))", "for row in kind.rows if False))"),),
+        UZUPELNIENIE,
+        "tata potwierdza Gotowość, a okno „Uruchomić z zapisem?” milczy o wierszach, w których nie ma ilości",
+    ),
+    Mutation(
+        "nieczytelny Plik zbiorczy psuje ustawienie Przebiegu",
+        (
+            Edit(
+                FILLING,
+                '    except WorkbookError:\n        return contract.WithoutQuantityUnread(state="unread")\n',
+                "    except WorkbookError:\n        raise\n",
+            ),
+        ),
+        UZUPELNIENIE,
+        "przy uszkodzonym Pliku zbiorczym jednego okresu tata nie może uruchomić żadnego Przebiegu rozliczeń",
     ),
     Mutation(
         "„Otwórz Rejestr zleceń” niczego nie otwiera",

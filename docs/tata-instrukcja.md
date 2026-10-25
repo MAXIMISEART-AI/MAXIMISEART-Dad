@@ -430,6 +430,10 @@ masz go otwartego w Excelu, i nigdy go nie zmienia. Czyta go na nowo, gdy
 wracasz do niej z Excela. Jeśli nie widzisz swoich wpisów, zapisz plik w Excelu
 (Ctrl+S). `Otwórz Plik zbiorczy` otwiera plik w Excelu.
 
+Gdy skończysz, zapisz i zamknij Plik zbiorczy i kliknij `Gotowe, rozlicz
+pracowników`. Otwiera się strona `Uruchomienia` z Przebiegiem rozliczeń i tym
+okresem (dalej „Przebieg rozliczeń” niżej).
+
 ### Uzupełnienie → co zrobić
 
 | Co się stało (fragment) | Co zrobić |
@@ -467,7 +471,9 @@ Plik zbiorczy wynika z okresu, więc go nie szukasz: Centrum bierze
    nie ma wierszy).
 4. Kliknij `Uruchom` i potwierdź w okienku `Uruchomić z zapisem?`. To kliknięcie
    jest potwierdzeniem Gotowości, więc zrób je dopiero po zamknięciu Pliku
-   zbiorczego w Excelu.
+   zbiorczego w Excelu. Okienko wymienia wiersze, w których nadal nie ma żadnej
+   ilości, np. `3 wiersze bez ilości: 118, 203, 244`. Możesz mimo to uruchomić,
+   jeśli te wiersze naprawdę zostają na zero.
 5. W trakcie widać etapy, liczniki (`Wiersze danych`, `Zapisane szablony`,
    `Puste szablony`, `Problemy`) i pasek `Szablony
    pracowników` z bieżącym Wykonawcą i liczbą, np. `2 z 7`. Zamknięcie Centrum
