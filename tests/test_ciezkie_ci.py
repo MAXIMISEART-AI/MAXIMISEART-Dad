@@ -36,7 +36,7 @@ def _repo(tmp_path: Path) -> Path:
     """Repozytorium z narzędziami na gałęzi ``praca``, odbitej od ``main`` z jednym commitem."""
 
     repo = repository(tmp_path / "repo", {".gitignore": "__pycache__/\n", "src/rozliczenia/__init__.py": ""})
-    for name in ("szybko.py", "mutacje_zmiany.py", "pokrycie_linii.py", "pokrycie_procesu.py"):
+    for name in ("szybko.py", "mutacje_zmiany.py", "pokrycie_linii.py", "pokrycie_procesu.py", "czesci_pytest.py"):
         shutil.copy2(ROOT / "tools" / name, repo / "tools" / name)
     git(repo, "checkout", "--quiet", "-b", "main")
     commit(repo, "baza")

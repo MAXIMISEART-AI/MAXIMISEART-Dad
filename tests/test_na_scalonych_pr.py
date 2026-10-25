@@ -75,7 +75,7 @@ def test_mutacje_zmiany_biegna_na_commicie_takze_poza_ci(tmp_path: Path) -> None
     """Próba narzędzia na scalonym commicie to nie sprawdzenie przed pushem, więc strażnik ciężkiego CI ją przepuszcza."""
 
     repo, _ = _repo(tmp_path)
-    for name in ("szybko.py", "mutacje_zmiany.py", "pokrycie_linii.py", "pokrycie_procesu.py"):
+    for name in ("szybko.py", "mutacje_zmiany.py", "pokrycie_linii.py", "pokrycie_procesu.py", "czesci_pytest.py"):
         shutil.copy2(ROOT / "tools" / name, repo / "tools" / name)
     outside_ci = {name: value for name, value in os.environ.items() if name not in ("GITHUB_ACTIONS", "MAXIMISEART_NA_SCALONYCH_PR")}
 

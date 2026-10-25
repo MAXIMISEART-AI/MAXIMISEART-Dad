@@ -50,7 +50,9 @@ Poza CI biegnie tylko do odtworzenia porażki zadania z runu Actions tej gałęz
     .venv/bin/python tools/mutacje_zmiany.py --odtwarzam <id albo URL runu>
     .venv/bin/python tools/mutacje_zmiany.py --baza feat/galaz-rodzica --odtwarzam <id albo URL runu>
 
-Z ``--czesc K/N`` biegnie co N-ta mutacja od K-tej, więc N zadań CI dzieli mutacje bez listy w ``ci.yml``.
+Z ``--czesc K/N`` biegnie K-ta z N części mutacji o podobnym koszcie, więc N zadań CI dzieli mutacje bez listy
+w ``ci.yml``. Koszt mutacji to czas testów zależnych od jej pliku w CI na Linuksie (tabela ``tools/czesci_pytest.py``):
+tyle trwa jej drugi przebieg. Każde zadanie liczy ten sam podział, bo zmiana, graf importów i tabela są te same.
 """
 
 from __future__ import annotations
@@ -66,12 +68,14 @@ import json
 import os
 from pathlib import Path, PurePosixPath
 import re
+import statistics
 import subprocess
 import sys
 import tempfile
 import time
 
 import ciezkie_ci
+import czesci_pytest
 import mutacje
 import pokrycie_procesu
 import potomne
@@ -560,12 +564,32 @@ def _part(text: str) -> tuple[int, int]:
     return int(number), int(count)
 
 
+def parts_by_cost(found: Sequence[Mutant], cost_s: dict[str, float], count: int) -> list[list[Mutant]]:
+    """Mutacje w ``count`` częściach, każda w jednej, w kolejności ``found``; koszt mutacji to ``cost_s`` jej pliku.
+
+    Najdroższa następna mutacja idzie do części o najmniejszej sumie, a remis rozstrzyga sama mutacja, nie jej miejsce
+    na liście, więc kolejność ``found`` nie zmienia podziału.
+    """
+
+    owner: dict[int, int] = {}
+    sums = [0.0] * count
+    for index in sorted(range(len(found)), key=lambda index: (-cost_s[found[index].path], _order(found[index]))):
+        lightest = sums.index(min(sums))
+        owner[index] = lightest
+        sums[lightest] += cost_s[found[index].path]
+    return [[mutant for index, mutant in enumerate(found) if owner[index] == part] for part in range(count)]
+
+
+def _order(mutant: Mutant) -> tuple[str, int, str, str]:
+    return mutant.path, mutant.line, mutant.description, mutant.source
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--baza", default=BASE, help=f"Gałąź, od której liczy się zmiana (domyślnie {BASE}).")
     parser.add_argument("--rownolegle", type=int, default=WORKERS, help="Ile mutacji biegnie naraz, każda w swojej kopii.")
     parser.add_argument("--limit-s", type=float, default=900, help="Limit czasu testów jednej mutacji w sekundach.")
-    parser.add_argument("--czesc", metavar="K/N", type=_part, default=(1, 1), help="Tylko co N-ta mutacja, od K-tej.")
+    parser.add_argument("--czesc", metavar="K/N", type=_part, default=(1, 1), help="Tylko K-ta z N części o podobnym koszcie.")
     ciezkie_ci.argument(parser)
     args = parser.parse_args(argv)
     if refusal := ciezkie_ci.refusal({"change-mutations"}, args.odtwarzam, root=ROOT):
@@ -585,14 +609,17 @@ def main(argv: list[str] | None = None) -> int:
         print(f"MUTACJE ZMIANY FAIL | {error}")
         return 1
     every = [mutant for path, text in texts.items() for mutant in mutants(path, text, hunks[path])]
-    found = every[number - 1 :: count]
+    by_file = {path: sorted(szybko.select(ROOT, frozenset({path})).fingerprints) for path in {mutant.path for mutant in every}}
+    times = json.loads(czesci_pytest.TIMES_LINUX.read_text(encoding="utf-8")) if czesci_pytest.TIMES_LINUX.is_file() else {}
+    default = statistics.median(times.values()) if times else 1.0
+    cost_s = {path: sum(times.get(test, default) for test in tests) for path, tests in by_file.items()}
+    found = parts_by_cost(every, cost_s, count)[number - 1]
     if not found:
         where = f" w części {number}/{count}" if every else ""
         print(f"MUTACJE ZMIANY OK | brak mutacji zmienionych linii src/ od {args.baza}{where}")
         return 0
     paths = {mutant.path for mutant in found}
-    by_file = {path: sorted(szybko.select(ROOT, frozenset({path})).fingerprints) for path in paths}
-    tests = sorted({test for selected in by_file.values() for test in selected})
+    tests = sorted({test for path in paths for test in by_file[path]})
     part = f" (część {number}/{count} z {len(every)})" if count > 1 else ""
     print(f"Mutacje: {len(found)}{part} w {len(paths)} plikach src/ od {args.baza}. Testy dotknięte zmianą: {len(tests)}.", flush=True)
     clock = [time.monotonic()]
