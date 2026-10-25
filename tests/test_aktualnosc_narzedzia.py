@@ -29,8 +29,21 @@ NEWEST = "2222222222222222222222222222222222222222"
 OTHER = "3333333333333333333333333333333333333333"
 OFF_MAIN = "4444444444444444444444444444444444444444"
 NOT_COMPARED = "5555555555555555555555555555555555555555"
-# Odpowiedź porównania z `main` (``compare``) dla commitu tagu; brak wpisu to odmowa GitHuba.
-_STATUS = {OLDER: "ahead", NEWEST: "identical", OTHER: "diverged", OFF_MAIN: "behind"}
+UNCOUNTED = "6666666666666666666666666666666666666666"
+NOT_A_COMMIT = "nie-commit"
+# Odpowiedź porównania commitu tagu z czubkiem `main` ``MAIN`` albo jego pierwszym rodzicem (``compare``); brak wpisu
+# to odmowa GitHuba. ``OLDER`` jest pierwszym rodzicem ``MAIN``.
+_STATUS = {
+    (OLDER, MAIN): "ahead",
+    (OLDER, f"{MAIN}~1"): "identical",
+    (NEWEST, MAIN): "identical",
+    (OTHER, MAIN): "diverged",
+    (OFF_MAIN, MAIN): "behind",
+    # Porównanie bez liczby commitów i porównanie z czubkiem `main`, który nie jest commitem: GitHub, który by je
+    # dał, nie daje pełnej odpowiedzi.
+    (UNCOUNTED, MAIN): "identical",
+    (NEWEST, NOT_A_COMMIT): "identical",
+}
 
 
 def _tags(*named: tuple[str, str]) -> str:
@@ -51,6 +64,9 @@ _PAGES = {
     "/bez-wydan/tags?per_page=100": (_tags(("proba", OTHER)), None),
     "/bez-konca/tags?per_page=100": (_tags(("v0.1.0", OLDER)), "/bez-konca/tags?per_page=100"),
     "/bez-porownania/tags?per_page=100": (_tags(("v0.1.0", NOT_COMPARED)), None),
+    "/bez-czubka/tags?per_page=100": (_tags(("v0.1.0", NEWEST)), None),
+    "/bez-czubka/git/ref/heads/main": (json.dumps({"object": {"sha": NOT_A_COMMIT}}), None),
+    "/bez-liczby/tags?per_page=100": (_tags(("v0.1.0", UNCOUNTED)), None),
 }
 
 NOTES = "Plik zbiorczy ma kolumnę z kilometrami.\n\n## Rozwiązane sprawy taty\n\n- Uwaga taty #12: Kilometry\n"
@@ -91,12 +107,16 @@ class _GitHub(BaseHTTPRequestHandler):
                 self.send_header("Link", f'<http://{host}{following}>; rel="next", <http://{host}/tagi>; rel="last"')
             self.end_headers()
             self.wfile.write(body.encode("ascii"))
-        elif rest.startswith("compare/") and rest.endswith("...main?per_page=1&page=2"):
-            status = _STATUS.get(rest.removeprefix("compare/").partition("...")[0])
+        elif rest == "git/ref/heads/main" and repository != "limit":
+            self._answer(200, json.dumps({"ref": "refs/heads/main", "object": {"sha": MAIN, "type": "commit"}}))
+        elif rest.startswith("compare/") and rest.endswith("?per_page=1&page=2"):
+            base, _, head = rest.removeprefix("compare/").removesuffix("?per_page=1&page=2").partition("...")
+            status = _STATUS.get((base, head))
             if status is None:
                 self._answer(403, '{"message": "API rate limit exceeded"}')
             else:
-                self._answer(200, json.dumps({"status": status, "ahead_by": 1, "commits": [], "files": []}))
+                counted = {} if base == UNCOUNTED else {"ahead_by": 1}
+                self._answer(200, json.dumps({"status": status, **counted, "commits": [], "files": []}))
         elif repository == "limit":
             self._answer(403, '{"message": "API rate limit exceeded"}')
         else:
@@ -140,8 +160,8 @@ def test_bez_wydania_na_main_github_odpowiada_ze_nie_ma_wydania(github: str, rep
 
 @pytest.mark.parametrize(
     "repository",
-    ["limit", "strona", "bez-konca", "bez-porownania"],
-    ids=["odmowa", "nie-lista", "bez-konca", "odmowa-porownania"],
+    ["limit", "strona", "bez-konca", "bez-porownania", "bez-czubka", "bez-liczby"],
+    ids=["odmowa", "nie-lista", "bez-konca", "odmowa-porownania", "czubek-main-nie-commitem", "porownanie-bez-liczby"],
 )
 def test_odmowa_odpowiedz_nie_z_api_albo_niepelna_lista_to_nie_wiadomo(github: str, repository: str) -> None:
     assert releases_from(f"{github}/{repository}", timeout_s=2) is None
