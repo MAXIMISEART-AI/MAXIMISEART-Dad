@@ -66,6 +66,12 @@ def parse_period_token(token: str) -> SettlementPeriod:
     return period
 
 
+def period_of(day: date) -> SettlementPeriod:
+    """Okres, w którym leży ``day``."""
+
+    return SettlementPeriod(day - timedelta(days=(day.weekday() - _TUESDAY) % 7))
+
+
 def last_complete_period(today: date) -> SettlementPeriod:
     """Ostatni pełny okres zakończony przed ``today``; okres kończący się dziś nie jest pełny."""
 
