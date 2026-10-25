@@ -15,8 +15,8 @@ ci: .agents/skills/verify-aktualizacja-narzedzia/scripts/sprawdz_aktualizacje.py
 
 CI runs `sprawdz_aktualizacje.py` (the `ci:` key) in Mutation checks on Windows whenever a change
 touches this skill, so run it locally only while you bring the model in line or to reproduce a red
-Mutation checks step. It checks the model as committed, so it stays green on a code change the model
-does not describe yet. What stays with you on every change to the covered code is „Bring the model in
+Mutation checks step. It fails with `AKTUALIZACJA: ROZJAZD MODELU Z KODEM` when covered code changed since the
+model's Sync commit, but it cannot tell whether your change to the model is right. What stays with you on every change to the covered code is „Bring the model in
 line, then run”: read the diff against the table, change the model, break a new path in it, and run
 the check while you do. A change whose model nobody brought in line is not verified, whatever CI says.
 
