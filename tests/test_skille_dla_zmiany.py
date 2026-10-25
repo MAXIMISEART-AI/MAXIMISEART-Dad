@@ -41,7 +41,7 @@ def _repo(root: Path, files: dict[str, str] = REPO) -> str:
         (root / name).parent.mkdir(parents=True, exist_ok=True)
         (root / name).write_text(text, encoding="utf-8")
     (root / "tools").mkdir(exist_ok=True)
-    for name in ("skille_dla_zmiany.py", "mutacje_skilli.py", "potomne.py", "szybko.py", "ci_lokalnie.py", "ciezkie_ci.py", "mutacje.py"):
+    for name in ("skille_dla_zmiany.py", "mutacje_skilli.py", "potomne.py", "szybko.py", "ci_lokalnie.py", "ciezkie_ci.py", "mutacje.py", "sciezki_w_kodzie.py"):
         shutil.copy(TOOLS / name, root / "tools" / name)
     git(root, "init", "--quiet")
     return commit(root, "baza")
@@ -135,11 +135,14 @@ EXECUTED = {
     ),
     ".agents/skills/verify-c/scripts/check_c_mutations.py": "import tylko_mutacje\n",
     "tools/pomocnik.py": "import glebszy\n",
-    "tools/glebszy.py": "G = 1\n",
-    "tools/uruchamiany.py": "import od_uruchamianego\n",
+    "tools/glebszy.py": 'G = 1\nSKRYPT = "tools/z_importu.py"\n',
+    "tools/z_importu.py": "Z = 1\n",
+    "tools/uruchamiany.py": 'import od_uruchamianego\n\nDALEJ = "tools/dalej.py"\n',
+    "tools/dalej.py": "D = 1\n",
     "tools/od_uruchamianego.py": "U = 1\n",
     "tools/tylko_mutacje.py": "M = 1\n",
-    "src/produkt.py": "P = 1\n",
+    "src/produkt.py": 'P = 1\nSKRYPT = "tools/z_produktu.py"\n',
+    "tools/z_produktu.py": "R = 1\n",
     "docs/c.md": "c\n",
 }
 
@@ -151,6 +154,9 @@ EXECUTED = {
         ("tools/glebszy.py", ["verify-c"]),
         ("tools/uruchamiany.py", ["verify-c"]),
         ("tools/od_uruchamianego.py", ["verify-c"]),
+        ("tools/dalej.py", ["verify-c"]),
+        ("tools/z_importu.py", ["verify-c"]),
+        ("tools/z_produktu.py", []),
         ("tools/tylko_mutacje.py", []),
         ("src/produkt.py", []),
     ],
@@ -268,6 +274,36 @@ def test_frontmatter_kazdego_skilla_jest_poprawnym_yaml() -> None:
             broken[md.parent.name] = str(error).splitlines()[0]
 
     assert broken == {}, "harness czyta frontmatter jako YAML: wartość bez cudzysłowu nie może mieć „: ”"
+
+
+def test_wybor_w_ci_liczy_dla_polecenia_ci_kazdego_skilla_te_same_pliki_co_skille_dla_zmiany(monkeypatch: pytest.MonkeyPatch) -> None:
+    tool = _load_tool(monkeypatch)
+    ci = importlib.import_module("mutacje_skilli")
+    # Folder bez SKILL.md nie ma polecenia ci, więc czyta tylko runner mutacji i INFRASTRUCTURE, wspólne dla wszystkich skilli.
+    runner = ci.read_in_ci(SKILLS / "nie-ma-takiego-skilla", [])
+    differences = {}
+    for md in sorted(SKILLS.glob("verify-*/SKILL.md")):
+        if ci.ci_command(md) is None:
+            continue
+        in_ci = {name for name in ci.read_in_ci(md.parent, []) if not name.startswith("src/")}
+        for_change = {path.relative_to(ROOT).as_posix() for path in tool._executed(md.parent) if path.is_relative_to(ROOT)}
+        differences[md.parent.name] = sorted((in_ci - runner) ^ (for_change - runner))
+
+    assert len(differences) >= 2
+    assert differences == dict.fromkeys(differences, [])
+
+
+# Skrypt dla maszyn uruchamia ścieżką polecenie ci Centrum (``drive/metryki.py``) i sprawdzenie mutacji Excela
+# (``run_excel_verification.py``), a żaden z nich go nie importuje.
+@pytest.mark.parametrize("skill", ["verify-centrum-rozliczen", "verify-skoroszyty-w-excelu"])
+def test_zmiana_samego_skryptu_dla_maszyn_uruchamia_w_ci_polecenia_skilla_ktory_go_uruchamia(monkeypatch: pytest.MonkeyPatch, skill: str) -> None:
+    _load_tool(monkeypatch)
+    ci = importlib.import_module("mutacje_skilli")
+    folder = SKILLS / skill
+
+    runs, why = ci._why_run(folder, sorted(folder.glob(f"scripts/{ci.PATTERN}")), {"tools/uruchom_proces.py"})
+
+    assert runs, why
 
 
 def test_workflow_skilla_windows_biegnie_dla_tych_samych_sciezek_co_jego_pilnuje(monkeypatch: pytest.MonkeyPatch) -> None:
