@@ -378,8 +378,8 @@ def _drive(run: Run, page: Page, collective_file: Path, lock: Path) -> None:
     page.evaluate("() => { window.__bez_przeladowania = true }")
     _write_dad_value(collective_file, row)
     run.check(not lock.exists(), f"harness: one value typed into column {DAD_COLUMN} of row {row}, saved and closed")
-    without_rule = page.get_by_role("region", name=KIND_TITLES["without_rule"], exact=True)
-    expect(without_rule).to_contain_text("1 z 2", timeout=LIVE_TIMEOUT_MS)
+    region = page.get_by_role("region", name=KIND_TITLES["without_rule"], exact=True)
+    expect(region).to_contain_text("1 z 2", timeout=LIVE_TIMEOUT_MS)
     run.check(
         page.evaluate("() => window.__bez_przeladowania === true") and asked.count(VERSION_API) >= 1,
         f"the counter changed to 1 z 2 without a click or reload, after {asked.count(VERSION_API)} "
