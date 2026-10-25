@@ -425,7 +425,7 @@ QuantitiesToFill = Annotated[QuantitiesToFillReady | QuantitiesToFillProblem, Fi
 
 
 class KindTableCell(_Model):
-    """Komórka N:AP wiersza na stronie rodzaju: wartość narzędzia, wartość taty, która robi wiersz, albo nic (0)."""
+    """Komórka N:AP wiersza na stronie rodzaju: wartość z pliku w kolumnie narzędzia, wpis taty, który robi wiersz, albo nic (0)."""
 
     source: CellSource
     value: int | Literal["nieliczbowa"]

@@ -27,9 +27,10 @@ godzinami, z Plikiem zbiorczym otwartym w Excelu, więc strona, która wymaga za
   z tego tylko numery wierszy, stan „zrobione” i liczniki kolumn z opisu technika.
   Teksty i komórki dostaje tylko strona rodzaju (#418), osobnym zasobem dla jednego rodzaju, więc podsumowanie
   ich nie niesie. Nazwy pozycji cennika są z wiersza 17 Pliku zbiorczego, który Przygotowanie kopiuje z Wzorca.
-- **Jedna wartość w komórce.** Komórka `N:AP` strony rodzaju pokazuje wartość narzędzia w kolumnie, którą
-  wyznaczają Reguły ilości, a w pozostałych wartość taty. Przeglądarka nie dostaje obu wartości tej samej
-  komórki, więc nie widać różnic między Regułami ilości a wpisami taty: Kontrola ilości zostaje dla Maksa.
+- **Komórka pokazuje plik.** Komórka `N:AP` strony rodzaju ma wartość z Pliku zbiorczego. W kolumnie, którą
+  wyznaczają Reguły ilości, jest szara i nie robi wiersza zrobionym, a w pozostałych jest wpisem taty. Gdy tata
+  nadpisze w Excelu wartość narzędzia, strona pokazuje jego wartość, jak plik. Przeglądarka nie dostaje wyniku
+  Reguł ilości obok wartości z pliku, bo ich porównanie to Kontrola ilości, która zostaje dla Maksa.
   Teksty wierszy nie wchodzą do `OrderFacts`, więc nie trafiają do Kontroli ilości ani do Logów Uruchomienia.
 - **Dane nie wychodzą z komputera.** Te pola nie trafiają do Logów Uruchomienia, Zgłoszenia, Uwagi taty,
   dziennika Centrum ani pomiaru widoku. Dziennik dostaje przy nieudanym odczycie tylko token okresu, kod

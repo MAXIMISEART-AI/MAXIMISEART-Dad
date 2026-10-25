@@ -429,7 +429,7 @@ Dotknij `Wiersze bez reguły` albo `Wiersze z opisu`, a zobaczysz tabelę jak w
 Excelu, tylko z wierszami tego rodzaju. Z lewej stoją numer wiersza, `WYKONAWCA`,
 `URZĄDZENIA`, `CZYNNOŚCI` i `CZYNNOŚCI ZREALIZOWANE`, z prawej kolumny od N do
 AP, które przesuwasz w bok. Dotknij tekstu albo litery kolumny, a zobaczysz
-cały tekst albo pełną nazwę pozycji cennika. Szare liczby wpisało narzędzie.
+cały tekst albo pełną nazwę pozycji cennika. Szare są kolumny, które wypełnia narzędzie.
 Wiersz do uzupełnienia jest żółty. Komórka z Twoją ilością jest zielona, a
 wiersz z choćby jedną Twoją ilością robi się zielony. W tabeli niczego nie
 wpisujesz: ilości wpisujesz w Excelu.

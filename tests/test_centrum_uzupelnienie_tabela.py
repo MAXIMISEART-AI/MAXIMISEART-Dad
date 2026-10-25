@@ -130,15 +130,15 @@ def test_wartosc_taty_wraca_zielona_i_robi_wiersz_a_zero_nie(tmp_path: Path) -> 
     assert "Y" not in _shown(rows[22])
 
 
-def test_wartosc_taty_w_kolumnie_narzedzia_nie_robi_wiersza_bez_reguly(tmp_path: Path) -> None:
+def test_wartosc_taty_w_kolumnie_narzedzia_wraca_z_pliku_szara_i_nie_robi_wiersza(tmp_path: Path) -> None:
     centrum = _prepared(tmp_path)
-    _write(centrum, {"V19": 3, "N22": 45})
+    _write(centrum, {"V19": 5, "N22": 45, "T22": 0})
 
     rows = {row["row"]: row for row in _table(centrum, "without_rule")["rows"]}
 
     assert [rows[19]["state"], rows[22]["state"]] == ["to_fill", "to_fill"]
-    assert _shown(rows[19])["V"] == ("tool", 1)
-    assert _shown(rows[22])["N"] == ("tool", 0)
+    assert _shown(rows[19])["V"] == ("tool", 5)
+    assert (_shown(rows[22])["N"], _shown(rows[22])["T"]) == (("tool", 45), ("tool", 0))
 
 
 def test_wiersz_z_opisu_nie_ma_wartosci_narzedzia_a_tekst_taty_jest_nieliczbowy(tmp_path: Path) -> None:

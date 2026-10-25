@@ -6,8 +6,9 @@ kolumny, w których wpis taty się liczy, to kolumny poza porównywanymi przez K
 więc ta lista i Kontrola ilości się nie rozjadą. Puste i 0 to to samo, jak w Kontroli ilości.
 
 Wiersz bez reguły jest zrobiony, gdy ma ilość różną od 0 poza V, T i N, a wiersz z opisu, gdy ma ją gdziekolwiek
-w N:AP. Każda komórka N:AP wiersza pokazuje jedną wartość: w kolumnie, którą wyznaczają Reguły ilości, wartość
-narzędzia, a w pozostałych wartość taty; różnic między nimi nie widać, bo Kontrola ilości zostaje dla Maksa.
+w N:AP. Każda komórka N:AP wiersza pokazuje wartość z pliku: w kolumnie, którą wyznaczają Reguły ilości, jako
+kolumnę narzędzia, która nie robi wiersza zrobionym, a w pozostałych jako wpis taty. Wyniku Reguł ilości obok
+wartości z pliku nie ma, bo porównanie ich to Kontrola ilości, która zostaje dla Maksa.
 Wiersz z ``DATA``, która nie jest datą, nie ma wyniku reguł, więc nie trafia do żadnego rodzaju. Kolumny z opisu
 technika mają tylko liczbę wierszy, w których tata coś wpisał, wziętą z Kontroli ilości tych samych wierszy.
 """
@@ -21,7 +22,7 @@ from typing import Final
 
 from .order_facts import N_AP, OrderFacts, TataValue
 from .quantity_check import QuantityCheck, check, compared_columns
-from .quantity_rules import DESCRIPTION_COLUMNS, FromDescription, QuantityColumn, RuleResult, WithoutRule, evaluate
+from .quantity_rules import DESCRIPTION_COLUMNS, FromDescription, RuleResult, WithoutRule, evaluate
 
 
 class FillKind(StrEnum):
@@ -67,7 +68,7 @@ class CellSource(StrEnum):
     """Czyją wartość pokazuje komórka N:AP wiersza do uzupełnienia."""
 
     TOOL = "tool"
-    """Kolumna, którą wyznaczają Reguły ilości: wartość narzędzia, także 0."""
+    """Kolumna, którą wyznaczają Reguły ilości: wartość z pliku, także 0, nie robi wiersza zrobionym."""
     TATA = "tata"
     """Ilość taty różna od 0 w kolumnie, której Reguły ilości nie wyznaczają: robi wiersz zrobionym."""
     EMPTY = "empty"
@@ -78,7 +79,7 @@ class CellSource(StrEnum):
 class QuantityCell:
     source: CellSource
     value: TataValue
-    """Wartość ``source``; w ``EMPTY`` zawsze 0."""
+    """Wartość komórki w pliku; w ``EMPTY`` zawsze 0."""
 
 
 class RowState(StrEnum):
@@ -145,11 +146,10 @@ def quantities_to_fill(rows: Sequence[NumberedOrder]) -> QuantitiesToFill:
 
 def _cells(order: OrderFacts, rule: RuleResult) -> tuple[QuantityCell, ...]:
     compared = compared_columns(rule)
-    return tuple(_cell(order, rule, column, compared) for column in N_AP)
+    return tuple(_cell(order.quantity(column), column in compared) for column in N_AP)
 
 
-def _cell(order: OrderFacts, rule: RuleResult, column: str, compared: tuple[QuantityColumn, ...]) -> QuantityCell:
-    if column in compared:
-        return QuantityCell(CellSource.TOOL, rule.quantities.get(QuantityColumn(column), 0))
-    value = order.quantity(column)
+def _cell(value: TataValue, by_rules: bool) -> QuantityCell:
+    if by_rules:
+        return QuantityCell(CellSource.TOOL, value)
     return QuantityCell(CellSource.EMPTY if value == 0 else CellSource.TATA, value)
