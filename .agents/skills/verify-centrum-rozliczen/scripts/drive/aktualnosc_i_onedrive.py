@@ -14,6 +14,7 @@ from drive.common import (
     ended_run_shown,
     ensure_files_set,
     finished_result,
+    period_choice,
     release_only,
     sent_requests,
     settle,
@@ -54,7 +55,7 @@ def _stop_without_cause_on_computer(run: Run, page: Page) -> str:
         page.get_by_role("button", name="Nowe Uruchomienie procesu").click()
     page.get_by_role("radio", name="Przygotowanie pliku zbiorczego").click()
     page.get_by_role("combobox", name="Okres").click()
-    page.get_by_role("option", name=f"{PERIOD} · Brak plików okresu", exact=True).click()
+    page.get_by_role("option", name=period_choice(PERIOD, "Brak plików okresu"), exact=True).click()
     template.rename(aside)
     try:
         page.get_by_role("button", name="Podgląd bez zapisu", exact=True).click()

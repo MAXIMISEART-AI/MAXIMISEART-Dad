@@ -59,7 +59,7 @@ export function DadNoteForm({ openedFrom, close }: { openedFrom: string | null; 
   const [checked, setChecked] = React.useState(openedFrom)
   const [sending, setSending] = React.useState(false)
   const [answer, setAnswer] = React.useState<DadNoteState | null>(null)
-  const runs = usePinnableRuns(openedFrom)
+  const { runs, reload: reloadRuns } = usePinnableRuns(openedFrom)
   const note = React.useMemo(() => noteFor(title, body, scope, runs, checked), [title, body, scope, runs, checked])
 
   const { shown, sendable } = useDraft(note)
@@ -118,7 +118,13 @@ export function DadNoteForm({ openedFrom, close }: { openedFrom: string | null; 
         <FieldTitle>Dotyczy</FieldTitle>
         <SegmentedFilter label="Dotyczy" options={SCOPES} value={scope} onChange={setScope} />
         {scope === "run" ? (
-          <DadNoteRuns runs={runs} openedFrom={openedFrom} checked={checked} onCheck={setChecked} />
+          <DadNoteRuns
+            runs={runs}
+            reload={reloadRuns}
+            openedFrom={openedFrom}
+            checked={checked}
+            onCheck={setChecked}
+          />
         ) : null}
       </Field>
       <Preview shown={shown} />
@@ -132,32 +138,41 @@ export function DadNoteForm({ openedFrom, close }: { openedFrom: string | null; 
   )
 }
 
-/** Uruchomienia do wyboru, czytane raz na otwarcie okna (z Uruchomieniem, z którego tata je otworzył). */
-function usePinnableRuns(selected: string | null): Resource<ReadonlyArray<PinnableRun>> {
+/**
+ * Uruchomienia do wyboru, czytane raz na otwarcie okna (z Uruchomieniem, z którego tata je otworzył) i od nowa
+ * po „Spróbuj ponownie”. Liczy się tylko najnowszy odczyt.
+ */
+function usePinnableRuns(selected: string | null) {
   const [runs, setRuns] = React.useState<Resource<ReadonlyArray<PinnableRun>>>({ state: "loading" })
+  const latest = React.useRef(0)
 
-  React.useEffect(() => {
-    let wanted = true
+  const reload = React.useCallback(() => {
+    const read = ++latest.current
 
-    getDadNoteRuns(selected).then(
+    return getDadNoteRuns(selected).then(
       (list) => {
-        if (wanted) {
+        if (read === latest.current) {
           setRuns({ state: "ready", data: list })
         }
       },
       (failure: Error) => {
-        if (wanted) {
+        if (read === latest.current) {
           setRuns({ state: "failed", message: failureMessage(failure) })
         }
       }
     )
-
-    return () => {
-      wanted = false
-    }
   }, [selected])
 
-  return runs
+  React.useEffect(() => {
+    reload()
+
+    // Odczyt, który wróci po zamknięciu okna albo zmianie Uruchomienia, niczego już nie pokazuje.
+    return () => {
+      latest.current += 1
+    }
+  }, [reload])
+
+  return { runs, reload }
 }
 
 /** Uwaga do szkicu i do wysłania; `null`, gdy przy „Do Uruchomienia” nie jest zaznaczone Uruchomienie z listy. */

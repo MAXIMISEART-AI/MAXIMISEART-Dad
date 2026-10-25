@@ -25,6 +25,7 @@ from drive import (
     EXPLICIT_FEATURES,
     aktualizacja,
     aktualnosc_i_onedrive,
+    blad_odczytu,
     diagnoza,
     karta_z_logow,
     konfiguracja,
@@ -50,7 +51,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "tools"))
 from skrypt_skilla import Parser
 
 # aktualizacja moves the run's tool clone right after Konfiguracja shows it. Przygotowanie pliku zbiorczego
-# appends to the metrics files that Metryki counts, so it runs after Metryki; Przebieg rozliczeń continues Dad's
+# appends to the metrics files that Metryki counts, so it runs after Metryki; blad-odczytu runs between them, before
+# the week's first Uruchomienie; Przebieg rozliczeń continues Dad's
 # path from its Plik zbiorczy, and kontrola-ilosci sends its Kontrola ilości after two restarts of Centrum; Diagnoza stops Uruchomienia of an empty Folder okresu after Dad's week, and aktualnosc-i-onedrive diagnoses one more such stop with the
 # scripted GitHub and OneDrive; zgloszenie sends one such stop to the file skrzynka Zgłoszeń, and
 # uwaga-taty needs the skrzynka queue that kontrola-ilosci emptied; logi-uruchomienia matches every Uruchomienie
@@ -64,6 +66,7 @@ FEATURES = (
     "konfiguracja",
     "aktualizacja",
     "metryki",
+    "blad-odczytu",
     "przygotowanie-pliku-zbiorczego",
     "przebieg-rozliczen",
     "kontrola-ilosci",
@@ -100,6 +103,7 @@ def main(argv: list[str] | None = None) -> int:
         "konfiguracja": konfiguracja.drive_configuration,
         "aktualizacja": aktualizacja.drive_update,
         "metryki": metryki.drive_metrics,
+        "blad-odczytu": blad_odczytu.drive_load_failures,
         "przygotowanie-pliku-zbiorczego": przygotowanie_pliku_zbiorczego.drive_preparation,
         "przebieg-rozliczen": przebieg_rozliczen.drive_settlement,
         "kontrola-ilosci": kontrola_ilosci.drive_quantity_check,

@@ -8,7 +8,16 @@ import re
 
 from playwright.sync_api import Locator, Page, expect
 
-from drive.common import ROW_MARKER, Run, current_run, ended_run_shown, ensure_files_set, finished_result, stop_banner
+from drive.common import (
+    ROW_MARKER,
+    Run,
+    current_run,
+    ended_run_shown,
+    ensure_files_set,
+    finished_result,
+    period_choice,
+    stop_banner,
+)
 
 FEATURE = "zgloszenie"
 # The period of features/diagnoza.md: no Folder okresu and no orders, so no Uruchomienie here writes a file.
@@ -40,7 +49,7 @@ def _stop_for_maks(run: Run, page: Page, name: str, missing: str = "internal_tem
         page.get_by_role("button", name="Nowe Uruchomienie procesu").click()
     page.get_by_role("radio", name="Przygotowanie pliku zbiorczego").click()
     page.get_by_role("combobox", name="Okres").click()
-    page.get_by_role("option", name=f"{PERIOD} · Brak plików okresu", exact=True).click()
+    page.get_by_role("option", name=period_choice(PERIOD, "Brak plików okresu"), exact=True).click()
     template.rename(aside)
     try:
         page.get_by_role("button", name="Podgląd bez zapisu", exact=True).click()

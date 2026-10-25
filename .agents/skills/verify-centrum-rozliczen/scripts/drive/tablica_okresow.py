@@ -10,6 +10,7 @@ import urllib.request
 from playwright.sync_api import Locator, Page, expect
 
 from drive.common import (
+    DAD_TIME_ZONE,
     Run,
     choose_periods_directory,
     error_toasts,
@@ -78,8 +79,51 @@ def drive_period_board(run: Run, page: Page) -> None:
         expect(page.get_by_text(path.name, exact=True).last).to_be_visible()
     run.check(len(run.lines("opened.jsonl")) == opened_before + len(clicks), "one open per click, nothing else")
     run.capture(page, "07-tablica-otwieranie", full_page=False)
-    expect(page.get_by_role("button", name="Plik zbiorczy, okres 15_21_09_2026", exact=True)).to_be_disabled()
+    missing = page.get_by_role("button", name="Plik zbiorczy, okres 15_21_09_2026", exact=True)
+    expect(missing).to_be_disabled()
     run.check(True, "a period file that does not exist cannot be opened")
+
+    run.step(feature, "tablica-brakujacy-plik")
+    hint = page.get_by_text("Plik zbiorczy: jeszcze nie ma", exact=True)
+    opened_before = len(run.lines("opened.jsonl"))
+    missing.hover()
+    expect(hint).to_be_visible()
+    run.capture(page, "156-tablica-brakujacy-plik", full_page=False)
+    with sent_requests(page, "POST", "/api/periods/*/open") as sent:
+        missing.click(force=True)
+        settle(page, sent)
+    expect(hint).to_be_visible()
+    run.check(
+        len(sent) == 0 and len(run.lines("opened.jsonl")) == opened_before,
+        "hovering the missing Plik zbiorczy shows „jeszcze nie ma”; a click keeps the hint and opens nothing",
+    )
+    page.mouse.move(4, 4)
+    expect(hint).to_have_count(0)
+    page.get_by_role("button", name="Rozliczenie wewnętrzne, okres 15_21_09_2026", exact=True).focus()
+    page.keyboard.press("Tab")
+    expect(missing).to_be_focused()
+    expect(hint).to_be_visible()
+    run.check(True, "Tab reaches the missing file's button and shows the same hint")
+    page.keyboard.press("Escape")
+    browser = page.context.browser
+    assert browser is not None
+    touch_context = browser.new_context(
+        viewport={"width": 1440, "height": 1000}, locale="pl-PL", timezone_id=DAD_TIME_ZONE.key, has_touch=True
+    )
+    try:
+        touch = touch_context.new_page()
+        touch.set_default_timeout(10_000)
+        touch.goto(run.url + "#/okresy")
+        touch_hint = touch.get_by_text("Plik zbiorczy: jeszcze nie ma", exact=True)
+        # Playwright taps only enabled elements; the button is aria-disabled on purpose, so the tap is forced.
+        touch.get_by_role("button", name="Plik zbiorczy, okres 15_21_09_2026", exact=True).tap(force=True)
+        expect(touch_hint).to_be_visible()
+        run.capture(touch, "157-tablica-brakujacy-plik-dotyk", full_page=False)
+        touch.get_by_role("heading", name="Okresy", exact=True).tap()
+        expect(touch_hint).to_have_count(0)
+        run.check(len(run.lines("opened.jsonl")) == opened_before, "a finger tap shows the hint, a tap beside hides it")
+    finally:
+        touch_context.close()
 
     run.step(feature, "tablica-podwojne-klikniecie")
     closed = periods / "22_28_09_2026"
