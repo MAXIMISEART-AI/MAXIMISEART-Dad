@@ -20,7 +20,7 @@ from drive.metryki import _local
 FEATURE = "karta-z-logow"
 LOGS = "logs/uruchomienia"
 LAST_STARTED = "logs/ostatnie-uruchomienie.json"
-LIVE_ONLY = ("diagnosis", "report")
+LIVE_ONLY = ("diagnosis", "report", "files_unchanged", "opens")
 # What Dad could read about the Logi: the word in any of its cases, or their folder.
 ABOUT_LOGS = re.compile(r"\bLog(i|ów|ach|ami)\b|uruchomienia/")
 INTERRUPTED_WHAT = "Centrum rozliczeń zamknęło się w trakcie tego Uruchomienia, więc nie ma jego wyniku."
