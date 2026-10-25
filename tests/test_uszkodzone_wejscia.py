@@ -364,6 +364,7 @@ ENTRIES: dict[str, Entry] = {
     "getSettings": _route("getSettings", "GET", "/api/settings"),
     "chooseRegister": _route("chooseRegister", "POST", "/api/settings/register/choose"),
     "choosePeriodsDirectory": _route("choosePeriodsDirectory", "POST", "/api/settings/periods-directory/choose"),
+    "openRegister": _route("openRegister", "POST", "/api/settings/register/open"),
     "changeTheme": _route("changeTheme", "PUT", "/api/settings/theme", {"theme": "light"}),
     "getPeriodBoard": _route("getPeriodBoard", "GET", "/api/periods"),
     "openPeriodPath": _route(

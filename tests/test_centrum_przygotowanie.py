@@ -179,8 +179,14 @@ def test_przerwij_bez_zapisu_zatrzymuje_z_trzema_czesciami_dla_centrum(tmp_path:
     decide(centrum, view, "abort")
     result = finished_view(centrum.client)["result"]
 
-    assert (result["result"], result["ending"], result["next_action"]) == ("BLAD_KRYTYCZNY", "stop", "rerun")
-    assert result["headline"] == "Zatrzymano"
+    assert (result["result"], result["ending"], result["next_action"]) == ("BLAD_KRYTYCZNY", "declined", "rerun")
+    assert (result["headline"], result["stop_kind"], result["diagnosis"], result["report"]) == (
+        "Przerwano",
+        "declined",
+        None,
+        None,
+    )
+    assert (result["files_unchanged"], result["opens"]) == (True, "order_register")
     assert result["stops"] == [
         {
             "what": "Przerwano z powodu niepełnego okresu, zgodnie z odpowiedzią. Nie utworzono żadnego pliku.",
@@ -194,6 +200,7 @@ def test_przerwij_bez_zapisu_zatrzymuje_z_trzema_czesciami_dla_centrum(tmp_path:
     assert list(centrum.fixture.periods_directory.iterdir()) == []
     [record] = centrum.metric_records()
     assert (record["result"], record["phase_durations_ms"]["Zapisywanie"]) == ("BLAD_KRYTYCZNY", 0)
+    assert record["stop"] == {"kind": "for_tata", "code": "PRZERWANO_NIEPELNY_OKRES"}
 
 
 def test_czas_czekania_na_decyzje_nie_wlicza_sie_do_czasu_ani_metryk(tmp_path: Path) -> None:
@@ -316,7 +323,7 @@ def test_nienadpisywanie_zatrzymuje_bez_zmiany_istniejacego_pliku_okresu(tmp_pat
     result = view["result"]
 
     assert (result["result"], result["ending"], result["next_action"]) == ("BLAD_KRYTYCZNY", "stop", "rerun")
-    assert result["headline"] == "Zatrzymano"
+    assert (result["headline"], result["files_unchanged"], result["opens"]) == ("Do poprawy", True, None)
     [stop] = result["stops"]
     assert stop["what"].startswith("Plik tego okresu już istnieje, więc nie został nadpisany.")
     assert stop["where"] == f"folder INEA\\{PERIOD}, plik {COLLECTIVE_FILE_NAME}"

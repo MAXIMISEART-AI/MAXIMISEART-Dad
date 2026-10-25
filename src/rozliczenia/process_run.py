@@ -24,10 +24,10 @@ import time
 from typing import Any, Generic, Literal, Protocol, TypeVar
 
 from .call_trace import CallTrace
-from .decision import Conversation, Decision
+from .decision import Conversation, Decision, Declined
 from .domain import ProgressEvent, ProgressObserver, ProgressPhase, StopKind
 from .message import Message, StopError
-from .progress import ProgressProjection, ProgressSnapshot
+from .progress import PhaseState, ProgressProjection, ProgressSnapshot
 from .telemetry import MetricsStore, RecordedStop, metric_record
 
 __all__ = [
@@ -74,6 +74,7 @@ class Stop:
     """Zatrzymanie Uruchomienia procesu; zawsze z Komunikatem z katalogu procesu (``message``).
 
     ``stop``: własne zatrzymanie procesu (``StopError``) z jego Komunikatem.
+    ``declined``: Zatrzymanie po odmowie w Decyzji taty (``Declined``), z Komunikatem procesu.
     ``unexpected``: inny wyjątek przed końcem silnika, z Komunikatem
     ``Process.unexpected_failure``. ``after_engine``: silnik skończył, ale nie
     dało się zbudować podsumowania, z Komunikatem ``Process.plan_not_shown``
@@ -84,7 +85,7 @@ class Stop:
     Zatrzymania i nie trafia do dziennika ani metryk.
     """
 
-    kind: Literal["stop", "unexpected", "after_engine"]
+    kind: Literal["stop", "declined", "unexpected", "after_engine"]
     message: Message
     trace: CallTrace | None = field(default=None, compare=False, repr=False)
 
@@ -95,10 +96,11 @@ class Stop:
         „Do Maksa”: Komunikat bezwarunkowo każe przekazać go osobie utrzymującej
         narzędzie (``Message.reports_to_maintainer``) albo zakończenie nie jest
         własnym zatrzymaniem procesu (nieoczekiwany wyjątek, błąd po silniku).
-        Każde inne jest „dla taty”.
+        Każde inne, także po odmowie w Decyzji taty, jest „dla taty”.
         """
 
-        return "for_maks" if self.kind != "stop" or self.message.reports_to_maintainer else "for_tata"
+        own = self.kind in ("stop", "declined")
+        return "for_maks" if not own or self.message.reports_to_maintainer else "for_tata"
 
 
 @dataclass(frozen=True)
@@ -148,6 +150,9 @@ class Outcome(Generic[ViewT]):
     podgląd postępu. ``metrics_saved``: rekord metryk trafił do pliku metryk.
     ``progress``: ostatni snapshot jedynej projekcji postępu (etapy, Przetworzenia
     Szablonów pracownika, liczba problemów); po odłączeniu podglądu ten z chwili odłączenia.
+    ``files_unchanged``: Uruchomienie nie zmieniło plików taty, bo było podglądem bez zapisu albo skończyło
+    się, zanim zaczęło się Zapisywanie. Po odłączeniu podglądu nie wiadomo, czy Zapisywanie się zaczęło,
+    więc wtedy tylko podgląd.
     """
 
     ending: Finished | Stop
@@ -156,6 +161,7 @@ class Outcome(Generic[ViewT]):
     technical_notes: tuple[str, ...]
     metrics_saved: bool
     progress: ProgressSnapshot
+    files_unchanged: bool
 
     @property
     def result(self) -> Literal["OK", "WYMAGA_SPRAWDZENIA", "BLAD_KRYTYCZNY"]:
@@ -230,6 +236,8 @@ class _Observation:
 def _stop_from(error: Exception, process: Process[Any, Any]) -> Stop:
     """Własne zatrzymanie procesu z jego Komunikatem; każdy inny wyjątek to Komunikat nieoczekiwanego błędu."""
 
+    if isinstance(error, Declined):
+        return Stop("declined", error.message)
     if isinstance(error, StopError):
         return Stop("stop", error.message)
     return Stop("unexpected", process.unexpected_failure, CallTrace.of(error))
@@ -322,6 +330,8 @@ def run_process(
         technical_notes.append(f"Ostrzeżenie: Nie zapisano metryk; {process.metrics_failure_tail}")
     if observation.failed:
         technical_notes.append(_DETACHED_OBSERVER_NOTE)
+    progress = observation.projection.snapshot
+    before_saving = not observation.failed and progress.phase_states[ProgressPhase.SAVING] is PhaseState.PENDING
 
     return Outcome(
         ending=ending,
@@ -329,5 +339,6 @@ def run_process(
         total_duration_ms=total_duration_ms,
         technical_notes=tuple(technical_notes),
         metrics_saved=metrics_saved,
-        progress=observation.projection.snapshot,
+        progress=progress,
+        files_unchanged=dry_run or before_saving,
     )

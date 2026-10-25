@@ -65,6 +65,14 @@ _RESULT_NOT_SHOWN: Final = Message(
     action="Sprawdź Folder okresu i przekaż ten komunikat osobie utrzymującej narzędzie.",
 )
 
+# Tytuł wyniku przy Zatrzymaniu: tata poprawia sam, błąd do Maksa albo jego własna odmowa w Decyzji taty.
+_STOP_HEADLINES: Final[Mapping[contract.StopKind, str]] = {
+    "for_tata": "Do poprawy",
+    "repeated": "Do poprawy",
+    "for_maks": "Błąd",
+    "declined": "Przerwano",
+}
+
 InputsT = TypeVar("InputsT", bound=ProcessInputs)
 SummaryT = TypeVar("SummaryT", bound=WarnedSummary)
 
@@ -91,7 +99,7 @@ class PreparedRun(Generic[InputsT, SummaryT]):
         return self.view.progress(snapshot, dry_run=self.dry_run)
 
 
-Ending = Literal["finished", "stop", "unexpected", "after_engine"]
+Ending = Literal["finished", "stop", "declined", "unexpected", "after_engine"]
 
 
 @dataclass(frozen=True)
@@ -139,6 +147,12 @@ class EndedRun:
         return None if self.core is None else self.core.total_duration_ms
 
     @property
+    def files_unchanged(self) -> bool:
+        """Pliki taty bez zmian; gdy rdzeń nie oddał wyniku, wiadomo to tylko o podglądzie bez zapisu."""
+
+        return self.info.dry_run if self.core is None else self.core.files_unchanged
+
+    @property
     def ending(self) -> Ending:
         return "finished" if self.stopped is None else self.stopped.stop.kind
 
@@ -155,15 +169,16 @@ class EndedRun:
 
         ``result_action`` otwiera to, co proces zapisał (``ProcessView.result_action``). Wynik
         „Wymaga sprawdzenia” ma własny tytuł, a po podglądzie proponuje ponowny podgląd po poprawce
-        zamiast zapisu.
+        zamiast zapisu. Tytuł Zatrzymania zależy od Rodzaju Zatrzymania na karcie.
         """
 
         dry_run, stopped = self.info.dry_run, self.stopped
         if stopped is not None:
-            kind = stopped.stop.kind
-            headline = "Zatrzymano" if kind == "stop" else "Błąd"
+            headline = _STOP_HEADLINES[stopped.kind]
             # Po błędzie podsumowania przy zapisie pliki już są: nie proponujemy ponownego uruchomienia.
-            next_action: contract.NextAction = result_action if kind == "after_engine" and not dry_run else "rerun"
+            next_action: contract.NextAction = (
+                result_action if stopped.stop.kind == "after_engine" and not dry_run else "rerun"
+            )
         elif self.result == "WYMAGA_SPRAWDZENIA":
             next_action = "rerun" if dry_run else result_action
             headline = "Podgląd wymaga sprawdzenia · nic nie zapisano" if dry_run else f"{done} · wymaga sprawdzenia"
@@ -182,6 +197,8 @@ class EndedRun:
             warnings=[contract.Message.of(message) for message in self.warnings],
             technical_notes=list(self.technical_notes),
             summary=None if self.shown is None else self.shown.summary,
+            files_unchanged=self.files_unchanged,
+            opens=None if stopped is None else stopped.stop.message.dad_file,
         )
 
 

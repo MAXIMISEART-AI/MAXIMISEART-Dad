@@ -12,6 +12,7 @@ export const zApiTiming = z.object({
         'getHealth',
         'getSettings',
         'chooseRegister',
+        'openRegister',
         'choosePeriodsDirectory',
         'changeTheme',
         'getPeriodBoard',
@@ -967,12 +968,15 @@ export const zRunSummary = z.object({
  *
  * Wynik Uruchomienia procesu: zatrzymania i ostrzeżenia w trzech częściach, uwagi techniczne i podsumowanie.
  *
- * ``ending`` mówi, jak się skończyło: ``finished``, własne zatrzymanie procesu (``stop``), nieoczekiwany
- * błąd (``unexpected``) albo błąd po zakończeniu silnika (``after_engine``). ``next_action`` to akcja,
- * którą Centrum proponuje po wyniku, a ``headline`` to tytuł banera wyniku. ``stop_kind`` to rodzaj
+ * ``ending`` mówi, jak się skończyło: ``finished``, własne zatrzymanie procesu (``stop``), Zatrzymanie po
+ * odmowie w Decyzji taty (``declined``), nieoczekiwany błąd (``unexpected``) albo błąd po zakończeniu
+ * silnika (``after_engine``). ``next_action`` to akcja, którą Centrum proponuje po wyniku, a ``headline``
+ * to tytuł banera wyniku. ``stop_kind`` to rodzaj
  * Zatrzymania (``None`` bez Zatrzymania), ``diagnosis`` to Diagnoza, którą z niego Centrum proponuje
  * (``None``: bez Zatrzymania i przy Zatrzymaniu „dla taty”), a ``report`` stan Zgłoszenia do Maksa tego
- * problemu (``None``, gdy Centrum nie proponuje Diagnozy).
+ * problemu (``None``, gdy Centrum nie proponuje Diagnozy). ``files_unchanged``: Uruchomienie nie zmieniło
+ * plików taty (podgląd bez zapisu albo koniec przed Zapisywaniem), więc karta może to tacie powiedzieć.
+ * ``opens`` to plik taty, w którym jest poprawka Zatrzymania, a karta proponuje go otworzyć (``None``: żaden).
  */
 export const zRunOutcome = z.object({
     result: z.enum([
@@ -984,6 +988,7 @@ export const zRunOutcome = z.object({
     ending: z.enum([
         'finished',
         'stop',
+        'declined',
         'unexpected',
         'after_engine'
     ]),
@@ -996,7 +1001,8 @@ export const zRunOutcome = z.object({
     stop_kind: z.enum([
         'for_tata',
         'for_maks',
-        'repeated'
+        'repeated',
+        'declined'
     ]).nullable(),
     diagnosis: z.enum(['on_request', 'automatic']).nullable(),
     report: z.discriminatedUnion('state', [
@@ -1008,7 +1014,9 @@ export const zRunOutcome = z.object({
     stops: z.array(zMessage),
     warnings: z.array(zMessage),
     technical_notes: z.array(z.string()),
-    summary: zRunSummary.nullable()
+    summary: zRunSummary.nullable(),
+    files_unchanged: z.boolean(),
+    opens: z.enum(['order_register', 'collective_file']).nullable()
 });
 
 /**
@@ -1272,6 +1280,11 @@ export const zChoosePeriodsDirectoryResponse = zChoice;
  * Successful Response
  */
 export const zChooseRegisterResponse = zChoice;
+
+/**
+ * Successful Response
+ */
+export const zOpenRegisterResponse = zOpened;
 
 export const zChangeThemeBody = zThemeChange;
 

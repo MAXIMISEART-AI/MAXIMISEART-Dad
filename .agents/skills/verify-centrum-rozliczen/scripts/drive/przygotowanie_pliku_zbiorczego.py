@@ -30,6 +30,7 @@ from drive.common import (
 NOT_PREVIEWED = "08_14_09_2026"
 PREPARATION = "przygotowanie-pliku-zbiorczego"
 INCOMPLETE_PERIOD_WHAT = "Ostatnie zlecenie okresu jest z soboty 10.10.2026"
+FILES_UNCHANGED = "Nic nie zapisano, Twoje pliki są bez zmian."
 # Ilości usług warnings of the fixture's Plik zbiorczy rows (create_centrum_fixture.DEVICES): "Co się stało" and "Gdzie".
 COLLECTIVE_FILE = f"Rozliczenie {LAST_COMPLETE} - zbiorcze.xlsx"
 QUANTITY_WARNINGS = (
@@ -227,18 +228,34 @@ def drive_preparation(run: Run, page: Page) -> None:
 
     run.step(feature, "przygotowanie-przerwij")
     decision.get_by_role("button", name="Przerwij bez zapisu").click()
-    stop = page.get_by_label("Zatrzymanie")
+    stop = page.get_by_label("Zatrzymanie po odmowie", exact=True)
+    expect(stop).to_contain_text("Przerwano")
+    expect(stop).to_contain_text(FILES_UNCHANGED)
     expect(stop).to_contain_text("Przerwano z powodu niepełnego okresu")
     expect(stop).to_contain_text("Jeśli okres jest pełny, przy decyzji wybierz „Kontynuuj”.")
+    run.check(
+        "text-destructive" not in (stop.get_attribute("class") or ""),
+        "the refusal in Dad's decision is calm, not a red error",
+    )
     result = finished_result(run, "przygotowanie-przerwij")
     stops = result["stops"]
     assert isinstance(stops, list)
     run.check(
-        result["ending"] == "stop" and result["headline"] == "Zatrzymano" and len(stops) == 1,
-        "the refusal is a stop with the three-part message",
+        (result["ending"], result["stop_kind"], result["headline"], result["diagnosis"]) == ("declined", "declined", "Przerwano", None)
+        and (result["files_unchanged"], result["opens"]) == (True, "order_register")
+        and len(stops) == 1,
+        "the refusal is a declined stop with the three-part message, no Diagnoza and the Rejestr zleceń to open",
     )
     run.check(not period_folder.exists(), "Przerwij bez zapisu wrote nothing")
     run.capture(page, "34-przygotowanie-zatrzymanie")
+    opened_before = len(run.lines("opened.jsonl"))
+    with sent_requests(page, "POST", "/api/settings/register/open") as sent:
+        stop.get_by_role("button", name="Otwórz Rejestr zleceń", exact=True).click()
+        settle(page, sent)
+    run.check(
+        len(sent) == 1 and run.lines("opened.jsonl")[opened_before:] == [{"path": run.fixture["order_register"]}],
+        "Otwórz Rejestr zleceń opens the Rejestr zleceń from Dad's settings",
+    )
 
     run.step(feature, "przygotowanie-podwojne-klikniecie")
     with sent_requests(page, "POST", "/api/runs") as sent:
@@ -331,8 +348,14 @@ def drive_preparation(run: Run, page: Page) -> None:
     page.get_by_role("button", name="Nowe Uruchomienie procesu").click()
     page.get_by_role("button", name="Uruchom", exact=True).click()
     page.get_by_role("alertdialog", name="Uruchomić z zapisem?").get_by_role("button", name="Uruchom", exact=True).click()
-    expect(page.get_by_label("Zatrzymanie")).to_contain_text("Plik tego okresu już istnieje, więc nie został nadpisany.")
-    finished_result(run, "przygotowanie-nienadpisywanie")
+    expect(page.get_by_label("Zatrzymanie do poprawy", exact=True)).to_contain_text(
+        "Plik tego okresu już istnieje, więc nie został nadpisany."
+    )
+    result = finished_result(run, "przygotowanie-nienadpisywanie")
+    run.check(
+        (result["stop_kind"], result["headline"], result["opens"]) == ("for_tata", "Do poprawy", None),
+        "Nienadpisywanie is a stop Dad fixes himself, with no file of his to open",
+    )
     run.check([path.read_bytes() for path in period_files(run)] == before, "Nienadpisywanie: both files are unchanged")
     run.capture(page, "37-przygotowanie-nienadpisywanie")
 

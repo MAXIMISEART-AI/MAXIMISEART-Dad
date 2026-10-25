@@ -12,13 +12,14 @@ import shutil
 import subprocess
 import sys
 from types import ModuleType
-from typing import Any
+from typing import Any, get_args, get_type_hints
 
 import pytest
 
 from rozliczenia import TOOL_ROOT, settlement_messages
-from rozliczenia.centrum import run_view
+from rozliczenia.centrum import contract, run_view
 from rozliczenia.preparation_process import PROCESS as PREPARATION
+from rozliczenia.process_run import Stop
 from rozliczenia.telemetry import COUNTER_NAMES, MetricsStore
 
 from tests.fixtures.centrum_processes import run_to_end, settling_centrum
@@ -75,6 +76,14 @@ def _script(monkeypatch: pytest.MonkeyPatch) -> ModuleType:
     monkeypatch.setitem(sys.modules, spec.name, module)
     spec.loader.exec_module(module)
     return module
+
+
+def test_skrypt_dla_maszyn_i_karta_centrum_znaja_kazde_zatrzymanie_rdzenia(monkeypatch: pytest.MonkeyPatch) -> None:
+    core = set(get_args(get_type_hints(Stop)["kind"]))
+    script = set(get_args(_script(monkeypatch).StopResult.model_fields["kind"].annotation))
+    card = set(get_args(contract.RunOutcome.model_fields["ending"].annotation)) - {"finished"}
+
+    assert core == script == card == {"stop", "declined", "unexpected", "after_engine"}
 
 
 def _settlement_arguments(tmp_path: Path, source: Path, config: Path, *extra: str) -> list[str]:
@@ -379,7 +388,7 @@ def test_decyzja_o_niepelnym_okresie_jest_odrzucana_bez_czekania_i_bez_plikow_ok
     exit_code, result = _preparation(fixture)
 
     assert (exit_code, result["result"], result["summary"]) == (1, "BLAD_KRYTYCZNY", None)
-    assert (result["stop"]["kind"], result["stop"]["message"]["code"]) == ("stop", "PRZERWANO_NIEPELNY_OKRES")
+    assert (result["stop"]["kind"], result["stop"]["message"]["code"]) == ("declined", "PRZERWANO_NIEPELNY_OKRES")
     assert not fixture.period_directory.exists()
     [record] = MetricsStore(fixture.register_path.parent / "metrics.jsonl", PREPARATION.counter_names).read()
     assert (record["mode"], record["period"], record["result"]) == ("RUN", PERIOD, "BLAD_KRYTYCZNY")
