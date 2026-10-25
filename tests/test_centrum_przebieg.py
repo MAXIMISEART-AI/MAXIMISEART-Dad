@@ -222,7 +222,7 @@ def test_podglad_z_nieznanym_wykonawca_wymaga_sprawdzenia_inaczej_niz_sukces(tmp
     assert result["headline"] == "Podgląd wymaga sprawdzenia · nic nie zapisano"
     assert result["warnings"] == [
         {
-            "what": "Nieznany identyfikator WYKONAWCA; sprawdź konfigurację pracowników.",
+            "what": "Nieznany identyfikator WYKONAWCA: andrzej.nieznany2. Nie ma go w konfiguracji wykonawców.",
             "where": f"plik {SOURCE_NAME}, folder {PERIOD}",
             "action": (
                 "Popraw WYKONAWCĘ w kolumnie H albo poproś osobę utrzymującą narzędzie o dopisanie Wykonawcy "

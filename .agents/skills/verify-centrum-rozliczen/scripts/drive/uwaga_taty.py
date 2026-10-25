@@ -103,8 +103,9 @@ def _queued(config: Path) -> list[dict[str, object]]:
 
 
 def _notes(config: Path) -> list[dict[str, object]]:
-    path = config / "uwagi-taty.json"
-    return json.loads(path.read_text(encoding="utf-8"))["uwagi"] if path.exists() else []
+    path = config / "sprawy-taty.json"
+    cases = json.loads(path.read_text(encoding="utf-8"))["sprawy"] if path.exists() else []
+    return [case for case in cases if case["kind"] == "uwaga"]
 
 
 def _issues(box: Path) -> list[dict[str, object]]:
@@ -304,7 +305,7 @@ def drive_dad_note(run: Run, page: Page) -> None:
     notes = _notes(config)
     run.check(
         len(notes) == notes_before + 1 and notes[-1]["title"] == first["title"] and notes[-1]["number"] is None,
-        "config/uwagi-taty.json keeps the Uwaga's title without an issue number",
+        "config/sprawy-taty.json keeps the Uwaga's title without an issue number",
     )
     run.check(
         f"skrzynka-czeka etykieta={LABEL} okres=bez-okresu przyczyna=brak-klucza" in _log(run),
@@ -356,7 +357,7 @@ def drive_dad_note(run: Run, page: Page) -> None:
     notes = _notes(config)
     run.check(
         [note["number"] for note in notes[notes_before:]] == [issue["number"] for issue in issues[issues_before:]],
-        "config/uwagi-taty.json has both issue numbers",
+        "config/sprawy-taty.json has both issue numbers",
     )
     log = _log(run)
     run.check(
@@ -555,7 +556,7 @@ def _drive_pinned(run: Run, page: Page, config: Path, box: Path) -> None:
     note = _notes(config)[-1]
     run.check(
         (note["title"], note["number"], note["run_id"]) == (pinned["title"], new[0]["number"], run_id),
-        "config/uwagi-taty.json keeps the issue number and the Uruchomienie of the pinned Uwaga",
+        "config/sprawy-taty.json keeps the issue number and the Uruchomienie of the pinned Uwaga",
     )
     _close(dialog)
 

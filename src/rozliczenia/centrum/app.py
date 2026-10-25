@@ -29,7 +29,8 @@ from fastapi.staticfiles import StaticFiles
 from rozliczenia.centrum.cloud_files import CloudFiles
 from rozliczenia.centrum.configuration import ConfigurationFiles, configuration_router
 from rozliczenia.centrum.contract import Health, Problem, Refusal
-from rozliczenia.centrum.dad_notes import DAD_NOTES_FILE, DadNotes, after_delivery, dad_notes_router, with_logs
+from rozliczenia.centrum.dad_cases import DadCases
+from rozliczenia.centrum.dad_notes import after_delivery, dad_notes_router, with_logs
 from rozliczenia.centrum.diagnosis import Surroundings, diagnose, files_of_process
 from rozliczenia.centrum.filling import filling_router
 from rozliczenia.centrum.log import CentrumLog
@@ -160,13 +161,16 @@ def create_app(
     # Diagnoza: commit `main` z GitHuba i atrybuty OneDrive to granice komputera taty, podstawiane w testach.
     surroundings = Surroundings(replace(freshness, release=release.fresh), cloud_files or CloudFiles.of_system())
     app.include_router(filling_router(store, log, surroundings.cloud_files))
-    # Zgłoszenia do Maksa: skrzynka obok platformy, klucz i stan wysłanych obok Ustawień taty (ADR 0007).
+    # Sprawy taty: wysłane Zgłoszenia i Uwagi taty w jednym pliku stanu obok Ustawień taty (ADR 0015).
     config = settings_path.parent
+    cases = DadCases(config, log)
+    # Zgłoszenia do Maksa: skrzynka obok platformy, klucz obok Ustawień taty (ADR 0007).
     box = report_box or GitHubReportBox()
-    reports = Reports(config, box, log, surroundings.tool_freshness.local, search_deadline_s=report_search_deadline_s)
+    reports = Reports(
+        config, box, log, surroundings.tool_freshness.local, cases, search_deadline_s=report_search_deadline_s
+    )
     # Kontrola ilości, Logi Uruchomienia i Uwagi taty: w kolejce obok niewysłanych Zgłoszeń, wysyłane w tle
-    # (ADR 0013, 0015); numer issue Uwagi trafia do stanu Uwag obok Ustawień taty.
-    notes = DadNotes(config / DAD_NOTES_FILE, log)
+    # (ADR 0013, 0015); numer issue Uwagi trafia do Spraw taty.
 
     def run_logs_address(run_id: str) -> str | None:
         return outbox.delivered(run_id, RUN_LOGS_LABEL)
@@ -179,14 +183,13 @@ def create_app(
         box,
         lambda: read_report_key(config),
         log,
-        on_delivered=lambda post, number: after_delivery(post, number, notes, outbox),
-        prepare=lambda post: with_logs(post, notes, run_logs_address, run_logs_rejected),
+        on_delivered=lambda post, number: after_delivery(post, number, cases, outbox),
+        prepare=lambda post: with_logs(post, cases, run_logs_address, run_logs_rejected),
         addresses=config / ADDRESSES_FILE,
     )
     # Powiadomienia o Uwagach taty, wysłanych Zgłoszeniach i Wydaniach; przeczytane obok Ustawień taty (ADR 0015).
     notifications = Notifications(
-        reports.sent,
-        notes,
+        cases,
         ReadNotifications(config / NOTIFICATIONS_FILE, log),
         box,
         lambda: read_report_key(config),
@@ -250,7 +253,7 @@ def create_app(
     app.include_router(notifications_router(notifications))
     app.include_router(
         dad_notes_router(
-            notes,
+            cases,
             outbox,
             surroundings.tool_freshness.local,
             lambda: read_runs(entry_processes, centrum_runs.started()),

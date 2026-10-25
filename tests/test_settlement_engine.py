@@ -406,6 +406,38 @@ def test_wykonawca_bez_mapowania_albo_wiersz_danych_bez_wykonawcy_wstrzymuje_pub
     assert not list(target_directory.parent.glob(f".{target_directory.name}.staging-*"))
 
 
+@pytest.mark.parametrize(
+    ("workers", "named", "subject"),
+    [
+        ({19: "andrzej.nieznany2"}, ["andrzej.nieznany2"], "jest WYKONAWCA"),
+        (
+            {18: " Zenon.Nieznany ", 19: "Bartosz.Nieznany", 20: "ZENON.NIEZNANY"},
+            ["Zenon.Nieznany", "Bartosz.Nieznany"],
+            "są WYKONAWCY",
+        ),
+    ],
+    ids=["jeden", "dwoch-w-kolejnosci-pliku-w-pisowni-pierwszego-wiersza"],
+)
+def test_zatrzymanie_i_podglad_nazywaja_kazdego_nieznanego_wykonawce_raz(
+    tmp_path: Path, workers: dict[int, str | None], named: list[str], subject: str
+) -> None:
+    source_path, _target_directory, config_path = make_fixture(tmp_path)
+    with_workers(source_path, workers)
+    worker_template_path = tmp_path / "Wzorzec rozliczenia pracownika.xlsx"
+
+    with pytest.raises(StopError) as raised:
+        run_settlements(source_path, config_path, worker_template_path=worker_template_path)
+    preview = run_settlements(source_path, config_path, dry_run=True, worker_template_path=worker_template_path)
+
+    assert raised.value.message.what == (
+        f"W Pliku zbiorczym {subject} spoza konfiguracji wykonawców: {', '.join(named)}. "
+        "Nie utworzono żadnego pliku pracownika."
+    )
+    assert [warning.what for warning in preview.warnings] == [
+        f"Nieznany identyfikator WYKONAWCA: {worker}. Nie ma go w konfiguracji wykonawców." for worker in named
+    ]
+
+
 def test_podglad_bez_zapisu_pokazuje_problemy_wierszy_danych_i_plan_kazdego_wykonawcy_z_konfiguracji(tmp_path: Path) -> None:
     source_path, target_directory, config_path = make_fixture(tmp_path)
     with_workers(source_path, {18: "andrzej.nieznany2", 20: None})  # nieznany Wykonawca w pierwszym wierszu, przed znanymi
@@ -419,7 +451,10 @@ def test_podglad_bez_zapisu_pokazuje_problemy_wierszy_danych_i_plan_kazdego_wyko
         observer=recorded.append,
     )
 
-    assert [warning.code for warning in summary.warnings] == ["BRAK_WYKONAWCY", "BRAK_MAPOWANIA"]
+    assert [(warning.code, warning.what) for warning in summary.warnings] == [
+        ("BRAK_WYKONAWCY", "Wiersz 20 ma dane, ale nie ma wykonawcy w kolumnie H."),
+        ("BRAK_MAPOWANIA", "Nieznany identyfikator WYKONAWCA: andrzej.nieznany2. Nie ma go w konfiguracji wykonawców."),
+    ]
     counted = [(type(event), event.issue_count) for event in recorded if isinstance(event, (IssueCountReady, PlanReady))]
     assert counted == [(IssueCountReady, 1), (PlanReady, 2)]
     assert [(result.worker_name, result.status, result.rows) for result in summary.results] == [

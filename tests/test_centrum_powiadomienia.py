@@ -12,7 +12,8 @@ import pytest
 
 from rozliczenia.centrum.notifications import CHECK_WAIT_S
 from rozliczenia.centrum.release_notes import DadCase, ReleaseNotes, render
-from rozliczenia.centrum.report_box import NOTE_LABEL, REPORT_LABEL, CloseReason, Refused, Unreachable
+from rozliczenia.centrum.dad_cases import NOTE, REPORT
+from rozliczenia.centrum.report_box import CloseReason, Refused, Unreachable
 from rozliczenia.centrum.tool_freshness import PublishedRelease
 from rozliczenia.centrum.tool_update import Release
 
@@ -282,7 +283,7 @@ SUMMARY = "Plik zbiorczy ma kolumnę z kilometrami."
 NEW_COMMIT = "b7e4c1a2d3f5e6a7b8c9d0e1f2a3b4c5d6e7f8a9"
 PUBLISHED_AT = datetime(2026, 10, 22, 8, 0, tzinfo=timezone.utc)
 # Sprawa z notki, której ten komputer nie wysłał: Uwaga taty z innego komputera.
-FOREIGN = DadCase(999, "Uwaga z innego komputera", NOTE_LABEL)
+FOREIGN = DadCase(999, "Uwaga z innego komputera", NOTE.label)
 
 
 def published(tag: str, notes: str = SUMMARY, at: datetime = PUBLISHED_AT) -> PublishedRelease:
@@ -308,8 +309,8 @@ def test_nowsze_wydanie_daje_powiadomienie_z_notka_sprawami_taty_i_przyciskiem(t
     what = sent_report(centrum)
     sent_note(centrum)
     cases = (
-        DadCase(number_of(centrum, NOTE_TITLE), "Tytuł z Release", NOTE_LABEL),
-        DadCase(centrum.surroundings.report_box.sent[0].number, "Tytuł z Release", REPORT_LABEL),
+        DadCase(number_of(centrum, NOTE_TITLE), "Tytuł z Release", NOTE.label),
+        DadCase(centrum.surroundings.report_box.sent[0].number, "Tytuł z Release", REPORT.label),
         FOREIGN,
     )
     release_on_main(centrum, "v0.2.0", NEW_COMMIT, published("v0.2.0", render(ReleaseNotes(SUMMARY, cases))))

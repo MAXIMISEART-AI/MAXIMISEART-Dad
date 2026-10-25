@@ -4,10 +4,13 @@ Każda fabryka zwraca Komunikat (``message.Message``) w trzech częściach: co s
 stało, gdzie, co zrobić. Zatrzymanie to ``raise StopError(fabryka(...))``.
 Części nie zawierają pełnych ścieżek ani treści wierszy: wskazują tylko nazwę
 pliku, folder okresu, kolumnę, numer wiersza albo Wykonawcę z konfiguracji wykonawców.
+Wyjątek (ADR 0015): ``unmapped_worker`` i ``unmapped_worker_warning`` podają w „co się
+stało” identyfikator z kolumny WYKONAWCA spoza konfiguracji, bez numeru wiersza.
 """
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import replace
 from pathlib import Path
 from typing import Final, assert_never
@@ -177,16 +180,14 @@ def worker_template_unusable(error: WorkbookError) -> Message:
     )
 
 
-def unmapped_worker(source: Path) -> Message:
-    """RUN: WYKONAWCA z Pliku zbiorczego nie ma wpisu w konfiguracji wykonawców."""
+def unmapped_worker(source: Path, workers: Sequence[str]) -> Message:
+    """RUN: identyfikatory ``workers`` z kolumny WYKONAWCA Pliku zbiorczego nie mają wpisu w konfiguracji wykonawców."""
 
+    subject = "jest WYKONAWCA" if len(workers) == 1 else "są WYKONAWCY"
     return Message(
         code="NIEZNANY_WYKONAWCA",
         dad_file="collective_file",
-        what=(
-            "W Pliku zbiorczym jest WYKONAWCA, którego nie ma w konfiguracji wykonawców. "
-            f"{_NOTHING_CREATED}"
-        ),
+        what=f"W Pliku zbiorczym {subject} spoza konfiguracji wykonawców: {', '.join(workers)}. {_NOTHING_CREATED}",
         where=f"{file_label(source)}, kolumna {WORKER_HEADER.column}",
         action=f"{_PREVIEW_PROBLEMS} {_FIX_UNMAPPED_WORKER} {_SAVE_AND_RETRY}",
     )
@@ -206,12 +207,12 @@ def rows_without_worker(source: Path) -> Message:
     )
 
 
-def unmapped_worker_warning(source: Path) -> Message:
-    """DRY-RUN: WYKONAWCA z Pliku zbiorczego nie ma wpisu w konfiguracji wykonawców."""
+def unmapped_worker_warning(source: Path, worker: str) -> Message:
+    """DRY-RUN: identyfikator ``worker`` z kolumny WYKONAWCA Pliku zbiorczego nie ma wpisu w konfiguracji wykonawców."""
 
     return Message(
         code="BRAK_MAPOWANIA",
-        what="Nieznany identyfikator WYKONAWCA; sprawdź konfigurację pracowników.",
+        what=f"Nieznany identyfikator WYKONAWCA: {worker}. Nie ma go w konfiguracji wykonawców.",
         where=file_label(source),
         action=f"{_FIX_UNMAPPED_WORKER} {_SAVE_AND_RETRY}",
     )

@@ -15,10 +15,10 @@ from fastapi.testclient import TestClient
 from rozliczenia import preparation_process, settlement_process
 from rozliczenia.centrum.app import create_app
 from rozliczenia.centrum.cloud_files import CloudFiles
+from rozliczenia.centrum.dad_cases import DAD_CASES_FILE, REPORT
 from rozliczenia.centrum.log import CentrumLog
 from rozliczenia.centrum.processes import Processes
 from rozliczenia.centrum.report_box import (
-    REPORT_LABEL,
     REPOSITORY,
     CloseReason,
     Closure,
@@ -133,7 +133,7 @@ class FakeReportBox:
 
     @property
     def sent(self) -> list[FakeIssue]:
-        return self.issues_with(REPORT_LABEL)
+        return self.issues_with(REPORT.label)
 
     def issues_with(self, label: Label) -> list[FakeIssue]:
         with self._changed:
@@ -292,6 +292,17 @@ class Centrum:
     metrics: MetricsPaths
     log_path: Path
     report_box: FakeReportBox
+
+
+def dad_cases(config: Path, kind: str) -> list[dict[str, Any]]:
+    """Sprawy taty rodzaju ``kind`` (``uwaga``, ``zgloszenie``) z pliku stanu u taty; bez pliku żadnych."""
+
+    path = config / DAD_CASES_FILE
+    if not path.is_file():
+        return []
+    document = json.loads(path.read_text(encoding="utf-8"))
+    assert document["schema_version"] == 1
+    return [entry for entry in document["sprawy"] if entry["kind"] == kind]
 
 
 def centrum(tmp_path: Path, *, today: date = date(2026, 10, 19)) -> Centrum:
