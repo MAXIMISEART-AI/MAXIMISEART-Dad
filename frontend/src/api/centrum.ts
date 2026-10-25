@@ -3,10 +3,12 @@ import type {
   DadNoteRequest,
   DadNoteText,
   DecisionAnswer,
+  FillKind,
   GetCurrentRunResponse,
   GetNotificationsResponse,
   GetPeriodBoardResponse,
   GetQuantitiesToFillResponse,
+  GetKindTableResponse,
   GetToolUpdateResponse,
   NotificationsRead,
   OpenRequest,
@@ -34,6 +36,7 @@ import {
   zGetNotificationsResponse,
   zGetPeriodBoardResponse,
   zGetQuantitiesToFillResponse,
+  zGetKindTableResponse,
   zGetRunSetupResponse,
   zGetSettingsResponse,
   zGetToolUpdateResponse,
@@ -63,6 +66,9 @@ export type {
   Figure,
   FillKind,
   KindToFill,
+  KindTableCell,
+  KindTableRow,
+  PriceListItem,
   Message,
   Metrics,
   Percentiles,
@@ -93,6 +99,9 @@ export type PeriodBoard = GetPeriodBoardResponse
 
 /** Ilości do uzupełnienia okresu z zapisanego Pliku zbiorczego albo Komunikat o pliku (unia z kontraktu po `state`). */
 export type QuantitiesToFill = GetQuantitiesToFillResponse
+
+/** Wiersze jednego rodzaju Ilości do uzupełnienia z komórkami N:AP albo Komunikat o pliku (unia z kontraktu po `state`). */
+export type KindTable = GetKindTableResponse
 
 /** Aktualizacja narzędzia: krok albo wynik (unia z kontraktu). */
 export type ToolUpdate = GetToolUpdateResponse
@@ -189,6 +198,11 @@ export function getQuantitiesToFill(token: string) {
     "getQuantitiesToFill",
     `/api/periods/${encodeURIComponent(token)}/quantities-to-fill`
   )
+}
+
+/** Tabela jednego rodzaju Ilości do uzupełnienia, przeliczana przy każdym odczycie z zapisanego Pliku zbiorczego. */
+export function getKindTable(token: string, kind: FillKind) {
+  return call(zGetKindTableResponse, "getKindTable", `/api/periods/${encodeURIComponent(token)}/quantities-to-fill/${kind}`)
 }
 
 /** Rozliczenie pracownika jednego Wykonawcy; ścieżkę wylicza serwer z Folderu okresu, przeglądarka podaje Wykonawcę. */

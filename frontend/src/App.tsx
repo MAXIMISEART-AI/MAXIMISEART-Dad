@@ -6,13 +6,14 @@ import { SiteHeader } from "@/components/site-header"
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
 import { Toaster } from "@/components/ui/toast"
 import { TooltipProvider } from "@/components/ui/tooltip"
+import { useHash } from "@/lib/address"
 import { DadNoteProvider } from "@/lib/dad-note"
 import { RunsProvider } from "@/lib/runs"
 import { NotificationsProvider } from "@/lib/notifications"
 import { SettingsProvider } from "@/lib/settings"
 import { ToolUpdateProvider } from "@/lib/tool-update"
 import { useViewTiming } from "@/lib/view-timing"
-import { useCurrentPage } from "@/pages"
+import { useCurrentPage, type Page } from "@/pages"
 
 const LAYOUT = {
   "--sidebar-width": "calc(var(--spacing) * 66)",
@@ -21,9 +22,8 @@ const LAYOUT = {
 
 export function App() {
   const page = useCurrentPage()
+  const address = useHash()
   const [closed, setClosed] = React.useState(false)
-
-  useViewTiming(page)
 
   if (closed) {
     return <CentrumClosed />
@@ -43,6 +43,8 @@ export function App() {
               <SiteHeader />
               <div className="@container/main mx-auto flex w-full max-w-6xl flex-1 flex-col gap-6 px-4 pb-10 lg:px-8">
                 <page.Content />
+                {/* Każdy adres to osobny widok, także w obrębie strony (`#/uzupelnienie/<okres>/<rodzaj>`). */}
+                <ViewTiming key={address} page={page} />
               </div>
             </SidebarInset>
           </SidebarProvider>
@@ -54,4 +56,10 @@ export function App() {
       </TooltipProvider>
     </SettingsProvider>
   )
+}
+
+function ViewTiming({ page }: { page: Page }) {
+  useViewTiming(page)
+
+  return null
 }

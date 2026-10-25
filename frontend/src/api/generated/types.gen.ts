@@ -13,7 +13,7 @@ export type ApiTiming = {
     /**
      * Operation
      */
-    operation: 'getHealth' | 'getSettings' | 'chooseRegister' | 'openRegister' | 'choosePeriodsDirectory' | 'changeTheme' | 'getPeriodBoard' | 'openPeriodPath' | 'getQuantitiesToFill' | 'openWorkerSettlement' | 'getRunSetup' | 'startRun' | 'decideRun' | 'diagnoseRun' | 'reportRun' | 'getNotifications' | 'markNotificationsRead' | 'getMetrics' | 'getConfiguration' | 'startToolUpdate' | 'getToolUpdate' | 'reportToolUpdate' | 'getDadNoteRuns' | 'draftDadNote' | 'sendDadNote' | 'closeCentrum';
+    operation: 'getHealth' | 'getSettings' | 'chooseRegister' | 'openRegister' | 'choosePeriodsDirectory' | 'changeTheme' | 'getPeriodBoard' | 'openPeriodPath' | 'getQuantitiesToFill' | 'getKindTable' | 'openWorkerSettlement' | 'getRunSetup' | 'startRun' | 'decideRun' | 'diagnoseRun' | 'reportRun' | 'getNotifications' | 'markNotificationsRead' | 'getMetrics' | 'getConfiguration' | 'startToolUpdate' | 'getToolUpdate' | 'reportToolUpdate' | 'getDadNoteRuns' | 'draftDadNote' | 'sendDadNote' | 'closeCentrum';
     /**
      * Browser Ms
      */
@@ -67,6 +67,13 @@ export type BoardReady = {
      */
     last_prepared_period: string | null;
 };
+
+/**
+ * CellSource
+ *
+ * Czyją wartość pokazuje komórka N:AP wiersza do uzupełnienia.
+ */
+export type CellSource = 'tool' | 'tata' | 'empty';
 
 /**
  * Choice
@@ -449,6 +456,75 @@ export type Health = {
      * Instance
      */
     instance: string;
+};
+
+/**
+ * KindTableCell
+ *
+ * Komórka N:AP wiersza na stronie rodzaju: wartość narzędzia, wartość taty, która robi wiersz, albo nic (0).
+ */
+export type KindTableCell = {
+    source: CellSource;
+    /**
+     * Value
+     */
+    value: number | 'nieliczbowa';
+};
+
+/**
+ * KindTableReady
+ *
+ * Wiersze jednego rodzaju Ilości do uzupełnienia rosnąco po numerze; ``columns`` to N:AP po kolei.
+ */
+export type KindTableReady = {
+    /**
+     * State
+     */
+    state: 'ready';
+    kind: FillKind;
+    /**
+     * Columns
+     */
+    columns: Array<PriceListItem>;
+    /**
+     * Rows
+     */
+    rows: Array<KindTableRow>;
+};
+
+/**
+ * KindTableRow
+ *
+ * Wiersz strony rodzaju: numer wiersza Pliku zbiorczego, teksty, po których tata go rozpoznaje, i komórki N:AP.
+ *
+ * Nigdy adres, numer zlecenia ani ``UMOWA`` (ADR 0016).
+ */
+export type KindTableRow = {
+    /**
+     * Row
+     */
+    row: number;
+    state: RowState;
+    /**
+     * Worker
+     */
+    worker: string;
+    /**
+     * Devices
+     */
+    devices: string;
+    /**
+     * Activities
+     */
+    activities: string;
+    /**
+     * Completed
+     */
+    completed: string;
+    /**
+     * Cells
+     */
+    cells: Array<KindTableCell>;
 };
 
 /**
@@ -839,6 +915,22 @@ export type PinnableRun = {
      * Stop Kind
      */
     stop_kind: 'for_tata' | 'for_maks' | null;
+};
+
+/**
+ * PriceListItem
+ *
+ * Kolumna N:AP i nazwa pozycji cennika z wiersza 17 Pliku zbiorczego.
+ */
+export type PriceListItem = {
+    /**
+     * Column
+     */
+    column: string;
+    /**
+     * Name
+     */
+    name: string;
 };
 
 /**
@@ -1242,6 +1334,11 @@ export type ResultCounts = {
      */
     failed: number;
 };
+
+/**
+ * RowState
+ */
+export type RowState = 'to_fill' | 'done';
 
 /**
  * RowToFill
@@ -2143,6 +2240,51 @@ export type GetQuantitiesToFillResponses = {
 };
 
 export type GetQuantitiesToFillResponse = GetQuantitiesToFillResponses[keyof GetQuantitiesToFillResponses];
+
+export type GetKindTableData = {
+    body?: never;
+    path: {
+        /**
+         * Token
+         */
+        token: string;
+        kind: FillKind;
+    };
+    query?: never;
+    url: '/api/periods/{token}/quantities-to-fill/{kind}';
+};
+
+export type GetKindTableErrors = {
+    /**
+     * Not Found
+     */
+    404: Problem;
+    /**
+     * Conflict
+     */
+    409: Problem;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type GetKindTableError = GetKindTableErrors[keyof GetKindTableErrors];
+
+export type GetKindTableResponses = {
+    /**
+     * Response Getkindtable
+     *
+     * Successful Response
+     */
+    200: ({
+        state: 'ready';
+    } & KindTableReady) | ({
+        state: 'problem';
+    } & QuantitiesToFillProblem);
+};
+
+export type GetKindTableResponse = GetKindTableResponses[keyof GetKindTableResponses];
 
 export type OpenWorkerSettlementData = {
     body: WorkerSettlementRequest;
