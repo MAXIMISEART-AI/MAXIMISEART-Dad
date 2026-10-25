@@ -66,6 +66,7 @@ def _collective_file_open(source: Path) -> Message:
 
     return Message(
         code="PLIK_ZBIORCZY_OTWARTY",
+        dad_file="collective_file",
         what=f"Plik zbiorczy jest otwarty w Excelu. {_NOTHING_CREATED}",
         where=file_label(source),
         action=(
@@ -80,6 +81,7 @@ def _collective_file_inaccessible(source: Path) -> Message:
 
     return Message(
         code="NIEDOSTEPNY_PLIK_ZBIORCZY",
+        dad_file="collective_file",
         what=(
             "Nie można teraz odczytać Pliku zbiorczego. Plik może być zajęty przez inny program "
             f"albo czekać na pobranie z OneDrive. {_NOTHING_CREATED}"
@@ -100,6 +102,7 @@ def collective_file_invalid(source: Path, detail: str) -> Message:
 
     return Message(
         code="ZLY_PLIK_ZBIORCZY",
+        dad_file="collective_file",
         what=f"Plik zbiorczy nie nadaje się do Przebiegu rozliczeń. {detail}",
         where=file_label(source),
         action=f"Popraw Plik zbiorczy w Excelu. {_SAVE_AND_RETRY} Jeśli błąd wraca, {REPORT_TO_MAINTAINER.lower()}",
@@ -183,6 +186,7 @@ def unmapped_worker(source: Path, workers: Sequence[str]) -> Message:
     subject = "jest WYKONAWCA" if len(workers) == 1 else "są WYKONAWCY"
     return Message(
         code="NIEZNANY_WYKONAWCA",
+        dad_file="collective_file",
         what=f"W Pliku zbiorczym {subject} spoza konfiguracji wykonawców: {', '.join(workers)}. {_NOTHING_CREATED}",
         where=f"{file_label(source)}, kolumna {WORKER_HEADER.column}",
         action=f"{_PREVIEW_PROBLEMS} {_FIX_UNMAPPED_WORKER} {_SAVE_AND_RETRY}",
@@ -194,6 +198,7 @@ def rows_without_worker(source: Path) -> Message:
 
     return Message(
         code="WIERSZE_BEZ_WYKONAWCY",
+        dad_file="collective_file",
         what=f"Nie wszystkie Wiersze danych Pliku zbiorczego mają WYKONAWCĘ. {_NOTHING_CREATED}",
         where=f"{file_label(source)}, kolumna {WORKER_HEADER.column}",
         action=(

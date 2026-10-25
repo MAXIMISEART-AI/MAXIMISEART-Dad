@@ -353,3 +353,17 @@ Testy właściciele: `tests/test_workbook_files.py` (Rozliczenie pracownika) i
 kopii z plikiem z bliźniaka tego samego Wzorca z komentarzem XML w danych
 arkusza, którego kopia nie przyjmuje, więc powstaje drogą openpyxl. Żaden test
 nie podmienia wnętrza modułu, żeby wybrać drogę.
+
+## Zmiana z 2026-10-24: plik z Wzorca w osobnym module
+
+Decyzja się nie zmienia; zmienia się tylko miejsce kodu. `TemplateFile` jest
+w `template_file.py`, a `workbook_files.py` tylko otwiera i czyta skoroszyty.
+Atomowy zapis z przywróceniem `xl/externalLinks/*` jest w `workbook_save.py`.
+Układ arkusza Wzorca opisuje jeden `template_copy.SheetLayout`, z którego czytają
+obie drogi zapisu; plik wybiera konstruktor (`TemplateFile.worker_settlement`,
+`collective_file`, `internal_settlement`) zamiast wyliczenia `Layout`.
+`TemplateFile.create` podaje drogę, którą powstał plik (`Route.COPY` albo
+`Route.OPENPYXL`), więc kontrola `verify-kopia-wzorca` nie podmienia wnętrza
+modułu. Rozliczenie wewnętrzne nadal powstaje tylko przez openpyxl i bez flag
+przeliczania: kopia zawsze je ustawia, więc droga przez openpyxl ustawia je
+dokładnie dla plików, które mogą powstać kopią.

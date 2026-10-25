@@ -34,8 +34,8 @@ Preconditions:
 - **Run the proof.** Run `py -3 .agents\skills\verify-rozliczenia\scripts\run_verification.py`. The orchestrator returns `0` after a successful proof; `--variant unmapped` records exit `2` in `dry-run.json` and checks the mapping warning.
 - **Check the plan and communication.** The assertion compares `summary` with
   the expected plan: figures `Wiersze danych` 3, `Planowane szablony` 2,
-  `Puste szablony` 1, and `file_plan` with each output filename and its rows
-  (Kamil's 0). It requires result `OK` with no `warnings` and `Problemy` 0, or
+  `Puste szablony` 1, and `worker_settlements` with each Wykonawca, output filename, his orders and `empty`
+  (Kamil's 0 and empty). It requires result `OK` with no `warnings` and `Problemy` 0, or
   for `--variant unmapped` result `WYMAGA_SPRAWDZENIA` with one warning
   `BRAK_MAPOWANIA` whose "Co się stało" names `unknown.synthetic`, and
   `Problemy` 1. No row value appears anywhere else in the JSON.

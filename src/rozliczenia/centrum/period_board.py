@@ -143,12 +143,15 @@ def periods_router(store: SettingsStore, platform: Platform, today: Callable[[],
     def board() -> contract.PeriodBoard:
         return read_board(store.load().periods_directory, today())
 
-    @router.post("/{token}/open", operation_id="openPeriodPath", responses=contract.NOT_FOUND_OR_CONFLICT)
-    def open_period_path(token: str, request: contract.OpenRequest) -> contract.Opened:
+    def requested_folder(token: str) -> PeriodFolder:
         periods_directory = store.load().periods_directory
         if periods_directory is None or not periods_directory.is_dir():
             raise contract.Refusal(409, "Najpierw wskaż folder okresów.")
-        folder = located_period_folder(periods_directory, requested_period(token))
+        return located_period_folder(periods_directory, requested_period(token))
+
+    @router.post("/{token}/open", operation_id="openPeriodPath", responses=contract.NOT_FOUND_OR_CONFLICT)
+    def open_period_path(token: str, request: contract.OpenRequest) -> contract.Opened:
+        folder = requested_folder(token)
         path = {
             "internal_settlement": folder.internal_settlement,
             "collective_file": folder.collective_file,
@@ -159,6 +162,23 @@ def periods_router(store: SettingsStore, platform: Platform, today: Callable[[],
             exists = path.exists()
         if not exists:
             raise contract.Refusal(404, f"{_TARGET_LABELS[request.target]} okresu {token} jeszcze nie istnieje.")
+        platform.open_path(path)
+        return contract.Opened(name=path.name)
+
+    @router.post(
+        "/{token}/worker-settlements/open",
+        operation_id="openWorkerSettlement",
+        responses=contract.NOT_FOUND_OR_CONFLICT,
+    )
+    def open_worker_settlement(token: str, request: contract.WorkerSettlementRequest) -> contract.Opened:
+        folder = requested_folder(token)
+        path = folder.worker_settlement(request.worker)
+        # Nazwa Wykonawcy z „/”, „\” albo „..” wyprowadziłaby ścieżkę poza Folder rozliczeń pracowników.
+        inside = path.parent == folder.worker_settlements
+        with reading(folder.directory):
+            exists = inside and path.is_file()
+        if not exists:
+            raise contract.Refusal(404, f"Rozliczenia pracownika {request.worker} nie ma w okresie {token}.")
         platform.open_path(path)
         return contract.Opened(name=path.name)
 

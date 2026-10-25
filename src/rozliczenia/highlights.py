@@ -11,7 +11,7 @@ kolorem automatycznym, bez pogrubienia i bez kursywy.
 Przygotowanie pliku zbiorczego przenosi je tak samo z komórek Rejestru zleceń do
 obu plików okresu. Oba odczyty (Pliku zbiorczego i Rejestru w ``workbook_files``)
 tworzą typ przez ``Highlights.of``, więc ten sam wygląd komórki daje tę samą wartość,
-a obie drogi zapisu (``template_copy`` i openpyxl w ``workbook_files``) nakładają
+a obie drogi zapisu (``template_copy`` i openpyxl w ``template_file``) nakładają
 go tymi samymi metodami, więc dają ten sam wynik.
 """
 

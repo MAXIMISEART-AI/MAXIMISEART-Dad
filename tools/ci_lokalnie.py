@@ -1,4 +1,4 @@
-"""Lokalnie te same sprawdzenia co zadania CI ruff, mypy, pytest, mutations i frontend.
+"""Lokalnie te same sprawdzenia co zadania CI ruff, mypy, pytest, mutations, change-mutations i frontend.
 
 Uruchamia każdy krok po kolei Pythonem, który uruchomił skrypt (w worktree: jego ``.venv``,
 patrz ``tools/setup_worktree.py``), i drukuje wynik kroku jedną linią; wyjście pokazuje tylko
@@ -69,6 +69,7 @@ def _steps(root: Path) -> list[Step]:
         Step("mypy (Windows)", "mypy", "-m mypy", (python, "-m", "mypy", "--platform", "win32", "--cache-dir", ".mypy_cache/win32"), root),
         Step("pytest", "pytest", "-m pytest -n auto", (python, "-m", "pytest", "-q", "-n", "auto"), root),
         Step("mutacje skilli", "mutations", "tools/mutacje_skilli.py", (python, "tools/mutacje_skilli.py"), root),
+        Step("mutacje zmiany", "change-mutations", "tools/mutacje_zmiany.py", (python, "tools/mutacje_zmiany.py"), root),
         Step("npm ci", "frontend", "npm ci", (npm, "ci"), frontend),
         *(
             Step(f"npm run {script}", "frontend", f"npm run {script}", (npm, "run", script), frontend)

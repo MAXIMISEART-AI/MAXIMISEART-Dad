@@ -6,7 +6,7 @@ Testy czytają pliki z katalogu Logów obok dziennika Centrum, tak jak Maks dost
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 import json
 from pathlib import Path
@@ -168,44 +168,66 @@ class Ending:
     """Rodzaj i kod każdego Komunikatu, w kolejności karty."""
     trace: str | None = None
     """Typ wyjątku w śladzie wywołań."""
+    files_unchanged: bool = field(kw_only=True)
+    """Karta mówi, że pliki taty są bez zmian: podgląd albo koniec przed Zapisywaniem."""
 
 
 ENDINGS = {
     "sukces-podglad": Ending(
-        lambda tmp_path, _: _settlement(tmp_path, dry_run=True), "podgląd", ("OK", "finished", None), []
+        lambda tmp_path, _: _settlement(tmp_path, dry_run=True),
+        "podgląd",
+        ("OK", "finished", None),
+        [],
+        files_unchanged=True,
     ),
     "sukces-zapis": Ending(
-        lambda tmp_path, _: _settlement(tmp_path, dry_run=False), "zapis", ("OK", "finished", None), []
+        lambda tmp_path, _: _settlement(tmp_path, dry_run=False),
+        "zapis",
+        ("OK", "finished", None),
+        [],
+        files_unchanged=False,
     ),
     "sprawdzenie-podglad": Ending(
         lambda tmp_path, _: _settlement(tmp_path, dry_run=True, include_unmapped=True),
         "podgląd",
         ("WYMAGA_SPRAWDZENIA", "finished", None),
         [("warning", "BRAK_MAPOWANIA")],
+        files_unchanged=True,
     ),
     "sprawdzenie-zapis": Ending(
         lambda tmp_path, _: _preparation(tmp_path, dry_run=False),
         "zapis",
         ("WYMAGA_SPRAWDZENIA", "finished", None),
         QUANTITY_WARNINGS,
+        files_unchanged=False,
     ),
     "dla-taty-zapis": Ending(
-        _existing_worker_settlements, "zapis", ("BLAD_KRYTYCZNY", "stop", "for_tata"), [("stop", "FOLDER_ROZLICZEN_ISTNIEJE")]
+        _existing_worker_settlements,
+        "zapis",
+        ("BLAD_KRYTYCZNY", "stop", "for_tata"),
+        [("stop", "FOLDER_ROZLICZEN_ISTNIEJE")],
+        files_unchanged=True,
     ),
     "dla-taty-podglad": Ending(
         _missing_collective_file,
         "podgląd",
         ("BLAD_KRYTYCZNY", "stop", "for_tata"),
         [("stop", "BRAK_PLIKU_ZBIORCZEGO")],
+        files_unchanged=True,
     ),
     "decyzja-przerwij": Ending(
-        _aborted_decision, "zapis", ("BLAD_KRYTYCZNY", "stop", "for_tata"), [("stop", "PRZERWANO_NIEPELNY_OKRES")]
+        _aborted_decision,
+        "zapis",
+        ("BLAD_KRYTYCZNY", "declined", "declined"),
+        [("stop", "PRZERWANO_NIEPELNY_OKRES")],
+        files_unchanged=True,
     ),
     "do-maksa-zapis": Ending(
         _broken_worker_config,
         "zapis",
         ("BLAD_KRYTYCZNY", "stop", "for_maks"),
         [("stop", "ZLA_KONFIGURACJA_WYKONAWCOW")],
+        files_unchanged=True,
     ),
     "wyjatek-zapis": Ending(
         _failing(settling_centrum, dry_run=False, engine=True),
@@ -213,6 +235,7 @@ ENDINGS = {
         ("BLAD_KRYTYCZNY", "unexpected", "for_maks"),
         UNEXPECTED,
         "RuntimeError",
+        files_unchanged=True,
     ),
     "wyjatek-podglad": Ending(
         _failing(preparing_centrum, dry_run=True, engine=True),
@@ -220,6 +243,7 @@ ENDINGS = {
         ("BLAD_KRYTYCZNY", "unexpected", "for_maks"),
         UNEXPECTED,
         "RuntimeError",
+        files_unchanged=True,
     ),
     "po-silniku-podglad": Ending(
         _failing(settling_centrum, dry_run=True, engine=False),
@@ -227,6 +251,7 @@ ENDINGS = {
         ("BLAD_KRYTYCZNY", "after_engine", "for_maks"),
         [("stop", "BLAD_PLANU")],
         "ValueError",
+        files_unchanged=True,
     ),
     "po-silniku-zapis": Ending(
         _failing(preparing_centrum, dry_run=False, engine=False),
@@ -234,6 +259,7 @@ ENDINGS = {
         ("BLAD_KRYTYCZNY", "after_engine", "for_maks"),
         [("stop", "BLAD_PODSUMOWANIA")],
         "ValueError",
+        files_unchanged=False,
     ),
     "po-silniku-adapter": Ending(
         _adapter_net(preparing_centrum, dry_run=True),
@@ -241,6 +267,7 @@ ENDINGS = {
         ("BLAD_KRYTYCZNY", "after_engine", "for_maks"),
         [("stop", "BLAD_WYNIKU")],
         "ValueError",
+        files_unchanged=True,
     ),
     "bez-rdzenia-zapis": Ending(
         _core_failed(settling_centrum, dry_run=False),
@@ -248,6 +275,7 @@ ENDINGS = {
         ("BLAD_KRYTYCZNY", "after_engine", "for_maks"),
         [("stop", "BLAD_WYNIKU")],
         "ValueError",
+        files_unchanged=False,
     ),
 }
 
@@ -265,6 +293,7 @@ def test_kazda_droga_zakonczenia_w_obu_trybach_daje_jeden_plik_logow_z_wynikiem_
     assert record["mode"] == ending.mode
     assert (record["result"], record["ending"], record["stop_kind"]) == ending.result
     assert (card["result"], card["ending"], card["stop_kind"]) == ending.result
+    assert card["files_unchanged"] is ending.files_unchanged
     assert [(message["kind"], message["code"]) for message in record["messages"]] == ending.messages
     assert three_parts(record) == card_messages(view)
     assert (record["trace"] or {}).get("exception_type") == ending.trace

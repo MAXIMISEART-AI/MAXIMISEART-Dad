@@ -21,7 +21,7 @@ from openpyxl.worksheet.worksheet import Worksheet
 sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "tools"))
 sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "src"))
 
-from rozliczenia.workbook_files import save_workbook
+from rozliczenia.workbook_save import save_workbook
 from skrypt_skilla import Parser, require_run_root
 
 
