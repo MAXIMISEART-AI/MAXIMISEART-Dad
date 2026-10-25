@@ -25,7 +25,7 @@ changes it. A Plik zbiorczy it cannot read is a calm three-part Komunikat.
 - `uzupelnienie-blokada-excela`: Excel's lock file `~$…` next to the Plik zbiorczy changes neither the server's answer nor the screen.
 - `uzupelnienie-otworz`: `Otwórz Plik zbiorczy` opens the period's Plik zbiorczy (`opened.jsonl`).
 - `uzupelnienie-powrot`: the link `Okresy` leads back and Wstecz returns to the same summary.
-- `uzupelnienie-bez-pliku`: a period without a Plik zbiorczy shows the server's three-part Komunikat (label `Komunikat`), not a failure, no `Otwórz Plik zbiorczy` (`collective_file_exists: false`), and the Centrum log has `uzupelnienie-odczyt-nieudany` with the period.
+- `uzupelnienie-bez-pliku`: a period without a Plik zbiorczy shows the server's three-part Komunikat (label `Komunikat`), not a failure, `Otwórz Plik zbiorczy` only when the file is in the Folder okresu (`collective_file_exists`), and the Centrum log has `uzupelnienie-odczyt-nieudany` with the period.
 
 ## How to get to it (user POV)
 
@@ -51,7 +51,7 @@ Preconditions:
 - **Open.** Click `Otwórz Plik zbiorczy`: the last line of `opened.jsonl` is the period's Plik zbiorczy, and the toast names it.
 - **Back.** Click link `Okresy` in `main`: heading `Okresy`. `page.go_back()`: heading `Uzupełnienie pliku zbiorczego` again.
 - **Restore.** In `finally` the drive writes back the Plik zbiorczy's original bytes and removes the lock file.
-- **No Plik zbiorczy.** Open `#/uzupelnienie/15_21_09_2026` (empty Folder okresu): label `Komunikat` shows the answer's `what`, `where` and `action` (`api/uzupelnienie-bez-pliku.json`, `state: problem`, `collective_file_exists: false`), no alert `Nie udało się …`, no button `Otwórz Plik zbiorczy`, and the Centrum log has `uzupelnienie-odczyt-nieudany … okres=15_21_09_2026`. Screenshot `224`.
+- **No Plik zbiorczy.** Open `#/uzupelnienie/15_21_09_2026` (empty Folder okresu): label `Komunikat` shows the answer's `what`, `where` and `action` (`api/uzupelnienie-bez-pliku.json`, `state: problem`), no alert `Nie udało się …`; `collective_file_exists` and the button `Otwórz Plik zbiorczy` follow the disk (alone: no file, no button; in `all`, `tablica-okresow` left an empty `Rozliczenie 15_21_09_2026 - zbiorcze.xlsx`, so the Komunikat calls it damaged and the button is there), and the Centrum log has `uzupelnienie-odczyt-nieudany … okres=15_21_09_2026`. Screenshot `224`.
 - **Proof.** Screenshots `220`–`224`, `230`, `231`, `api/uzupelnienie-*.json`, checks in `drive.txt`.
 
 ## Gotchas

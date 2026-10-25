@@ -179,10 +179,12 @@ def drive_filling(run: Run, page: Page) -> None:
         answer["state"] == "problem" and page.get_by_role("alert").filter(has_text="Nie udało się").count() == 0,
         "a period without a Plik zbiorczy shows the server's three-part Komunikat, calm and not as a failure",
     )
-    expect(page.get_by_role("button", name="Otwórz Plik zbiorczy", exact=True)).to_have_count(0)
+    # Alone the period has no Plik zbiorczy; in `all`, tablica-okresow has left one there.
+    on_disk = (Path(run.fixture["periods_directory"]) / EMPTY_PERIOD / f"Rozliczenie {EMPTY_PERIOD} - zbiorcze.xlsx").is_file()
+    expect(page.get_by_role("button", name="Otwórz Plik zbiorczy", exact=True)).to_have_count(1 if on_disk else 0)
     run.check(
-        answer["collective_file_exists"] is False,
-        "with no Plik zbiorczy to open the summary has no Otwórz Plik zbiorczy",
+        answer["collective_file_exists"] is on_disk,
+        f"Otwórz Plik zbiorczy is there only when the Plik zbiorczy is in the Folder okresu ({on_disk=})",
     )
     log = (run.root / "logs" / "centrum-rozliczen.log").read_text(encoding="utf-8").splitlines()
     run.check(
