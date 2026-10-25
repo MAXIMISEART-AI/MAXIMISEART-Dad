@@ -118,6 +118,20 @@ COLLECTIVE_HEADERS = (
     "MIASTO", "ADRES", "UMOWA", "URZĄDZENIA", "CZYNNOŚCI", "NUMER ZL.", "DATA", "WYKONAWCA",
     "NUMER UMOWY/ZLECENIA ORANGE", "SKUTECZNE", "CZYNNOŚCI ZREALIZOWANE",
 )
+# Synthetic price-list names in N17:AP17 of the Wzorzec pliku zbiorczego, which Przygotowanie copies into the Plik
+# zbiorczy; the kind page of Uzupełnienie shows them over the quantity columns.
+PRICE_LIST = (
+    "Dodatek za usterkę po godzinach", "Instalacja internetu", "Instalacja telewizji", "Multiroom",
+    "Aktywacja telefonu", "Dostarczenie urządzenia", "Drukowanie umowy", "Prace niestandardowe (rbh)",
+    "Dojazd do klienta", "Przyłącze w mikrokanalizacji", "Przyłącze napowietrzne",
+    "Przyłącze w budynku wielorodzinnym", "Montaż terminala optycznego", "Przyłącze doziemne", "Spawanie w mufie",
+    "Przedłużenie przyłącza", "Spawanie gniazdka", "Trasa do splittera", "Instalacja wewnętrzna",
+    "Dodatkowe urządzenie", "Dostarczenie dodatkowego urządzenia", "Usterka", "Sieć domowa do 30 m",
+    "Sieć domowa do 10 m bez przebicia", "Sieć domowa do 15 m z przebiciem", "Modyfikacja sieci domowej",
+    "Wywiad techniczny", "Prace dodatkowe z premii", "Deinstalacja usługi z odbiorem urządzeń",
+)
+# CZYNNOŚCI ZREALIZOWANE: a technician's description long enough to be cut to one line, with the row marker.
+COMPLETED = "Wymiana gniazdka abonenckiego i przedłużenie kabla do salonu, klient prosi o kontakt przed wizytą"
 
 
 YEAR_OF_WORK = "rok-pracy"
@@ -166,6 +180,7 @@ def _register(path: Path) -> None:
         values: dict[str, object] = dict.fromkeys(REGISTER_HEADERS, content)
         values.update({"DATA GODZ. POCZ.": started, "WYKONAWCA": worker, "SKUTECZNE": successful})
         values["URZĄDZENIA"] = DEVICES.get(number, content)
+        values["CZYNNOŚCI ZREALIZOWANE"] = f"{COMPLETED} {content}"
         sheet.append([values[header] for header in REGISTER_HEADERS])
     workbook.save(path)
 
@@ -178,7 +193,7 @@ def _workbook(path: Path) -> None:
     workbook.save(path)
 
 
-def _template(path: Path, header_row: int, headers: tuple[str, ...]) -> None:
+def _template(path: Path, header_row: int, headers: tuple[str, ...], price_list: tuple[str, ...] = ()) -> None:
     """A Wzorzec without orders; the row marker sits on a second sheet the Sprawdzanie never reads."""
 
     workbook = Workbook()
@@ -186,6 +201,8 @@ def _template(path: Path, header_row: int, headers: tuple[str, ...]) -> None:
     assert isinstance(sheet, Worksheet)
     for column, header in enumerate(headers, start=1):
         sheet.cell(header_row, column).value = header
+    for column, name in enumerate(price_list, start=14):  # N:AP
+        sheet.cell(header_row, column).value = name
     workbook.create_sheet("Stawki")["A1"] = ROW_MARKER
     workbook.save(path)
 
@@ -201,7 +218,7 @@ def _configuration(config: Path) -> dict[str, str]:
         encoding="utf-8",
     )
     _template(config / INTERNAL_TEMPLATE, 1, INTERNAL_HEADERS)
-    _template(config / COLLECTIVE_TEMPLATE, 17, COLLECTIVE_HEADERS)
+    _template(config / COLLECTIVE_TEMPLATE, 17, COLLECTIVE_HEADERS, PRICE_LIST)
     _template(config / WORKER_TEMPLATE, 17, COLLECTIVE_HEADERS)
     return {
         "worker_config": str(worker_config),
