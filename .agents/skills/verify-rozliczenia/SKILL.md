@@ -106,9 +106,12 @@ quantities into `N:AP` and charges and remarks into `AQ:AT` of three Wiersze
 danych of the resulting Plik zbiorczy, then Przebieg rozliczeń on that file
 (dry-run, then write). It checks that every Rozliczenie pracownika holds only
 its Wykonawca's Zlecenia skuteczne in Plik zbiorczy order, with `A:AT` equal to
-the Plik zbiorczy row, Gotowość entries included, with the Wyróżnienia and
-Hiperłącza of the Plik zbiorczy cells, and in A:L with their number format and
-the Wygląd Wiersza danych; every `NUMER ZL.` cell keeps the
+the Plik zbiorczy row, Gotowość entries included, except the Ilości tylko dla
+INEA (ADR 0018): `AP` of the synthetic `gniazdo` order and `AK` of the
+`Technicolor 3*globo` order are empty while the Plik zbiorczy holds a value
+there. Every cell keeps the Wyróżnienia of its Plik zbiorczy cell and, unless
+emptied, its Hiperłącze; A:L also keep the number format and get the Wygląd
+Wiersza danych; every `NUMER ZL.` cell keeps the
 Hiperłącze of its Rejestr cell. `chain-real-templates` runs
 the same path on byte copies of all three real Wzorce, including the Wzorzec
 rozliczenia pracownika; like `preparation-real-templates` it is local only,
@@ -332,7 +335,7 @@ already performs both checks and prints `scratch_removed=true`.
   external links, and records the period files' hashes for `assert_chain.py`.
   Invocation: `py -3 .agents\skills\verify-rozliczenia\scripts\fill_readiness.py --root "$runRoot"`.
 - `scripts/assert_chain.py` checks the Przebieg rozliczeń of `chain` against
-  the Plik zbiorczy it read: worker routing and order, `A:AT` equality of values,
+  the Plik zbiorczy it read: worker routing and order, `A:AT` equality of values apart from the empty Ilości tylko dla INEA,
   Wyróżnienia and Hiperłącza, the number format and Wygląd Wiersza danych in A:L, the Rejestr Hiperłącze in `NUMER ZL.`, Gotowość entries, no Zlecenie nieskuteczne, the preserved Wzorzec rozliczenia
   pracownika, unchanged inputs and period files, the JSON result, and metrics.
   Invocation: `py -3 .agents\skills\verify-rozliczenia\scripts\assert_chain.py --root "$runRoot" --expect run --result "$evidenceRoot\settlement-run.json"`.

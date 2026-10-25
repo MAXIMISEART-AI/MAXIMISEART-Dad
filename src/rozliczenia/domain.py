@@ -9,6 +9,7 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import ClassVar, Literal
 
+from .inea_only_quantities import Cleared
 from .message import Message
 from .order_facts import CollectiveOrders
 
@@ -139,6 +140,8 @@ class SettlementSummary:
     target_directory: Path
     orders: CollectiveOrders = ()
     """Dozwolona treść każdego Wiersza danych, który Przebieg wczytał: dla Kontroli ilości w Centrum."""
+    inea_only_cleared: Cleared = field(default_factory=lambda: MappingProxyType({}))
+    """Liczba wyczyszczonych komórek Ilości tylko dla INEA w każdej kolumnie: tylko dla Logów Uruchomienia."""
     results: list[WorkerResult] = field(default_factory=list)
     warnings: list[Message] = field(default_factory=list)
     """Ostrzeżenia Podglądu bez zapisu z katalogu Przebiegu rozliczeń; Przebieg z zapisem zatrzymuje się na nich."""

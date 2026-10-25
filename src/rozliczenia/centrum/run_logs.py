@@ -4,6 +4,8 @@ Działanie po wyniku Uruchomienia (``runs.AfterRun``), w każdej drodze zakończ
 z tych samych faktów co karta Uruchomienia (``EndedRun``): wynik, Komunikaty z kodami, podsumowanie, etapy, ślad
 wywołań Zatrzymania, a z ostatniego snapshotu projekcji postępu (``EndedRun.snapshot``) Przetworzenia Szablonów
 pracownika i liczba problemów. Środowisko to system, Python i pliki procesu z Diagnozy z rozmiarem i atrybutem OneDrive.
+Z podsumowania silnika Przebiegu rozliczeń jest też liczba wyczyszczonych Ilości tylko dla INEA, której karta nie
+pokazuje (ADR 0018).
 Logi nie mają treści komórek: żadne pole nie niesie Wiersza danych, a pliki mają tylko nazwę, nigdy pełną ścieżkę.
 Skrypt dla maszyn nie ma działań po wyniku, więc Logów nie tworzy.
 
@@ -48,7 +50,7 @@ from rozliczenia.centrum.runs import EndedRun, Ending
 from rozliczenia.centrum.tool_freshness import CommitSource
 from rozliczenia.centrum.tool_update import Release
 from rozliczenia.centrum.version import short_commit
-from rozliczenia.domain import WorkerStatus
+from rozliczenia.domain import SettlementSummary, WorkerStatus
 from rozliczenia.message import Message
 from rozliczenia.period_folder import PeriodFolderInaccessible
 
@@ -198,6 +200,10 @@ class RunLog(_Record):
     summary: contract.RunSummary | None
     phases: list[contract.PhaseProgress]
     templates: list[LoggedTemplate]
+    inea_only_cleared: dict[str, int] | None = None
+    """Ilości tylko dla INEA (ADR 0018): litera kolumny → liczba komórek z wartością, które Przebieg rozliczeń zostawił
+    (w podglądzie: zostawiłby) puste w Rozliczeniach pracownika. ``None``: Przygotowanie, Przebieg bez podsumowania
+    i pliki sprzed tego pola."""
     environment: Environment
     trace: CallTrace | None
     diagnosis: LoggedDiagnosis | None
@@ -206,6 +212,7 @@ class RunLog(_Record):
     @classmethod
     def of(cls, run: EndedRun, *, tool: Tool, environment: Environment) -> RunLog:
         info, stopped, snapshot = run.info, run.stopped, run.snapshot
+        engine_summary = None if run.shown is None else run.shown.engine_summary
         return cls(
             schema_version=1,
             run_id=info.id,
@@ -236,6 +243,9 @@ class RunLog(_Record):
                 )
                 for template in snapshot.templates
             ],
+            inea_only_cleared={column.value: count for column, count in engine_summary.inea_only_cleared.items()}
+            if isinstance(engine_summary, SettlementSummary)
+            else None,
             environment=environment,
             trace=None if stopped is None else stopped.stop.trace,
             diagnosis=None,

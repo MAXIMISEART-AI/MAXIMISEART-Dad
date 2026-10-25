@@ -22,10 +22,10 @@ number are still in the file Excel wrote.
 Preconditions: the Plik zbiorczy is open on the desk from `otwarcie-plikow-okresu`.
 
 - **Type.** For row `i` of `PREP-SYN-ZL-2`, `-7`, `-6`: `excel.type_row(path, "N<r>:AT<r>", texts)` with `10·(i+1)+k` in the 29 quantity columns (`k` = 1 for N … 29 for AP), `PREP-SYN-OBC-<n>`, `25.5+i`, `10+i`, `PREP-SYN-UWAGI-<n>` in `AQ:AT`. `excel.read("N<r>:AT<r>")` matches each text (numbers as numbers), and `AU<r>` is a number above zero.
-- **Remember.** `excel.read("A<r>:AT<r>")` of all four rows is what each Rozliczenie pracownika must show later.
+- **Remember.** `excel.read("A<r>:AT<r>")` of all six rows is what each Rozliczenie pracownika must show later, apart from the Ilości tylko dla INEA.
 - **Save and close.** `excel.save`, then `excel.close`, which waits for `~$` to disappear.
 - **Inspect the bytes.** The desk copy differs from the Folder okresu's, `docProps/app.xml` names `Microsoft Macintosh Excel`, the zip has an external link part. Copy it back into the Folder okresu; `excel.json` records its SHA-256.
-- **Hiperłącza.** openpyxl reads `A:AT` hyperlinks of the four rows from Przygotowanie's file before typing and from Excel's saved copy after; they are equal (`rows=4 | column=F`). openpyxl, not Excel and not the tool's own reader, so the check depends on neither.
+- **Hiperłącza.** openpyxl reads `A:AT` hyperlinks of the six rows from Przygotowanie's file before typing and from Excel's saved copy after; they are equal (`rows=6 | column=F`). openpyxl, not Excel and not the tool's own reader, so the check depends on neither.
 
 ## Gotchas
 

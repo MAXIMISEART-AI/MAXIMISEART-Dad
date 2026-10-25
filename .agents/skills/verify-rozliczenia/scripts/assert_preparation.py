@@ -36,7 +36,7 @@ INTERNAL_NAME = f"Rozliczenie wew. {PERIOD}.xlsx"
 COLLECTIVE_NAME = f"Rozliczenie {PERIOD} - zbiorcze.xlsx"
 ROW_MARKER = "PREP-SYN-"
 ORDER_LINK = "https://przyklad.invalid/zlecenie?caseId=PREP-SYN-LINK&tw=1&wiersz="
-EXPECTED_COUNTERS = {"period_orders": 5, "successful_orders": 4, "skipped_empty_rows": 4, "warnings": 3}
+EXPECTED_COUNTERS = {"period_orders": 7, "successful_orders": 6, "skipped_empty_rows": 4, "warnings": 3}
 # Ilości usług Dad completes: Plik zbiorczy rows 20 (order 7, prewencja) and 21 (order 6, unknown device), and
 # the reminder every Przygotowanie carries. Only the written Plik zbiorczy needs review; the dry-run stays OK.
 EXPECTED_WARNINGS = [
@@ -47,8 +47,8 @@ EXPECTED_WARNINGS = [
 EXPECTED_RESULT = {"DRY-RUN": "OK", "RUN": "WYMAGA_SPRAWDZENIA"}
 EXPECTED_SUMMARY = contract.RunSummary(
     figures=[
-        contract.Figure(label="Zlecenia okresu", value=5, unit="count"),
-        contract.Figure(label="Zlecenia skuteczne", value=4, unit="count"),
+        contract.Figure(label="Zlecenia okresu", value=7, unit="count"),
+        contract.Figure(label="Zlecenia skuteczne", value=6, unit="count"),
         contract.Figure(label="Pominięte puste wiersze", value=4, unit="count"),
     ],
     counts=contract.CountGroup(
@@ -56,13 +56,13 @@ EXPECTED_SUMMARY = contract.RunSummary(
         counts=[
             contract.Count(label=label, count=count)
             for label, count in (
-                ("wt 08.09.2026", 1),
+                ("wt 08.09.2026", 2),
                 ("śr 09.09.2026", 1),
                 ("czw 10.09.2026", 0),
                 ("pt 11.09.2026", 0),
                 ("sob 12.09.2026", 1),
                 ("niedz 13.09.2026", 1),
-                ("pon 14.09.2026", 1),
+                ("pon 14.09.2026", 2),
             )
         ],
     ),
@@ -128,32 +128,38 @@ def _collective_row(number: int, started: datetime, worker: str, successful: str
     )
 
 
-# Period orders in Rejestr order: 2, 3 (NIE), 4, 7 (after the next-period order), and the late order 6.
+# Period orders in Rejestr order: 2, 3 (NIE), 4, 7 (after the next-period order), the late order 6, then 8 and 9.
 EXPECTED_INTERNAL_ROWS = (
     _internal_row(2, datetime(2026, 9, 8, 0, 0), "adrian.testowy", "tak"),
     _internal_row(3, datetime(2026, 9, 9, 10, 30), "dariusz.fikcyjny2", "NIE"),
     _internal_row(4, datetime(2026, 9, 12, 12, 0), "kamil.syntetyczny", " Tak "),
     _internal_row(7, datetime(2026, 9, 13, 9, 0), "adrian.testowy", "tak"),
     _internal_row(6, datetime(2026, 9, 14, 18, 30), "dariusz.fikcyjny2", "TAK"),
+    _internal_row(8, datetime(2026, 9, 8, 11, 0), "dariusz.fikcyjny2", "tak"),
+    _internal_row(9, datetime(2026, 9, 14, 10, 0), "kamil.syntetyczny", "tak"),
 )
 EXPECTED_COLLECTIVE_ROWS = (
     _collective_row(2, datetime(2026, 9, 8, 0, 0), "adrian.testowy", "tak"),
     _collective_row(4, datetime(2026, 9, 12, 12, 0), "kamil.syntetyczny", " Tak "),
     _collective_row(7, datetime(2026, 9, 13, 9, 0), "adrian.testowy", "tak"),
     _collective_row(6, datetime(2026, 9, 14, 18, 30), "dariusz.fikcyjny2", "TAK"),
+    _collective_row(8, datetime(2026, 9, 8, 11, 0), "dariusz.fikcyjny2", "tak"),
+    _collective_row(9, datetime(2026, 9, 14, 10, 0), "kamil.syntetyczny", "tak"),
 )
-# Ilości usług of rows 18..21 (orders 2, 4, 7, 6) from the Reguły ilości; every other N:AP cell keeps the Wzorzec 0.
+# Ilości usług of rows 18..23 (orders 2, 4, 7, 6, 8, 9) from the Reguły ilości; every other N:AP cell keeps the Wzorzec 0.
 EXPECTED_QUANTITIES: tuple[dict[str, int], ...] = (
     {"O": 1, "P": 1, "Q": 1, "S": 3, "T": 1, "V": 1, "Z": 1},
     {"N": 45, "O": 1, "S": 2, "V": 1, "AG": 1, "AI": 1, "AO": 1},
     {},
     {"N": 45, "T": 1, "V": 1},
+    {"V": 1, "AE": 1, "AP": 1},
+    {"O": 1, "P": 1, "Q": 2, "S": 4, "V": 1, "Z": 1, "AK": 1},
 )
 EXPECTED_INTERNAL_ORDER_NUMBERS = tuple(row[6] for row in EXPECTED_INTERNAL_ROWS)
 EXPECTED_COLLECTIVE_ORDER_NUMBERS = tuple(row[5] for row in EXPECTED_COLLECTIVE_ROWS)
 # Rejestr rows of those orders; their NUMER ZL. Hiperłącze ends with the row number.
-EXPECTED_INTERNAL_REGISTER_ROWS = (4, 6, 9, 12, 13)
-EXPECTED_COLLECTIVE_REGISTER_ROWS = (4, 9, 12, 13)
+EXPECTED_INTERNAL_REGISTER_ROWS = (4, 6, 9, 12, 13, 14, 15)
+EXPECTED_COLLECTIVE_REGISTER_ROWS = (4, 9, 12, 13, 14, 15)
 
 
 def _sheet(workbook_sheet: object) -> Worksheet:
@@ -221,7 +227,7 @@ def _check_internal_settlement(path: Path, errors: list[str]) -> None:
     workbook = load_workbook(path, data_only=False)
     try:
         sheet = _sheet(workbook.active)
-        if _rows(sheet, 2, 7, 13) != [*EXPECTED_INTERNAL_ROWS, (None,) * 13]:
+        if _rows(sheet, 2, 2 + len(EXPECTED_INTERNAL_ROWS), 13) != [*EXPECTED_INTERNAL_ROWS, (None,) * 13]:
             errors.append("Rozliczenie wewnętrzne does not hold exactly the period orders in Rejestr order")
         highlighted = sheet["C2"]
         if (
@@ -234,7 +240,7 @@ def _check_internal_settlement(path: Path, errors: list[str]) -> None:
             errors.append("Rozliczenie wewnętrzne lost a Rejestr highlight or the Wzorzec font")
         if not sheet["H4"].font.i or sheet["A2"].number_format != "dd.mm.yyyy hh:mm":
             errors.append("Rozliczenie wewnętrzne lost italic or the Rejestr date format")
-        if sheet.auto_filter.ref != "A1:M6" or sheet.freeze_panes != "A2" or sheet.column_dimensions["A"].width != 10:
+        if sheet.auto_filter.ref != f"A1:M{1 + len(EXPECTED_INTERNAL_ROWS)}" or sheet.freeze_panes != "A2" or sheet.column_dimensions["A"].width != 10:
             errors.append("Rozliczenie wewnętrzne autofilter or Wzorzec layout is wrong")
         look = look_mismatches(sheet, 1, range(2, 2 + len(EXPECTED_INTERNAL_ROWS)), 13)
         if look:
@@ -247,10 +253,10 @@ def _check_collective_file(path: Path, errors: list[str]) -> None:
     workbook = load_workbook(path, data_only=False)
     try:
         sheet = _sheet(workbook.active)
-        if _rows(sheet, 18, 22, 11) != [*EXPECTED_COLLECTIVE_ROWS, (None,) * 11]:
+        if _rows(sheet, 18, 18 + len(EXPECTED_COLLECTIVE_ROWS), 11) != [*EXPECTED_COLLECTIVE_ROWS, (None,) * 11]:
             errors.append("Plik zbiorczy does not hold exactly the Zlecenia skuteczne from row 18")
         quantities = [
-            {get_column_letter(column): sheet.cell(row, column).value for column in QUANTITY_COLUMNS} for row in range(18, 24)
+            {get_column_letter(column): sheet.cell(row, column).value for column in QUANTITY_COLUMNS} for row in range(18, 26)
         ]
         expected = [
             {get_column_letter(column): rules.get(get_column_letter(column), 0) for column in QUANTITY_COLUMNS}
@@ -258,8 +264,8 @@ def _check_collective_file(path: Path, errors: list[str]) -> None:
         ]
         if quantities != expected:
             errors.append("Plik zbiorczy N:AP is not the Ilości usług from the Reguły ilości over the Wzorzec zeros")
-        formulas = [sheet.cell(row, 47).value for row in range(18, 24)]
-        if formulas != [f"=N{row}*$N$1" for row in range(18, 24)]:
+        formulas = [sheet.cell(row, 47).value for row in range(18, 26)]
+        if formulas != [f"=N{row}*$N$1" for row in range(18, 26)]:
             errors.append("Plik zbiorczy changed the Wzorzec formulas")
         if (
             sheet["N1"].value != 17.5
@@ -269,7 +275,7 @@ def _check_collective_file(path: Path, errors: list[str]) -> None:
             or workbook["Rates"]["B1"].value != 17.5
         ):
             errors.append("Plik zbiorczy lost Wzorzec rates, sums, sheets or header formatting")
-        if sheet["B18"].fill.fgColor.rgb != "FFFFFF00" or sheet.auto_filter.ref != "A17:AP21":
+        if sheet["B18"].fill.fgColor.rgb != "FFFFFF00" or sheet.auto_filter.ref != f"A17:AP{17 + len(EXPECTED_COLLECTIVE_ROWS)}":
             errors.append("Plik zbiorczy lost a Rejestr highlight or has a wrong autofilter")
         look = look_mismatches(sheet, 17, range(18, 18 + len(EXPECTED_COLLECTIVE_ROWS)), 12)
         if look:

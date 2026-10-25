@@ -2,9 +2,9 @@
 
 The Plik zbiorczy was written by Przygotowanie pliku zbiorczego and then filled by
 the Gotowość step, so its Wiersze danych carry values in all of ``A:AT``, and the
-Wyróżnienia and NUMER ZL. Hiperłącza Przygotowanie carried over from the Rejestr. The checks are generic
-over the Wzorce, so the same helper serves both the synthetic and the real
-Wzorce. Messages name workers, rows, and columns, never a cell value.
+Wyróżnienia and NUMER ZL. Hiperłącza Przygotowanie carried over from the Rejestr. A Rozliczenie pracownika
+holds those rows without the Ilości tylko dla INEA (ADR 0018). The checks are generic over the Wzorce, so the
+same helper serves both the synthetic and the real Wzorce. Messages name workers, rows, and columns, never a cell value.
 """
 
 from __future__ import annotations
@@ -16,7 +16,7 @@ import sys
 import zipfile
 
 from openpyxl import load_workbook
-from openpyxl.utils import get_column_letter
+from openpyxl.utils import column_index_from_string, get_column_letter
 from openpyxl.workbook.workbook import Workbook
 from openpyxl.worksheet.worksheet import Worksheet
 
@@ -41,6 +41,9 @@ INPUT_COLUMNS = 11  # A:K
 COPIED_COLUMNS = 46  # A:AT
 LOOK_COLUMNS = 12  # A:L: Wygląd Wiersza danych, with the number format of the Plik zbiorczy cell
 READINESS_COLUMNS = range(13, 46)  # N:AT as 0-based tuple indices
+# Ilości tylko dla INEA (ADR 0018): column -> word in URZĄDZENIA (any case, anywhere in the text) at which the cell stays
+# empty in the Rozliczenie pracownika. Written out here, not imported, so a broken rule in the product fails the check.
+INEA_ONLY = {"AP": "gniazdo", "AK": "technicolor"}
 ROW_MARKER = "PREP-SYN-"
 INTERNAL_NAME = f"Rozliczenie wew. {PERIOD}.xlsx"
 COLLECTIVE_NAME = f"Rozliczenie {PERIOD} - zbiorcze.xlsx"
@@ -49,12 +52,19 @@ WORKER_TEMPLATE = Path("config") / "Wzorzec rozliczenia pracownika.xlsx"
 # Zlecenia skuteczne of every Wykonawca in Rejestr order; Adrian's two are split by Kamil's.
 EXPECTED_WORKER_ORDERS = {
     "Adrian Testowy": ("PREP-SYN-ZL-2", "PREP-SYN-ZL-7"),
-    "Darek Fikcyjny": ("PREP-SYN-ZL-6",),
-    "Kamil Syntetyczny": ("PREP-SYN-ZL-4",),
+    "Darek Fikcyjny": ("PREP-SYN-ZL-6", "PREP-SYN-ZL-8"),
+    "Kamil Syntetyczny": ("PREP-SYN-ZL-4", "PREP-SYN-ZL-9"),
 }
 # Rejestr row of every Zlecenie skuteczne; its NUMER ZL. Hiperłącze ends with that row number.
 ORDER_LINK = "https://przyklad.invalid/zlecenie?caseId=PREP-SYN-LINK&tw=1&wiersz="
-REGISTER_ROWS_OF_ORDERS = {"PREP-SYN-ZL-2": 4, "PREP-SYN-ZL-4": 9, "PREP-SYN-ZL-7": 12, "PREP-SYN-ZL-6": 13}
+REGISTER_ROWS_OF_ORDERS = {
+    "PREP-SYN-ZL-2": 4,
+    "PREP-SYN-ZL-4": 9,
+    "PREP-SYN-ZL-7": 12,
+    "PREP-SYN-ZL-6": 13,
+    "PREP-SYN-ZL-8": 14,
+    "PREP-SYN-ZL-9": 15,
+}
 EXPECTED_ROWS = sum(len(orders) for orders in EXPECTED_WORKER_ORDERS.values())
 TEMPLATES = len(EXPECTED_WORKER_ORDERS)
 WORKER_SETTLEMENTS = [
@@ -158,15 +168,22 @@ def _assert_dry_run(root: Path, result_path: Path | None) -> int:
     )
 
 
-def _order_column(sheet: Worksheet) -> int:
+def _header_column(sheet: Worksheet, header: str) -> int:
     columns = [
         cell.column
         for cell in sheet[HEADER_ROW]
-        if isinstance(cell.value, str) and cell.value.strip().casefold() == "numer zl."
+        if isinstance(cell.value, str) and cell.value.strip().casefold() == header.casefold()
     ]
     if len(columns) != 1:
-        raise ValueError(f"Plik zbiorczy has {len(columns)} NUMER ZL. headers in row {HEADER_ROW}")
+        raise ValueError(f"Plik zbiorczy has {len(columns)} {header} headers in row {HEADER_ROW}")
     return columns[0]
+
+
+def _inea_only(values: Row, devices_index: int) -> frozenset[int]:
+    """0-based indices of the Ilości tylko dla INEA in a Plik zbiorczy row, from its URZĄDZENIA."""
+
+    devices = str(values[devices_index] or "").casefold()
+    return frozenset(column_index_from_string(column) - 1 for column, word in INEA_ONLY.items() if word in devices)
 
 
 def _data_rows(sheet: Worksheet) -> list[tuple[int, Row]]:
@@ -228,6 +245,7 @@ def _check_worker_file(
     name: str,
     path: Path,
     expected_rows: list[Row],
+    expected_empty: list[frozenset[int]],
     expected_looks: list[Looks],
     expected_links: list[dict[int, Link]],
     template: Workbook,
@@ -251,12 +269,16 @@ def _check_worker_file(
         if [values[order_index] for values in actual_rows] != [values[order_index] for values in expected_rows]:
             errors.append(f"{name}: orders differ from its Zlecenia skuteczne in Plik zbiorczy order")
         # A missing or extra row already failed the row-number check above; compare the rows both files have.
-        for number, (actual, expected, looks, row_links) in enumerate(
-            zip(actual_rows, expected_rows, expected_looks, expected_links, strict=False), start=FIRST_DATA_ROW
+        for number, (actual, expected, empty, looks, row_links) in enumerate(
+            zip(actual_rows, expected_rows, expected_empty, expected_looks, expected_links, strict=False), start=FIRST_DATA_ROW
         ):
-            if _row_links(links, number) != row_links:
+            if _row_links(links, number) != {column: link for column, link in row_links.items() if column - 1 not in empty}:
                 errors.append(f"{name}: row {number} lacks the Hiperłącza of the Plik zbiorczy")
-            differing = [get_column_letter(index + 1) for index, value in enumerate(expected) if actual[index] != value]
+            differing = [
+                get_column_letter(index + 1)
+                for index, value in enumerate(expected)
+                if (actual[index] is not None if index in empty else actual[index] != value)
+            ]
             if differing:
                 errors.append(f"{name}: row {number} differs from the Plik zbiorczy in {', '.join(differing[:8])}")
             unlike = [get_column_letter(index + 1) for index, look in enumerate(_looks(sheet, in_file, number)) if look != looks[index]]
@@ -265,7 +287,7 @@ def _check_worker_file(
                     f"{name}: row {number} lacks the Wyróżnienia or number format of the Plik zbiorczy in {', '.join(unlike[:8])}"
                 )
             elif expected[order_index] in readiness_orders and any(
-                actual[index] in (None, 0) for index in READINESS_COLUMNS
+                actual[index] in (None, 0) for index in READINESS_COLUMNS if index not in empty
             ):
                 errors.append(f"{name}: row {number} lacks the Gotowość entries in N:AT")
         look = look_mismatches(sheet, HEADER_ROW, written, LOOK_COLUMNS)
@@ -283,8 +305,11 @@ def _check_worker_file(
         errors.append(f"{name}: xl/externalLinks parts differ from the Wzorzec rozliczenia pracownika")
 
 
-def _check_worker_files(root: Path, period_directory: Path, target_directory: Path, errors: list[str]) -> None:
-    """Every Rozliczenie pracownika against the Plik zbiorczy it was made from and the Wzorzec rozliczenia pracownika."""
+def _check_worker_files(root: Path, period_directory: Path, target_directory: Path, errors: list[str]) -> int:
+    """Every Rozliczenie pracownika against the Plik zbiorczy it was made from and the Wzorzec rozliczenia pracownika.
+
+    Returns the number of Ilości tylko dla INEA the Rozliczenia pracowników must hold empty.
+    """
 
     filled_orders = _manifest(root, "readiness_manifest.json").get("filled_orders")
     if not isinstance(filled_orders, list) or not filled_orders:
@@ -295,7 +320,8 @@ def _check_worker_files(root: Path, period_directory: Path, target_directory: Pa
         collective_sheet = _sheet(collective)
         collective_in_file = set(collective_sheet._cells)
         collective_hyperlinks = hyperlinks(collective_sheet)
-        order_index = _order_column(collective_sheet) - 1
+        order_index = _header_column(collective_sheet, "NUMER ZL.") - 1
+        devices_index = _header_column(collective_sheet, "URZĄDZENIA") - 1
         numbered_rows = _data_rows(collective_sheet)
         collective_rows = [values for _, values in numbered_rows]
         collective_looks = [_looks(collective_sheet, collective_in_file, number) for number, _ in numbered_rows]
@@ -310,6 +336,17 @@ def _check_worker_files(root: Path, period_directory: Path, target_directory: Pa
         for values, links in zip(collective_rows, collective_links, strict=True)
     } != {order: (f"{ORDER_LINK}{row}", None) for order, row in REGISTER_ROWS_OF_ORDERS.items()}:
         errors.append("Plik zbiorczy NUMER ZL. cells lack the Hiperłącze of their Rejestr cell")
+    inea_only = [_inea_only(values, devices_index) for values in collective_rows]
+    if {index for indices in inea_only for index in indices} != {column_index_from_string(column) - 1 for column in INEA_ONLY}:
+        errors.append("Plik zbiorczy lacks a Wiersz danych for every Ilość tylko dla INEA, so their check proves nothing")
+    valueless = [
+        f"{get_column_letter(index + 1)}{number}"
+        for (number, values), indices in zip(numbered_rows, inea_only, strict=True)
+        for index in sorted(indices)
+        if values[index] is None
+    ]
+    if valueless:
+        errors.append(f"Plik zbiorczy has no Ilość tylko dla INEA in {', '.join(valueless)}, so its emptying proves nothing")
     if UNSUCCESSFUL_ORDER in {values[order_index] for values in collective_rows}:
         errors.append("Plik zbiorczy holds a Zlecenie nieskuteczne")
     filled = [values for values in collective_rows if values[order_index] in readiness_orders]
@@ -324,6 +361,9 @@ def _check_worker_files(root: Path, period_directory: Path, target_directory: Pa
     try:
         for name, orders in EXPECTED_WORKER_ORDERS.items():
             expected_rows = [values for values in collective_rows if values[order_index] in orders]
+            expected_empty = [
+                empty for values, empty in zip(collective_rows, inea_only, strict=True) if values[order_index] in orders
+            ]
             expected_looks = [
                 looks for values, looks in zip(collective_rows, collective_looks, strict=True) if values[order_index] in orders
             ]
@@ -336,6 +376,7 @@ def _check_worker_files(root: Path, period_directory: Path, target_directory: Pa
                 name,
                 target_directory / f"Rozliczenie {PERIOD} - {name}.xlsx",
                 expected_rows,
+                expected_empty,
                 expected_looks,
                 expected_links,
                 template,
@@ -346,6 +387,7 @@ def _check_worker_files(root: Path, period_directory: Path, target_directory: Pa
             )
     finally:
         template.close()
+    return sum(len(indices) for indices in inea_only)
 
 
 def _assert_run(root: Path, result_path: Path | None) -> int:
@@ -358,10 +400,11 @@ def _assert_run(root: Path, result_path: Path | None) -> int:
     ):
         errors.append("Folder okresu does not hold exactly both period files and the Folder rozliczeń pracowników")
     expected_files = {f"Rozliczenie {PERIOD} - {name}.xlsx" for name in EXPECTED_WORKER_ORDERS}
+    inea_only = 0
     if not target_directory.is_dir() or {path.name for path in target_directory.iterdir()} != expected_files:
         errors.append("Folder rozliczeń pracowników does not hold exactly one workbook per Wykonawca")
     else:
-        _check_worker_files(root, period_directory, target_directory, errors)
+        inea_only = _check_worker_files(root, period_directory, target_directory, errors)
 
     result = load_result(result_path, (ROW_MARKER,), errors)
     if result is not None:
@@ -389,7 +432,7 @@ def _assert_run(root: Path, result_path: Path | None) -> int:
     return finish(
         errors,
         f"ASSERT OK | process=przebieg | source=przygotowanie | mode=run | workbooks_checked={len(expected_files)} | "
-        "rows_equal_plik_zbiorczy=A:AT | highlights_equal_plik_zbiorczy=A:AT | number_formats_equal_plik_zbiorczy=A:L | "
+        f"rows_equal_plik_zbiorczy=A:AT | inea_only_empty={inea_only} | highlights_equal_plik_zbiorczy=A:AT | number_formats_equal_plik_zbiorczy=A:L | "
         "row_look=A:L | hyperlinks_equal_plik_zbiorczy=A:AT | "
         "hyperlinks_from_rejestr=NUMER ZL. | "
         "readiness_carried=true | unsuccessful_absent=true | "
