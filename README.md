@@ -312,9 +312,11 @@ uv venv -p 3.12 .venv && uv pip install -p .venv -e ".[dev]"
 .venv/bin/python -m ruff check
 .venv/bin/python -m mypy
 ```
-Check formatowania nie jest wymagany. Wszystkie zadania CI poza E2E i Timing
-guard (ruff, mypy, pytest, mutacje, frontend z odtwarzalnym buildem) uruchamia naraz
-`.venv/bin/python tools/ci_lokalnie.py` (Windows: `py -3 tools/ci_lokalnie.py`).
+Check formatowania nie jest wymagany. Zadania CI poza E2E i Timing guard
+(ruff, mypy, pytest, mutacje, frontend z odtwarzalnym buildem) odtwarza lokalnie
+`.venv/bin/python tools/ci_lokalnie.py --tylko <zadania>` (Windows: `py -3 tools/ci_lokalnie.py`).
+Mutacje (`change-mutations`, `mutations`) liczy CI na GitHubie, więc lokalnie biegną
+tylko z `--odtwarzam <id albo URL runu Actions>`, w którym padły na tej gałęzi.
 Na macOS i Linuksie `tools/setup_worktree.py` włącza bramę `tools/hooks/pre-push`:
 push agenta (zmienna `AI_AGENT` albo `CLAUDECODE`) przechodzi po ruff i mypy dla obu
 systemów (`tools/ci_lokalnie.py --tylko ruff,mypy`), a push człowieka bez sprawdzania.

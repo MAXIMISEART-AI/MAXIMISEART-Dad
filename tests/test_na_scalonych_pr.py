@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import os
 import shutil
 import subprocess
 import sys
@@ -22,10 +23,11 @@ def _repo(tmp_path: Path) -> tuple[Path, str]:
     return repo, first
 
 
-def _run(repo: Path, *arguments: str) -> subprocess.CompletedProcess[str]:
+def _run(repo: Path, *arguments: str, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         [sys.executable, str(repo / "tools" / "na_scalonych_pr.py"), "--wyniki", str(repo.parent / "wyniki"), *arguments],
         cwd=repo,
+        env=env,
         capture_output=True,
         text=True,
         encoding="utf-8",
@@ -67,3 +69,17 @@ def test_narzedzia_z_rewizji_zamiast_z_checkoutu(tmp_path: Path) -> None:
 
     assert done.returncode == 0, done.stdout + done.stderr
     assert "| kod 0 | stare dane stare narzędzie |" in done.stdout
+
+
+def test_mutacje_zmiany_biegna_na_commicie_takze_poza_ci(tmp_path: Path) -> None:
+    """Próba narzędzia na scalonym commicie to nie sprawdzenie przed pushem, więc strażnik ciężkiego CI ją przepuszcza."""
+
+    repo, _ = _repo(tmp_path)
+    for name in ("szybko.py", "mutacje_zmiany.py", "pokrycie_linii.py", "pokrycie_procesu.py"):
+        shutil.copy2(ROOT / "tools" / name, repo / "tools" / name)
+    outside_ci = {name: value for name, value in os.environ.items() if name not in ("GITHUB_ACTIONS", "MAXIMISEART_NA_SCALONYCH_PR")}
+
+    done = _run(repo, "--commit", "HEAD", "--", "tools/mutacje_zmiany.py", "--baza", "HEAD^1", env=outside_ci)
+
+    assert done.returncode == 0, done.stdout + done.stderr
+    assert "| kod 0 | MUTACJE ZMIANY OK | brak mutacji zmienionych linii src/ od HEAD^1 |" in done.stdout
