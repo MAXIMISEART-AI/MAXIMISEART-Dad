@@ -114,6 +114,15 @@ def test_plik_zbiorczy_bez_naglowka_urzadzen_daje_unread(tmp_path: Path) -> None
     assert _without_quantity(centrum) == {"state": "unread"}
 
 
+def test_przeniesiony_folder_okresow_to_odmowa(tmp_path: Path) -> None:
+    centrum = _prepared(tmp_path)
+    centrum.fixture.periods_directory.rename(tmp_path / "przeniesiony")
+
+    response = centrum.client.get(URL)
+
+    assert (response.status_code, response.json()["message"]) == (409, "Najpierw wskaż folder okresów.")
+
+
 def test_ustawienie_przebiegu_nie_otwiera_zadnego_pliku_zbiorczego(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
