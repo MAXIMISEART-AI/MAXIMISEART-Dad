@@ -308,10 +308,11 @@ jobs:
 
   mutations:
     # A mutation check's verdict does not depend on the Python version, so it runs once, beside pytest.
-    # Before a skill's mutations it runs the skill's own check on unchanged code (the ci: key of its SKILL.md), so
+    # Besides a skill's mutations it runs the skill's own check on unchanged code (the ci: key of its SKILL.md), so
     # agents need not run it on the Mac: Centrum --feature all and the TLA+ model of Aktualizacja narzędzia run only here.
     # A pull request runs only the skills whose verdict its changes can alter; a push to main runs them all.
-    # Each part runs a third of the skills by their CI time: side by side on one runner they exceed their time limits.
+    # Each part runs a third of the steps (a baseline or one mutation script) by their CI time: side by side on one
+    # runner they exceed their time limits.
     name: Mutation checks (${{ matrix.part }}/3)
     runs-on: windows-latest
     # tools/mutacje_skilli.py limits each script to 30 min; this catches a hang in the runner itself.
@@ -347,7 +348,8 @@ jobs:
       - name: Install Chromium
         run: python -m playwright install chromium
 
-      - name: Prove each verify skill's check fails on broken variants
+      - name: Run each verify skill's baseline check and prove it fails on broken variants
+        id: skills
         shell: pwsh
         run: |
           if ($env:GITHUB_EVENT_NAME -eq 'pull_request') {
@@ -358,6 +360,17 @@ jobs:
           if ($LASTEXITCODE -ne 0) {
             throw "Mutation checks failed (exit code $LASTEXITCODE)"
           }
+
+      # A red baseline (e.g. Centrum --feature all) leaves its screenshots and logs here; mutation copies keep none.
+      - name: Upload baseline evidence on failure
+        if: ${{ failure() && steps.skills.outcome == 'failure' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: mutation-checks-evidence-${{ matrix.part }}
+          path: .verification/evidence/
+          retention-days: 7
+          if-no-files-found: ignore
+          include-hidden-files: true
 
   required:
     # Configure only this stable status as required in branch protection.

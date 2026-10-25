@@ -21,13 +21,14 @@ także w funkcji) oraz infrastruktura mutacji: ten runner z importami i ``INFRAS
 czytane liczy runner, więc lista ``pilnuje`` nie musi ich powtarzać i nie zawęża selekcji poniżej
 nich. Skrypt, którego plików nie da się tak wyznaczyć (polecenie mutacji nie jest skryptem z
 repozytorium, kod się nie parsuje), biegnie zawsze. Pominięty skrypt dostaje linię ``POMINIĘTY``.
-Z ``--czesc K/N`` biegną skrypty K-tej z N części o podobnym czasie w CI (``CI_TIMES_S``), więc
-N zadań CI dzieli skrypty bez listy w ``ci.yml``. Skrypt spoza tabeli waży tyle, co mediana tabeli:
-nieaktualna tabela psuje tylko równowagę części, nie gubi skryptu.
+Z ``--czesc K/N`` biegną kroki K-tej z N części o podobnym czasie w CI (``CI_TIMES_S``), więc
+N zadań CI dzieli kroki bez listy w ``ci.yml``. Krok to podstawa skilla albo jeden jego skrypt mutacji, więc
+podstawa i mutacje jednego skilla mogą biec w różnych częściach. Krok spoza tabeli waży tyle, co mediana tabeli:
+nieaktualna tabela psuje tylko równowagę części, nie gubi kroku.
 
 Skill może zadeklarować we frontmatterze klucz ``ci:``: polecenie (skrypt ``.py`` z repozytorium, ścieżka od korzenia,
-i jego argumenty), którym CI sprawdza skill na niezmienionym kodzie. Runner uruchamia je przed mutacjami skilla
-(``PODSTAWA``), z tym samym wyborem co skrypt mutacji, także w skillu bez skryptu mutacji. Polecenie, które skrypt
+i jego argumenty), którym CI sprawdza skill na niezmienionym kodzie. Runner uruchamia je jako krok ``PODSTAWA``
+(w części z mutacjami skilla przed nimi), z tym samym wyborem co skrypt mutacji, także w skillu bez skryptu mutacji. Polecenie, które skrypt
 mutacji i tak uruchamia bez mutacji (podstawa ``check_all``), nie biegnie drugi raz. Podstawa przechodzi z kodem 0.
 
     py -3 tools/mutacje_skilli.py                  # Windows
@@ -50,7 +51,7 @@ import statistics
 import subprocess
 import sys
 import time
-from typing import Any
+from typing import Any, NamedTuple
 
 import potomne
 
@@ -63,16 +64,19 @@ VERDICT = "MUTACJE OK"
 BASELINE = "PODSTAWA"
 # Najdłuższy skrypt trwał w CI na Windows 770 s; limit łapie zawieszenie, a nie wolny runner.
 LIMIT_S = 30 * 60
-# Czas skilla w zadaniu CI na windows-latest (podstawa ``ci`` i skrypt mutacji, run 40207957312, jedna próba; Centrum:
-# średnia z tego runu i run 40207090403 na main); dzieli skille na części.
+# Czas kroku w zadaniu CI na windows-latest, mediana runów 40205575015, 40207090403, 40207957312, 40208186531 i
+# 40209671390 (mutacje Centrum od #443, bez pierwszego; podstawa Centrum z jednej próby); dzieli kroki na części.
+# Klucz to ``<skill>/ci`` dla podstawy i ``<skill>/<skrypt>`` dla skryptu mutacji.
 CI_TIMES_S: dict[str, float] = {
-    "verify-aktualizacja-narzedzia": 20,
-    "verify-centrum-rozliczen": 259 + 575,
-    "verify-jedno-uruchomienie-naraz": 32 + 332,
-    "verify-kopia-wzorca": 181,
-    "verify-publikacja-plikow-okresu": 83,
-    "verify-rozliczenia": 61,
-    "verify-skoroszyty-w-excelu": 19,
+    "verify-aktualizacja-narzedzia/ci": 22,
+    "verify-centrum-rozliczen/ci": 259,
+    "verify-centrum-rozliczen/check_centrum_mutations.py": 584,
+    "verify-jedno-uruchomienie-naraz/ci": 33,
+    "verify-jedno-uruchomienie-naraz/check_runs_mutations.py": 332,
+    "verify-kopia-wzorca/check_copy_mutations.py": 342,
+    "verify-publikacja-plikow-okresu/check_publication_mutations.py": 90,
+    "verify-rozliczenia/check_quantity_rules_mutations.py": 77,
+    "verify-skoroszyty-w-excelu/check_excel_cleanup_mutations.py": 22,
 }
 # Pliki spoza Pythona, od których zależy przebieg mutacji w CI: biblioteki, zadanie CI, końce linii kopii.
 INFRASTRUCTURE = ("requirements.txt", ".github/workflows/ci.yml", ".gitattributes")
@@ -253,18 +257,31 @@ def _why_run(skill: Path, scripts: list[Path], changed: set[str]) -> tuple[bool,
     return False, f"zmiany nie dotykają pilnuje, folderu skilla ani {files} plików repozytorium, które skill czyta w CI"
 
 
-def parts(skills: list[Path], count: int, times: dict[str, float]) -> list[list[Path]]:
-    """Skille w ``count`` częściach: każdy następny najdłuższy skill do części o najmniejszej sumie czasu."""
+class Step(NamedTuple):
+    """Krok zadania: podstawa ``ci`` skilla (``verdict`` ``None``) albo jeden jego skrypt mutacji."""
+
+    skill: Path
+    key: str
+    name: str
+    command: tuple[str, ...]
+    verdict: str | None
+
+
+def parts(steps: list[Step], count: int, times: dict[str, float]) -> list[list[Step]]:
+    """Kroki w ``count`` częściach: każdy następny najdłuższy krok do części o najmniejszej sumie czasu.
+
+    W części podstawa skilla biegnie przed jego skryptami mutacji.
+    """
 
     default = statistics.median(times.values()) if times else 1.0
-    weight = {skill: times.get(skill.name, default) for skill in skills}
-    chosen: list[list[Path]] = [[] for _ in range(count)]
+    weight = {step: times.get(step.key, default) for step in steps}
+    chosen: list[list[Step]] = [[] for _ in range(count)]
     sums = [0.0] * count
-    for skill in sorted(skills, key=lambda skill: (-weight[skill], _name(skill))):
+    for step in sorted(steps, key=lambda step: (-weight[step], step.key)):
         lightest = sums.index(min(sums))
-        chosen[lightest].append(skill)
-        sums[lightest] += weight[skill]
-    return [sorted(part) for part in chosen]
+        chosen[lightest].append(step)
+        sums[lightest] += weight[step]
+    return [sorted(part, key=lambda step: (step.skill, step.verdict is not None, step.key)) for part in chosen]
 
 
 def _lost(scripts: list[Path]) -> dict[str, str]:
@@ -312,11 +329,32 @@ def _baseline(skill: Path, scripts: list[Path]) -> tuple[str, ...] | None:
     """Polecenie ``ci`` skilla, gdy żaden jego skrypt mutacji nie uruchamia go sam bez mutacji; ``ValueError``, gdy zły klucz."""
 
     command = ci_command(skill / "SKILL.md")
+    if command is None:
+        return None
     try:
         repeated = any(command == tuple(mutation.command) for script in scripts for mutation in _mutations(script))
     except Exception:  # noqa: BLE001 - tabeli, której nie da się wczytać, podstawa nie zastąpi: biegnie polecenie ci
         repeated = False
     return None if repeated else command
+
+
+def steps(failed: dict[str, str]) -> list[Step]:
+    """Kroki wszystkich skilli; zły klucz ``ci`` trafia do ``failed``."""
+
+    skills: dict[Path, list[Path]] = {skill_md.parent: [] for skill_md in SKILLS.glob("*/SKILL.md") if _values(skill_md, "ci")}
+    for script in sorted(SKILLS.glob(f"*/scripts/{PATTERN}")):
+        skills.setdefault(script.parents[1], []).append(script)
+    found = []
+    for skill, scripts in sorted(skills.items()):
+        try:
+            command = _baseline(skill, scripts)
+        except ValueError as error:
+            failed[f"{BASELINE} {skill.name}"] = str(error)
+            command = None
+        if command:
+            found.append(Step(skill, f"{skill.name}/ci", f"{BASELINE} {skill.name}", command, None))
+        found += [Step(skill, f"{skill.name}/{script.name}", _name(script), (_name(script),), VERDICT) for script in scripts]
+    return found
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -327,39 +365,33 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     scripts = sorted(SKILLS.glob(f"*/scripts/{PATTERN}"))
     failed = _lost(scripts)
+    # Przed krokami: wczytanie tabel mutacji zostawia w skillach __pycache__, a to nie jest zmiana od bazy.
+    changed = None if args.zmiany_od is None else _changed(args.zmiany_od)
+    found = steps(failed)
     for name, why in sorted(failed.items()):
         print(f"FAIL {name}: {why}", flush=True)
     if not scripts and not failed:
         print(f"MUTACJE SKILLI FAIL | brak skryptów .agents/skills/*/scripts/{PATTERN}")
         return 1
-    skills: dict[Path, list[Path]] = {skill_md.parent: [] for skill_md in SKILLS.glob("*/SKILL.md") if _values(skill_md, "ci")}
-    for script in scripts:
-        skills.setdefault(script.parents[1], []).append(script)
-    changed = None if args.zmiany_od is None else _changed(args.zmiany_od)
     number, count = args.czesc or (1, 1)
+    selected: dict[Path, tuple[bool, str]] = {}
     # Po kolei: mutacje kilku skilli naraz na czterech rdzeniach runnera przekraczają swoje limity czasu.
-    for skill in parts(sorted(skills), count, CI_TIMES_S)[number - 1]:
-        runs, why = (True, "") if changed is None else _why_run(skill, skills[skill], changed)
-        steps: list[tuple[str, tuple[str, ...], str | None]] = [(_name(script), (str(script),), VERDICT) for script in skills[skill]]
-        try:
-            command = _baseline(skill, skills[skill])
-        except ValueError as error:
-            print(f"FAIL {BASELINE} {skill.name}: {error}", flush=True)
-            failed[f"{BASELINE} {skill.name}"] = str(error)
-        else:
-            steps[:0] = [(f"{BASELINE} {skill.name}", command, None)] if command else []
-        for name, step, verdict in steps:
-            if not runs:
-                print(f"POMINIĘTY {name}: {why}", flush=True)
-                continue
-            shown = name if verdict else f"{name}: {' '.join(step)}"
-            print(f"== {shown}" + (f" ({why})" if why else ""), flush=True)
-            started = time.monotonic()
-            reason = _run(step, args.limit_s, verdict)
-            elapsed = f"({time.monotonic() - started:.0f} s)"
-            print(f"OK   {name} {elapsed}" if reason is None else f"FAIL {name} {elapsed}: {reason}", flush=True)
-            if reason is not None:
-                failed[name] = reason
+    for step in parts(found, count, CI_TIMES_S)[number - 1]:
+        if step.skill not in selected:
+            mutations = [ROOT / other.command[0] for other in found if other.skill == step.skill and other.verdict]
+            selected[step.skill] = (True, "") if changed is None else _why_run(step.skill, mutations, changed)
+        runs, why = selected[step.skill]
+        if not runs:
+            print(f"POMINIĘTY {step.name}: {why}", flush=True)
+            continue
+        shown = step.name if step.verdict else f"{step.name}: {' '.join(step.command)}"
+        print(f"== {shown}" + (f" ({why})" if why else ""), flush=True)
+        started = time.monotonic()
+        reason = _run(step.command, args.limit_s, step.verdict)
+        elapsed = f"({time.monotonic() - started:.0f} s)"
+        print(f"OK   {step.name} {elapsed}" if reason is None else f"FAIL {step.name} {elapsed}: {reason}", flush=True)
+        if reason is not None:
+            failed[step.name] = reason
     if failed:
         print(f"MUTACJE SKILLI FAIL | {', '.join(sorted(failed))}")
         return 1
