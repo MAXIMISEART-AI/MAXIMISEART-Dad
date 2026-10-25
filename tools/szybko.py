@@ -24,13 +24,15 @@ leży w katalogu gita worktree. Krok pytest bierze ``WORKERS`` workerów, chyba 
 
 Z wybranych testów biegną zawsze pliki w odległości najwyżej 1 od zmiany w grafie zależności (``plan``), czyli
 zmienione albo zależne wprost od zmienionego pliku, a dalsze po odległości i czasie z tabeli CI (``TIMES``) rosnąco,
-dopóki mieszczą się w budżecie ``BUDGET_S``. Odległość liczy się od zmiany bez plików ``FULL``, więc sama zmiana
-konfiguracji uruchamia najpierw najtańsze testy. Resztę liczy pełny pytest w CI, a szybko wypisuje ją przed wynikiem
+dopóki mieszczą się w budżecie ``BUDGET_S``. Odległość liczy się od zmiany bez plików ``FULL``, a test, który
+importuje albo czyta plik ``FULL``, ma najwyżej 2, więc przy zmianie konfiguracji biegnie w budżecie przed testami
+bez drogi w grafie. Resztę liczy pełny pytest w CI, a szybko wypisuje ją przed wynikiem
 jako „zostawione CI”, więc ``SZYBKO OK`` znaczy, że przeszły uruchomione testy.
 
 Testy ``STRUCTURE`` (reguły z tabeli w ``AGENTS.md`` i testy całego repozytorium) biegną przy każdej zmianie, a gdy
 ``--baza`` poszła dalej niż HEAD, także na mergu z nią (to drzewo sprawdza CI PR-u; numer ADR zajęty równolegle
-pada dopiero tam). Na mergu biegną tylko one, bez mypy i testów dotkniętych zmianą, razem z pozostałymi krokami.
+pada dopiero tam). Na mergu biegną tylko one, bez mypy, testów dotkniętych zmianą i workerów xdist, razem z
+pozostałymi krokami.
 Szybko nie pobiera ``origin``, więc merge jest z bazą z ostatniego ``git fetch``. Nie uruchamia zadań CI
 ``mutations`` (skrypty mutacji skilli), ``Frontend``, E2E ani Timing guard.
 
@@ -439,6 +441,8 @@ def select(root: Path, changed: frozenset[str]) -> Selection:
     full = sorted(changed & set(FULL))
     # Plik z ``FULL`` dotyczy każdego testu, a drogę w grafie mają do niego tylko testy, które wymieniają jego nazwę.
     distances = dependencies.distances_from(changed - set(FULL))
+    readers = {source for source, targets in dependencies.depends_on.items() if targets & set(full)}
+    distances |= {reader: min(distances.get(reader, 2), 2) for reader in readers}
     if not full:
         tests &= distances.keys()
     fingerprints = {test: _fingerprint(root, dependencies.inputs_of(test)) for test in sorted(tests)}
@@ -669,7 +673,8 @@ def main(argv: list[str] | None = None) -> int:
     with ExitStack() as copies:
         if merge := _merge_with(args.baza):
             copy = copies.enter_context(potomne.commit_copy(ROOT, merge))
-            steps.append(_pytest(copy, f"testy struktury po mergu z {args.baza}", STRUCTURE))
+            # Biegnie razem z krokiem pytest, więc bez workerów xdist nie podwaja liczby rdzeni szybko.
+            steps.append(_pytest(copy, f"testy struktury po mergu z {args.baza}", (*STRUCTURE, "-n", "0")))
         failed, interrupted = _run_all(steps, next(step for step in steps if step.name == "pytest"))
     memory.remember(selection, junit, chosen.run)
     junit.unlink(missing_ok=True)

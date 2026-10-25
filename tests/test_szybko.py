@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import os
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import re
 import shutil
 import subprocess
@@ -23,8 +23,7 @@ BY_CHANGE_ONLY = {
     "tests/test_brama_pre_push.py": "sprawdza zachowanie bramy pushem w repozytorium testu, a nie całe repozytorium",
     "tests/test_ciezkie_ci.py": "sprawdza strażnika narzędzi na repozytoriach testu i atrapie gh; ci.yml czyta ścieżką, którą graf widzi",
     "tests/test_git_w_testach.py": (
-        "sprawdza gita sesji testów, a nie całe repozytorium; zmiana conftest.py i fixtures/git_config.py uruchamia "
-        "wszystkie testy"
+        "sprawdza gita sesji testów, a nie całe repozytorium"
     ),
     "tests/test_na_scalonych_pr.py": "sprawdza narzędzie na repozytoriach testu, a nie całe repozytorium",
     "tests/test_praca_w_toku.py": "sprawdza werdykt narzędzia na repozytoriach testu, a nie całe repozytorium; trwa ok. 19 s",
@@ -73,6 +72,13 @@ BASE_FILES = {
         "    assert [path.read_text(encoding='utf-8') for path in sorted(DANE.iterdir())] == ['zgodny\\n']\n"
     ),
 }
+CONFIGURATION_READER = (
+    "from pathlib import Path\n\n\ndef test_konfiguracja() -> None:\n    assert Path('pyproject.toml').name == 'inna.toml'\n"
+)
+UNIQUE_ADR = (
+    "numbers = [p.name[:4] for p in (Path(__file__).parents[1] / 'docs' / 'adr').glob('*.md')]\n"
+    "    assert len(numbers) == len(set(numbers))"
+)
 COUNTED = (
     "import os\nfrom pathlib import Path\n\nfrom pakiet.posredni import podwojona\n\n\n"
     "def test_podwojona() -> None:\n"
@@ -121,7 +127,8 @@ def _repo(tmp_path: Path, structure: str = "pass") -> Path:
 def _szybko(
     repo: Path, *arguments: str, runs: Path | None = None, workers: str | None = "2"
 ) -> subprocess.CompletedProcess[str]:
-    environment = {name: value for name, value in os.environ.items() if name != "PYTEST_XDIST_AUTO_NUM_WORKERS"}
+    # ``PYTEST_XDIST_WORKER`` workera, który uruchamia ten test, nie może udawać workera szybko.
+    environment = {name: value for name, value in os.environ.items() if not name.startswith("PYTEST_XDIST_")}
     environment |= {"PRZEBIEGI": str(runs)} if runs else {}
     environment |= {"PYTEST_XDIST_AUTO_NUM_WORKERS": workers} if workers else {}
     return subprocess.run(
@@ -147,6 +154,24 @@ def _write(repo: Path, name: str, text: str) -> None:
     (repo / name).write_text(text, encoding="utf-8")
 
 
+def _base_moved_on(repo: Path, on_main: tuple[str, str], on_branch: tuple[str, str]) -> None:
+    """``origin/main`` z commitem ``on_main``, a HEAD na gałęzi od jego rodzica z commitem ``on_branch``."""
+
+    git(repo, "checkout", "--quiet", "-b", "inna-galaz")
+    _write(repo, *on_main)
+    git(repo, "update-ref", "refs/remotes/origin/main", commit(repo, f"{on_main[0]} na main"))
+    git(repo, "checkout", "--quiet", "-b", "galaz", "HEAD~1")
+    _write(repo, *on_branch)
+    commit(repo, f"{on_branch[0]} na gałęzi")
+
+
+def _commit_times(repo: Path, expensive: dict[str, float]) -> None:
+    times = {test: 0.1 for test in BASE_FILES if szybko._is_test(test)} | expensive
+    _write(repo, str(szybko.TIMES), json.dumps(times))
+    commit(repo, "tabela czasów")
+    git(repo, "update-ref", "refs/remotes/origin/main", "HEAD")
+
+
 @pytest.mark.parametrize("committed", [True, False], ids=["zacommitowana", "niezacommitowana"])
 def test_zmiana_modulu_uruchamia_testy_ktore_go_importuja_a_pozostalych_nie(tmp_path: Path, committed: bool) -> None:
     repo = _repo(tmp_path)
@@ -162,19 +187,20 @@ def test_zmiana_modulu_uruchamia_testy_ktore_go_importuja_a_pozostalych_nie(tmp_
 
 
 def test_blad_ruff_przerywa_krok_pytest_zamiast_czekac_na_jego_koniec(tmp_path: Path) -> None:
-    repo = _repo(tmp_path)
+    repo = _repo(tmp_path, structure=UNIQUE_ADR)
     # Bez przerwania krok pytest skończyłby się po 30 s i przeszedł.
     _write(repo, "tests/test_wolny.py", "import time\n\nfrom pakiet.a import wartosc\n\n\ndef test_wolny() -> None:\n    time.sleep(30)\n    assert wartosc() == 1\n")
     commit(repo, "wolny test")
-    git(repo, "update-ref", "refs/remotes/origin/main", "HEAD")
-    # Mypy nie jest przerywany, więc jego błąd widać w tym samym przebiegu co błąd ruff.
+    _base_moved_on(repo, ("docs/adr/0002-z-main.md", "# ADR 0002\n"), ("docs/adr/0002-z-galezi.md", "# ADR 0002\n"))
+    # Mypy i krok struktury po mergu nie są przerywane, więc ich błędy widać w tym samym przebiegu co błąd ruff.
     _write(repo, "src/pakiet/a.py", "import os\n\n\ndef wartosc() -> int:\n    return '1'\n")
 
     answered = _szybko(repo)
 
     assert re.search(r"^PRZERWANY pytest \(\d+ s\): padł inny krok, więc jego testy nie są sprawdzone$", answered.stdout, re.MULTILINE)
     last = answered.stdout.splitlines()[-1]
-    assert (answered.returncode, last) == (1, "SZYBKO FAIL | ruff, mypy, mypy (Windows) | pytest przerwany"), answered.stdout
+    expected = "SZYBKO FAIL | ruff, mypy, mypy (Windows), testy struktury po mergu z origin/main | pytest przerwany"
+    assert (answered.returncode, last) == (1, expected), answered.stdout
 
 
 def test_zmiana_bez_bledu_konczy_sie_ok_choc_niedotkniety_test_pada(tmp_path: Path) -> None:
@@ -289,14 +315,11 @@ def test_zmiana_konfiguracji_zostawia_ci_testy_ponad_budzet_i_mowi_ktore_w_kazdy
     repo = _repo(tmp_path)
     # Każdy z trzech drogich plików pada, gdy biegnie. ``test_konfiguracja`` wymienia ``pyproject.toml``, więc ma do
     # zmiany drogę w grafie, a z ``test_uszkodzone_wejscia`` biegnie jego test struktury i trafia do tego samego junit.
-    _write(repo, "tests/test_konfiguracja.py", "from pathlib import Path\n\n\ndef test_konfiguracja() -> None:\n    assert Path('pyproject.toml').name == 'inna.toml'\n")
+    _write(repo, "tests/test_konfiguracja.py", CONFIGURATION_READER)
     with (repo / "tests" / "test_uszkodzone_wejscia.py").open("a", encoding="utf-8") as stub:
         stub.write("\n\ndef test_reszta_pliku() -> None:\n    raise AssertionError('biegnie tylko w CI')\n")
     expensive = ("tests/test_konfiguracja.py", "tests/test_uszkodzone_wejscia.py", "tests/test_zawsze_pada.py")
-    times = {test: 0.1 for test in BASE_FILES if szybko._is_test(test)} | dict.fromkeys(expensive, 9000.0)
-    _write(repo, str(szybko.TIMES), json.dumps(times))
-    commit(repo, "drogie testy")
-    git(repo, "update-ref", "refs/remotes/origin/main", "HEAD")
+    _commit_times(repo, dict.fromkeys(expensive, 9000.0))
     with (repo / "pyproject.toml").open("a", encoding="utf-8") as file:
         file.write("\n")
 
@@ -308,6 +331,60 @@ def test_zmiana_konfiguracji_zostawia_ci_testy_ponad_budzet_i_mowi_ktore_w_kazdy
         assert re.fullmatch(deferred, lines[-2]), answered.stdout
         assert (answered.returncode, lines[-1]) == (0, "SZYBKO OK"), answered.stdout
     assert "zielone na tych samych plikach 0;" in first.stdout, first.stdout
+
+
+@pytest.mark.parametrize(
+    ("changed", "text", "failing"),
+    [
+        ("src/pakiet/b.py", "def inna() -> int:\n    return 0 + 1\n", "tests/test_zawsze_pada.py::test_niedotkniety"),
+        ("tests/test_konfiguracja.py", CONFIGURATION_READER.replace("inna.toml", "inny.toml"), "tests/test_konfiguracja.py::test_konfiguracja"),
+    ],
+    ids=["moduł, który test importuje", "zmieniony test, który czyta konfigurację"],
+)
+def test_zmiana_konfiguracji_razem_z_innym_plikiem_uruchamia_zawsze_testy_w_odleglosci_1_od_niego(
+    tmp_path: Path, changed: str, text: str, failing: str
+) -> None:
+    repo = _repo(tmp_path)
+    _write(repo, "tests/test_konfiguracja.py", CONFIGURATION_READER)
+    _commit_times(repo, dict.fromkeys(("tests/test_konfiguracja.py", "tests/test_zawsze_pada.py"), 9000.0))
+    with (repo / "pyproject.toml").open("a", encoding="utf-8") as file:
+        file.write("\n")
+    _write(repo, changed, text)
+
+    answered = _szybko(repo)
+
+    assert f"FAILED {failing}" in answered.stdout, answered.stdout
+    assert answered.returncode == 1
+
+
+@pytest.mark.parametrize(
+    ("also_changed", "reader_s", "deferred", "deferred_s"),
+    [
+        # Tańszy test_zawsze_pada nie ma drogi w grafie.
+        ((), 100.0, "tests/test_zawsze_pada.py", 90.0),
+        # test_posredni ma odległość 2 od a.py, tyle co test, który czyta konfigurację, więc rozstrzyga koszt.
+        (("src/pakiet/a.py", "def wartosc() -> int:\n    return 0 + 1\n"), 90.0, "tests/test_posredni.py", 100.0),
+    ],
+    ids=["sama konfiguracja", "konfiguracja i moduł"],
+)
+def test_zmiana_konfiguracji_uruchamia_w_budzecie_testy_ktore_ja_czytaja_jak_w_odleglosci_2(
+    tmp_path: Path, also_changed: tuple[str, str], reader_s: float, deferred: str, deferred_s: float
+) -> None:
+    repo = _repo(tmp_path)
+    _write(repo, "tests/test_konfiguracja.py", CONFIGURATION_READER)
+    # Pojemność to 45 s na 4 workery, więc z dwóch drogich testów (razem 190 s) mieści się jeden.
+    _commit_times(repo, {"tests/test_konfiguracja.py": reader_s, deferred: deferred_s})
+    with (repo / "pyproject.toml").open("a", encoding="utf-8") as file:
+        file.write("\n")
+    if also_changed:
+        _write(repo, *also_changed)
+
+    answered = _szybko(repo)
+
+    assert "FAILED tests/test_konfiguracja.py::test_konfiguracja" in answered.stdout, answered.stdout
+    name = re.escape(PurePosixPath(deferred).name)
+    line = rf"^zostawione CI: 1 z \d+ plików testów \(~{deferred_s:.0f} s w CI\): {name}$"
+    assert re.search(line, answered.stdout, re.MULTILINE), answered.stdout
 
 
 # Zmieniony ``src/a.py`` i ``docs/dane.md``: ``test_dane`` czyta ``docs/dane.md``, a ``src/czyta.py`` czyta go dla
@@ -398,17 +475,8 @@ def test_testy_struktury_biegna_przy_zmianie_ktora_ich_nie_dotyka(tmp_path: Path
 
 
 def test_testy_struktury_biegna_tez_na_mergu_z_baza_ktora_poszla_dalej(tmp_path: Path) -> None:
-    unique = (
-        "numbers = [p.name[:4] for p in (Path(__file__).parents[1] / 'docs' / 'adr').glob('*.md')]\n"
-        "    assert len(numbers) == len(set(numbers))"
-    )
-    repo = _repo(tmp_path, structure=unique)
-    git(repo, "checkout", "--quiet", "-b", "inna-galaz")
-    _write(repo, "docs/adr/0002-z-main.md", "# ADR 0002\n")
-    git(repo, "update-ref", "refs/remotes/origin/main", commit(repo, "ADR 0002 na main"))
-    git(repo, "checkout", "--quiet", "-b", "galaz", "HEAD~1")
-    _write(repo, "docs/adr/0002-z-galezi.md", "# ADR 0002\n")
-    commit(repo, "ADR 0002 na gałęzi")
+    repo = _repo(tmp_path, structure=UNIQUE_ADR)
+    _base_moved_on(repo, ("docs/adr/0002-z-main.md", "# ADR 0002\n"), ("docs/adr/0002-z-galezi.md", "# ADR 0002\n"))
 
     answered = _szybko(repo)
 
@@ -419,12 +487,7 @@ def test_testy_struktury_biegna_tez_na_mergu_z_baza_ktora_poszla_dalej(tmp_path:
 def test_proces_testu_struktury_na_mergu_importuje_kod_z_mergu(tmp_path: Path) -> None:
     imports = "import subprocess\n    import sys\n\n    code = 'from pakiet.b import inna; assert inna() == 1'\n"
     repo = _repo(tmp_path, structure=f"{imports}    assert subprocess.run([sys.executable, '-c', code], check=False).returncode == 0")
-    git(repo, "checkout", "--quiet", "-b", "inna-galaz")
-    _write(repo, "src/pakiet/b.py", "def inna() -> int:\n    return 2\n")
-    git(repo, "update-ref", "refs/remotes/origin/main", commit(repo, "inna na main"))
-    git(repo, "checkout", "--quiet", "-b", "galaz", "HEAD~1")
-    _write(repo, "docs/notatka.md", "z gałęzi\n")
-    commit(repo, "notatka na gałęzi")
+    _base_moved_on(repo, ("src/pakiet/b.py", "def inna() -> int:\n    return 2\n"), ("docs/notatka.md", "z gałęzi\n"))
 
     answered = _szybko(repo)
 
@@ -432,14 +495,24 @@ def test_proces_testu_struktury_na_mergu_importuje_kod_z_mergu(tmp_path: Path) -
     assert (answered.returncode, last) == (1, "SZYBKO FAIL | testy struktury po mergu z origin/main"), answered.stdout
 
 
+def test_testy_struktury_na_mergu_biegna_bez_workerow_xdist(tmp_path: Path) -> None:
+    # Na HEAD biegną w kroku pytest z workerami, a na mergu, który ma plik z main, krok biegnie razem z nim.
+    single_process = (
+        "import os\n\n    on_merge = (Path(__file__).parents[1] / 'docs' / 'z-main.md').exists()\n"
+        "    assert not (on_merge and 'PYTEST_XDIST_WORKER' in os.environ)"
+    )
+    repo = _repo(tmp_path, structure=single_process)
+    _base_moved_on(repo, ("docs/z-main.md", "z main\n"), ("docs/notatka.md", "z gałęzi\n"))
+
+    answered = _szybko(repo)
+
+    assert re.search(r"^OK   testy struktury po mergu z origin/main \(\d+ s\)$", answered.stdout, re.MULTILINE), answered.stdout
+    assert (answered.returncode, answered.stdout.splitlines()[-1]) == (0, "SZYBKO OK"), answered.stdout
+
+
 def test_konflikt_z_baza_jest_uwaga_a_nie_porazka(tmp_path: Path) -> None:
     repo = _repo(tmp_path)
-    git(repo, "checkout", "--quiet", "-b", "inna-galaz")
-    _write(repo, "docs/notatka.md", "z main\n")
-    git(repo, "update-ref", "refs/remotes/origin/main", commit(repo, "notatka na main"))
-    git(repo, "checkout", "--quiet", "-b", "galaz", "HEAD~1")
-    _write(repo, "docs/notatka.md", "z gałęzi\n")
-    commit(repo, "notatka na gałęzi")
+    _base_moved_on(repo, ("docs/notatka.md", "z main\n"), ("docs/notatka.md", "z gałęzi\n"))
 
     answered = _szybko(repo)
 
