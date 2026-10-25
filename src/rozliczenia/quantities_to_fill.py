@@ -6,8 +6,10 @@ kolumny, w których wpis taty się liczy, to kolumny poza porównywanymi przez K
 więc ta lista i Kontrola ilości się nie rozjadą. Puste i 0 to to samo, jak w Kontroli ilości.
 
 Wiersz bez reguły jest zrobiony, gdy ma ilość różną od 0 poza V, T i N, a wiersz z opisu, gdy ma ją gdziekolwiek
-w N:AP. Wiersz z ``DATA``, która nie jest datą, nie ma wyniku reguł, więc nie trafia do żadnego rodzaju. Kolumny z
-opisu technika mają tylko liczbę wierszy, w których tata coś wpisał, wziętą z Kontroli ilości tych samych wierszy.
+w N:AP. Każda komórka N:AP wiersza pokazuje jedną wartość: w kolumnie, którą wyznaczają Reguły ilości, wartość
+narzędzia, a w pozostałych wartość taty; różnic między nimi nie widać, bo Kontrola ilości zostaje dla Maksa.
+Wiersz z ``DATA``, która nie jest datą, nie ma wyniku reguł, więc nie trafia do żadnego rodzaju. Kolumny z opisu
+technika mają tylko liczbę wierszy, w których tata coś wpisał, wziętą z Kontroli ilości tych samych wierszy.
 """
 
 from __future__ import annotations
@@ -17,7 +19,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import Final
 
-from .order_facts import N_AP, OrderFacts
+from .order_facts import N_AP, OrderFacts, TataValue
 from .quantity_check import QuantityCheck, check, compared_columns
 from .quantity_rules import DESCRIPTION_COLUMNS, FromDescription, QuantityColumn, RuleResult, WithoutRule, evaluate
 
@@ -38,19 +40,68 @@ _KINDS: Final[Mapping[type[RuleResult], FillKind]] = {
 
 
 @dataclass(frozen=True)
+class RowTexts:
+    """Teksty Wiersza danych, po których tata rozpoznaje zlecenie na stronie rodzaju (ADR 0016).
+
+    Trafiają tylko do przeglądarki taty, nigdy do ``OrderFacts``, więc nie wychodzą z komputera: ani w Kontroli
+    ilości, ani w Logach Uruchomienia. Pusta komórka to ``""``.
+    """
+
+    worker: str
+    devices: str
+    activities: str
+    completed: str
+    """``CZYNNOŚCI ZREALIZOWANE``: opis technika."""
+
+
+@dataclass(frozen=True)
 class NumberedOrder:
-    """Wiersz danych Pliku zbiorczego: numer wiersza w pliku i jego treść po filtrze prywatności."""
+    """Wiersz danych Pliku zbiorczego: numer wiersza w pliku, jego treść po filtrze prywatności i teksty strony rodzaju."""
 
     number: int
     order: OrderFacts
+    texts: RowTexts
+
+
+class CellSource(StrEnum):
+    """Czyją wartość pokazuje komórka N:AP wiersza do uzupełnienia."""
+
+    TOOL = "tool"
+    """Kolumna, którą wyznaczają Reguły ilości: wartość narzędzia, także 0."""
+    TATA = "tata"
+    """Ilość taty różna od 0 w kolumnie, której Reguły ilości nie wyznaczają: robi wiersz zrobionym."""
+    EMPTY = "empty"
+    """Kolumna, której Reguły ilości nie wyznaczają, pusta albo z 0."""
+
+
+@dataclass(frozen=True)
+class QuantityCell:
+    source: CellSource
+    value: TataValue
+    """Wartość ``source``; w ``EMPTY`` zawsze 0."""
+
+
+class RowState(StrEnum):
+    TO_FILL = "to_fill"
+    DONE = "done"
+    """Choć jedna komórka ``TATA``."""
 
 
 @dataclass(frozen=True)
 class RowToFill:
     number: int
     """Numer wiersza w Pliku zbiorczym z tego odczytu, więc usunięcie wiersza w Excelu przenumerowuje listę."""
-    done: bool
-    """Tata wpisał w wierszu ilość różną od 0 w kolumnie, której Reguły ilości nie wyznaczają."""
+    texts: RowTexts
+    cells: tuple[QuantityCell, ...]
+    """Każda kolumna ``N_AP`` po kolei."""
+
+    @property
+    def state(self) -> RowState:
+        return RowState.DONE if any(cell.source is CellSource.TATA for cell in self.cells) else RowState.TO_FILL
+
+    @property
+    def done(self) -> bool:
+        return self.state is RowState.DONE
 
 
 @dataclass(frozen=True)
@@ -83,7 +134,7 @@ def quantities_to_fill(rows: Sequence[NumberedOrder]) -> QuantitiesToFill:
         rule = evaluate(content)
         kind = _KINDS.get(type(rule))
         if kind is not None:
-            listed[kind].append(RowToFill(row.number, _done(row.order, compared_columns(rule))))
+            listed[kind].append(RowToFill(row.number, row.texts, _cells(row.order, rule)))
     control = check(tuple(row.order for row in rows))
     assert isinstance(control, QuantityCheck)  # ``check`` nie porównuje tylko przy brakujących nagłówkach
     return QuantitiesToFill(
@@ -92,5 +143,13 @@ def quantities_to_fill(rows: Sequence[NumberedOrder]) -> QuantitiesToFill:
     )
 
 
-def _done(order: OrderFacts, compared: tuple[QuantityColumn, ...]) -> bool:
-    return any(order.quantity(column) != 0 for column in N_AP if column not in compared)
+def _cells(order: OrderFacts, rule: RuleResult) -> tuple[QuantityCell, ...]:
+    compared = compared_columns(rule)
+    return tuple(_cell(order, rule, column, compared) for column in N_AP)
+
+
+def _cell(order: OrderFacts, rule: RuleResult, column: str, compared: tuple[QuantityColumn, ...]) -> QuantityCell:
+    if column in compared:
+        return QuantityCell(CellSource.TOOL, rule.quantities.get(QuantityColumn(column), 0))
+    value = order.quantity(column)
+    return QuantityCell(CellSource.EMPTY if value == 0 else CellSource.TATA, value)

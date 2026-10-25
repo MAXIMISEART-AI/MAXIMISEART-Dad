@@ -324,6 +324,8 @@ class DataRows:
 
     header: Mapping[str, int]
     rows: list[DataRow]
+    price_list: tuple[str, ...]
+    """Tekst N17:AP17 po kolei: nazwy pozycji cennika, które Przygotowanie kopiuje z Wzorca; pusta komórka to ``""``."""
 
 
 def read_data_rows(path: Path, *, despite_excel_lock: bool = False) -> DataRows:
@@ -349,10 +351,11 @@ def read_data_rows(path: Path, *, despite_excel_lock: bool = False) -> DataRows:
         header = next(
             classified(
                 path,
-                sheet.iter_rows(min_row=HEADER_ROW, max_row=HEADER_ROW, max_col=INPUT_COLUMNS[-1], values_only=True),
+                sheet.iter_rows(min_row=HEADER_ROW, max_row=HEADER_ROW, max_col=QUANTITY_COLUMNS[-1], values_only=True),
             ),
             (),
         )
+        header, price_list = header[: INPUT_COLUMNS[-1]], header[QUANTITY_COLUMNS[0] - 1 :]
         check_worker_header(path, sheet.title, header)
         with unreadable_as_error(path):
             max_column = max(DATA_ROW_COLUMNS[-1], sheet.max_column)
@@ -372,7 +375,8 @@ def read_data_rows(path: Path, *, despite_excel_lock: bool = False) -> DataRows:
             rows.append(DataRow(number, values, row_highlights, number_formats, links.row(number, values)))
     finally:
         workbook.close()
-    return DataRows(header_columns(header), rows)
+    names = tuple("" if is_blank(name) else " ".join(str(name).split()) for name in price_list)
+    return DataRows(header_columns(header), rows, names)
 
 
 class _HighlightsReader:
