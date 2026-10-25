@@ -70,6 +70,30 @@ DELIVERY_WAIT_S: Final = 5.0
 
 Frame = Callable[[int, int, str], str]
 """Komentarz części ``k`` z ``n`` z jej tekstu."""
+
+# Foldery kolejki z trwającym przejściem w tym procesie i czy inna kolejka tego folderu prosi o następne. Dwie
+# kolejki jednego folderu (restart Centrum w procesie) nie wysyłają naraz: obie nie znalazłyby issue okresu, którego
+# druga jeszcze nie założyła, i założyłyby je dwa razy. Między procesami pilnuje tego port Centrum (``launcher``).
+_PASSES_LOCK: Final = threading.Lock()
+_PASSES: Final[dict[Path, bool]] = {}
+
+
+def _claimed(directory: Path) -> bool:
+    """Czy to przejście może wysyłać z ``directory``; inaczej prosi trwające przejście o następne."""
+
+    with _PASSES_LOCK:
+        if directory in _PASSES:
+            _PASSES[directory] = True
+            return False
+        _PASSES[directory] = False
+        return True
+
+
+def _released(directory: Path) -> bool:
+    """Kończy przejście z ``directory``; ``True``, gdy w jego trakcie inna kolejka tego folderu prosiła o następne."""
+
+    with _PASSES_LOCK:
+        return _PASSES.pop(directory)
 Closed = Literal["new_issue", "reuse"]
 _LABELS: Final = frozenset(get_args(Label))
 _CLOSED: Final = frozenset(get_args(Closed))
@@ -482,6 +506,9 @@ class Outbox:
     dostanie znacznik. ``prepare`` dostaje wysyłkę z pliku tuż przed wysłaniem i zwraca tę, która pójdzie, albo
     ``None``: wysyłka czeka na inną i zostaje w kolejce do następnego przejścia.
 
+    Dwie kolejki jednego folderu w tym procesie nie wysyłają naraz (``_claimed``): kolejka, która zastanie przejście
+    drugiej, nie wysyła nic, a druga po swoim przejściu robi następne.
+
     Przejście, które stanęło na przyczynie dla całej kolejki, nastawia jedno budzenie ``clock`` za ``RETRY_S``, chyba
     że już jest nastawione; budzenie rusza wysyłkę w tle. Odrzucona treść i wysyłka czekająca w ``prepare`` budzenia
     nie nastawiają: ponowienie im nie pomoże. Linia „skrzynka-czeka” trafia do dziennika tylko przy zmianie przyczyny
@@ -598,7 +625,13 @@ class Outbox:
     def _drain(self) -> None:
         while True:
             try:
-                self._send_all()
+                if _claimed(self._directory):
+                    try:
+                        self._send_all()
+                    finally:
+                        if _released(self._directory):
+                            with self._lock:
+                                self._again = True
             except Exception as failure:
                 self._log.unexpected_failure(failure, where="wysyłka do Skrzynki Zgłoszeń")
             with self._changed:

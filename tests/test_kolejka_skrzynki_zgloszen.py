@@ -378,6 +378,41 @@ def test_tresc_ktorej_skrzynka_odmawia_zostaje_w_kolejce_a_nastepna_wychodzi_w_t
     assert wait_for(lambda: queue.files() == [])
 
 
+def test_druga_kolejka_na_tym_folderze_nie_wysyla_pliku_w_trakcie_wysylki_pierwszej(tmp_path: Path) -> None:
+    # Restart Centrum w tym samym procesie: kolejka poprzedniego startu dalej zakłada issue okresu.
+    hold = threading.Event()
+    queue = Queue(tmp_path, FakeReportBox(open_hold=hold))
+    queue.queued("treść\n")
+    queue.outbox.resume()
+    assert queue.box.opening.wait(30)
+    restarted = queue.restarted()
+
+    restarted.resume()
+    assert not restarted.wait_delivered("", THREAD.label, timeout_s=30)
+    searched = len(queue.box.listed)
+    hold.set()
+    queue.passed()
+
+    assert (searched, len(queue.box.issues)) == (1, 1)
+    assert queue.files() == []
+
+
+def test_przejscie_pominiete_przez_druga_kolejke_robi_pierwsza_po_swoim(tmp_path: Path) -> None:
+    hold = threading.Event()
+    queue = Queue(tmp_path, FakeReportBox(open_hold=hold, outcomes=[Unreachable()]))
+    queue.queued("treść\n")
+    queue.outbox.resume()
+    assert queue.box.opening.wait(30)
+    restarted = queue.restarted()
+    restarted.resume()
+    assert not restarted.wait_delivered("", THREAD.label, timeout_s=30)
+
+    hold.set()
+
+    assert queue.box.wait_until(lambda box: len(box.issues) == 1)
+    assert wait_for(lambda: queue.files() == [])
+
+
 def test_wysylka_dodana_w_trakcie_przejscia_wychodzi_bez_kolejnego_budzenia(tmp_path: Path) -> None:
     hold = threading.Event()
     queue = Queue(tmp_path, FakeReportBox(search_hold=hold))
