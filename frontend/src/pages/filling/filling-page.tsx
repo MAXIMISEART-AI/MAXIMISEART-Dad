@@ -1,5 +1,5 @@
 import { cn } from "cn"
-import { ArrowLeftIcon, CalendarRangeIcon, CircleCheckIcon, CircleDashedIcon, FileSpreadsheetIcon } from "lucide-react"
+import { ArrowLeftIcon, CalendarRangeIcon, ChevronRightIcon, CircleCheckIcon, CircleDashedIcon, FileSpreadsheetIcon } from "lucide-react"
 
 import {
   getQuantitiesToFill,
@@ -8,6 +8,7 @@ import {
   type KindToFill,
   type QuantitiesToFill,
 } from "@/api/centrum"
+import { zFillKind } from "@/api/generated/zod.gen"
 import { PageHeader } from "@/components/page-header"
 import { ThreePartMessage } from "@/components/three-part-message"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
@@ -17,9 +18,11 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { href, usePagePath } from "@/lib/address"
 import { useContentEntrance } from "@/lib/content-entrance"
-import { hourMinute } from "@/lib/format"
 import { useSettings } from "@/lib/settings"
 import { useLiveFile } from "@/lib/use-live-file"
+import { KindPage } from "@/pages/filling/kind-page"
+import { ReadyForSettlement } from "@/pages/filling/ready-for-settlement"
+import { SaveHint } from "@/pages/filling/save-hint"
 import { openAndConfirm } from "@/pages/periods/open-period-path"
 
 const TITLE = "Uzupełnienie pliku zbiorczego"
@@ -45,8 +48,23 @@ function quantitiesOf(token: string) {
 
 /** Podsumowanie Uzupełnienia pliku zbiorczego okresu z adresu `#/uzupelnienie/<okres>`. */
 export function FillingPage() {
-  const [token = ""] = usePagePath()
+  const [token = "", part] = usePagePath()
   const { filesVersion } = useSettings()
+  const kind = zFillKind.safeParse(part)
+
+  if (kind.success) {
+    return (
+      <KindPage
+        key={`${token}/${kind.data}/${filesVersion}`}
+        title={TITLE}
+        token={token}
+        kind={kind.data}
+        heading={KINDS[kind.data].title}
+        hint={KINDS[kind.data].hint}
+        action={<OpenCollectiveFile token={token} />}
+      />
+    )
+  }
 
   return (
     <>
@@ -69,6 +87,7 @@ export function FillingPage() {
       />
       {/* Inny okres albo nowe pliki taty to nowy odczyt; zmiana motywu nim nie jest. */}
       <FillingContent key={`${token}/${filesVersion}`} token={token} />
+      <ReadyForSettlement token={token} />
     </>
   )
 }
@@ -108,16 +127,12 @@ function FillingContent({ token }: { token: string }) {
           <Card className="py-0">
             <CardContent className="divide-y px-0">
               {found.kinds.map((kind) => (
-                <KindSection key={kind.kind} kind={kind} />
+                <KindSection key={kind.kind} token={token} kind={kind} />
               ))}
               <DescriptionColumns columns={found.description_columns} />
             </CardContent>
           </Card>
-          <p className="px-1 text-sm text-muted-foreground">
-            {/* Odczyt się nie udał (OneDrive, zapis Excela): serwer niesie ostatni dobry stan, strona ponawia. */}
-            {found.read.retrying ? <span role="status">Stan z {hourMinute(found.read.read_at)}. </span> : null}
-            Nie widzisz zmian? Zapisz w Excelu (Ctrl+S).
-          </p>
+          <SaveHint read={found.read} />
         </div>
       )
     }
@@ -131,7 +146,7 @@ function FillingContent({ token }: { token: string }) {
 }
 
 /** Rodzaj z listą: licznik „x z y” i numery wierszy; zrobiony rodzaj (także bez wierszy) jest spokojnie odhaczony. */
-function KindSection({ kind }: { kind: KindToFill }) {
+function KindSection({ token, kind }: { token: string; kind: KindToFill }) {
   const { title, hint } = KINDS[kind.kind]
   const doneRows = kind.rows.filter((row) => row.done).length
 
@@ -143,7 +158,11 @@ function KindSection({ kind }: { kind: KindToFill }) {
         <CircleDashedIcon className="mt-0.5 size-5 shrink-0 text-muted-foreground" aria-label="Do uzupełnienia" />
       )}
       <div className="flex min-w-0 flex-1 flex-col gap-3">
-        <div className="flex items-baseline gap-3">
+        {/* Rodzaj z wierszami prowadzi do swojej tabeli; bez wierszy nie ma czego otwierać. */}
+        <a
+          href={kind.rows.length === 0 ? undefined : href("uzupelnienie", token, kind.kind)}
+          className="-mx-2 -my-1 flex items-center gap-3 rounded-md px-2 py-1 transition-[background-color,scale] duration-150 ease-out [&[href]]:active:scale-[0.99] [&[href]]:active:bg-muted"
+        >
           <div className="flex flex-col gap-0.5">
             <h2 className="font-medium">{title}</h2>
             <p className="text-sm text-muted-foreground">
@@ -151,11 +170,14 @@ function KindSection({ kind }: { kind: KindToFill }) {
             </p>
           </div>
           {kind.rows.length === 0 ? null : (
-            <span className="ml-auto text-sm font-medium tabular-nums">
-              {doneRows} z {kind.rows.length}
-            </span>
+            <>
+              <span className="ml-auto text-sm font-medium tabular-nums">
+                {doneRows} z {kind.rows.length}
+              </span>
+              <ChevronRightIcon className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+            </>
           )}
-        </div>
+        </a>
         {kind.rows.length === 0 ? null : (
           <ul aria-label={`Numery wierszy: ${title}`} className="flex flex-wrap gap-1.5">
             {kind.rows.map(({ row, done }) => (

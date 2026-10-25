@@ -2,15 +2,19 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
+import re
 from urllib.parse import urlsplit
+import urllib.request
 
 from openpyxl import load_workbook
 from openpyxl.utils import column_index_from_string
 from openpyxl.worksheet.worksheet import Worksheet
 from playwright.sync_api import Page, expect
 
-from drive.common import LAST_COMPLETE, Run, last_opened_is, period_files
+from create_centrum_fixture import PRICE_LIST
+from drive.common import LAST_COMPLETE, ROW_MARKER, Run, last_opened_is, period_files
 from drive.przygotowanie_pliku_zbiorczego import drive_preparation
 
 FEATURE = "uzupelnienie"
@@ -26,6 +30,12 @@ EXPECTED_ROWS = {"without_rule": [18, 20], "from_description": [19]}
 # Dad's value goes into a column from the technician's description: it is outside V, T and N, so it also makes
 # its row without rule done, and it moves that column's counter.
 DAD_COLUMN = "Y"
+# The pinned column headers of a kind's table, the row texts the browser gets, and each row state's words.
+PINNED = ("Nr", "WYKONAWCA", "URZĄDZENIA", "CZYNNOŚCI", "CZYNNOŚCI ZREALIZOWANE")
+ROW_TEXTS = ("worker", "devices", "activities", "completed")
+ROW_LABELS = {"to_fill": "do uzupełnienia", "done": "zrobiony"}
+# Dad's 15,6" 1920×1080 touch screen scaled 150% and 125%, in CSS pixels; the narrower must fit 10 columns N:AP.
+DAD_WIDTHS = (1280, 1536)
 # A period whose Folder okresu holds no Plik zbiorczy.
 EMPTY_PERIOD = "15_21_09_2026"
 
@@ -81,14 +91,192 @@ def _check_screen(run: Run, page: Page, answer: dict[str, object], where: str) -
     run.check(True, f"{where}: counters, row numbers with their done state, and column counters match the server")
 
 
-def _write_dad_value(collective_file: Path, row: int) -> None:
+def _shown(cell: dict[str, object]) -> str:
+    """A quantity cell's text as the table renders it, screen-reader words included."""
+
+    value = cell["value"]
+    if value == 0:
+        return ""
+    if value == "nieliczbowa":
+        return "? nieliczbowa"
+    return f"{value} narzędzie" if cell["source"] == "tool" else str(value)
+
+
+def _without_texts(answer: dict[str, object]) -> dict[str, object]:
+    """The answer with the four row texts replaced: what is left must not carry any workbook content."""
+
+    rows = answer["rows"]
+    assert isinstance(rows, list)
+    hidden = dict.fromkeys(ROW_TEXTS, "<tekst wiersza>")
+    return {**answer, "rows": [{**row, **hidden} for row in rows]}
+
+
+def _kind_answer(run: Run, kind: str) -> dict[str, object]:
+    """The kind's table from the server; the evidence keeps it without the row texts, which are workbook content."""
+
+    with urllib.request.urlopen(f"{run.url.rstrip('/')}{API}/{kind}", timeout=10) as response:
+        answer = json.load(response)
+    assert isinstance(answer, dict)
+    (run.evidence / "api" / f"uzupelnienie-tabela-{kind}.json").write_text(
+        json.dumps(_without_texts(answer), ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
+    return answer
+
+
+def _capture(run: Run, page: Page, name: str, answer: dict[str, object]) -> None:
+    """Screenshot of a kind page; its ARIA snapshot keeps the row texts out, like the saved answer."""
+
+    run.capture(page, name)
+    rows = answer["rows"]
+    assert isinstance(rows, list)
+    snapshot = run.evidence / "aria" / f"{name}.txt"
+    text = snapshot.read_text(encoding="utf-8")
+    for row in rows:
+        for field in ROW_TEXTS:
+            if row[field]:
+                text = text.replace(row[field], "<tekst wiersza>")
+    snapshot.write_text(text, encoding="utf-8")
+
+
+def _drive_kind(run: Run, page: Page, kind: str, shot: str) -> dict[str, object]:
+    """From the summary, open the kind's table and check it against the server; returns the server's answer."""
+
+    title = KIND_TITLES[kind]
+    log_path = run.root / "logs" / "centrum-rozliczen.log"
+    since = len(log_path.read_text(encoding="utf-8").splitlines())
+    page.get_by_role("region", name=title, exact=True).get_by_role("link").click()
+    expect(page).to_have_url(f"{run.url.rstrip('/')}/{SUMMARY}/{kind}")
+    table = page.get_by_role("table", name="Wiersze Pliku zbiorczego", exact=True)
+    expect(table).to_be_visible()
+    expect(page.get_by_role("heading", level=1)).to_have_text("Uzupełnienie pliku zbiorczego")
+    expect(page.get_by_role("main").get_by_role("heading", level=2)).to_have_text([title])
+    answer = _kind_answer(run, kind)
+    rows = answer["rows"]
+    columns = answer["columns"]
+    assert isinstance(rows, list) and isinstance(columns, list)
+    run.check(
+        answer["state"] == "ready" and [row["row"] for row in rows] == EXPECTED_ROWS[kind],
+        f"{title}: the server lists only this kind's rows, ascending",
+    )
+    run.check(
+        ROW_MARKER not in json.dumps(_without_texts(answer), ensure_ascii=False) and all(ROW_MARKER in row["completed"] for row in rows),
+        f"{title}: the answer carries the row texts and no address, order number or UMOWA",
+    )
+    run.check(
+        [column["name"] for column in columns] == list(PRICE_LIST),
+        f"{title}: every column N:AP carries its price-list name from row 17 of the Plik zbiorczy",
+    )
+
+    expect(table.get_by_role("columnheader")).to_have_count(len(PINNED) + len(columns))
+    expect(table.get_by_role("columnheader")).to_have_text(
+        [*PINNED, *(re.compile(f"^{column['column']}{re.escape(column['name'])}$") for column in columns)]
+    )
+    expect(table.get_by_role("rowheader")).to_have_text([f"{row['row']} {ROW_LABELS[row['state']]}" for row in rows])
+    for row in rows:
+        line = table.locator(f"tr[data-state='{row['state']}']", has=page.get_by_role("rowheader", name=str(row["row"])))
+        expect(line.locator("td[data-source]")).to_have_text([_shown(cell) for cell in row["cells"]])
+        expect(line.locator("td[data-source='tata']")).to_have_count(
+            sum(cell["source"] == "tata" for cell in row["cells"])
+        )
+    run.check(True, f"{title}: row numbers, row states and every N:AP cell on screen equal the server's answer")
+
+    [first] = columns[:1]
+    table.get_by_role("button", name=f"{first['column']}: {first['name']}", exact=True).click()
+    expect(page.locator("[data-slot=popover-content]")).to_contain_text(first["name"])
+    page.keyboard.press("Escape")
+    expect(page.locator("[data-slot=popover-content]")).to_have_count(0)
+    completed = rows[0]["completed"]
+    table.get_by_role("button", name=f"CZYNNOŚCI ZREALIZOWANE: {completed}", exact=True).click()
+    expect(page.locator("[data-slot=popover-content]")).to_contain_text(completed)
+    run.check(True, f"{title}: a tap on a column header or on CZYNNOŚCI ZREALIZOWANE shows the full text")
+    run.wait_for(
+        lambda: any(
+            " pomiar " in line and "strona=uzupelnienie" in line and "getKindTable:" in line
+            for line in log_path.read_text(encoding="utf-8").splitlines()[since:]
+        ),
+        f"{title}: the view is measured as page uzupelnienie with its getKindTable request",
+    )
+    _capture(run, page, f"{shot}-otwarty-opis", answer)
+    page.keyboard.press("Escape")
+    original = page.viewport_size
+    for width in DAD_WIDTHS:
+        page.set_viewport_size({"width": width, "height": 800})
+        visible = table.evaluate(
+            """table => {
+                const right = table.parentElement.getBoundingClientRect().right
+                return [...table.querySelectorAll("thead th")].slice(5)
+                    .filter((th) => th.getBoundingClientRect().right <= right + 0.5).length
+            }"""
+        )
+        run.check(
+            width > DAD_WIDTHS[0] or visible >= 10,
+            f"{title}: at {width} px with the menu open {visible} columns N:AP fit next to the pinned texts",
+        )
+        _capture(run, page, f"{shot}-{width}px", answer)
+    if original is not None:
+        page.set_viewport_size(original)
+    switched = _light_theme(page)
+    _capture(run, page, f"{shot}-jasny", answer)
+    if switched:
+        page.locator("header").get_by_role("button", name="Włącz motyw ciemny", exact=True).click()
+
+    number = table.get_by_role("rowheader").first
+    before = number.bounding_box()
+    table.locator("xpath=..").evaluate("box => { box.scrollLeft = box.scrollWidth }")
+    expect(table.get_by_role("columnheader", name=re.compile("^AP")).first).to_be_in_viewport()
+    after = number.bounding_box()
+    run.check(
+        before is not None and after is not None and before["x"] == after["x"],
+        f"{title}: the row number stays in place while the quantity columns scroll sideways",
+    )
+    # Column Y (Dad's value in row 18) right after the pinned columns, as Dad would scroll to it.
+    table.evaluate(
+        """table => {
+            const [n, y] = ["N", "Y"].map((letter) =>
+                [...table.querySelectorAll("thead th")].find((th) => th.textContent.startsWith(letter))
+            )
+            table.parentElement.scrollLeft = y.offsetLeft - n.offsetLeft
+        }"""
+    )
+    _capture(run, page, f"{shot}-przewiniete", answer)
+
+    page.get_by_role("main").get_by_role("link", name="Podsumowanie", exact=True).click()
+    expect(page.get_by_role("region", name="Kolumny z opisu technika", exact=True)).to_be_visible()
+    return answer
+
+
+def _live_kind_cell(run: Run, page: Page, collective_file: Path) -> None:
+    """Dad types the missing quantity of row 20 while its kind's table is open, then deletes it again."""
+
+    row = EXPECTED_ROWS["without_rule"][1]
+    page.get_by_role("region", name=KIND_TITLES["without_rule"], exact=True).get_by_role("link").click()
+    table = page.get_by_role("table", name="Wiersze Pliku zbiorczego", exact=True)
+    line = table.locator("tr", has=page.get_by_role("rowheader", name=str(row)))
+    expect(line).to_have_attribute("data-state", "to_fill")
+    page.evaluate("() => { window.__bez_przeladowania = true }")
+    _write_dad_value(collective_file, row)
+    expect(line).to_have_attribute("data-state", "done", timeout=LIVE_TIMEOUT_MS)
+    expect(line.locator("td[data-source='tata']")).to_have_text(["1"])
+    run.check(
+        page.evaluate("() => window.__bez_przeladowania === true"),
+        f"harness typed 1 into {DAD_COLUMN}{row}: the row turns done with Dad's green value without a click or reload",
+    )
+    run.capture(page, "227-uzupelnienie-tabela-na-zywo")
+    _write_dad_value(collective_file, row, None)
+    expect(line).to_have_attribute("data-state", "to_fill", timeout=LIVE_TIMEOUT_MS)
+    run.check(True, f"harness deleted {DAD_COLUMN}{row} again: the row is to fill again by itself")
+    page.get_by_role("main").get_by_role("link", name="Podsumowanie", exact=True).click()
+    expect(page.get_by_role("region", name=KIND_TITLES["without_rule"], exact=True)).to_contain_text("1 z 2")
+
+
+def _write_dad_value(collective_file: Path, row: int, value: int | None = 1) -> None:
     """Dad types one quantity in Excel and saves (harness: openpyxl edits the run's Plik zbiorczy, no lock file)."""
 
     workbook = load_workbook(collective_file)
     try:
         sheet = workbook.active
         assert isinstance(sheet, Worksheet)
-        sheet.cell(row, column_index_from_string(DAD_COLUMN)).value = 1
+        sheet.cell(row, column_index_from_string(DAD_COLUMN)).value = value
         workbook.save(collective_file)
     finally:
         workbook.close()
@@ -215,6 +403,22 @@ def _drive(run: Run, page: Page, collective_file: Path, lock: Path) -> None:
     if switched:
         page.locator("header").get_by_role("button", name="Włącz motyw ciemny", exact=True).click()
 
+    run.step(FEATURE, "uzupelnienie-tabela-bez-reguly")
+    without_rule = _drive_kind(run, page, "without_rule", "225-uzupelnienie-bez-reguly")
+    rows = without_rule["rows"]
+    assert isinstance(rows, list)
+    dad_cells = {row["row"]: [cell for cell in row["cells"] if cell["source"] == "tata"] for row in rows}
+    run.check(
+        [row["state"] for row in rows] == ["done", "to_fill"] and dad_cells == {18: [{"source": "tata", "value": 1}], 20: []},
+        f"Dad's value in {DAD_COLUMN}18 comes back green with his value and makes row 18 done; row 20 stays to fill",
+    )
+
+    run.step(FEATURE, "uzupelnienie-tabela-z-opisu")
+    _drive_kind(run, page, "from_description", "226-uzupelnienie-z-opisu")
+
+    run.step(FEATURE, "uzupelnienie-tabela-na-zywo")
+    _live_kind_cell(run, page, collective_file)
+
     run.step(FEATURE, "uzupelnienie-blokada-excela")
     lock.write_bytes(b"\x00" * 165)
     page.reload()
@@ -260,3 +464,91 @@ def _drive(run: Run, page: Page, collective_file: Path, lock: Path) -> None:
     page.go_back()
     expect(page.get_by_role("heading", level=1)).to_have_text("Uzupełnienie pliku zbiorczego")
     run.check(True, "the link Okresy leads back, and Wstecz returns to the summary of the same period")
+
+    run.step(FEATURE, "uzupelnienie-gotowe")
+    lock.unlink()
+    run.check(not lock.exists(), "harness: Dad closed Excel, so no lock file keeps Uruchom disabled")
+    expected = _without_quantity(_ready(run, "uzupelnienie-gotowe-podsumowanie"))
+    answer = _go_to_settlement(run, page, LAST_COMPLETE, "uzupelnienie-gotowe")
+    run.check(
+        answer == {"state": "read", "rows": expected, "sentence": "2 wiersze bez ilości: 19, 20"} and expected == [19, 20],
+        "the period's rows without quantity are 19 and 20, the summary's rows not done",
+    )
+    run.capture(page, "215-uzupelnienie-gotowe")
+
+    run.step(FEATURE, "uzupelnienie-gotowe-potwierdzenie")
+    page.get_by_role("button", name="Uruchom", exact=True).click()
+    confirm = page.get_by_role("alertdialog", name="Uruchomić z zapisem?")
+    expect(confirm).to_contain_text("„Uruchom” potwierdza Gotowość Pliku zbiorczego")
+    expect(confirm).to_contain_text("2 wiersze bez ilości: 19, 20")
+    expect(confirm.get_by_role("button", name="Uruchom", exact=True)).to_be_enabled()
+    run.check(True, "the confirm dialog lists the rows without quantity, and Dad may still start")
+    run.capture(page, "216-uzupelnienie-gotowe-potwierdzenie")
+    confirm.get_by_role("button", name="Anuluj", exact=True).click()
+    expect(confirm).to_have_count(0)
+
+    run.step(FEATURE, "uzupelnienie-gotowe-po-podgladzie")
+    page.get_by_role("button", name="Podgląd bez zapisu", exact=True).click()
+    live = page.get_by_role("region", name="Podgląd na żywo")
+    expect(live).to_contain_text("Podgląd gotowy · nic nie zapisano")
+    live.get_by_role("button", name="Uruchom", exact=True).click()
+    confirm = page.get_by_role("alertdialog", name="Uruchomić z zapisem?")
+    expect(confirm).to_contain_text("2 wiersze bez ilości: 19, 20")
+    expect(confirm.get_by_role("button", name="Uruchom", exact=True)).to_be_enabled()
+    run.check(True, "after the preview, the result card's Uruchom dialog lists the same rows, Dad's usual path")
+    run.capture(page, "218-uzupelnienie-gotowe-po-podgladzie")
+    confirm.get_by_role("button", name="Anuluj", exact=True).click()
+    expect(confirm).to_have_count(0)
+
+    run.step(FEATURE, "uzupelnienie-gotowe-bez-odczytu")
+    other = run.fixture["settlement"]["needs_check"]
+    assert isinstance(other, str)
+    other_file = Path(str(run.fixture["periods_directory"])) / other / f"Rozliczenie {other} - zbiorcze.xlsx"
+    saved = other_file.read_bytes()
+    try:
+        other_file.write_bytes(b"to nie jest skoroszyt")
+        run.check(True, f"harness: the Plik zbiorczy of {other} is damaged for this step and restored after it")
+        page.goto(f"{run.url.rstrip('/')}/#/uzupelnienie/{other}")
+        expect(page.get_by_role("main").get_by_text(other, exact=True)).to_be_visible()
+        answer = _go_to_settlement(run, page, other, "uzupelnienie-gotowe-bez-odczytu")
+        run.check(
+            answer == {"state": "unread"},
+            f"Gotowe on the summary of {other} selects it, not the preselected {LAST_COMPLETE}, and its rows "
+            "without quantity answer although its Plik zbiorczy cannot be read",
+        )
+        page.get_by_role("button", name="Uruchom", exact=True).click()
+        confirm = page.get_by_role("alertdialog", name="Uruchomić z zapisem?")
+        expect(confirm).to_contain_text("Nie udało się sprawdzić wierszy bez ilości")
+        expect(confirm.get_by_role("button", name="Uruchom", exact=True)).to_be_enabled()
+        run.check(True, "the dialog says the rows could not be checked instead of staying silent, and Dad may start")
+        run.capture(page, "217-uzupelnienie-gotowe-bez-odczytu")
+        confirm.get_by_role("button", name="Anuluj", exact=True).click()
+    finally:
+        other_file.write_bytes(saved)
+    # The draft of the Przebieg form lives in the page; the next feature must start without it.
+    page.goto(run.url)
+    page.reload()
+
+
+def _without_quantity(answer: dict[str, object]) -> list[int]:
+    return sorted(row for rows in _rows(answer).values() for row, done in rows if not done)
+
+
+def _go_to_settlement(run: Run, page: Page, period: str, name: str) -> dict[str, object]:
+    """Clicks Gotowe on the summary: Przebieg rozliczeń with the period chosen; returns the period's rows without quantity."""
+
+    page.get_by_role("button", name="Gotowe, rozlicz pracowników", exact=True).click()
+    expect(page).to_have_url(f"{run.url.rstrip('/')}/#/uruchomienia")
+    expect(page.get_by_text("Nowe Uruchomienie procesu", exact=True)).to_be_visible()
+    expect(page.get_by_role("radio", name="Przebieg rozliczeń")).to_be_checked()
+    expect(page.get_by_role("combobox", name="Okres")).to_contain_text(period)
+    processes = run.api("/api/runs/setup", name)["processes"]
+    assert isinstance(processes, list)
+    [setup] = [process for process in processes if process["process"] == "settlement"]
+    run.check(
+        processes[0]["process"] != "settlement"
+        and setup["preselected_period"] == LAST_COMPLETE
+        and period in [choice["token"] for choice in setup["periods"]],
+        f"Gotowe chose Przebieg rozliczeń and {period}; without it the form shows the first process",
+    )
+    return run.api(f"/api/periods/{period}/without-quantity", f"{name}-wiersze")

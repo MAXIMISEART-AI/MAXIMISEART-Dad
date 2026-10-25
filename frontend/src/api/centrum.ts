@@ -3,11 +3,14 @@ import type {
   DadNoteRequest,
   DadNoteText,
   DecisionAnswer,
+  FillKind,
   GetCurrentRunResponse,
   GetNotificationsResponse,
   GetPeriodBoardResponse,
   GetQuantitiesToFillResponse,
+  GetKindTableResponse,
   GetRunCardResponse,
+  GetWithoutQuantityResponse,
   GetToolUpdateResponse,
   NotificationsRead,
   OpenRequest,
@@ -37,7 +40,9 @@ import {
   zGetPeriodBoardResponse,
   zGetQuantitiesToFillResponse,
   zGetCollectiveFileVersionResponse,
+  zGetKindTableResponse,
   zGetRunCardResponse,
+  zGetWithoutQuantityResponse,
   zGetRunSetupResponse,
   zGetSettingsResponse,
   zGetToolUpdateResponse,
@@ -55,6 +60,7 @@ import {
 
 export type {
   Choice,
+  CollectiveFileRead,
   Configuration,
   Count,
   DadNoteDraft,
@@ -67,6 +73,9 @@ export type {
   Figure,
   FillKind,
   KindToFill,
+  KindTableCell,
+  KindTableRow,
+  PriceListItem,
   LoggedOutcome,
   Message,
   Metrics,
@@ -100,6 +109,12 @@ export type PeriodBoard = GetPeriodBoardResponse
 
 /** Ilości do uzupełnienia okresu z zapisanego Pliku zbiorczego albo Komunikat o pliku (unia z kontraktu po `state`). */
 export type QuantitiesToFill = GetQuantitiesToFillResponse
+
+/** Wiersze jednego rodzaju Ilości do uzupełnienia z komórkami N:AP albo Komunikat o pliku (unia z kontraktu po `state`). */
+export type KindTable = GetKindTableResponse
+
+/** Wiersze bez ilości okresu dla okna „Uruchomić z zapisem?” albo „unread”, gdy Pliku zbiorczego nie odczytano. */
+export type WithoutQuantity = GetWithoutQuantityResponse
 
 /** Aktualizacja narzędzia: krok albo wynik (unia z kontraktu). */
 export type ToolUpdate = GetToolUpdateResponse
@@ -213,6 +228,20 @@ export function getCollectiveFileVersion(token: string) {
     zGetCollectiveFileVersionResponse,
     "getCollectiveFileVersion",
     `/api/periods/${encodeURIComponent(token)}/collective-file-version`
+  )
+}
+
+/** Tabela jednego rodzaju Ilości do uzupełnienia, przeliczana przy każdym odczycie z zapisanego Pliku zbiorczego. */
+export function getKindTable(token: string, kind: FillKind) {
+  return call(zGetKindTableResponse, "getKindTable", `/api/periods/${encodeURIComponent(token)}/quantities-to-fill/${kind}`)
+}
+
+/** Wiersze bez ilości okresu dla okna „Uruchomić z zapisem?” Przebiegu rozliczeń, z zapisanego Pliku zbiorczego. */
+export function getWithoutQuantity(token: string) {
+  return call(
+    zGetWithoutQuantityResponse,
+    "getWithoutQuantity",
+    `/api/periods/${encodeURIComponent(token)}/without-quantity`
   )
 }
 

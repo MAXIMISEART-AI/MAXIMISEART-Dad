@@ -425,10 +425,23 @@ do wpisania w Excelu:
 - Kolumny Y, AB, AD, AJ, AK, AL i AM: w każdym wierszu według `CZYNNOŚCI
   ZREALIZOWANE`. Strona podaje tylko, w ilu wierszach coś w nich wpisałeś.
 
+Dotknij `Wiersze bez reguły` albo `Wiersze z opisu`, a zobaczysz tabelę jak w
+Excelu, tylko z wierszami tego rodzaju. Z lewej stoją numer wiersza, `WYKONAWCA`,
+`URZĄDZENIA`, `CZYNNOŚCI` i `CZYNNOŚCI ZREALIZOWANE`, z prawej kolumny od N do
+AP, które przesuwasz w bok. Dotknij tekstu albo litery kolumny, a zobaczysz
+cały tekst albo pełną nazwę pozycji cennika. Szare są kolumny, które wypełnia narzędzie.
+Wiersz do uzupełnienia jest żółty. Komórka z Twoją ilością jest zielona, a
+wiersz z choćby jedną Twoją ilością robi się zielony. W tabeli niczego nie
+wpisujesz: ilości wpisujesz w Excelu.
+
 `0` i pusta komórka to to samo. Strona czyta zapisany Plik zbiorczy, także gdy
 masz go otwartego w Excelu, i nigdy go nie zmienia. Czyta go na nowo, gdy
 wracasz do niej z Excela. Jeśli nie widzisz swoich wpisów, zapisz plik w Excelu
 (Ctrl+S). `Otwórz Plik zbiorczy` otwiera plik w Excelu.
+
+Gdy skończysz, zapisz i zamknij Plik zbiorczy i kliknij `Gotowe, rozlicz
+pracowników`. Otwiera się strona `Uruchomienia` z Przebiegiem rozliczeń i tym
+okresem (dalej „Przebieg rozliczeń” niżej).
 
 ### Uzupełnienie → co zrobić
 
@@ -467,7 +480,9 @@ Plik zbiorczy wynika z okresu, więc go nie szukasz: Centrum bierze
    nie ma wierszy).
 4. Kliknij `Uruchom` i potwierdź w okienku `Uruchomić z zapisem?`. To kliknięcie
    jest potwierdzeniem Gotowości, więc zrób je dopiero po zamknięciu Pliku
-   zbiorczego w Excelu.
+   zbiorczego w Excelu. Okienko wymienia wiersze, w których nadal nie ma żadnej
+   ilości, np. `3 wiersze bez ilości: 118, 203, 244`. Możesz mimo to uruchomić,
+   jeśli te wiersze naprawdę zostają na zero.
 5. W trakcie widać etapy, liczniki (`Wiersze danych`, `Zapisane szablony`,
    `Puste szablony`, `Problemy`) i pasek `Szablony
    pracowników` z bieżącym Wykonawcą i liczbą, np. `2 z 7`. Zamknięcie Centrum

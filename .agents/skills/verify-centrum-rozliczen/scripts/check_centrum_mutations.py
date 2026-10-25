@@ -110,7 +110,7 @@ MUTATIONS = (
     ),
     Mutation(
         "wpis taty nie robi wiersza",
-        (Edit(QUANTITIES_TO_FILL, "    return any(order.quantity(column) != 0 for", "    return False and any(order.quantity(column) != 0 for"),),
+        (Edit(QUANTITIES_TO_FILL, "CellSource.EMPTY if value == 0 else CellSource.TATA", "CellSource.EMPTY"),),
         UZUPELNIENIE,
         "wiersz, który tata uzupełnił w Excelu, zostaje na liście do zrobienia",
     ),
@@ -125,6 +125,30 @@ MUTATIONS = (
         (Edit(FILLING, "        if failing.kept is not None:\n", "        if False:\n"),),
         UZUPELNIENIE,
         "każdy zapis Excela albo synchronizacja OneDrive miga tacie Komunikatem zamiast ostatniego stanu",
+    ),
+    Mutation(
+        "strona rodzaju gubi CZYNNOŚCI ZREALIZOWANE",
+        (Edit(FILLING, "                completed=row.texts.completed,\n", '                completed="",\n'),),
+        UZUPELNIENIE,
+        "tata nie rozpozna zlecenia po opisie technika i musi szukać wiersza w Excelu",
+    ),
+    Mutation(
+        "ustawienie Przebiegu nie wymienia wierszy bez ilości",
+        (Edit(QUANTITIES_TO_FILL, "for row in kind.rows if not row.done))", "for row in kind.rows if False))"),),
+        UZUPELNIENIE,
+        "tata potwierdza Gotowość, a okno „Uruchomić z zapisem?” milczy o wierszach, w których nie ma ilości",
+    ),
+    Mutation(
+        "nieczytelny Plik zbiorczy psuje ustawienie Przebiegu",
+        (
+            Edit(
+                FILLING,
+                '    except WorkbookError:\n        return contract.WithoutQuantityUnread(state="unread")\n',
+                "    except WorkbookError:\n        raise\n",
+            ),
+        ),
+        UZUPELNIENIE,
+        "przy uszkodzonym Pliku zbiorczym jednego okresu tata nie może uruchomić żadnego Przebiegu rozliczeń",
     ),
     Mutation(
         "„Otwórz Rejestr zleceń” niczego nie otwiera",
