@@ -255,7 +255,7 @@ jobs:
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v7
         with:
-          name: profil-${{ matrix.os }}-py${{ matrix.python-version }}-${{ strategy.job-index }}
+          name: profil-${{ matrix.os }}-py${{ matrix.python-version }}-${{ strategy.job-index }}-a${{ github.run_attempt }}
           path: ${{ runner.temp }}/profil/
           retention-days: 7
           if-no-files-found: error
