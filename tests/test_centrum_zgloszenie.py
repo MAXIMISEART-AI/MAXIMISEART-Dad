@@ -33,6 +33,7 @@ from tests.fixtures.centrum import (
     FakeOneDrive,
     FakePlatform,
     FakeReportBox,
+    case_states,
     centrum as plain_centrum,
     dad_cases,
 )
@@ -300,8 +301,9 @@ def test_zgloszenie_z_kolejki_wychodzi_po_restarcie_centrum_z_numerem_w_stanie_w
     centrum.restart()
     with centrum.client:
         assert centrum.surroundings.report_box.wait_until(lambda box: len(box.sent) == 1)
-        assert wait_for(lambda: [case["number"] for case in cases(centrum)] == [1])
+        assert wait_for(lambda: case_states(centrum.client, "zgloszenie") == ["wyslana"])
 
+    assert [case["number"] for case in cases(centrum)] == [1]
     assert queued_reports(centrum) == []
 
 

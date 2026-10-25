@@ -19,7 +19,7 @@ from rozliczenia.centrum.report_box import CloseReason, Refused, Unreachable
 from rozliczenia.centrum.tool_freshness import PublishedRelease
 from rozliczenia.centrum.tool_update import Release
 
-from tests.fixtures.centrum import TOOL_COMMIT, centrum as plain_centrum
+from tests.fixtures.centrum import TOOL_COMMIT, case_states, centrum as plain_centrum
 from tests.fixtures.centrum_processes import PreparingCentrum, preparing_centrum, stopped_for_maks
 from tests.fixtures.potomne import wait_for
 
@@ -467,12 +467,8 @@ def delivered_from_queue(centrum: PreparingCentrum) -> int:
     centrum.surroundings.clock.advance(RETRY_S)
     assert box.wait_until(lambda box: len(box.sent) == 1)
     number = box.sent[0].number
-    assert wait_for(lambda: '"number": ' + str(number) in sent_reports_text(centrum))
+    assert wait_for(lambda: case_states(centrum.client, "zgloszenie") == ["wyslana"])
     return number
-
-
-def sent_reports_text(centrum: PreparingCentrum) -> str:
-    return (centrum.tmp_path / "config" / DAD_CASES_FILE).read_text(encoding="utf-8")
 
 
 def test_zgloszenie_w_kolejce_czeka_na_internet_a_po_dostarczeniu_jest_wyslane_bez_kropki(tmp_path: Path) -> None:

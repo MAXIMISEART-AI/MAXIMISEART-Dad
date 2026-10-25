@@ -19,7 +19,7 @@ from pydantic import BaseModel
 from rozliczenia.centrum import update_messages
 from rozliczenia.centrum.keyed_box import KeyedBox, read_report_key
 from rozliczenia.centrum.log import CentrumLog
-from rozliczenia.centrum.dad_cases import DAD_CASES_FILE, NOTE, Case, DadCases
+from rozliczenia.centrum.dad_cases import DAD_CASES_FILE, NOTE, REPORT, Case, DadCases
 from rozliczenia.centrum.outbox import RETRY_S, Outbox, Post, ReportIssue
 from rozliczenia.centrum.report_box import IssuesOutcome, Label, Refused, Unreachable
 from rozliczenia.centrum.reports import (
@@ -77,6 +77,7 @@ class Computer:
     clock: ManualClock = field(default_factory=ManualClock)
     outbox: Outbox | None = None
     keyed: KeyedBox | None = None
+    stored: DadCases | None = None
 
     @property
     def config(self) -> Path:
@@ -101,18 +102,19 @@ class Computer:
             clock=self.clock,
             on_delivered=lambda post, number: reports.delivered(post, number),
         )
-        reports = Reports(
-            keyed,
-            outbox,
-            lambda: TOOL_COMMIT,
-            DadCases(self.config, self.log),
-            search_deadline_s=self.search_deadline_s,
-        )
-        self.outbox, self.keyed = outbox, keyed
+        stored = DadCases(self.config, self.log)
+        reports = Reports(keyed, outbox, lambda: TOOL_COMMIT, stored, search_deadline_s=self.search_deadline_s)
+        self.outbox, self.keyed, self.stored = outbox, keyed, stored
         return reports
 
     def cases(self) -> list[dict[str, Any]]:
         return dad_cases(self.config, "zgloszenie")
+
+    def numbers(self) -> list[int | None]:
+        """Numery Zgłoszeń ostatniego startu: na nie czeka test, bo sprawy oddają je pod blokadą zapisu pliku stanu."""
+
+        assert self.stored is not None
+        return [case.number for case in self.stored.all() if case.kind == REPORT]
 
     def queued(self) -> list[Path]:
         return sorted((self.config / "zgloszenia" / "kolejka").glob("*.json"))
@@ -185,7 +187,8 @@ def test_bez_sieci_zgloszenie_czeka_w_kolejce_i_dostaje_numer_po_dostarczeniu(co
     assert (queued, pending["number"]) == (FOR_INTERNET, None)
     assert owner.wait_for(3) == [READY, FOR_INTERNET, SENT]
     assert [issue.body for issue in computer.box.sent] == [body]
-    assert wait_for(lambda: computer.cases() == [{**pending, "number": 1}])
+    assert wait_for(lambda: computer.numbers() == [1])
+    assert computer.cases() == [{**pending, "number": 1}]
     assert dump(handle.state) == SENT
 
 
@@ -263,7 +266,7 @@ def test_dwa_problemy_z_kolejki_dostaja_kazdy_numer_swojego_issue(computer: Comp
     computer.clock.advance(RETRY_S)
 
     assert computer.box.wait_until(lambda box: len(box.sent) == 2)
-    assert wait_for(lambda: None not in [case["number"] for case in computer.cases()])
+    assert wait_for(lambda: None not in computer.numbers())
     bodies = {issue.number: issue.body.splitlines() for issue in computer.box.sent}
     assert [fingerprint_line(case["id"]) in bodies[case["number"]] for case in computer.cases()] == [True, True]
 
@@ -569,7 +572,7 @@ def test_dostarczenie_tuz_po_koncu_czekania_na_skrzynke_daje_stan_wyslane(
     def delivered_meanwhile(*, wait_s: float) -> str:
         assert computer.box.open_hold is not None
         computer.box.open_hold.set()
-        assert wait_for(lambda: [case["number"] for case in computer.cases()] == [1])
+        assert wait_for(lambda: computer.numbers() == [1])
         return judge(wait_s=wait_s)
 
     monkeypatch.setattr("rozliczenia.centrum.reports.DELIVERY_WAIT_S", 0.01)

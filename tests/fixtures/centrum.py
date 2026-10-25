@@ -289,6 +289,17 @@ class Centrum:
     clock: ManualClock
 
 
+def case_states(client: TestClient, kind: str) -> list[str]:
+    """Stany Spraw taty rodzaju ``kind`` (``uwaga``, ``zgloszenie``) w Powiadomieniach.
+
+    Na nie czeka test, a nie na plik stanu: Centrum podaje sprawy pod blokadą, która trzyma też zapis pliku, a na
+    Windows plik otwarty przez test w pętli blokuje jego zamianę (``os.replace``) i zapis przepada.
+    """
+
+    items = client.get("/api/notifications").json()["items"]
+    return [item["state"] for item in items if item["kind"] == kind]
+
+
 def dad_cases(config: Path, kind: str) -> list[dict[str, Any]]:
     """Sprawy taty rodzaju ``kind`` (``uwaga``, ``zgloszenie``) z pliku stanu u taty; bez pliku żadnych."""
 
