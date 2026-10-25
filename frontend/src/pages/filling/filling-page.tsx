@@ -41,11 +41,12 @@ const KINDS: Record<FillKind, { title: string; hint: string }> = {
   from_description: { title: "Wiersze z opisu", hint: "Wpisz ilości według opisu technika." },
 }
 
-// Numer wiersza w podsumowaniu po jego stanie z serwera; `label` czyta czytnik ekranu po numerze.
-const CHIPS: Record<RowState, { look: string; label: string | null }> = {
-  to_fill: { look: "bg-secondary", label: null },
-  done: { look: "text-muted-foreground line-through decoration-muted-foreground/50", label: "zrobiony" },
-  without_quantity: { look: "bg-muted text-muted-foreground", label: "bez ilości" },
+// Numer wiersza w podsumowaniu po jego stanie z serwera. `label` czyta czytnik ekranu po numerze, a „bez ilości”
+// stoi też na ekranie, bo szary numer wygląda jak numer do uzupełnienia sprzed Przebiegu.
+const CHIPS: Record<RowState, { look: string; label: string | null; shown: boolean }> = {
+  to_fill: { look: "bg-secondary", label: null, shown: false },
+  done: { look: "text-muted-foreground line-through decoration-muted-foreground/50", label: "zrobiony", shown: false },
+  without_quantity: { look: "border border-dashed text-muted-foreground", label: "bez ilości", shown: true },
 }
 
 // `useResource` pamięta ostatnie dane pod funkcją odczytu, więc każdy okres ma jedną, tę samą funkcję.
@@ -206,7 +207,9 @@ function KindSection({ token, kind, settled }: { token: string; kind: KindToFill
             {kind.rows.map(({ row, state }) => (
               <li key={row} className={cn("rounded-md px-1.5 py-0.5 font-mono text-xs tabular-nums", CHIPS[state].look)}>
                 {row}
-                {CHIPS[state].label === null ? null : <span className="sr-only"> {CHIPS[state].label}</span>}
+                {CHIPS[state].label === null ? null : (
+                  <span className={CHIPS[state].shown ? "ml-1 font-sans" : "sr-only"}> {CHIPS[state].label}</span>
+                )}
               </li>
             ))}
           </ul>

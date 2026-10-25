@@ -17,15 +17,18 @@ import { useResource } from "@/lib/use-resource"
 import { AfterSettlement, afterSettlementHint } from "@/pages/filling/after-settlement"
 
 // Wygląd wiersza po jego stanie z serwera; tło przypiętych komórek jest kryjące, bo pod nimi przewijają się ilości.
-const ROWS: Record<RowState, { tint: string; label: string }> = {
-  to_fill: { tint: "bg-to-fill", label: "do uzupełnienia" },
+// `shown`: napis stoi pod numerem, bo szarego wiersza nie odróżni się od zielonego po samym kolorze.
+const ROWS: Record<RowState, { tint: string; label: string; shown: boolean }> = {
+  to_fill: { tint: "bg-to-fill", label: "do uzupełnienia", shown: false },
   done: {
     tint: "bg-[color-mix(in_oklab,var(--success)_14%,var(--card))] dark:bg-[color-mix(in_oklab,var(--success)_20%,var(--card))]",
     label: "zrobiony",
+    shown: false,
   },
   without_quantity: {
-    tint: "bg-[color-mix(in_oklab,var(--muted-foreground)_14%,var(--card))] text-muted-foreground",
+    tint: "bg-[color-mix(in_oklab,var(--muted-foreground)_18%,var(--card))] text-muted-foreground",
     label: "bez ilości",
+    shown: true,
   },
 }
 
@@ -33,13 +36,13 @@ type Pinned = { title: string; width: number; left: number }
 
 // Przypięte kolumny w rem: `left` to suma szerokości kolumn przed nią. Razem 22 rem, więc na laptopie taty
 // (1280 px z menu) obok mieści się 10 kolumn N:AP.
-const NUMBER: Pinned = { title: "Nr", width: 2.5, left: 0 }
+const NUMBER: Pinned = { title: "Nr", width: 3.5, left: 0 }
 
 const TEXTS: ReadonlyArray<Pinned> = [
-  { title: "WYKONAWCA", width: 4.5, left: 2.5 },
-  { title: "URZĄDZENIA", width: 4.75, left: 7 },
-  { title: "CZYNNOŚCI", width: 4.25, left: 11.75 },
-  { title: "CZYNNOŚCI ZREALIZOWANE", width: 6, left: 16 },
+  { title: "WYKONAWCA", width: 4.25, left: 3.5 },
+  { title: "URZĄDZENIA", width: 4.5, left: 7.75 },
+  { title: "CZYNNOŚCI", width: 4.25, left: 12.25 },
+  { title: "CZYNNOŚCI ZREALIZOWANE", width: 5.5, left: 16.5 },
 ]
 
 const PINNED = [NUMBER, ...TEXTS]
@@ -252,7 +255,7 @@ function ColumnHeader({ column }: { column: PriceListItem }) {
 }
 
 function Row({ row }: { row: KindTableRow }) {
-  const { tint, label } = ROWS[row.state]
+  const { tint, label, shown } = ROWS[row.state]
   const texts = [row.worker, row.devices, row.activities, row.completed]
 
   return (
@@ -262,8 +265,17 @@ function Row({ row }: { row: KindTableRow }) {
         style={pinnedStyle(NUMBER)}
         className={cn("sticky z-10 h-10 border-b px-1.5 text-left align-middle font-mono text-sm text-muted-foreground tabular-nums", tint)}
       >
-        {row.row}
-        <span className="sr-only"> {label}</span>
+        {shown ? (
+          <span className="flex flex-col gap-0.5 leading-none">
+            <span>{row.row}</span>{" "}
+            <span className="font-sans text-[0.625rem] font-normal whitespace-nowrap">{label}</span>
+          </span>
+        ) : (
+          <>
+            {row.row}
+            <span className="sr-only"> {label}</span>
+          </>
+        )}
       </th>
       {TEXTS.map((column, index) => (
         <td
