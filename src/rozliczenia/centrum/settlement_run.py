@@ -3,7 +3,8 @@
 Plik zbiorczy wynika z folderu okresów i okresu; tata go nie wskazuje. Do
 wyboru są okresy ze Statusem okresu „Plik zbiorczy przygotowany”. Kliknięcie
 „Uruchom” jest potwierdzeniem Gotowości: Centrum nie zgaduje jej z pliku ani
-nie blokuje startu.
+nie blokuje startu. Wiersze bez ilości z Pliku zbiorczego okno potwierdzenia
+tylko wymienia.
 """
 
 from __future__ import annotations
@@ -16,6 +17,7 @@ from typing import Any, Final
 
 from rozliczenia.centrum import contract, run_view
 from rozliczenia.centrum.configuration import ConfigurationFiles, InputWorkbook, open_in_excel
+from rozliczenia.centrum.filling import without_quantity
 from rozliczenia.centrum.metrics import previewed_periods
 from rozliczenia.centrum.period_board import located_period_folder, observed_period_folder, read_board, requested_period
 from rozliczenia.centrum.runs import PreparedRun
@@ -71,6 +73,7 @@ class SettlementEntry:
                     previewed=row.token in previewed,
                     open_files=open_in_excel([InputWorkbook("Plik zbiorczy", collective_files[row.token], "data_file")])
                     + open_templates,
+                    without_quantity=without_quantity(collective_files[row.token]),
                 )
                 for row in rows
             ],
@@ -109,7 +112,13 @@ def _collective_files(periods_directory: Path, rows: list[contract.PeriodRow]) -
     return {row.token: observed_period_folder(folders, SettlementPeriod(row.tuesday)).collective_file for row in rows}
 
 
-def _choice(row: contract.PeriodRow, *, previewed: bool, open_files: list[str]) -> contract.PeriodChoice:
+def _choice(
+    row: contract.PeriodRow,
+    *,
+    previewed: bool,
+    open_files: list[str],
+    without_quantity: contract.WithoutQuantity,
+) -> contract.PeriodChoice:
     return contract.PeriodChoice(
         token=row.token,
         tuesday=row.tuesday,
@@ -119,6 +128,7 @@ def _choice(row: contract.PeriodRow, *, previewed: bool, open_files: list[str]) 
         previewed=previewed,
         collective_file=collective_file_name(SettlementPeriod(row.tuesday)),
         open_in_excel=open_files,
+        without_quantity=without_quantity,
     )
 
 

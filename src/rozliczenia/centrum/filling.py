@@ -54,6 +54,21 @@ def filling_router(store: SettingsStore, log: CentrumLog, cloud_files: CloudFile
     return router
 
 
+def without_quantity(path: Path) -> contract.WithoutQuantity:
+    """Wiersze bez ilości Pliku zbiorczego dla okna „Uruchomić z zapisem?”; nieudany odczyt nie blokuje startu.
+
+    Komunikat i wpis w dzienniku o nieudanym odczycie daje strona Uzupełnienia, a sam Przebieg rozliczeń nazwa plik.
+    """
+
+    try:
+        read = collective_file.read_numbered_orders(path)
+    except WorkbookError:
+        return contract.WithoutQuantityUnread(state="unread")
+    if isinstance(read, MissingHeaders):
+        return contract.WithoutQuantityUnread(state="unread")
+    return contract.WithoutQuantityRead(state="read", rows=list(quantities_to_fill(read).without_quantity))
+
+
 def _ready(found: QuantitiesToFill) -> contract.QuantitiesToFillReady:
     return contract.QuantitiesToFillReady(
         state="ready",
