@@ -84,6 +84,45 @@ MUTATIONS = (
         "po powrocie sieci wysyłka czeka do następnego startu Centrum",
         NEW,
     ),
+    Mutation(
+        "Zgłoszenie bez komentarzy także przy działającej sieci",
+        (
+            Edit(
+                VERIFIED,
+                "    opened = box.open_issue(report.label, report.title, body)\n    if not isinstance(opened, Sent):\n        return opened\n    return _comment_all(opened.number, comments, box)\n",
+                "    opened = box.open_issue(report.label, report.title, body)\n    if not isinstance(opened, Sent):\n        return opened\n    return _comment_all(opened.number, (), box)\n",
+            ),
+        ),
+        (EXPLORER, "--scope", "zgloszenie-w-czesciach"),
+        "każde Zgłoszenie w kilku częściach traci części od drugiej, choć znane ustalenie dotyczy tylko przerwanej wysyłki",
+        NEW,
+    ),
+    Mutation(
+        "Uwaga taty zakłada issue dwa razy",
+        (
+            Edit(
+                VERIFIED,
+                "    opened = box.open_issue(issue.label, issue.title, body)\n",
+                "    box.open_issue(issue.label, issue.title, body)\n    opened = box.open_issue(issue.label, issue.title, body)\n",
+            ),
+        ),
+        (EXPLORER, "--scope", "nowe-issue"),
+        "każda Uwaga taty daje dwa issue, choć ADR 0015 przyjmuje drugie tylko po zerwanym połączeniu",
+        NEW,
+    ),
+    Mutation(
+        "bez znacznika dostarczenia",
+        (
+            Edit(
+                VERIFIED,
+                "                replace_atomically(path, _queue_text(post, delivered_parts=len(post.parts)))\n",
+                "                pass\n",
+            ),
+        ),
+        (EXPLORER, "--scope", "nowe-issue"),
+        "plik, którego nie dało się usunąć, idzie po restarcie drugi raz i zakłada drugie issue Uwagi taty",
+        NEW,
+    ),
 )
 
 

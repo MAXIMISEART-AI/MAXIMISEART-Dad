@@ -1,9 +1,10 @@
 ---
 name: verify-kolejka-skrzynki
-description: Exhaustively check that the Kolejka Skrzynki Zgłoszeń (`Outbox` in `src/rozliczenia/centrum/outbox.py`) delivers every part of every wysyłka (Zgłoszenie, Kontrola ilości, Logi Uruchomienia, Uwaga taty) at least once, keeps one issue per problem and per period, and empties the queue, under every order of network failures, answers lost after the Skrzynka acted, file errors and a killed Centrum. Use when a change touches `_deliver*`, `_comment_all`, `_waiting`, `Outbox._drain`, `_send_all`, `_remove`, `resume` or the delivery marker in `outbox.py`, the box calls in `keyed_box.py`, adds a new `Target`, or when `explore_outbox.py` fails.
+description: Exhaustively check that the Kolejka Skrzynki Zgłoszeń (`Outbox` in `src/rozliczenia/centrum/outbox.py`) delivers every part of every wysyłka (Zgłoszenie, Kontrola ilości, Logi Uruchomienia, Uwaga taty) at least once, keeps one issue per problem and per period, and empties the queue, under every order of network failures, answers lost after the Skrzynka acted, file errors and a killed Centrum. Use when a change touches `_deliver*`, `_comment_all`, `_waiting`, `Outbox._drain`, `_send_all`, `_remove`, `resume` or the delivery marker in `outbox.py`, the box calls in `keyed_box.py` or `newest_with_line` in `report_box.py`, adds a new `Target`, or when `explore_outbox.py` fails.
 pilnuje:
   - src/rozliczenia/centrum/outbox.py
   - src/rozliczenia/centrum/keyed_box.py
+  - src/rozliczenia/centrum/report_box.py
 ci: .agents/skills/verify-kolejka-skrzynki/scripts/explore_outbox.py
 ---
 
@@ -51,7 +52,9 @@ step of this code that the checker can fail, lose or kill:
 | a restart of Centrum | a new `Outbox` and `KeyedBox` on the same folder, then `Outbox.resume` |
 
 Covered files: `src/rozliczenia/centrum/outbox.py`,
-`src/rozliczenia/centrum/keyed_box.py`.
+`src/rozliczenia/centrum/keyed_box.py`, and in
+`src/rozliczenia/centrum/report_box.py` `newest_with_line`, by which
+`KeyedBox.find_issue` finds the issue of a Zgłoszenie or a period.
 
 **Sync commit: `8122ab4c`** (2026-10-26, `main` after #478). At this commit the
 checker was confirmed to describe the code above. To see whether it needs
@@ -79,7 +82,7 @@ mutations pass there.
 
 On Windows use `py -3` instead of `.venv/bin/python`. In a worktree, create its
 `.venv` first (`python3 tools/setup_worktree.py`). It needs nothing beyond the
-repo's Python and takes about 10 s. `--scope NAME` runs one scope, and
+repo's Python and takes about 30 s. `--scope NAME` runs one scope, and
 `--strict` counts known findings and accepted risks as violations too.
 
 The last line is the verdict:
@@ -112,13 +115,15 @@ Bounds in every scope: at most 2 network failures, 1 lost answer, 1 file error
 and 1 killed or restarted Centrum. After the failures run out the queue gets
 3 more passes to empty itself. The checker re-runs the code from scratch for
 every schedule. A schedule that reaches a pass boundary already explored stops
-there: the code is deterministic, and the state (the Skrzynka, the queue files,
-the files `_remove` could not delete, the failures and passes left) decides
-every future.
+there: the code is deterministic, and the state decides every future and how
+its breaks are judged. The state is the Skrzynka, the queue files, the files
+`_remove` could not delete, the faults so far and those left, the passes left
+and the exceptions so far. `_state` in `explore_outbox.py` names what it leaves
+out and why.
 
 | Scope | Wysyłki |
 | --- | --- |
-| `zgloszenie` | one Zgłoszenie (`ReportIssue`) in one part, as every Zgłoszenie is today (`reports.py` puts 20 log entries in one block) |
+| `zgloszenie` | one Zgłoszenie (`ReportIssue`) in one part, as every Zgłoszenie is in practice |
 | `zgloszenie-w-czesciach` | one Zgłoszenie in three parts, which a longer body would make |
 | `watek-okresu` | two Kontrole ilości to one issue okresu (`PeriodThread`), in two and one part |
 | `nowe-issue` | one Uwaga taty (`NewIssue`) in two parts |
@@ -128,7 +133,8 @@ Not covered: a key that is missing or refused (`NoKey`, `Refused`: the pass
 stops, nothing is sent, and `KeyedBox` keeps a refusal for `REFUSED_KEPT_S`),
 content the Skrzynka rejects (`Rejected`: the file waits for the next start,
 and the same content would be rejected again), Maks closing or deleting an
-issue (`Gone`, `closed="reuse"`), two queues on one folder (`_claimed`), a
+issue (`Gone`, `closed="reuse"`), a part posted twice (after a lost comment
+answer or a restart, accepted as at least once and not a rule here), two queues on one folder (`_claimed`), a
 process killed in the middle of `replace_atomically` (it leaves a `.tmp` that
 `resume` removes), `prepare` holding a wysyłka back, the threads of
 `send_in_background`, `wait_delivered` and `on_delivered` (Sprawy taty), and
@@ -148,27 +154,40 @@ more wysyłki or failures than the bounds above.
    Parts 2 and 3 never reach the Skrzynka. The docstring of `ReportIssue` takes
    over a found Zgłoszenie „bez komentarza” on purpose, because it may be one
    that another computer or an earlier Zgłoszenie opened, but the docstring of
-   `outbox.py` and ADR 0015 promise at least once. It is latent today: every
-   Zgłoszenie is one part, so nothing is lost in scope `zgloszenie`. It becomes
-   real as soon as a Zgłoszenie body grows past one comment
-   (`COMMENT_LIMIT` minus 2 000 characters).
+   `outbox.py` and ADR 0015 promise at least once. It is latent in practice:
+   the body (`reports.py`) has 20 short log entries, so it fits in one part,
+   and nothing is lost in scope `zgloszenie`. Nothing guards that, though: the
+   body also carries every frame of the call trace (`call_trace.py`) and the
+   Diagnoza checks, and a body longer than one comment (`COMMENT_LIMIT` minus
+   2 000 characters) makes the finding real.
 
-A known finding lives in `KNOWN_FINDINGS` in `explore_outbox.py`. When a code
-change fixes it, the check ends with `ZNALEZISKO ZNIKNĘŁO`: delete the entry
-there and here.
+   The finding excuses WSZYSTKIE_CZESCI in this scope only after the faults
+   that cause it (`_after_opened_issue`: a lost answer to `open_issue` or a
+   fault at a `comment`). Parts missing after any other schedule, including one
+   without faults, are a new violation.
+
+A known finding lives in `KNOWN_FINDINGS` in `explore_outbox.py`, with the
+faults after which it is excused. When a code change fixes it, the check ends
+with `ZNALEZISKO ZNIKNĘŁO`: delete the entry there and here.
 
 ## Accepted risks
 
-1. **`nowe-issue`, JEDNO_ISSUE: a second issue of an Uwaga taty after a lost
-   answer.** `open_issue` is accepted, the answer is lost, and the next pass
-   opens a second issue with the whole Uwaga. ADR 0015 accepts it: „Wysyłka jest
-   co najmniej raz: zerwane połączenie po utworzeniu issue może dać drugie
-   issue”. A `NewIssue` has no line to find its issue by. Parts posted twice
-   (after a lost comment answer, or a marker that could not be written before a
-   restart) are accepted the same way and are not a rule here.
+1. **`nowe-issue`, JEDNO_ISSUE: a second issue of an Uwaga taty after the
+   connection broke.** The Skrzynka opens the issue, then the answer is lost or
+   a comment fails, and the next pass opens a second issue with the whole Uwaga.
+   ADR 0015 accepts it: „Wysyłka jest co najmniej raz: zerwane połączenie po
+   utworzeniu issue może dać drugie issue”. The docstring of `outbox.py` accepts
+   the same after a process killed between the Skrzynka and the marker. A
+   `NewIssue` has no line to find its issue by.
+
+   The risk excuses JEDNO_ISSUE only after those faults
+   (`_connection_broke_after_issue`). A second issue without them is a new
+   violation. That is how the check holds the delivery marker to its promise:
+   a file that `_remove` could not delete must not be sent again after a
+   restart.
 
 An accepted risk lives in `ACCEPTED_RISKS` in `explore_outbox.py` with the
-decision it rests on.
+decision it rests on and the faults after which it is accepted.
 
 ## When the check fails
 
@@ -197,9 +216,18 @@ CI proves the check can still fail: Mutation checks runs
 `.agents/skills/verify-kolejka-skrzynki/scripts/check_outbox_mutations.py`
 whenever a change touches this skill. It applies each broken variant of
 `outbox.py` to a temporary copy of the checkout (`tools/mutacje.py`) and must end
-with `MUTACJE OK`: a failed comment skipped, a found issue okresu missing part 1,
-an issue okresu opened without looking for it, a known issue missing part 1,
-and a network failure that skips the file instead of stopping the pass all give
-`KOLEJKA: NOWE NARUSZENIE`. A mutation reported as `NIEAKTUALNA` no longer
+with `MUTACJE OK`. Each of these gives `KOLEJKA: NOWE NARUSZENIE`:
+
+- a failed comment skipped;
+- a found issue okresu missing part 1;
+- an issue okresu opened without looking for it;
+- a known issue missing part 1;
+- a network failure that skips the file instead of stopping the pass;
+- a Zgłoszenie that never posts its comments, with the network working;
+- an Uwaga taty that opens two issues;
+- no delivery marker.
+
+The last three break the same rule as a known finding or an accepted risk, in a
+schedule those do not excuse. A mutation reported as `NIEAKTUALNA` no longer
 matches `outbox.py`: rewrite its `anchor` and `replacement` against the new code
 so that it breaks the same rule again.

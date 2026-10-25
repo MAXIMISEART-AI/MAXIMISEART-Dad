@@ -162,11 +162,12 @@ class Scheduler:
             "kill": bounds.kills,
         }
         self.trace: list[str] = []
+        self.faults: set[tuple[str, str]] = set()
 
     def say(self, line: str) -> None:
         self.trace.append(line)
 
-    def _pick(self, offered: Sequence[Choice]) -> Choice:
+    def _pick(self, offered: Sequence[Choice], what: str) -> Choice:
         allowed = [choice for choice in offered if self.left.get(choice, 1) > 0]
         position = len(self.taken)
         index = self._prefix[position] if position < len(self._prefix) else 0
@@ -175,6 +176,7 @@ class Scheduler:
         chosen = allowed[index]
         if chosen in self.left:
             self.left[chosen] -= 1
+            self.faults.add((chosen, what.split("(")[0]))
         return chosen
 
     def _killed(self, chosen: Choice, what: str) -> None:
@@ -183,14 +185,14 @@ class Scheduler:
             raise Crash
 
     def box_read(self, what: str) -> bool:
-        chosen = self._pick(("ok", "unreachable", "kill"))
+        chosen = self._pick(("ok", "unreachable", "kill"), what)
         self._killed(chosen, what)
         if chosen == "unreachable":
             self.say(f"{what}: brak sieci (Unreachable)")
         return chosen == "unreachable"
 
     def box_write(self, what: str) -> Literal["unreachable", "lost"] | None:
-        chosen = self._pick(("ok", "unreachable", "lost", "kill"))
+        chosen = self._pick(("ok", "unreachable", "lost", "kill"), what)
         self._killed(chosen, what)
         if chosen == "unreachable":
             self.say(f"{what}: brak sieci (Unreachable), Skrzynka nic nie dostaje")
@@ -202,16 +204,21 @@ class Scheduler:
         return None
 
     def disk(self, what: str) -> bool:
-        chosen = self._pick(("ok", "oserror", "kill"))
+        chosen = self._pick(("ok", "oserror", "kill"), what)
         self._killed(chosen, what)
         if chosen == "oserror":
             self.say(f"{what}: OSError")
         return chosen == "oserror"
 
     def restart(self) -> bool:
-        chosen = self._pick(("next", "restart")) if self.left["kill"] else "next"
+        chosen = (
+            self._pick(("next", "restart"), "przejście")
+            if self.left["kill"]
+            else "next"
+        )
         if chosen == "restart":
             self.left["kill"] -= 1
+            self.faults.add(("restart", "przejście"))
         return chosen == "restart"
 
 
@@ -287,18 +294,71 @@ SCOPES = {
     ),
 }
 
-# (scope, rule): why it is reported but does not fail the check. Each must break in its scope, or the check fails.
-KNOWN_FINDINGS: dict[tuple[str, str], str] = {
-    ("zgloszenie-w-czesciach", "WSZYSTKIE_CZESCI"): (
+Faults = frozenset[tuple[str, str]]
+"""What went wrong in a schedule: (``unreachable``/``lost``/``oserror``/``kill``/``restart``, the step it hit)."""
+
+
+@dataclass(frozen=True)
+class Excuse:
+    """A break of ``rule`` in ``scope`` that is reported but does not fail the check, only after the faults that
+    ``because`` names: the same rule broken in a schedule without them, or without any fault, is a new violation."""
+
+    scope: str
+    rule: str
+    text: str
+    because: Callable[[Faults], bool]
+
+
+def _after_opened_issue(faults: Faults) -> bool:
+    """The first attempt opened the issue and stopped before its comments: a lost answer to ``open_issue`` or any
+    fault at a ``comment``."""
+
+    return ("lost", "open_issue") in faults or any(
+        step == "comment" for _, step in faults
+    )
+
+
+def _connection_broke_after_issue(faults: Faults) -> bool:
+    """The connection broke after the Skrzynka opened the issue (``_after_opened_issue``), or the process died
+    between the Skrzynka and the marker. Not a restart after a file error: the marker is there to prevent that."""
+
+    return _after_opened_issue(faults) or any(kind == "kill" for kind, _ in faults)
+
+
+# Each must break in its scope after its faults, or the check ends with ZNALEZISKO ZNIKNĘŁO.
+KNOWN_FINDINGS = (
+    Excuse(
+        "zgloszenie-w-czesciach",
+        "WSZYSTKIE_CZESCI",
         "ponowna próba po przerwanej wysyłce Zgłoszenia znajduje issue założone przez pierwszą i przejmuje je bez "
-        "komentarzy (_deliver_report), więc części, których pierwsza nie dopisała, nigdy nie trafiają do Skrzynki"
+        "komentarzy (_deliver_report), więc części, których pierwsza nie dopisała, nigdy nie trafiają do Skrzynki",
+        _after_opened_issue,
     ),
-}
-ACCEPTED_RISKS: dict[tuple[str, str], str] = {
-    ("nowe-issue", "JEDNO_ISSUE"): (
-        "ADR 0015: „Wysyłka jest co najmniej raz: zerwane połączenie po utworzeniu issue może dać drugie issue”"
+)
+ACCEPTED_RISKS = (
+    Excuse(
+        "nowe-issue",
+        "JEDNO_ISSUE",
+        "ADR 0015: „Wysyłka jest co najmniej raz: zerwane połączenie po utworzeniu issue może dać drugie issue”; "
+        "tak samo proces zamknięty przed znacznikiem (outbox.py: przerwanie między wysłaniem a znacznikiem)",
+        _connection_broke_after_issue,
     ),
-}
+)
+Kind = Literal["known", "accepted", "new"]
+
+
+def _kind(scope: str, rule: str, faults: Faults) -> Kind:
+    if any(
+        e.scope == scope and e.rule == rule and e.because(faults)
+        for e in KNOWN_FINDINGS
+    ):
+        return "known"
+    if any(
+        e.scope == scope and e.rule == rule and e.because(faults)
+        for e in ACCEPTED_RISKS
+    ):
+        return "accepted"
+    return "new"
 
 
 class _Log(CentrumLog):
@@ -329,14 +389,14 @@ def _intercepted(scheduler: Scheduler, queue: Path) -> Iterator[None]:
     unlink = pathlib.Path.unlink
 
     def marker(path: Path, text: str) -> None:
-        if scheduler.disk(f"zapis znacznika dostarczenia {path.name[-24:]}"):
+        if scheduler.disk("zapis znacznika dostarczenia"):
             raise PermissionError("plik zablokowany")
         replace(path, text)
         scheduler.say("znacznik dostarczenia zapisany")
 
     def removal(path: Path, missing_ok: bool = False) -> None:
         if path.parent == queue and path.suffix == ".json":
-            if scheduler.disk(f"usunięcie pliku kolejki {path.name[-24:]}"):
+            if scheduler.disk("usunięcie pliku kolejki"):
                 raise PermissionError("plik zablokowany")
             scheduler.say("plik kolejki usunięty")
         unlink(path, missing_ok=missing_ok)
@@ -355,6 +415,7 @@ class Violation:
     rule: str
     detail: str
     trace: tuple[str, ...]
+    kind: Kind
 
 
 def _check(
@@ -417,9 +478,20 @@ def _check(
 
 
 def _state(
-    box: MemoryBox, queue: Path, outbox: Outbox, scheduler: Scheduler, passes: int
+    box: MemoryBox,
+    queue: Path,
+    outbox: Outbox,
+    scheduler: Scheduler,
+    passes: int,
+    failures: list[str],
 ) -> object:
-    """What decides every future of a pass boundary: the Skrzynka, the queue files, the failures and passes left."""
+    """What decides every future of a pass boundary and how its breaks are judged: the Skrzynka, the queue files,
+    the files ``_remove`` could not delete, the faults so far and those left, the passes left and the exceptions.
+
+    Left out on purpose, because they do not change what is sent: ``_stopped_on`` (log lines), ``_first_comments``
+    (``delivered``, ``wait_delivered``), ``_rejected`` (no ``Rejected`` here) and the key verdict of ``KeyedBox``
+    (the key is always accepted, and ``Unreachable`` does not change it).
+    """
 
     files = {
         path.name: path.read_text(encoding="utf-8") for path in queue.glob("*.json")
@@ -432,12 +504,14 @@ def _state(
         tuple(sorted(files.values())),
         tuple(sorted(files[name] for name in outbox._undeleted if name in files)),
         tuple(sorted(scheduler.left.items())),
+        frozenset(scheduler.faults),
         passes,
+        tuple(failures),
     )
 
 
 def execute(
-    scope: Scope, prefix: Sequence[int], work: Path, visited: set[object]
+    name: str, prefix: Sequence[int], work: Path, visited: set[object]
 ) -> tuple[Scheduler, list[Violation]]:
     """One schedule: write the wysyłki, then passes and restarts as ``prefix`` picks until failures run out.
 
@@ -446,6 +520,7 @@ def execute(
     from the first visit check them.
     """
 
+    scope = SCOPES[name]
     shutil.rmtree(work, ignore_errors=True)
     queue = work / "config" / "zgloszenia" / "kolejka"
     scheduler = Scheduler(prefix, scope.bounds)
@@ -478,7 +553,7 @@ def execute(
     )
     with _intercepted(scheduler, queue):
         while any(queue.glob("*.json")) and passes:
-            state = _state(box, queue, outbox, scheduler, passes)
+            state = _state(box, queue, outbox, scheduler, passes, failures)
             if state in visited and len(scheduler.taken) >= len(prefix):
                 return scheduler, []
             visited.add(state)
@@ -498,8 +573,9 @@ def execute(
                 else:
                     scheduler.say("po RETRY_S: następne przejście kolejki")
     trace = tuple(scheduler.trace)
+    faults = frozenset(scheduler.faults)
     return scheduler, [
-        Violation(rule, detail, trace)
+        Violation(rule, detail, trace, _kind(name, rule, faults))
         for rule, detail in _check(scope, box, queue, failures)
     ]
 
@@ -515,24 +591,24 @@ def next_prefix(scheduler: Scheduler) -> list[int] | None:
 class ScopeReport:
     name: str
     schedules: int = 0
-    shortest: dict[str, Violation] = field(default_factory=dict)
+    shortest: dict[tuple[str, Kind], Violation] = field(default_factory=dict)
 
 
 def explore(name: str) -> ScopeReport:
-    scope = SCOPES[name]
     report = ScopeReport(name)
     with tempfile.TemporaryDirectory(prefix="kolejka-skrzynki-") as directory:
         prefix: list[int] | None = []
         visited: set[object] = set()
         while prefix is not None:
             scheduler, violations = execute(
-                scope, prefix, Path(directory) / "praca", visited
+                name, prefix, Path(directory) / "praca", visited
             )
             report.schedules += 1
             for violation in violations:
-                known = report.shortest.get(violation.rule)
-                if known is None or len(violation.trace) < len(known.trace):
-                    report.shortest[violation.rule] = violation
+                key = (violation.rule, violation.kind)
+                seen = report.shortest.get(key)
+                if seen is None or len(violation.trace) < len(seen.trace):
+                    report.shortest[key] = violation
             prefix = next_prefix(scheduler)
     return report
 
@@ -550,14 +626,20 @@ def summarize(reports: Sequence[ScopeReport], *, strict: bool = False) -> Outcom
         lines.append(
             f"== {report.name}: {SCOPES[report.name].description} Harmonogramy: {report.schedules}."
         )
-        for rule, violation in sorted(report.shortest.items()):
-            key = (report.name, rule)
-            if key in KNOWN_FINDINGS and not strict:
+        for (rule, kind), violation in sorted(report.shortest.items()):
+            excuses = {"known": KNOWN_FINDINGS, "accepted": ACCEPTED_RISKS}.get(
+                kind, ()
+            )
+            text = next(
+                (e.text for e in excuses if e.scope == report.name and e.rule == rule),
+                "",
+            )
+            if kind == "known" and not strict:
                 known += 1
-                lines.append(f"   znane ustalenie {rule}: {KNOWN_FINDINGS[key]}")
-            elif key in ACCEPTED_RISKS and not strict:
+                lines.append(f"   znane ustalenie {rule}: {text}")
+            elif kind == "accepted" and not strict:
                 accepted += 1
-                lines.append(f"   zaakceptowane ryzyko {rule}: {ACCEPTED_RISKS[key]}")
+                lines.append(f"   zaakceptowane ryzyko {rule}: {text}")
             else:
                 new += 1
                 lines.append(f"   NOWE NARUSZENIE {rule}")
@@ -566,11 +648,18 @@ def summarize(reports: Sequence[ScopeReport], *, strict: bool = False) -> Outcom
                 f"   {number}. {step}"
                 for number, step in enumerate(violation.trace, start=1)
             )
-        for key in (*KNOWN_FINDINGS, *ACCEPTED_RISKS):
-            if key[0] == report.name and key[1] not in report.shortest:
+        expected: list[tuple[Excuse, Kind]] = [
+            *((e, "known") for e in KNOWN_FINDINGS),
+            *((e, "accepted") for e in ACCEPTED_RISKS),
+        ]
+        for excuse, expected_kind in expected:
+            if (
+                excuse.scope == report.name
+                and (excuse.rule, expected_kind) not in report.shortest
+            ):
                 gone += 1
                 lines.append(
-                    f"   ZNALEZISKO ZNIKNĘŁO {key[1]}: usuń je z KNOWN_FINDINGS albo ACCEPTED_RISKS i z SKILL.md"
+                    f"   ZNALEZISKO ZNIKNĘŁO {excuse.rule}: usuń je z KNOWN_FINDINGS albo ACCEPTED_RISKS i z SKILL.md"
                 )
     lines.append("")
     if new or gone:
