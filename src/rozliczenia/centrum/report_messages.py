@@ -1,24 +1,59 @@
-"""Katalog Komunikatów Zgłoszenia: Zgłoszenie do Maksa nie zapisało się w kolejce Skrzynki.
+"""Katalog Komunikatów Zgłoszenia: Zgłoszenie do Maksa nie wyszło.
 
-Brak klucza, odmowa klucza i brak sieci nie mają Komunikatu: Zgłoszenie czeka w kolejce i wychodzi samo, a karta
-mówi, na co czeka. Komunikat jest tylko wtedy, gdy nie udało się zapisać samego pliku kolejki. Instrukcja taty
-cytuje „Co się stało” każdego Komunikatu (``tests/test_instrukcja_taty.py``).
+Zwykle czeka w pliku na tym komputerze: Komunikat wskazuje ten plik, który
+tata może przesłać Maksowi mailem, i mówi, kiedy kliknąć „Spróbuj ponownie”.
+Gdy i zapis pliku się nie udał, Komunikat wskazuje folder Zgłoszeń i każe
+przesłać treść z podglądu. Instrukcja taty cytuje „Co się stało” każdego
+Komunikatu (``tests/test_instrukcja_taty.py``).
 """
 
 from __future__ import annotations
 
 from pathlib import Path
 
-from rozliczenia.message import Message
+from rozliczenia.message import Message, file_label
 
 
-def not_queued(queue: Path) -> Message:
-    """Zgłoszenia nie udało się zapisać w folderze kolejki ``queue``: nic go nie wyśle."""
+def key_missing(saved: Path) -> Message:
+    """Na komputerze taty nie ma klucza do Zgłoszeń: Zgłoszenie jest tylko w pliku ``saved``."""
+
+    return Message(
+        code="ZGLOSZENIE_BEZ_KLUCZA",
+        what="Nie wysłano Zgłoszenia: na tym komputerze nie ma klucza do Zgłoszeń.",
+        where=file_label(saved),
+        action="Prześlij ten plik Maksowi mailem. Gdy Maks wpisze klucz do Zgłoszeń, kliknij „Spróbuj ponownie”.",
+    )
+
+
+def key_refused(saved: Path) -> Message:
+    """Skrzynka Zgłoszeń odmówiła klucza (wygasł albo jest nieważny)."""
+
+    return Message(
+        code="ZGLOSZENIE_ODMOWA",
+        what="Nie wysłano Zgłoszenia: klucz do Zgłoszeń wygasł albo jest nieważny.",
+        where=file_label(saved),
+        action="Prześlij ten plik Maksowi mailem i powiedz mu o kluczu do Zgłoszeń. "
+        "Gdy Maks go wymieni, kliknij „Spróbuj ponownie”.",
+    )
+
+
+def box_unreachable(saved: Path) -> Message:
+    """Skrzynka Zgłoszeń nie odpowiedziała: brak internetu albo GitHub chwilowo nie działa."""
+
+    return Message(
+        code="ZGLOSZENIE_BRAK_POLACZENIA",
+        what="Nie wysłano Zgłoszenia: brak połączenia z GitHubem.",
+        where=file_label(saved),
+        action="Sprawdź internet i kliknij „Spróbuj ponownie”. Jeśli to nie pomoże, prześlij ten plik Maksowi mailem.",
+    )
+
+
+def not_saved(unsent: Path) -> Message:
+    """Zgłoszenia nie wysłano, a zapis w folderze Zgłoszeń ``unsent`` też się nie udał, więc pliku nie ma."""
 
     return Message(
         code="ZGLOSZENIE_NIEZAPISANE",
-        what="Nie udało się zapisać Zgłoszenia na tym komputerze, więc nie pójdzie do Maksa.",
-        where=f"folder {queue.name}",
-        action="Kliknij „Spróbuj ponownie”. Jeśli to nie pomoże, rozwiń „Co zostanie wysłane”, skopiuj treść i "
-        "prześlij ją Maksowi mailem.",
+        what="Nie wysłano Zgłoszenia i nie udało się zapisać go w pliku na tym komputerze.",
+        where=f"folder {unsent.name}",
+        action="Rozwiń „Co zostanie wysłane”, skopiuj treść i prześlij ją Maksowi mailem.",
     )

@@ -20,7 +20,6 @@ from fastapi import APIRouter
 
 from rozliczenia import input_checks, workbook_files
 from rozliczenia.centrum import contract
-from rozliczenia.centrum.keyed_box import KeyJudgement
 from rozliczenia.centrum.tool_freshness import Judgement, ReleaseSource, ToolFreshness, offers_update
 from rozliczenia.centrum.version import short_commit
 from rozliczenia.collective_preparation import default_collective_template_path, default_internal_template_path
@@ -140,11 +139,10 @@ def configuration_router(
     files: ConfigurationFiles,
     freshness: ToolFreshness,
     release: ReleaseSource,
-    key_judgement: Callable[[], KeyJudgement],
+    report_key: Callable[[], contract.ReportKeyState],
     readers: Readers,
 ) -> APIRouter:
-    """Konfiguracja; ``key_judgement`` mówi, co wiadomo o kluczu do Zgłoszeń (bez jego wartości) i czeka na Skrzynkę
-    najwyżej ``CONFIGURATION_WAIT_S``.
+    """Konfiguracja; ``report_key`` mówi, czy na tym komputerze jest klucz do Zgłoszeń (bez jego wartości).
 
     Aktualność narzędzia porównuje commit narzędzia z najnowszym Wydaniem na GitHubie według ``release``: odpowiedzi
     GitHuba pamiętanej wspólnie z Powiadomieniami (``RememberedRelease``).
@@ -163,7 +161,7 @@ def configuration_router(
             update_offered=offers_update(judgement),
             templates=[checked.status(template) for template in files.templates()],
             workers=_workers(files.worker_config),
-            reports=_KEY_STATE[key_judgement()],
+            reports=report_key(),
         )
 
     return router
@@ -177,18 +175,6 @@ _STATE: Final[Mapping[Judgement, contract.ToolFreshnessState]] = {
     "no_answer": "not_checked",
     "no_commit": "not_checked",
 }
-
-
-# Konfiguracja nie odróżnia klucza przyjętego od jeszcze niesprawdzonego (np. bez sieci); Diagnoza je nazywa.
-_KEY_STATE: Final[Mapping[KeyJudgement, contract.ReportKeyState]] = {
-    "accepted": "ready",
-    "unchecked": "ready",
-    "refused": "refused_key",
-    "missing": "missing_key",
-}
-# Tyle Konfiguracja czeka na trwające sprawdzenie klucza (zimny odczyt to ~200 ms); sprawdzenie rusza już przy starcie
-# Centrum, więc zwykle jest gotowe i odczyt nie czeka wcale.
-CONFIGURATION_WAIT_S: Final = 1.0
 
 
 class _CheckedTemplates:
