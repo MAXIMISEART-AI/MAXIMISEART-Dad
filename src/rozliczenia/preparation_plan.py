@@ -19,7 +19,7 @@ from .message import StopError
 from .preparation_register import ACTIVITIES, CONTRACT, DATE, DEVICES, SUCCESSFUL, WORKER, RegisterSheet, cell_value
 from .quantity_rules import OrderContent, RuleResult, evaluate
 from .settlement_period import SettlementPeriod
-from .workbook_files import DataRow, cell_datetime, is_blank
+from .workbook_files import RegisterRow, cell_datetime, is_blank
 from .worker_config import normalize_text
 
 _SUCCESSFUL_VALUE = "tak"
@@ -31,16 +31,16 @@ _BLANK_WORKER_LABEL = "(pusty)"
 class PeriodOrder:
     """Zlecenie okresu: wiersz Rejestru i jego data z ``DATA GODZ. POCZ.``."""
 
-    row: DataRow
+    register_row: RegisterRow
     started: datetime
 
     @property
     def row_number(self) -> int:
-        return self.row.number
+        return self.register_row.number
 
     @property
     def is_successful(self) -> bool:
-        return normalize_text(cell_value(self.row, SUCCESSFUL)) == _SUCCESSFUL_VALUE
+        return normalize_text(cell_value(self.register_row, SUCCESSFUL)) == _SUCCESSFUL_VALUE
 
 
 @dataclass(frozen=True)
@@ -52,7 +52,7 @@ class CollectiveRow:
 
     @classmethod
     def of(cls, order: PeriodOrder) -> CollectiveRow:
-        row = order.row
+        row = order.register_row
         content = OrderContent.of(
             cell_value(row, CONTRACT), cell_value(row, DEVICES), cell_value(row, ACTIVITIES), order.started
         )
@@ -107,7 +107,7 @@ def plan_period_orders(
     register = _period_sheet(register_path, sheets, period)
     orders: list[PeriodOrder] = []
     undated_rows: list[int] = []
-    for row in register.rows:
+    for row in register.register_rows:
         started = cell_datetime(cell_value(row, DATE))
         if started is None:
             undated_rows.append(row.number)
@@ -128,7 +128,7 @@ def plan_period_orders(
     return Plan(period, register.name, orders, collective_rows, skipped_empty_rows)
 
 
-def _in_period(row: DataRow, period: SettlementPeriod) -> bool:
+def _in_period(row: RegisterRow, period: SettlementPeriod) -> bool:
     started = cell_datetime(cell_value(row, DATE))
     return started is not None and period.start <= started < period.end
 
@@ -139,7 +139,7 @@ def _check_successful_values(register_path: Path, register: RegisterSheet, order
     empty_rows: list[int] = []
     other_values: list[messages.CellContent] = []
     for order in orders:
-        value = cell_value(order.row, SUCCESSFUL)
+        value = cell_value(order.register_row, SUCCESSFUL)
         if normalize_text(value) in (_SUCCESSFUL_VALUE, _UNSUCCESSFUL_VALUE):
             continue
         if is_blank(value):
@@ -157,7 +157,7 @@ def _check_successful_values(register_path: Path, register: RegisterSheet, order
 def _period_sheet(register_path: Path, sheets: Sequence[RegisterSheet], period: SettlementPeriod) -> RegisterSheet:
     """Jedyny arkusz Rejestru ze zleceniami okresu; bez takiego arkusza pierwszy arkusz ze zleceniami."""
 
-    with_orders = [sheet for sheet in sheets if any(_in_period(row, period) for row in sheet.rows)]
+    with_orders = [sheet for sheet in sheets if any(_in_period(row, period) for row in sheet.register_rows)]
     if len(with_orders) > 1:
         raise StopError(
             messages.period_orders_in_many_sheets(register_path, [sheet.name for sheet in with_orders], period.token)
@@ -172,7 +172,7 @@ def _unknown_workers(
 
     unknown: dict[str, tuple[str, list[int]]] = {}
     for order in orders:
-        worker = cell_value(order.row, WORKER)
+        worker = cell_value(order.register_row, WORKER)
         key = normalize_text(worker)
         if not order.is_successful or key in worker_mapping:
             continue

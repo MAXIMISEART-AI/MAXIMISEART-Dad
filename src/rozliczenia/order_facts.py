@@ -2,7 +2,7 @@
 
 To jedyny typ z treścią komórek Pliku zbiorczego, który przeżywa silnik Przebiegu rozliczeń, i jedyne miejsce,
 które wylicza dozwolone kolumny: UMOWA, URZĄDZENIA i CZYNNOŚCI (po nagłówku z wiersza 17, pod którym zapisuje je
-Przygotowanie), dzień tygodnia i godzina z DATA oraz N:AP (po pozycji, jak kopiuje je Przebieg). Treść zlecenia
+Przygotowanie), dzień tygodnia i godzina z DATA oraz N:AP (po literze kolumny). Treść zlecenia
 robią z komórek Reguły ilości (``OrderContent.of``), tak samo jak z Rejestru zleceń w Przygotowaniu. Adres, numery
 zlecenia i umowy, Wykonawca, data dzienna, CZYNNOŚCI ZREALIZOWANE i reszta A:AT nie mają pola, więc nie da się ich
 wysłać przez ten typ. Tekst wpisany przez tatę w komórce ilości też nie przechodzi: zostaje z niego „nieliczbowa”.
@@ -19,7 +19,7 @@ from openpyxl.utils import get_column_letter
 
 from .preparation_register import ACTIVITIES, CONTRACT, DATE, DEVICES, Column
 from .quantity_rules import OrderContent
-from .workbook_files import QUANTITY_COLUMNS, cell_datetime, is_blank
+from .workbook_files import QUANTITY_COLUMNS, DataRow, cell_datetime, is_blank
 from .worker_config import normalize_text
 
 NON_NUMERIC: Final = "nieliczbowa"
@@ -53,20 +53,20 @@ class MissingHeaders:
 CollectiveOrders = tuple[OrderFacts, ...] | MissingHeaders
 
 
-def collective_orders(header: Mapping[str, int], rows: Sequence[Sequence[object]]) -> CollectiveOrders:
+def collective_orders(header: Mapping[str, int], rows: Sequence[DataRow]) -> CollectiveOrders:
     """Dozwolona treść każdego Wiersza danych.
 
-    ``header``: znormalizowany nagłówek wiersza 17 → kolumna od 1; ``rows``: wartości A:AT po pozycji.
+    ``header``: znormalizowany nagłówek wiersza 17 → kolumna od 1.
     """
 
     names = [normalize_text(column.target_header) for column in _INPUTS]
     missing = tuple(column.target_header for column, name in zip(_INPUTS, names, strict=True) if name not in header)
     if missing:
         return MissingHeaders(missing)
-    contract, devices, activities, started = (header[name] for name in names)
+    contract, devices, activities, started = (get_column_letter(header[name]) for name in names)
     return tuple(
         OrderFacts(
-            _content(row[contract - 1], row[devices - 1], row[activities - 1], row[started - 1]), _quantities(row)
+            _content(row.value(contract), row.value(devices), row.value(activities), row.value(started)), _quantities(row)
         )
         for row in rows
     )
@@ -107,6 +107,6 @@ def _content(contract: object, devices: object, activities: object, date_cell: o
     return None if started is None else OrderContent.of(contract, devices, activities, started)
 
 
-def _quantities(row: Sequence[object]) -> dict[str, TataValue]:
-    values = {letter: tata_value(row[column - 1]) for letter, column in zip(N_AP, QUANTITY_COLUMNS, strict=True)}
+def _quantities(row: DataRow) -> dict[str, TataValue]:
+    values = {letter: tata_value(row.value(letter)) for letter in N_AP}
     return {letter: value for letter, value in values.items() if value != 0}

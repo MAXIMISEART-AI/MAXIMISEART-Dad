@@ -38,4 +38,4 @@ def read_data_rows(path: Path) -> CollectiveRows:
             without_worker.append(row.number)
             continue
         rows.append(row)
-    return CollectiveRows(rows, without_worker, collective_orders(read.header, [row.values for row in read.rows]))
+    return CollectiveRows(rows, without_worker, collective_orders(read.header, read.rows))
