@@ -308,7 +308,6 @@ def test_zgloszenie_z_kolejki_wychodzi_po_restarcie_centrum_z_numerem_w_stanie_w
     assert queued_reports(centrum) == []
 
 
-@pytest.mark.xfail(strict=True, reason="#459: numer po dostarczeniu ginie, gdy Windows na chwilę blokuje plik")
 def test_numer_zgloszenia_z_kolejki_zostaje_po_restarcie_gdy_windows_na_chwile_blokuje_plik_spraw(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

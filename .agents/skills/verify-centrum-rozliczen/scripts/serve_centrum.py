@@ -310,6 +310,9 @@ class ScriptedClock:
         with self._lock:
             self._wakes.append((self() + seconds, wake))
 
+    def pause(self, seconds: float) -> None:
+        time.sleep(seconds)
+
     def _fire_due(self) -> None:
         while True:
             time.sleep(0.2)

@@ -11,8 +11,9 @@ Stan leży w ``config/sprawy-taty.json`` poza Gitem. Dopóki tego pliku nie ma, 
 jednego magazynu (``OLD_FILES``), które mogą leżeć u taty, a pierwszy zapis przenosi ich wpisy do nowego pliku;
 stare pliki zostają nietknięte. Brak, uszkodzenie albo nieznany schemat pliku to brak spraw z tego pliku, a wpis,
 którego nie da się odczytać, jest pomijany. Plik jest czytany raz, przy starcie Centrum. Piszą do niego wysyłka
-Zgłoszenia, „Wyślij” Uwagi, wątek kolejki i sprawdzanie Powiadomień, więc każda zmiana idzie pod blokadą. Nieudany
-zapis trafia do dziennika Centrum, a sprawa zostaje w pamięci do końca pracy Centrum.
+Zgłoszenia, „Wyślij” Uwagi, wątek kolejki i sprawdzanie Powiadomień, więc każda zmiana idzie pod blokadą. Plik,
+którego nie da się zapisać, jest niedostępny (``StateFile``): sprawy czekają w pamięci, a Centrum zapisuje je przy
+następnej zmianie, także takiej, która niczego nie zmienia, i przy każdym odczycie Powiadomień.
 """
 
 from __future__ import annotations
@@ -26,7 +27,8 @@ from pathlib import Path
 from typing import Final, Literal
 
 from rozliczenia.centrum import contract
-from rozliczenia.centrum.atomic_file import replace_atomically
+from rozliczenia.centrum.atomic_file import StateFile
+from rozliczenia.centrum.clock import Clock
 from rozliczenia.centrum.keyed_box import KeyedBox, NoKey
 from rozliczenia.centrum.log import CentrumLog
 from rozliczenia.centrum.outbox import Post
@@ -108,9 +110,8 @@ class Case:
 class DadCases:
     """Sprawy taty z tego komputera w pliku stanu obok Ustawień taty."""
 
-    def __init__(self, config_directory: Path, log: CentrumLog) -> None:
-        self._path = config_directory / DAD_CASES_FILE
-        self._log = log
+    def __init__(self, config_directory: Path, log: CentrumLog, *, clock: Clock) -> None:
+        self.file = StateFile(config_directory / DAD_CASES_FILE, log, where="stan Spraw taty", clock=clock)
         self._lock = threading.Lock()
         self._cases = _load(config_directory)
 
@@ -187,18 +188,16 @@ class DadCases:
         self._change(lambda cases: [replace(case, closure=closures.get(case.number, case.closure)) for case in cases])
 
     def _change(self, change: Callable[[list[Case]], list[Case]]) -> None:
-        """Zmienia sprawy i zapisuje plik, gdy coś się zmieniło."""
+        """Zmienia sprawy i zapisuje plik, gdy coś się zmieniło; bez zmiany zapisuje sprawy, które czekają."""
 
         with self._lock:
             changed = change(self._cases)
             if changed == self._cases:
+                self.file.retry()
                 return
             self._cases = changed
             document = {"schema_version": SCHEMA_VERSION, "sprawy": [_case_json(case) for case in self._cases]}
-            try:
-                replace_atomically(self._path, json.dumps(document, ensure_ascii=False, indent=2) + "\n")
-            except OSError as failure:
-                self._log.unexpected_failure(failure, where="stan Spraw taty")
+            self.file.write(json.dumps(document, ensure_ascii=False, indent=2) + "\n")
 
 
 def _load(config_directory: Path) -> list[Case]:
