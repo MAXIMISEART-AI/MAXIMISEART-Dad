@@ -150,6 +150,7 @@ def test_dziennik_dostaje_pierwsza_porazke_kazdego_okresu_niedostepnosci(
     file.write("druga")
     locked.failures = None
     file.write("trzecia")
+    file.write("czwarta")
 
     assert failures_in_log(log_path) == 2
     assert file.unavailable
