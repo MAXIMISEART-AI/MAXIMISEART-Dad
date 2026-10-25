@@ -159,6 +159,18 @@ MUTATIONS = (
         "tata potwierdza Gotowość, a okno „Uruchomić z zapisem?” milczy o wierszach, w których nie ma ilości",
     ),
     Mutation(
+        "po Przebiegu rozliczeń wiersz bez wpisu taty dalej czeka na tatę",
+        (
+            Edit(
+                QUANTITIES_TO_FILL,
+                "state = RowState.WITHOUT_QUANTITY if settled else RowState.TO_FILL",
+                "state = RowState.TO_FILL",
+            ),
+        ),
+        UZUPELNIENIE,
+        "po Przebiegu tata widzi żółte wiersze do uzupełnienia zamiast szarych „bez ilości”, które zostały na zerach",
+    ),
+    Mutation(
         "nieczytelny Plik zbiorczy psuje ustawienie Przebiegu",
         (
             Edit(
