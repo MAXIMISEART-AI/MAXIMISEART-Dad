@@ -27,7 +27,8 @@ from benchmark import ROOT, SCRIPT, BenchmarkError
 import potomne
 from rozliczenia.period_folder import PeriodFolder, collective_file_name
 from rozliczenia.settlement_period import parse_period_token
-from rozliczenia.workbook_files import DATA_ROW_COLUMNS, QUANTITY_COLUMNS, read_data_rows, save_workbook
+from rozliczenia.workbook_files import DATA_ROW_COLUMNS, QUANTITY_COLUMNS, read_data_rows
+from rozliczenia.workbook_save import save_workbook
 from rozliczenia.worker_config import WorkerConfigError, load_worker_mapping
 from syntetyczne_wzorce import COLLECTIVE_TEMPLATE, INTERNAL_TEMPLATE, WORKER_CONFIG, WORKER_TEMPLATE
 

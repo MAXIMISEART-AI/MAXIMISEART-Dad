@@ -13,11 +13,12 @@ from typing import NoReturn
 
 import pytest
 
-from rozliczenia.decision import Conversation
+from rozliczenia.decision import Conversation, Declined
 from rozliczenia.domain import ProgressObserver
 from rozliczenia.message import REPORT_TO_MAINTAINER, Message, StopError
 from rozliczenia.phase_runner import PhaseRunner
 from rozliczenia.process_run import Finished, Outcome, Process, Stop, run_process
+from rozliczenia.progress import ProgressSnapshot
 
 from tests.fixtures.clock import ManualClock
 from tests.fixtures.fake_process import (
@@ -28,6 +29,7 @@ from tests.fixtures.fake_process import (
     Durations,
     Inputs,
     asking_between_planning_and_saving,
+    execute,
     fail,
     fake_process,
     records,
@@ -197,3 +199,78 @@ def test_czas_decyzji_taty_nie_liczy_sie_do_czasu_uruchomienia(tmp_path: Path) -
     assert outcome.total_duration_ms == 750
     [record] = records(tmp_path / "metrics.jsonl")
     assert record["total_duration_ms"] == 750
+
+
+def test_odmowa_w_decyzji_taty_to_zatrzymanie_po_odmowie_a_w_metrykach_zatrzymanie_dla_taty(tmp_path: Path) -> None:
+    refused = Message("ODMOWA", "Tata wybrał „Przerwij”.", "Proces testowy", "Uruchom ponownie.")
+
+    def declining(_inputs: Inputs, _observer: ProgressObserver, _conversation: Conversation) -> NoReturn:
+        raise Declined(refused)
+
+    outcome = run_core(fake_process(execute=declining), tmp_path / "metrics.jsonl")
+
+    assert isinstance(outcome.ending, Stop)
+    assert (outcome.ending.kind, outcome.ending.message, outcome.ending.stop_kind) == ("declined", refused, "for_tata")
+    assert [record["stop"] for record in records(tmp_path / "metrics.jsonl")] == [{"kind": "for_tata", "code": "ODMOWA"}]
+
+
+def stop_in_reading(_inputs: Inputs, observer: ProgressObserver, _conversation: Conversation) -> NoReturn:
+    phases = PhaseRunner(observer)
+    phases.check(lambda: None)
+
+    def read() -> NoReturn:
+        raise stop_error("Brak pliku.")
+
+    phases.read(read)
+    raise AssertionError("Odczyt danych miał zatrzymać proces.")
+
+
+def stop_in_saving(_inputs: Inputs, observer: ProgressObserver, _conversation: Conversation) -> NoReturn:
+    phases = PhaseRunner(observer)
+    phases.check(lambda: None)
+    phases.read(lambda: None)
+    phases.plan(lambda: None, issue_count=lambda _planned: 0)
+
+    def save() -> NoReturn:
+        raise stop_error("Nie udało się zapisać.")
+
+    phases.save(save)
+    raise AssertionError("Zapisywanie miało zatrzymać proces.")
+
+
+class BlindTata(Tata):
+    """Rozmówca, którego podgląd postępu pada od startu, więc rdzeń go odłącza."""
+
+    def show_progress(self, snapshot: ProgressSnapshot) -> None:
+        raise RuntimeError("podgląd nie działa")
+
+
+@pytest.mark.parametrize(
+    ("engine", "dry_run", "tata", "unchanged"),
+    [
+        (stop_in_reading, False, Tata(), True),
+        (stop_in_saving, False, Tata(), False),
+        (execute, False, Tata(), False),
+        (execute, True, Tata(), True),
+        (stop_in_reading, False, BlindTata(), False),
+        (stop_in_reading, True, BlindTata(), True),
+    ],
+    ids=[
+        "zatrzymanie-przed-zapisywaniem",
+        "zatrzymanie-w-zapisywaniu",
+        "zapis",
+        "podglad",
+        "odlaczony-podglad-postepu",
+        "podglad-z-odlaczonym-podgladem-postepu",
+    ],
+)
+def test_pliki_taty_sa_bez_zmian_tylko_w_podgladzie_albo_gdy_zapisywanie_sie_nie_zaczelo(
+    tmp_path: Path,
+    engine: Callable[[Inputs, ProgressObserver, Conversation], Durations],
+    dry_run: bool,
+    tata: Tata,
+    unchanged: bool,
+) -> None:
+    outcome = run_core(fake_process(execute=engine), tmp_path / "metrics.jsonl", dry_run=dry_run, tata=tata)
+
+    assert outcome.files_unchanged is unchanged

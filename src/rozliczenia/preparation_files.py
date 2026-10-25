@@ -1,6 +1,7 @@
 """Wzorce i pliki okresu w Przygotowaniu pliku zbiorczego.
 
-Moduł podaje oba wzorce z kolumnami Rejestru zleceń (``period_template``, sprawdzane w ``input_checks``), ocenia,
+Moduł podaje oba wzorce z kolumnami Rejestru zleceń (``internal_template``, ``collective_template``, sprawdzane w
+``input_checks``), ocenia,
 czy zlecenia zmieszczą się we wzorcach, i podaje fakty o wierszach Pliku zbiorczego (Planowanie), a potem zapisuje
 Rozliczenie wewnętrzne oraz Plik zbiorczy razem do Folderu okresu (Zapisywanie). Planowanie i Zapisywanie
 zatrzymują się ``StopError``. Moduł wewnętrzny Przygotowania pliku zbiorczego; operacją publiczną pozostaje
@@ -16,31 +17,28 @@ from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from pathlib import Path
 
-from openpyxl.utils import column_index_from_string
-
 from . import preparation_messages as messages
 from .message import StopError
 from .period_folder import PeriodFolder
 from .preparation_plan import CollectiveRow, PeriodOrder
 from .preparation_register import COLUMNS
 from .quantity_rules import DESCRIPTION_COLUMNS, FromDescription, WithoutRule
-from .workbook_files import (
-    DataRow,
-    Layout,
-    TemplateFile,
-    WorkbookError,
-    WorkbookSaveError,
-)
+from .template_file import TemplateFile
+from .workbook_files import DataRow, WorkbookError
+from .workbook_save import WorkbookSaveError
+
+_TARGET_HEADERS = tuple(column.target_header for column in COLUMNS)
 
 @dataclass(frozen=True)
 class PeriodFiles:
-    """Ścieżki obu wzorców i Folder okresu, w którym powstają oba pliki okresu.
+    """Oba wzorce po Sprawdzaniu i Folder okresu, w którym powstają oba pliki okresu.
 
-    ``PeriodFolder`` wymaga sprawdzonego okresu, więc wartość powstaje dopiero po sprawdzeniu tokenu.
+    Planowanie i Zapisywanie używają tych samych Wzorców, które przeszły Sprawdzanie. ``PeriodFolder`` wymaga
+    sprawdzonego okresu, więc wartość powstaje dopiero po sprawdzeniu tokenu.
     """
 
-    internal_template: Path
-    collective_template: Path
+    internal_template: TemplateFile
+    collective_template: TemplateFile
     folder: PeriodFolder
 
     @property
@@ -96,8 +94,8 @@ def plan_period_files(
     """Planowanie: zlecenia zmieszczą się we wzorcach; scalone komórki w ich wierszach są zatrzymaniem."""
 
     with _template_stops():
-        period_template(files.internal_template, Layout.INTERNAL_SETTLEMENT).plan(order_count)
-        collective = period_template(files.collective_template, Layout.COLLECTIVE_FILE).plan(len(collective_rows))
+        files.internal_template.plan(order_count)
+        collective = files.collective_template.plan(len(collective_rows))
     numbered = list(zip(collective.data_rows, collective_rows, strict=True))
     return CollectiveFilePlan(
         successful_count=len(collective_rows),
@@ -135,13 +133,11 @@ def write_period_files(
             internal_name, collective_name = files.filenames
             _write_period_file(
                 files.internal_template,
-                Layout.INTERNAL_SETTLEMENT,
                 staged_directory / internal_name,
                 [order.row for order in orders],
             )
             _write_period_file(
                 files.collective_template,
-                Layout.COLLECTIVE_FILE,
                 staged_directory / collective_name,
                 [_with_quantities(row) for row in collective_rows],
             )
@@ -150,10 +146,16 @@ def write_period_files(
         raise StopError(messages.write_failed(folder.directory)) from exc
 
 
-def period_template(template_path: Path, layout: Layout) -> TemplateFile:
-    """Wzorzec pliku okresu z kolumnami ``COLUMNS`` pod ich nagłówkami docelowymi."""
+def internal_template(template_path: Path) -> TemplateFile:
+    """Wzorzec rozliczenia wewnętrznego z kolumnami ``COLUMNS`` pod ich nagłówkami docelowymi."""
 
-    return TemplateFile(template_path, layout, [column.target_header for column in COLUMNS])
+    return TemplateFile.internal_settlement(template_path, _TARGET_HEADERS)
+
+
+def collective_template(template_path: Path) -> TemplateFile:
+    """Wzorzec pliku zbiorczego z kolumnami ``COLUMNS`` pod ich nagłówkami docelowymi."""
+
+    return TemplateFile.collective_file(template_path, _TARGET_HEADERS)
 
 
 @contextmanager
@@ -166,20 +168,17 @@ def _template_stops() -> Iterator[None]:
         raise StopError(messages.template_unusable(error)) from error
 
 
-def _write_period_file(template_path: Path, layout: Layout, target: Path, rows: Sequence[DataRow]) -> None:
+def _write_period_file(template: TemplateFile, target: Path, rows: Sequence[DataRow]) -> None:
     """Plik z Wzorca z Wierszami danych od pierwszego Wiersza danych (ADR 0008)."""
 
     with _template_stops():
-        period_template(template_path, layout).create(target, rows)
+        template.create(target, rows)
 
 
 def _with_quantities(row: CollectiveRow) -> DataRow:
     """Wiersz Rejestru z Ilościami usług zlecenia z Planowania."""
 
-    quantities = row.rule_result.quantities
-    return replace(
-        row.order.row, quantities={column_index_from_string(column): value for column, value in quantities.items()}
-    )
+    return replace(row.order.row, quantities=row.rule_result.quantities)
 
 
 def _publish(staged_directory: Path, files: PeriodFiles) -> None:

@@ -77,8 +77,11 @@ co stało się z tym, co wysłał.
   Wykonawcą, wynikiem, liczbą wierszy i czasem, środowisko (system, Python,
   nazwy i rozmiary plików procesu z flagą „tylko online” OneDrive), przy
   nieoczekiwanym wyjątku ślad wywołań jak w Zgłoszeniu i po Diagnozie jej wynik.
-  Pole Wydania jest puste, dopóki Centrum nie umie lokalnie ustalić, na którym
-  Wydaniu jest klon taty. Logi nie niosą treści wierszy: nigdy adresu, numeru
+  Wydanie to numer najwyższego Wydania, którego tag w klonie taty (z instalacji
+  albo pobrany przez Aktualizację narzędzia) wskazuje dokładnie commit, z
+  którego działa Centrum; Centrum ustala je lokalnie przy końcu każdego
+  Uruchomienia (#426). Commit po Wydaniu, brak Gita i błąd Gita zostawiają pole
+  puste. Logi nie niosą treści wierszy: nigdy adresu, numeru
   zlecenia, numeru umowy, Wykonawcy przy wierszu, daty dziennej z komórki,
   `CZYNNOŚCI ZREALIZOWANE` ani opisu technika. Komunikaty i przebieg Szablonów
   zachowują nazwę Wykonawcy, tak jak w Zgłoszeniu. Świadome wyjątki od tej

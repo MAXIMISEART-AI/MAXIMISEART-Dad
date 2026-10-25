@@ -95,6 +95,8 @@ _FETCHED_MAIN: Final = f"refs/remotes/origin/{BRANCH}"
 _RELEASES: Final = "refs/wydania/"
 _FETCH_TIMEOUT_S: Final = 120.0
 _LOCAL_TIMEOUT_S: Final = 60.0
+# Logi Uruchomienia ustalają Wydanie, zanim karta pokaże wynik: Git, który nie odpowiada, opóźnia wynik najwyżej o tyle.
+_TAGS_TIMEOUT_S: Final = 5.0
 # Pobranie, które przez tyle sekund idzie wolniej niż tyle bajtów na sekundę, kończy sam Git: połączenie stoi.
 _STALLED_BYTES_PER_S: Final = 1000
 _STALLED_FOR_S: Final = 30
@@ -131,6 +133,12 @@ class Release:
 
         found = _RELEASE_TAG.fullmatch(tag)
         return None if found is None else cls((int(found[1]), int(found[2]), int(found[3])), tag)
+
+    @property
+    def version(self) -> str:
+        """Numer Wydania tak, jak pokazuje go Centrum: ``0.10.0``, bez „v”."""
+
+        return ".".join(map(str, self.number))
 
 
 @dataclass(frozen=True)
@@ -514,6 +522,31 @@ def contains_commit(root: Path, ancestor: str, descendant: str) -> bool:
         return False
 
 
+def release_at(root: Path, commit: str, *, find_git: Callable[[], Path | None] = find_git) -> Release | None:
+    """Najwyższe Wydanie, którego tag w klonie ``root`` wskazuje dokładnie ``commit``; ``None`` bez Gita, przy błędzie
+    Gita i bez takiego tagu.
+
+    Liczą się tagi z instalacji (``refs/tags/``) i pobrane przez Aktualizację narzędzia (``_RELEASES``), także z
+    opisem. Commit po Wydaniu nie ma Wydania. Git, który nie odpowie w ``_TAGS_TIMEOUT_S``, to błąd Gita.
+    """
+
+    git = find_git()
+    if git is None:
+        return None
+    try:
+        listed = _Git(git, root).output(
+            "for-each-ref",
+            f"--points-at={commit}",
+            "--format=%(refname:lstrip=2)",
+            _RELEASES,
+            "refs/tags/",
+            timeout_s=_TAGS_TIMEOUT_S,
+        )
+    except (GitFailed, OSError, subprocess.SubprocessError):
+        return None
+    return max((release for tag in listed.split() if (release := Release.of_tag(tag)) is not None), default=None)
+
+
 def _main_tips(run: _Git) -> tuple[str, ...]:
     """Commity, które były czubkiem pobranego `main`: jego linia pierwszych rodziców, od czubka.
 
@@ -731,8 +764,8 @@ class _Git:
         result = self.run("symbolic-ref", "--quiet", "--short", "HEAD")
         return result.stdout.strip() if result.returncode == 0 else None
 
-    def output(self, *args: str) -> str:
-        result = self.run(*args)
+    def output(self, *args: str, timeout_s: float = _LOCAL_TIMEOUT_S) -> str:
+        result = self.run(*args, timeout_s=timeout_s)
         if result.returncode != 0:
             raise GitFailed(args[0])
         return result.stdout

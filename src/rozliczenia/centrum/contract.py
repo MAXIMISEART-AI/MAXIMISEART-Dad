@@ -12,7 +12,7 @@ from typing import Annotated, Literal
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
 from rozliczenia import domain
-from rozliczenia.message import Message as ProcessMessage
+from rozliczenia.message import DadFile, Message as ProcessMessage
 from rozliczenia.period_folder import PeriodStatus
 
 
@@ -164,6 +164,12 @@ class OpenRequest(_Model):
     target: OpenTarget
 
 
+class WorkerSettlementRequest(_Model):
+    """Którego Wykonawcy Rozliczenie pracownika otworzyć; ścieżkę wylicza serwer z Folderu okresu."""
+
+    worker: str
+
+
 class Opened(_Model):
     name: str
 
@@ -290,6 +296,8 @@ class PeriodChoice(_Model):
     previewed: bool
     # Nazwa Pliku zbiorczego okresu, gdy proces go czyta (Przebieg rozliczeń); tata go nie wskazuje.
     collective_file: str | None
+    # Zdania o skoroszytach wejściowych procesu otwartych w Excelu: najpierw plik danych, potem Wzorce.
+    open_in_excel: list[str]
 
 
 class ProcessSetup(_Model):
@@ -401,24 +409,26 @@ class PeriodFile(_Model):
     kind: Literal["internal_settlement", "collective_file"]
 
 
-class WorkerFile(_Model):
-    """Wiersz planu plików: nazwa pliku Szablonu pracownika i liczba Wierszy danych (0 = pusty skoroszyt)."""
+class WorkerSettlement(_Model):
+    """Rozliczenie pracownika jednego Wykonawcy: nazwa pliku, liczba jego zleceń w okresie i czy szablon jest pusty."""
 
+    worker: str
     file: str
-    rows: int
+    orders: int
+    empty: bool
 
 
 class RunSummary(_Model):
     """Podsumowanie albo plan (DRY-RUN) procesu tak, jak pokazuje je karta Uruchomienia, bez danych klientów.
 
-    Liczby wyniku, potem szczegóły: kafelki liczb (np. Zlecenia na dzień), pliki okresu i plan plików
-    (``None``, gdy proces go nie ma).
+    Liczby wyniku, potem szczegóły: kafelki liczb (np. Zlecenia na dzień), pliki okresu i Rozliczenia
+    pracowników: plan po podglądzie, zapisane po uruchomieniu (``None``, gdy proces ich nie tworzy).
     """
 
     figures: list[Figure]
     counts: CountGroup | None
     files: list[PeriodFile]
-    file_plan: list[WorkerFile] | None
+    worker_settlements: list[WorkerSettlement] | None
 
 
 class ReportDraft(_Model):
@@ -469,27 +479,34 @@ ReportState = Annotated[
 # Rodzaj Zatrzymania: ``for_tata`` usuwa tata sam według Komunikatu, ``for_maks`` każe przekazać Komunikat
 # osobie utrzymującej narzędzie (także nieoczekiwany wyjątek), ``repeated`` to ten sam Komunikat „dla taty”
 # drugi raz z rzędu w tym samym procesie. Przy ``for_maks`` i ``repeated`` Centrum proponuje Diagnozę.
-StopKind = Literal[RecordedStopKind, "repeated"]
+# ``declined`` to Zatrzymanie po odmowie w Decyzji taty: w metrykach „dla taty”, nigdy Powtórka ani błąd.
+StopKind = Literal[RecordedStopKind, "repeated", "declined"]
 # Diagnoza przy Zatrzymaniu: ``on_request`` to przycisk „Diagnoza” zamiast następnej akcji, ``automatic`` to
 # nieoczekiwany wyjątek, przy którym przeglądarka zaczyna Diagnozę od razu po pokazaniu wyniku.
 DiagnosisOffer = Literal["on_request", "automatic"]
+# Otwarcie tego, co proces zapisał: akcja po wyniku z zapisem, którą deklaruje proces (``run_view``).
+ResultAction = Literal["open_collective_file", "open_worker_settlements_folder"]
+NextAction = Literal["run", "rerun", ResultAction]
 
 
 class RunOutcome(_Model):
     """Wynik Uruchomienia procesu: zatrzymania i ostrzeżenia w trzech częściach, uwagi techniczne i podsumowanie.
 
-    ``ending`` mówi, jak się skończyło: ``finished``, własne zatrzymanie procesu (``stop``), nieoczekiwany
-    błąd (``unexpected``) albo błąd po zakończeniu silnika (``after_engine``). ``next_action`` to akcja,
-    którą Centrum proponuje po wyniku, a ``headline`` to tytuł banera wyniku. ``stop_kind`` to rodzaj
+    ``ending`` mówi, jak się skończyło: ``finished``, własne zatrzymanie procesu (``stop``), Zatrzymanie po
+    odmowie w Decyzji taty (``declined``), nieoczekiwany błąd (``unexpected``) albo błąd po zakończeniu
+    silnika (``after_engine``). ``next_action`` to akcja, którą Centrum proponuje po wyniku, a ``headline``
+    to tytuł banera wyniku. ``stop_kind`` to rodzaj
     Zatrzymania (``None`` bez Zatrzymania), ``diagnosis`` to Diagnoza, którą z niego Centrum proponuje
     (``None``: bez Zatrzymania i przy Zatrzymaniu „dla taty”), a ``report`` stan Zgłoszenia do Maksa tego
-    problemu (``None``, gdy Centrum nie proponuje Diagnozy).
+    problemu (``None``, gdy Centrum nie proponuje Diagnozy). ``files_unchanged``: Uruchomienie nie zmieniło
+    plików taty (podgląd bez zapisu albo koniec przed Zapisywaniem), więc karta może to tacie powiedzieć.
+    ``opens`` to plik taty, w którym jest poprawka Zatrzymania, a karta proponuje go otworzyć (``None``: żaden).
     """
 
     result: RunResult
     headline: str
-    ending: Literal["finished", "stop", "unexpected", "after_engine"]
-    next_action: Literal["run", "rerun", "open_period_folder"]
+    ending: Literal["finished", "stop", "declined", "unexpected", "after_engine"]
+    next_action: NextAction
     stop_kind: StopKind | None
     diagnosis: DiagnosisOffer | None
     report: ReportState | None
@@ -497,6 +514,8 @@ class RunOutcome(_Model):
     warnings: list[Message]
     technical_notes: list[str]
     summary: RunSummary | None
+    files_unchanged: bool
+    opens: DadFile | None
 
 
 class RunIdle(_Model):
@@ -824,10 +843,12 @@ ApiOperation = Literal[
     "getHealth",
     "getSettings",
     "chooseRegister",
+    "openRegister",
     "choosePeriodsDirectory",
     "changeTheme",
     "getPeriodBoard",
     "openPeriodPath",
+    "openWorkerSettlement",
     "getRunSetup",
     "startRun",
     "decideRun",

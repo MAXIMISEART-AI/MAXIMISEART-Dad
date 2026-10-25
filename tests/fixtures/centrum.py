@@ -34,6 +34,7 @@ from rozliczenia.centrum.report_box import (
 )
 from rozliczenia.centrum.shutdown import Shutdown
 from rozliczenia.centrum.tool_freshness import GitHubReleases, PublishedRelease, ToolFreshness
+from rozliczenia.centrum.tool_update import Release
 
 from tests.fixtures.clock import ManualClock
 
@@ -218,7 +219,7 @@ class FakeGitHub:
     ``release`` to commit najnowszego Wydania na `main`, a ``tag`` jego tag; ``release=None`` to brak sieci,
     ``NO_RELEASE`` to GitHub bez żadnego Wydania. ``published`` to lista GitHub Releases (``None``: brak sieci).
     ``asked`` liczy pytania o najnowsze Wydanie, a ``asked_published`` o listę. Commit narzędzia zawiera tylko taki
-    sam commit Wydania.
+    sam commit Wydania. ``wydanie`` to Wydanie, którego tag w klonie wskazuje commit narzędzia.
     """
 
     tool_commit: str | None = TOOL_COMMIT
@@ -228,10 +229,15 @@ class FakeGitHub:
     published: list[PublishedRelease] | None = field(default_factory=list)
     asked: int = 0
     asked_published: int = 0
+    wydanie: Release | None = None
 
     def freshness(self) -> ToolFreshness:
         return ToolFreshness(
-            local=lambda: self.tool_commit, since=lambda: self.since, release=self._release, published=self._published
+            local=lambda: self.tool_commit,
+            since=lambda: self.since,
+            release=self._release,
+            published=self._published,
+            wydanie=lambda local: self.wydanie,
         )
 
     def _release(self) -> GitHubReleases | None:

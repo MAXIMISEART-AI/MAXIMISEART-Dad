@@ -130,6 +130,41 @@ jobs:
         if: ${{ runner.os == 'Linux' }}
         run: python -m pytest -n auto $(python tools/czesci_pytest.py --linux ${{ matrix.part }})
 
+  change-mutations:
+    # Each mutation of a line the pull request changes in src/ must fail a test (tools/mutacje_zmiany.py):
+    # a reviewer used to find these by hand, after CI was green. A push to main has no change to mutate.
+    # Each part takes every third mutation: 90 mutations of a seven-module refactor (#382) took 25 min on one busy Mac.
+    name: Change mutations (${{ matrix.part }}/3)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        part: [1, 2, 3]
+    env:
+      PYTHONUTF8: '1'
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # On a pull request HEAD is the merge commit and HEAD^1 the base it merges into.
+          fetch-depth: 2
+
+      - id: python
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.14'
+
+      - uses: astral-sh/setup-uv@v10.3.2
+        with:
+          enable-cache: false
+
+      - name: Install dependencies
+        run: uv pip install --system --python "${{ steps.python.outputs.python-path }}" -r requirements.txt
+
+      - name: Mutate the changed lines of src/
+        if: ${{ github.event_name == 'pull_request' }}
+        run: python tools/mutacje_zmiany.py --baza HEAD^1 --czesc ${{ matrix.part }}/3
+
   mutations:
     # A mutation check's verdict does not depend on the Python version, so it runs once, beside pytest.
     # A pull request runs only the scripts whose verdict its changes can alter; a push to main runs them all.
@@ -382,6 +417,7 @@ jobs:
       - mypy
       - pytest
       - mutations
+      - change-mutations
       - e2e
       - timing
       - frontend
@@ -394,6 +430,7 @@ jobs:
           MYPY_RESULT: ${{ needs.mypy.result }}
           PYTEST_RESULT: ${{ needs.pytest.result }}
           MUTATIONS_RESULT: ${{ needs.mutations.result }}
+          CHANGE_MUTATIONS_RESULT: ${{ needs.change-mutations.result }}
           E2E_RESULT: ${{ needs.e2e.result }}
           TIMING_RESULT: ${{ needs.timing.result }}
           FRONTEND_RESULT: ${{ needs.frontend.result }}
@@ -403,6 +440,7 @@ jobs:
             mypy = $env:MYPY_RESULT
             pytest = $env:PYTEST_RESULT
             Mutations = $env:MUTATIONS_RESULT
+            'Change mutations' = $env:CHANGE_MUTATIONS_RESULT
             E2E = $env:E2E_RESULT
             Timing = $env:TIMING_RESULT
             Frontend = $env:FRONTEND_RESULT

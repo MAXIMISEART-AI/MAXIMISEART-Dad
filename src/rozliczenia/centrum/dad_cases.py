@@ -224,7 +224,10 @@ def _document(path: Path) -> object:
 
 
 def _old_reports(document: object) -> object:
-    """Wpisy ``zgloszenia-wyslane.json``: lista bez schematu, sprzed Powiadomień bez „Co się stało” i czasu."""
+    """Wpisy ``zgloszenia-wyslane.json``: lista bez schematu, sprzed Powiadomień bez „Co się stało” i czasu.
+
+    Zgłoszenie nie ma Uruchomienia, więc ``run_id`` z wpisu, którego stary czytnik nie czytał, jest pominięty.
+    """
 
     if not isinstance(document, list):
         return None
@@ -244,7 +247,13 @@ def _old_notes(document: object) -> object:
     if not isinstance(entries, list):
         return None
     return [
-        {"kind": NOTE.key, "id": entry.get("id"), "title": entry.get("title"), **_shared(entry, "written_at")}
+        {
+            "kind": NOTE.key,
+            "id": entry.get("id"),
+            "title": entry.get("title"),
+            **_shared(entry, "written_at"),
+            "run_id": entry.get("run_id"),
+        }
         for entry in entries
         if isinstance(entry, dict) and isinstance(entry.get("title"), str) and read_moment(entry.get("written_at"))
     ]
@@ -258,7 +267,6 @@ def _shared(entry: dict[str, object], sent_at: str) -> dict[str, object]:
         "sent_at": entry.get(sent_at),
         "number": entry.get("number"),
         "closure": entry.get("closure"),
-        "run_id": entry.get("run_id"),
     }
 
 

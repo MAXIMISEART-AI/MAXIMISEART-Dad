@@ -24,7 +24,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 import re
-from typing import Final
+from typing import Final, Literal
+
+DadFile = Literal["order_register", "collective_file"]
+"""Plik taty, który Komunikat każe poprawić: Rejestr zleceń albo Plik zbiorczy."""
 
 REPORT_TO_MAINTAINER: Final = "Przekaż ten komunikat osobie utrzymującej narzędzie."
 _SENTENCE_END: Final = re.compile(r"(?<=[.!?])\s+")
@@ -33,12 +36,17 @@ _CONDITIONS: Final = ("jeśli", "w innym wypadku")
 
 @dataclass(frozen=True)
 class Message:
-    """Komunikat: co się stało, gdzie, co zrobić, z kodem unikalnym w katalogu procesu."""
+    """Komunikat: co się stało, gdzie, co zrobić, z kodem unikalnym w katalogu procesu.
+
+    ``dad_file``: plik taty, w którym jest poprawka z „Co zrobić”, gdy otwarcie go pomaga; odcisk problemu
+    go nie zawiera.
+    """
 
     code: str
     what: str
     where: str
     action: str
+    dad_file: DadFile | None = None
 
     @property
     def text(self) -> str:

@@ -222,6 +222,15 @@ def test_wpis_starego_pliku_ktorego_nie_da_sie_odczytac_jest_pominiety(
     assert case.number == (4 if name == OLD_REPORTS_FILE else 5)
 
 
+@pytest.mark.parametrize("run_id", [3, "b4c3d2e1f0a94b8c"])
+def test_zgloszenie_ze_starego_pliku_nie_bierze_uruchomienia_z_wpisu(tmp_path: Path, run_id: object) -> None:
+    with_document(tmp_path, OLD_REPORTS_FILE, [{**OLD_REPORT, "run_id": run_id}])
+
+    [case] = cases(tmp_path)
+
+    assert (case.kind, case.number, case.run_id) == (REPORT, 4, None)
+
+
 @pytest.mark.parametrize(
     "entry",
     [

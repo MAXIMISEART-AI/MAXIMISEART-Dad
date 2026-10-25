@@ -54,6 +54,8 @@ FILES: dict[str, tuple[str, str]] = {
     "konfiguracja_wykonawcow": ("config/worker_mapping.yaml", TEXT),
     "klucz_zgloszen": ("config/zgloszenia-klucz.txt", TEXT),
     "sprawy_taty": ("config/sprawy-taty.json", TEXT),
+    "wyslane_zgloszenia": ("config/zgloszenia-wyslane.json", TEXT),
+    "uwagi_taty": ("config/uwagi-taty.json", TEXT),
     "przeczytane_powiadomienia": ("config/powiadomienia.json", TEXT),
     "uruchomienia_centrum": ("config/centrum-uruchomienia.jsonl", LINES),
     "adresy_skrzynki": ("config/skrzynka-adresy.jsonl", LINES),
@@ -71,6 +73,11 @@ FILES: dict[str, tuple[str, str]] = {
     "folder_okresu_przygotowania": (f"Załączniki/{PERIOD}", FOLDER),
     "folder_zgloszen": ("config/zgloszenia", FOLDER),
 }
+# Pliki sprzed Spraw taty: Centrum czyta je tylko przy starcie bez pliku Spraw taty, czyli przy pierwszym starcie
+# u taty po aktualizacji.
+OLD_DAD_CASES = ("wyslane_zgloszenia", "uwagi_taty")
+# Pliki, które Centrum czyta raz, przy starcie: przypadek psuje je przed startem Centrum, a nie po nim.
+READ_AT_START = ("sprawy_taty", *OLD_DAD_CASES)
 
 
 def _empty(path: Path) -> None:
@@ -230,10 +237,10 @@ def _build(root: Path) -> None:
         encoding="utf-8",
     )
     world.path("klucz_zgloszen").write_text("github_pat_SYNTETYCZNY123\n", encoding="utf-8")
-    # Plik sprzed Spraw taty: „Wyślij” Uwagi poniżej przenosi jego Zgłoszenie do pliku Spraw taty.
-    (world.root / "config" / "zgloszenia-wyslane.json").write_text(
-        json.dumps([SENT_REPORT], ensure_ascii=False) + "\n",
-        encoding="utf-8",
+    # „Wyślij” Uwagi poniżej przenosi sprawy z obu starych plików do pliku Spraw taty.
+    world.path("wyslane_zgloszenia").write_text(json.dumps([SENT_REPORT], ensure_ascii=False) + "\n", encoding="utf-8")
+    world.path("uwagi_taty").write_text(
+        json.dumps({"schema_version": 1, "uwagi": [SENT_DAD_NOTE]}, ensure_ascii=False) + "\n", encoding="utf-8"
     )
     world.path("przeczytane_powiadomienia").write_text(
         json.dumps({"schema_version": 1, "przeczytane": [READ_NOTIFICATION]}) + "\n", encoding="utf-8"
@@ -354,6 +361,15 @@ SENT_REPORT = {
     "sent_at": "2026-09-15T08:00:00+00:00",
     "closure": {"reason": "completed", "at": "2026-09-16T08:00:00+00:00"},
 }
+SENT_DAD_NOTE = {
+    "id": "5e1f0c2d3b4a49e8b7c6d5e4f3a2b1c0",
+    "title": "Brakuje ilości przy montażu",
+    "commit": None,
+    "written_at": "2026-09-15T09:00:00+00:00",
+    "number": 8,
+    "closure": None,
+    "run_id": None,
+}
 READ_NOTIFICATION = "zgloszenie-7-rozwiazana"
 LOGS_COMMENTS = [
     "https://github.com/MAXIMISEART-AI/MAXIMISEART-Dad-zgloszenia/issues/3#issuecomment-1",
@@ -364,10 +380,19 @@ ENTRIES: dict[str, Entry] = {
     "getSettings": _route("getSettings", "GET", "/api/settings"),
     "chooseRegister": _route("chooseRegister", "POST", "/api/settings/register/choose"),
     "choosePeriodsDirectory": _route("choosePeriodsDirectory", "POST", "/api/settings/periods-directory/choose"),
+    "openRegister": _route("openRegister", "POST", "/api/settings/register/open"),
     "changeTheme": _route("changeTheme", "PUT", "/api/settings/theme", {"theme": "light"}),
     "getPeriodBoard": _route("getPeriodBoard", "GET", "/api/periods"),
     "openPeriodPath": _route(
         "openPeriodPath", "POST", f"/api/periods/{SETTLEMENT_PERIOD}/open", {"target": "collective_file"}
+    ),
+    # Rozliczenia pracownika w świecie nie ma, bo zatrzymałoby Przebieg rozliczeń; operacja go nie czyta, a ścieżkę
+    # wylicza z tych samych Ustawień, Folderu okresów i Folderu okresu, które macierz psuje.
+    "openWorkerSettlement": _route(
+        "openWorkerSettlement",
+        "POST",
+        f"/api/periods/{SETTLEMENT_PERIOD}/worker-settlements/open",
+        {"worker": "Adrian Testowy"},
     ),
     "getRunSetup": _route("getRunSetup", "GET", "/api/runs/setup"),
     "getMetrics": _route("getMetrics", "GET", "/api/metrics"),
@@ -433,7 +458,9 @@ def test_uszkodzony_plik_nie_konczy_sie_ogolnym_komunikatem(
 ) -> None:
     world = World(tmp_path / "swiat")
     shutil.copytree(world_template, world.root)
-    client = _remembering_choices(world)
+    if name in OLD_DAD_CASES:
+        world.path("sprawy_taty").unlink()
+    client = None if name in READ_AT_START else _remembering_choices(world)
     target = world.path(name)
     if damage == "ansi" and target.read_text(encoding="utf-8").isascii():
         pytest.skip("ANSI nie zmienia pliku bez polskich znaków")
@@ -442,7 +469,7 @@ def test_uszkodzony_plik_nie_konczy_sie_ogolnym_komunikatem(
         world.engines.fail_summary = True
     seen: Seen = []
     try:
-        problems = ENTRIES[entry].call(client, seen)
+        problems = ENTRIES[entry].call(client or _remembering_choices(world), seen)
     finally:
         if damage == "bez_odczytu":
             _readable_again(target)

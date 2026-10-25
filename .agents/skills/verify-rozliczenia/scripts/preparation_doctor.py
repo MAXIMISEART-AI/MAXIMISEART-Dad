@@ -18,7 +18,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "src"))
 from rozliczenia.worker_config import load_worker_mapping
 from rozliczenia.message import StopError
 from rozliczenia.settlement_period import parse_period_token
-from rozliczenia.workbook_files import Layout, TemplateFile, WorkbookError, is_open_in_excel
+from rozliczenia.template_file import TemplateFile
+from rozliczenia.workbook_files import WorkbookError, is_open_in_excel
 from skrypt_skilla import Parser
 
 SCRIPT = Path(__file__).resolve()
@@ -118,7 +119,7 @@ def _check(root: Path, expected_version: str, *, worker_template: bool) -> tuple
         raise ValueError("Wzorzec pliku zbiorczego has no xl/externalLinks parts")
 
     if worker_template:
-        TemplateFile(root / "config" / "Wzorzec rozliczenia pracownika.xlsx", Layout.WORKER_SETTLEMENT).check()
+        TemplateFile.worker_settlement(root / "config" / "Wzorzec rozliczenia pracownika.xlsx").check()
 
     mapping = load_worker_mapping(root / "config" / "worker_mapping.yaml")
     periods_directory = root / "INEA"
