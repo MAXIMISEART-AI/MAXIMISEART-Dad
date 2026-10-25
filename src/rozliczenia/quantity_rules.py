@@ -9,7 +9,8 @@ Plik zbiorczy daje Kontroli ilości te same Ilości usług, które Przygotowanie
 bez ``xg`` (także doklejonego, ``nokia zteXG``). Składnik może mieć krotność ``n*`` (``3*fut``, ``2* fut``).
 Ilości powstają ze złożenia składników, więc nowa kombinacja znanych składników nie wymaga nowej reguły. Nowy
 składnik to nowy wpis w ``_COMPONENTS``. Od składników zależą też liczba sztuk z ``CZYNNOŚCI`` (instalacja ręczna,
-wizja) i dodatek za usterkę po godzinach według dnia i godziny ``DATA``.
+wizja), ilości z frazy ``CZYNNOŚCI`` w zleceniu bez routera (samo ``nokia`` z ``akt int``) i dodatek za usterkę po
+godzinach według dnia i godziny ``DATA``.
 """
 
 from __future__ import annotations
@@ -140,6 +141,9 @@ class _Component:
     kind: _Kind = _Kind.OTHER
     with_extender: Mapping[QuantityColumn, int] = field(default_factory=dict)
     """Ilości na sztukę dodawane, gdy w zleceniu jest też wzmacniacz wifi."""
+    without_router: tuple[str, Mapping[QuantityColumn, int]] | None = None
+    """Fraza ``CZYNNOŚCI`` (małe litery, pojedyncze spacje) i ilości dodawane raz, gdy zlecenie bez routera ma ją w
+    ``CZYNNOŚCI``; nie liczą się do S."""
 
 
 _Q = QuantityColumn
@@ -152,7 +156,7 @@ _MANUAL_INSTALLATION = _Component({_Q.AN: 1, _Q.V: 1}, _Kind.PIECES)
 # Klucze po normalizacji jak ``URZĄDZENIA``. Urządzenia TV nie mają własnych ilości: przy routerze pierwsze idzie
 # do P (TV), a pozostałe do Q (multiroom); bez routera wszystkie do Q.
 _COMPONENTS: Final[Mapping[str, _Component]] = {
-    "nokia": _Component({_Q.Z: 1}),
+    "nokia": _Component({_Q.Z: 1}, without_router=("akt int", {_Q.O: 1})),
     "nokia zte": _NOKIA_ROUTER,
     "nokia getewayhomebox": _NOKIA_ROUTER,
     "technicolor": _Component({_Q.O: 1, _Q.Z: 1, _Q.AK: 1}, _Kind.ROUTER),
@@ -198,7 +202,7 @@ def evaluate(order: OrderContent) -> RuleResult:
         quantities[_Q.N] = _LATE_FAULT_SURCHARGE
     if not all_known:
         return WithoutRule(_nonzero(quantities))
-    return ServiceQuantities(_nonzero({**quantities, **_device_quantities(components, _pieces(order.activities))}))
+    return ServiceQuantities(_nonzero({**quantities, **_device_quantities(components, order.activities)}))
 
 
 def _cell_text(value: object) -> str:
@@ -248,7 +252,8 @@ def _components(words: list[str]) -> tuple[list[tuple[_Component, int]], bool]:
     return found, all_known
 
 
-def _device_quantities(components: list[tuple[_Component, int]], pieces: int) -> Counter[QuantityColumn]:
+def _device_quantities(components: list[tuple[_Component, int]], activities: str) -> Counter[QuantityColumn]:
+    pieces = _pieces(activities)
     quantities: Counter[QuantityColumn] = Counter()
     count_of = Counter[_Kind]()
     for component, count in components:
@@ -265,6 +270,11 @@ def _device_quantities(components: list[tuple[_Component, int]], pieces: int) ->
     else:
         quantities[_Q.Q] += tv_devices
     quantities[_Q.S] = quantities[_Q.O] + quantities[_Q.P] + quantities[_Q.Q] + quantities[_Q.AG]
+    if not count_of[_Kind.ROUTER]:
+        phrases = " ".join(activities.casefold().split())
+        for component, _ in components:
+            if component.without_router is not None and component.without_router[0] in phrases:
+                quantities.update(component.without_router[1])
     return quantities
 
 
