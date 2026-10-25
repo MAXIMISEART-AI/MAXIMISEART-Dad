@@ -38,10 +38,16 @@ from rozliczenia.centrum.shutdown import Shutdown
 from tests.fixtures.centrum import CENTRUM, FakeGitHub, FakeOneDrive, FakePlatform, MetricsPaths, finished_view
 from tests.fixtures.centrum_processes import Engines
 from tests.fixtures.preparation import PERIOD, write_collective_template, write_internal_template, write_register
-from tests.fixtures.settlement import write_source, write_template
+from tests.fixtures.settlement import CellValue, write_quantity_source, write_template
 
 TODAY = date(2026, 9, 16)
 SETTLEMENT_PERIOD = "01_07_09_2026"
+# Wiersze danych Pliku zbiorczego Przebiegu rozliczeń: znane URZĄDZENIA, nieznane (wiersz bez reguły) i prewencja.
+HEALTHY_COLLECTIVE_ROWS: tuple[dict[str, CellValue], ...] = (
+    {"D": "nokia zte", "G": datetime(2026, 9, 2, 10, 0), "N": 1},
+    {"D": "przeniesienie", "G": datetime(2026, 9, 3, 10, 0), "H": "dariusz.fikcyjny2", "N": 2},
+    {"D": "prewencja", "G": datetime(2026, 9, 4, 10, 0), "N": 3},
+)
 # Słowo Komunikatu o zepsutym pliku; plik bez dostępu jest cały i tata nie ma go naprawiać w Excelu.
 # Spacja odróżnia je od ścieżek tmp_path, które zawierają nazwę testu.
 DAMAGED = " uszkodzon"
@@ -230,7 +236,8 @@ def _build(root: Path) -> None:
     write_internal_template(world.path("wzorzec_wewnetrzny"))
     write_collective_template(world.path("wzorzec_zbiorczy"))
     write_template(world.path("wzorzec_pracownika"))
-    write_source(world.path("plik_zbiorczy"), include_unmapped=False)
+    # Plik zbiorczy z nagłówkami Wzorca, więc wejście getQuantitiesToFill przy innym zepsutym pliku czyta zdrowy plik.
+    write_quantity_source(world.path("plik_zbiorczy"), HEALTHY_COLLECTIVE_ROWS)
     world.path("konfiguracja_wykonawcow").write_text(
         "# Wykonawcy zespołu z Łodzi\nschema_version: 1\nworkers:\n"
         "  adrian.testowy: Adrian Testowy\n  dariusz.fikcyjny2: Darek Fikcyjny\n  kamil.syntetyczny: Kamil Syntetyczny\n",
@@ -247,6 +254,7 @@ def _build(root: Path) -> None:
     )
     client = _remembering_choices(world)
     assert client.post("/api/dad-notes", json=DAD_NOTE).json() == {"state": "waiting"}
+    assert client.get(f"/api/periods/{SETTLEMENT_PERIOD}/quantities-to-fill").json()["state"] == "ready"
     for process, period in (("preparation", PERIOD), ("settlement", SETTLEMENT_PERIOD)):
         started = client.post("/api/runs", json={"process": process, "period": period, "dry_run": True})
         assert started.status_code == 200, started.json()

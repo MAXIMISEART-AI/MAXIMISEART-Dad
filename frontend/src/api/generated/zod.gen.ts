@@ -584,11 +584,14 @@ export const zProgress = z.object({
  * QuantitiesToFillProblem
  *
  * Pliku zbiorczego nie udało się odczytać; Komunikat go nazywa, a ``version`` to znacznik zapisu przed odczytem.
+ *
+ * ``collective_file_exists``: plik jest w Folderze okresu, więc „Otwórz Plik zbiorczy” ma co otworzyć.
  */
 export const zQuantitiesToFillProblem = z.object({
     state: z.literal('problem'),
     message: zMessage,
-    version: z.string().nullable()
+    version: z.string().nullable(),
+    collective_file_exists: z.boolean()
 });
 
 /**
@@ -750,7 +753,11 @@ export const zMetrics = z.object({
 /**
  * RowState
  */
-export const zRowState = z.enum(['to_fill', 'done']);
+export const zRowState = z.enum([
+    'to_fill',
+    'done',
+    'without_quantity'
+]);
 
 /**
  * KindTableRow
@@ -773,10 +780,13 @@ export const zKindTableRow = z.object({
  * KindTableReady
  *
  * Wiersze jednego rodzaju Ilości do uzupełnienia rosnąco po numerze; ``columns`` to N:AP po kolei.
+ *
+ * ``settled`` jak w ``QuantitiesToFillReady``.
  */
 export const zKindTableReady = z.object({
     state: z.literal('ready'),
     read: zCollectiveFileRead,
+    settled: z.boolean(),
     kind: zFillKind,
     columns: z.array(zPriceListItem),
     rows: z.array(zKindTableRow)
@@ -785,11 +795,11 @@ export const zKindTableReady = z.object({
 /**
  * RowToFill
  *
- * Wiersz Pliku zbiorczego z Ilościami do uzupełnienia: numer wiersza i czy tata już coś w nim wpisał.
+ * Wiersz Pliku zbiorczego z Ilościami do uzupełnienia: numer wiersza i jego stan (zrobiony, do uzupełnienia, bez ilości).
  */
 export const zRowToFill = z.object({
     row: z.int(),
-    done: z.boolean()
+    state: zRowState
 });
 
 /**
@@ -807,10 +817,14 @@ export const zKindToFill = z.object({
  * QuantitiesToFillReady
  *
  * Ilości do uzupełnienia okresu przeliczone z zapisanego Pliku zbiorczego; ``kinds`` ma każdy rodzaj z listą.
+ *
+ * ``settled``: Przebieg rozliczeń okresu się odbył (Status okresu Rozliczenia pracowników gotowe), więc strona jest
+ * podglądem bez „Gotowe, rozlicz pracowników”, a wiersz bez wpisu taty jest „bez ilości”.
  */
 export const zQuantitiesToFillReady = z.object({
     state: z.literal('ready'),
     read: zCollectiveFileRead,
+    settled: z.boolean(),
     kinds: z.array(zKindToFill),
     description_columns: z.array(zDescriptionColumn)
 });

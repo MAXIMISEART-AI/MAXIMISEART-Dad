@@ -23,6 +23,8 @@ WORKBOOK_FILES = Path("src/rozliczenia/workbook_files.py")
 QUANTITIES_TO_FILL = Path("src/rozliczenia/quantities_to_fill.py")
 LIVE_FILE = Path("src/rozliczenia/centrum/live_file.py")
 FILLING = Path("src/rozliczenia/centrum/filling.py")
+# The committed frontend build: a change of the frontend source needs its anchor here after `npm run regen`.
+BUILD = Path("src/rozliczenia/centrum/static/assets/index.js")
 SETTINGS = Path("src/rozliczenia/centrum/settings.py")
 STOPS = Path("src/rozliczenia/centrum/stops.py")
 RUN_VIEW = Path("src/rozliczenia/centrum/run_view.py")
@@ -103,6 +105,24 @@ MUTATIONS = (
         "karta mówi „Masz najnowszą wersję.” o Wydaniu, którego Centrum już nie zna",
     ),
     Mutation(
+        "karta z Logów bez podsumowania",
+        (Edit(BUILD, "action:a.button,filling:!0}),a.dialog", "action:a.button,filling:!1}),a.dialog"),),
+        UZUPELNIENIE,
+        "po ponownym starcie Centrum karta Przygotowania nie mówi tacie, co zostało do uzupełnienia",
+    ),
+    Mutation(
+        "karta wyniku pokazuje starą kopię podsumowania",
+        (Edit(BUILD, "{fresh:!0}", "{fresh:!1}"),),
+        UZUPELNIENIE,
+        "zaraz po Przygotowaniu karta wyniku pokazuje przez sekundę stan sprzed niego, np. „Nie ma Pliku zbiorczego”",
+    ),
+    Mutation(
+        "podsumowanie bez Pliku zbiorczego proponuje go otworzyć",
+        (Edit(FILLING, "collective_file_exists=os.path.isfile(path)", "collective_file_exists=True"),),
+        UZUPELNIENIE,
+        "tata klika „Otwórz Plik zbiorczy” w okresie bez pliku i dostaje tylko „Nie udało się otworzyć”",
+    ),
+    Mutation(
         "plik blokady Excela blokuje odczyt Uzupełnienia",
         (Edit(WORKBOOK_FILES, "    if open_in_excel and not despite_excel_lock:\n", "    if open_in_excel:\n"),),
         UZUPELNIENIE,
@@ -137,6 +157,18 @@ MUTATIONS = (
         (Edit(QUANTITIES_TO_FILL, "for row in kind.rows if not row.done))", "for row in kind.rows if False))"),),
         UZUPELNIENIE,
         "tata potwierdza Gotowość, a okno „Uruchomić z zapisem?” milczy o wierszach, w których nie ma ilości",
+    ),
+    Mutation(
+        "po Przebiegu rozliczeń wiersz bez wpisu taty dalej czeka na tatę",
+        (
+            Edit(
+                QUANTITIES_TO_FILL,
+                "state = RowState.WITHOUT_QUANTITY if settled else RowState.TO_FILL",
+                "state = RowState.TO_FILL",
+            ),
+        ),
+        UZUPELNIENIE,
+        "po Przebiegu tata widzi żółte wiersze do uzupełnienia zamiast szarych „bez ilości”, które zostały na zerach",
     ),
     Mutation(
         "nieczytelny Plik zbiorczy psuje ustawienie Przebiegu",

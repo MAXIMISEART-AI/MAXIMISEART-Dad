@@ -75,6 +75,12 @@ export function RunSetupCard({ processes }: { processes: ReadonlyArray<ProcessSe
 
   const selection: RunDraft = { process: chosen.process, period }
   const chosenPeriod = chosen.periods.find((choice) => choice.token === period)
+
+  // Okres przyniesiony spoza formularza (np. „Gotowe” Uzupełnienia), którego proces nie oferuje: inny wybór na głos.
+  // Bez okresu do wyboru mówi już blokada.
+  const passedOver =
+    draft !== null && draft.process === chosen.process && draft.period !== period && chosenPeriod !== undefined ? draft.period : null
+
   const blocked = chosen.blocker !== null
   const openInExcel = chosenPeriod?.open_in_excel ?? []
 
@@ -175,6 +181,14 @@ export function RunSetupCard({ processes }: { processes: ReadonlyArray<ProcessSe
             <Alert className="wejscie">
               <TriangleAlertIcon className="text-warning!" />
               <AlertTitle>{chosen.blocker}</AlertTitle>
+            </Alert>
+          )}
+          {passedOver === null ? null : (
+            <Alert className="wejscie">
+              <TriangleAlertIcon className="text-warning!" />
+              <AlertTitle>
+                Okresu {passedOver} nie ma do wyboru, więc wybrany jest {period}.
+              </AlertTitle>
             </Alert>
           )}
           {openInExcel.length === 0 ? null : (

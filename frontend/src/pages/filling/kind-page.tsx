@@ -2,7 +2,15 @@ import { cn } from "cn"
 import { ArrowLeftIcon, CalendarRangeIcon } from "lucide-react"
 import type * as React from "react"
 
-import { getKindTable, type FillKind, type KindTable, type KindTableCell, type KindTableRow, type PriceListItem } from "@/api/centrum"
+import {
+  getKindTable,
+  type FillKind,
+  type KindTable,
+  type KindTableCell,
+  type KindTableRow,
+  type PriceListItem,
+  type QuantitiesToFill,
+} from "@/api/centrum"
 import type { RowState } from "@/api/generated"
 import { PageHeader } from "@/components/page-header"
 import { ThreePartMessage } from "@/components/three-part-message"
@@ -14,14 +22,23 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { href } from "@/lib/address"
 import { useContentEntrance } from "@/lib/content-entrance"
 import { useLiveFile } from "@/lib/use-live-file"
+import type { Resource } from "@/lib/use-resource"
+import { AfterSettlement, afterSettlementHint } from "@/pages/filling/after-settlement"
 import { SaveHint } from "@/pages/filling/save-hint"
 
 // Wygląd wiersza po jego stanie z serwera; tło przypiętych komórek jest kryjące, bo pod nimi przewijają się ilości.
-const ROWS: Record<RowState, { tint: string; label: string }> = {
-  to_fill: { tint: "bg-to-fill", label: "do uzupełnienia" },
+// `shown`: napis stoi pod numerem, bo szarego wiersza nie odróżni się od zielonego po samym kolorze.
+const ROWS: Record<RowState, { tint: string; label: string; shown: boolean }> = {
+  to_fill: { tint: "bg-to-fill", label: "do uzupełnienia", shown: false },
   done: {
     tint: "bg-[color-mix(in_oklab,var(--success)_14%,var(--card))] dark:bg-[color-mix(in_oklab,var(--success)_20%,var(--card))]",
     label: "zrobiony",
+    shown: false,
+  },
+  without_quantity: {
+    tint: "bg-[color-mix(in_oklab,var(--muted-foreground)_18%,var(--card))] text-muted-foreground",
+    label: "bez ilości",
+    shown: true,
   },
 }
 
@@ -29,13 +46,13 @@ type Pinned = { title: string; width: number; left: number }
 
 // Przypięte kolumny w rem: `left` to suma szerokości kolumn przed nią. Razem 22 rem, więc na laptopie taty
 // (1280 px z menu) obok mieści się 10 kolumn N:AP.
-const NUMBER: Pinned = { title: "Nr", width: 2.5, left: 0 }
+const NUMBER: Pinned = { title: "Nr", width: 3.5, left: 0 }
 
 const TEXTS: ReadonlyArray<Pinned> = [
-  { title: "WYKONAWCA", width: 4.5, left: 2.5 },
-  { title: "URZĄDZENIA", width: 4.75, left: 7 },
-  { title: "CZYNNOŚCI", width: 4.25, left: 11.75 },
-  { title: "CZYNNOŚCI ZREALIZOWANE", width: 6, left: 16 },
+  { title: "WYKONAWCA", width: 4.25, left: 3.5 },
+  { title: "URZĄDZENIA", width: 4.5, left: 7.75 },
+  { title: "CZYNNOŚCI", width: 4.25, left: 12.25 },
+  { title: "CZYNNOŚCI ZREALIZOWANE", width: 5.5, left: 16.5 },
 ]
 
 const PINNED = [NUMBER, ...TEXTS]
@@ -65,6 +82,11 @@ function tableOf(token: string, kind: FillKind) {
   return load
 }
 
+/** Plik zbiorczy jest w Folderze okresu: odczytany albo z Komunikatem, który go nazywa (uszkodzony, bez nagłówka). */
+export function hasCollectiveFile(resource: Resource<QuantitiesToFill | KindTable>): boolean {
+  return resource.state === "ready" && (resource.data.state === "ready" || resource.data.collective_file_exists)
+}
+
 /** Strona rodzaju Ilości do uzupełnienia `#/uzupelnienie/<okres>/<rodzaj>`: wiersze rodzaju jak w Excelu, tylko do podglądu. */
 export function KindPage({
   title,
@@ -90,6 +112,30 @@ export function KindPage({
         <ArrowLeftIcon className="size-4" aria-hidden />
         Podsumowanie
       </a>
+      <KindContent title={title} token={token} kind={kind} heading={heading} hint={hint} action={action} />
+    </>
+  )
+}
+
+function KindContent({
+  title,
+  token,
+  kind,
+  heading,
+  hint,
+  action,
+}: {
+  title: string
+  token: string
+  kind: FillKind
+  heading: string
+  hint: string
+  action: React.ReactNode
+}) {
+  const { resource } = useLiveFile(token, tableOf(token, kind))
+
+  return (
+    <>
       <PageHeader
         title={title}
         badge={
@@ -98,15 +144,14 @@ export function KindPage({
             {token}
           </Badge>
         }
-        action={action}
+        action={hasCollectiveFile(resource) ? action : undefined}
       />
-      <KindContent token={token} kind={kind} heading={heading} hint={hint} />
+      <KindState resource={resource} heading={heading} hint={hint} />
     </>
   )
 }
 
-function KindContent({ token, kind, heading, hint }: { token: string; kind: FillKind; heading: string; hint: string }) {
-  const { resource } = useLiveFile(token, tableOf(token, kind))
+function KindState({ resource, heading, hint }: { resource: Resource<KindTable>; heading: string; hint: string }) {
   const entrance = useContentEntrance(resource.state === "loading")
 
   switch (resource.state) {
@@ -134,10 +179,13 @@ function KindContent({ token, kind, heading, hint }: { token: string; kind: Fill
 
       return (
         <div className={cn(entrance, "flex flex-col gap-3")}>
+          {table.settled ? <AfterSettlement /> : null}
           <div className="flex items-end gap-3 px-1">
             <div className="flex flex-col gap-0.5">
               <h2 className="font-medium">{heading}</h2>
-              <p className="text-sm text-muted-foreground">{table.rows.length === 0 ? "Nie ma takich wierszy." : hint}</p>
+              <p className="text-sm text-muted-foreground">
+                {table.rows.length === 0 ? "Nie ma takich wierszy." : table.settled ? afterSettlementHint(table.rows) : hint}
+              </p>
             </div>
             {table.rows.length === 0 ? null : (
               <span className="ml-auto text-sm font-medium tabular-nums">
@@ -146,7 +194,7 @@ function KindContent({ token, kind, heading, hint }: { token: string; kind: Fill
             )}
           </div>
           {table.rows.length === 0 ? null : <QuantitiesTable columns={table.columns} rows={table.rows} />}
-          <SaveHint read={table.read} />
+          {table.settled ? null : <SaveHint read={table.read} />}
         </div>
       )
     }
@@ -245,7 +293,7 @@ function ColumnHeader({ column }: { column: PriceListItem }) {
 }
 
 function Row({ row }: { row: KindTableRow }) {
-  const { tint, label } = ROWS[row.state]
+  const { tint, label, shown } = ROWS[row.state]
   const texts = [row.worker, row.devices, row.activities, row.completed]
 
   return (
@@ -255,8 +303,17 @@ function Row({ row }: { row: KindTableRow }) {
         style={pinnedStyle(NUMBER)}
         className={cn("sticky z-10 h-10 border-b px-1.5 text-left align-middle font-mono text-sm text-muted-foreground tabular-nums", tint)}
       >
-        {row.row}
-        <span className="sr-only"> {label}</span>
+        {shown ? (
+          <span className="flex flex-col gap-0.5 leading-none">
+            <span>{row.row}</span>{" "}
+            <span className="font-sans text-[0.625rem] font-normal whitespace-nowrap">{label}</span>
+          </span>
+        ) : (
+          <>
+            {row.row}
+            <span className="sr-only"> {label}</span>
+          </>
+        )}
       </th>
       {TEXTS.map((column, index) => (
         <td

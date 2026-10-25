@@ -21,6 +21,7 @@ import szybko  # noqa: E402
 BY_CHANGE_ONLY = {
     "tests/test_brama_pre_push.py": "sprawdza zachowanie bramy pushem w repozytorium testu, a nie całe repozytorium",
     "tests/test_ciezkie_ci.py": "sprawdza strażnika narzędzi na repozytoriach testu i atrapie gh; ci.yml czyta ścieżką, którą graf widzi",
+    "tests/test_czekanie.py": "sprawdza hook na pojedynczych poleceniach; graf wybiera go przy zmianie hooka i .claude/settings.json",
     "tests/test_git_w_testach.py": (
         "sprawdza gita sesji testów, a nie całe repozytorium; zmiana conftest.py i fixtures/git_config.py uruchamia "
         "wszystkie testy"

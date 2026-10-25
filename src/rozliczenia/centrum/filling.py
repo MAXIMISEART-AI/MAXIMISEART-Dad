@@ -5,13 +5,15 @@ Ilości do uzupełnienia w silniku (``quantities_to_fill``); Centrum nigdy nie z
 tani znacznik zapisu, a podczas nieudanych prób przez minutę ostatni dobry odczyt z godziną.
 Podsumowanie dostaje tylko numery wierszy, stan „zrobione” i liczniki kolumn, a strona rodzaju też teksty
 wiersza, komórki N:AP i nazwy pozycji cennika, nigdy adres, numer zlecenia ani UMOWA. Nieudany odczyt to
-Komunikat, który nazywa Plik zbiorczy, i wpis w dzienniku Centrum z przyczyną, bez treści wierszy.
+Komunikat, który nazywa Plik zbiorczy, i wpis w dzienniku Centrum z przyczyną, bez treści wierszy. Czy Przebieg
+rozliczeń okresu się odbył, mówi Status okresu z plików Folderu okresu, ten sam co na Tablicy okresów.
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
+import os
 from pathlib import Path
 
 from fastapi import APIRouter
@@ -25,6 +27,7 @@ from rozliczenia.centrum.period_board import located_period_folder, requested_pe
 from rozliczenia.collective_file import NumberedOrders
 from rozliczenia.message import Message
 from rozliczenia.order_facts import MissingHeaders
+from rozliczenia.period_folder import PeriodFolder
 from rozliczenia.quantities_to_fill import FillKind, KindToFill, quantities_to_fill
 from rozliczenia.settings import SettingsStore
 from rozliczenia.workbook_files import WorkbookError, excel_lock_file
@@ -36,14 +39,13 @@ def filling_router(
     router = APIRouter(prefix="/api/periods", tags=["okresy"])
     reads: LastGoodReads[NumberedOrders] = LastGoodReads(clock=clock)
 
-    def collective_file_of(token: str) -> Path:
+    def folder_of(token: str) -> PeriodFolder:
         periods_directory = store.load().periods_directory
         if periods_directory is None or not periods_directory.is_dir():
             raise contract.Refusal(409, "Najpierw wskaż folder okresów.")
-        return located_period_folder(periods_directory, requested_period(token)).collective_file
+        return located_period_folder(periods_directory, requested_period(token))
 
-    def read(token: str) -> GoodRead[NumberedOrders] | contract.QuantitiesToFillProblem:
-        path = collective_file_of(token)
+    def read(token: str, path: Path) -> GoodRead[NumberedOrders] | contract.QuantitiesToFillProblem:
         attempt = reads.attempt(path)
         found = _attempt(path, cloud_files)
         if not isinstance(found, _Unreadable):
@@ -55,28 +57,37 @@ def filling_router(
             )
         if failing.kept is not None:
             return failing.kept
+        # ``os.path.isfile``, bo ``Path.is_file`` w folderze bez dostępu rzuca PermissionError zamiast odpowiedzieć „nie”.
         return contract.QuantitiesToFillProblem(
-            state="problem", message=contract.Message.of(found.message), version=attempt.version
+            state="problem",
+            message=contract.Message.of(found.message),
+            version=attempt.version,
+            collective_file_exists=os.path.isfile(path),
         )
 
     @router.get(
         "/{token}/quantities-to-fill", operation_id="getQuantitiesToFill", responses=contract.NOT_FOUND_OR_CONFLICT
     )
     def quantities(token: str) -> contract.QuantitiesToFill:
-        found = read(token)
+        folder = folder_of(token)
+        found = read(token, folder.collective_file)
         if isinstance(found, contract.QuantitiesToFillProblem):
             return found
-        return _ready(found)
+        return _ready(found, settled=_settled(folder))
 
     @router.get(
         "/{token}/quantities-to-fill/{kind}", operation_id="getKindTable", responses=contract.NOT_FOUND_OR_CONFLICT
     )
     def kind_table(token: str, kind: FillKind) -> contract.KindTable:
-        found = read(token)
+        folder = folder_of(token)
+        found = read(token, folder.collective_file)
         if isinstance(found, contract.QuantitiesToFillProblem):
             return found
-        [listed] = (listed for listed in quantities_to_fill(found.value.rows).kinds if listed.kind is kind)
-        return _table(listed, found)
+        settled = _settled(folder)
+        [listed] = (
+            listed for listed in quantities_to_fill(found.value.rows, settled=settled).kinds if listed.kind is kind
+        )
+        return _table(listed, found, settled=settled)
 
     @router.get(
         "/{token}/collective-file-version",
@@ -86,7 +97,7 @@ def filling_router(
     def collective_file_version(token: str) -> contract.CollectiveFileVersion:
         """Znacznik zapisu Pliku zbiorczego bez otwierania skoroszytu: strona porównuje go z ``read.version``."""
 
-        return contract.CollectiveFileVersion(version=saved_version(collective_file_of(token)))
+        return contract.CollectiveFileVersion(version=saved_version(folder_of(token).collective_file))
 
     @router.get("/{token}/without-quantity", operation_id="getWithoutQuantity", responses=contract.NOT_FOUND_OR_CONFLICT)
     def rows_without_quantity(token: str) -> contract.WithoutQuantity:
@@ -96,10 +107,7 @@ def filling_router(
         Komunikat i wpis w dzienniku daje strona Uzupełnienia, a sam Przebieg rozliczeń nazywa plik.
         """
 
-        periods_directory = store.load().periods_directory
-        if periods_directory is None or not periods_directory.is_dir():
-            raise contract.Refusal(409, "Najpierw wskaż folder okresów.")
-        return _without_quantity(located_period_folder(periods_directory, requested_period(token)).collective_file)
+        return _without_quantity(folder_of(token))
 
     return router
 
@@ -115,26 +123,31 @@ def without_quantity_sentence(rows: Sequence[int]) -> str | None:
     return f"{count} {word} bez ilości: {', '.join(map(str, rows))}"
 
 
-def _without_quantity(path: Path) -> contract.WithoutQuantity:
+def _without_quantity(folder: PeriodFolder) -> contract.WithoutQuantity:
     try:
-        found = collective_file.read_numbered_orders(path)
+        found = collective_file.read_numbered_orders(folder.collective_file)
     except WorkbookError:
         return contract.WithoutQuantityUnread(state="unread")
     if isinstance(found, MissingHeaders):
         return contract.WithoutQuantityUnread(state="unread")
-    rows = list(quantities_to_fill(found.rows).without_quantity)
+    rows = list(quantities_to_fill(found.rows, settled=_settled(folder)).without_quantity)
     return contract.WithoutQuantityRead(state="read", rows=rows, sentence=without_quantity_sentence(rows))
 
 
-def _ready(read: GoodRead[NumberedOrders]) -> contract.QuantitiesToFillReady:
-    found = quantities_to_fill(read.value.rows)
+def _settled(folder: PeriodFolder) -> bool:
+    return folder.observe().status == "worker_settlements_ready"
+
+
+def _ready(read: GoodRead[NumberedOrders], *, settled: bool) -> contract.QuantitiesToFillReady:
+    found = quantities_to_fill(read.value.rows, settled=settled)
     return contract.QuantitiesToFillReady(
         state="ready",
         read=_stamp(read),
+        settled=settled,
         kinds=[
             contract.KindToFill(
                 kind=kind.kind,
-                rows=[contract.RowToFill(row=row.number, done=row.done) for row in kind.rows],
+                rows=[contract.RowToFill(row=row.number, state=row.state) for row in kind.rows],
                 done=kind.done,
             )
             for kind in found.kinds
@@ -145,10 +158,11 @@ def _ready(read: GoodRead[NumberedOrders]) -> contract.QuantitiesToFillReady:
     )
 
 
-def _table(listed: KindToFill, read: GoodRead[NumberedOrders]) -> contract.KindTableReady:
+def _table(listed: KindToFill, read: GoodRead[NumberedOrders], *, settled: bool) -> contract.KindTableReady:
     return contract.KindTableReady(
         state="ready",
         read=_stamp(read),
+        settled=settled,
         kind=listed.kind,
         columns=[contract.PriceListItem(column=column, name=name) for column, name in read.value.price_list.items()],
         rows=[

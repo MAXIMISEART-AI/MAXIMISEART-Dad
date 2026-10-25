@@ -57,7 +57,7 @@ def _quantities(centrum: PreparingCentrum) -> dict[str, Any]:
 
 
 def _kinds(view: dict[str, Any]) -> dict[str, list[tuple[int, bool]]]:
-    return {kind["kind"]: [(row["row"], row["done"]) for row in kind["rows"]] for kind in view["kinds"]}
+    return {kind["kind"]: [(row["row"], row["state"] == "done") for row in kind["rows"]] for kind in view["kinds"]}
 
 
 def _kind_done(view: dict[str, Any]) -> dict[str, bool]:

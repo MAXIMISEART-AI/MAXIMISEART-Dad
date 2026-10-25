@@ -385,10 +385,10 @@ class Message(_Model):
 
 
 class RowToFill(_Model):
-    """Wiersz Pliku zbiorczego z Ilościami do uzupełnienia: numer wiersza i czy tata już coś w nim wpisał."""
+    """Wiersz Pliku zbiorczego z Ilościami do uzupełnienia: numer wiersza i jego stan (zrobiony, do uzupełnienia, bez ilości)."""
 
     row: int
-    done: bool
+    state: RowState
 
 
 class KindToFill(_Model):
@@ -418,20 +418,29 @@ class CollectiveFileRead(_Model):
 
 
 class QuantitiesToFillReady(_Model):
-    """Ilości do uzupełnienia okresu przeliczone z zapisanego Pliku zbiorczego; ``kinds`` ma każdy rodzaj z listą."""
+    """Ilości do uzupełnienia okresu przeliczone z zapisanego Pliku zbiorczego; ``kinds`` ma każdy rodzaj z listą.
+
+    ``settled``: Przebieg rozliczeń okresu się odbył (Status okresu Rozliczenia pracowników gotowe), więc strona jest
+    podglądem bez „Gotowe, rozlicz pracowników”, a wiersz bez wpisu taty jest „bez ilości”.
+    """
 
     state: Literal["ready"]
     read: CollectiveFileRead
+    settled: bool
     kinds: list[KindToFill]
     description_columns: list[DescriptionColumn]
 
 
 class QuantitiesToFillProblem(_Model):
-    """Pliku zbiorczego nie udało się odczytać; Komunikat go nazywa, a ``version`` to znacznik zapisu przed odczytem."""
+    """Pliku zbiorczego nie udało się odczytać; Komunikat go nazywa, a ``version`` to znacznik zapisu przed odczytem.
+
+    ``collective_file_exists``: plik jest w Folderze okresu, więc „Otwórz Plik zbiorczy” ma co otworzyć.
+    """
 
     state: Literal["problem"]
     message: Message
     version: str | None
+    collective_file_exists: bool
 
 
 class CollectiveFileVersion(_Model):
@@ -493,10 +502,14 @@ class PriceListItem(_Model):
 
 
 class KindTableReady(_Model):
-    """Wiersze jednego rodzaju Ilości do uzupełnienia rosnąco po numerze; ``columns`` to N:AP po kolei."""
+    """Wiersze jednego rodzaju Ilości do uzupełnienia rosnąco po numerze; ``columns`` to N:AP po kolei.
+
+    ``settled`` jak w ``QuantitiesToFillReady``.
+    """
 
     state: Literal["ready"]
     read: CollectiveFileRead
+    settled: bool
     kind: FillKind
     columns: list[PriceListItem]
     rows: list[KindTableRow]
