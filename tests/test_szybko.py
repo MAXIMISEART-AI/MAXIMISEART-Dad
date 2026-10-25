@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import itertools
 import json
 import os
 from pathlib import Path, PurePosixPath
@@ -670,18 +669,26 @@ def _rule_rows(text: str) -> list[str]:
     for line in text.splitlines():
         if line.strip() in RULE_TABLE_HEADERS:
             in_table = True
-        elif not (in_table and line.startswith("|")):
+        elif not (in_table and line.lstrip().startswith("|")):
             in_table = False
-        elif not line.startswith("|---"):
+        elif not re.fullmatch(r"\|(\s*:?-+:?\s*\|)+", line.strip()):
             rows.append(line)
     return rows
 
 
-def _table_headers(text: str) -> list[str]:
-    """Nagłówek każdej tabeli Markdown w tekście: linia ``|`` tuż nad separatorem ``|---``."""
+def _lines_outside_rule_tables(text: str) -> list[str]:
+    """Linie ``|`` spoza tabel reguł: każda tabela w pliku reguł, z dowolnym separatorem, zaczyna się nagłówkiem tabeli reguł."""
 
-    lines = [line.strip() for line in text.splitlines()]
-    return [header for header, below in itertools.pairwise(lines) if header.startswith("|") and below.startswith("|---")]
+    outside: list[str] = []
+    in_table = False
+    for line in text.splitlines():
+        if line.strip() in RULE_TABLE_HEADERS:
+            in_table = True
+        elif not line.lstrip().startswith("|"):
+            in_table = False
+        elif not in_table:
+            outside.append(line)
+    return outside
 
 
 def test_kazdy_test_z_tabel_regul_jest_testem_struktury_albo_ma_powod() -> None:
@@ -709,13 +716,12 @@ def test_kazdy_test_z_tabel_regul_jest_testem_struktury_albo_ma_powod() -> None:
     )
 
     assert [path.relative_to(ROOT).as_posix() for path, found in rows.items() if not found] == []
-    other_tables = {
-        path.relative_to(ROOT).as_posix(): header
+    outside = {
+        path.relative_to(ROOT).as_posix(): lines
         for path in RULE_TABLES
-        for header in _table_headers(path.read_text(encoding="utf-8"))
-        if header not in RULE_TABLE_HEADERS
+        if (lines := _lines_outside_rule_tables(path.read_text(encoding="utf-8")))
     }
-    assert other_tables == {}, "tabela w pliku reguł to tabela reguł: nagłówek z RULE_TABLE_HEADERS"
+    assert outside == {}, "tabela w pliku reguł to tabela reguł: nagłówek z RULE_TABLE_HEADERS"
     assert elsewhere == [], "dopisz plik z tabelą reguł do RULE_TABLES"
     undecided = named - structure - BY_CHANGE_ONLY.keys()
     assert undecided == set(), "dopisz test do STRUCTURE w tools/szybko.py albo powód do BY_CHANGE_ONLY"
