@@ -5,6 +5,7 @@ pilnuje:
   - src/rozliczenia/centrum/*
   - frontend/*
   - run_centrum.py
+ci: .agents/skills/verify-centrum-rozliczen/scripts/run_centrum_verification.py --feature all
 ---
 
 # Verify Centrum rozliczeń

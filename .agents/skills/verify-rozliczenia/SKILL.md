@@ -4,6 +4,7 @@ description: Verify MAXIMISEART-Dad's processes (Przebieg rozliczeń, Przygotowa
 pilnuje:
   - src/*.py
   - tools/uruchom_proces.py
+ci: .agents/skills/verify-rozliczenia/scripts/quantity_rules_conformance.py
 ---
 
 # Verify rozliczenia

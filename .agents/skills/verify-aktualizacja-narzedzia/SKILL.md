@@ -6,6 +6,7 @@ pilnuje:
   - src/rozliczenia/centrum/tool_updates.py
   - src/rozliczenia/centrum/restart_guardian.py
   - src/rozliczenia/centrum/launcher.py
+ci: .agents/skills/verify-aktualizacja-narzedzia/scripts/sprawdz_aktualizacje.py
 ---
 
 # Verify Aktualizacja narzędzia (TLA+)

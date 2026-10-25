@@ -308,8 +308,10 @@ jobs:
 
   mutations:
     # A mutation check's verdict does not depend on the Python version, so it runs once, beside pytest.
-    # A pull request runs only the scripts whose verdict its changes can alter; a push to main runs them all.
-    # Each part runs a third of the scripts by their CI time: side by side on one runner they exceed their time limits.
+    # Before a skill's mutations it runs the skill's own check on unchanged code (the ci: key of its SKILL.md), so
+    # agents need not run it on the Mac: Centrum --feature all and the TLA+ model of Aktualizacja narzędzia run only here.
+    # A pull request runs only the skills whose verdict its changes can alter; a push to main runs them all.
+    # Each part runs a third of the skills by their CI time: side by side on one runner they exceed their time limits.
     name: Mutation checks (${{ matrix.part }}/3)
     runs-on: windows-latest
     # tools/mutacje_skilli.py limits each script to 30 min; this catches a hang in the runner itself.
@@ -338,7 +340,7 @@ jobs:
       - name: Install dependencies
         run: uv pip install --system --python "${{ steps.python.outputs.python-path }}" -r requirements.txt
 
-      # The mutation script of verify-centrum-rozliczen drives Centrum in Chromium.
+      # verify-centrum-rozliczen drives Centrum in Chromium.
       - name: Install Playwright
         run: uv pip install --system --python "${{ steps.python.outputs.python-path }}" -e ".[dev]"
 

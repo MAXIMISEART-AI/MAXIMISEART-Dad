@@ -3,6 +3,7 @@ name: verify-publikacja-plikow-okresu
 description: Exhaustively check that Przygotowanie pliku zbiorczego publishes Rozliczenie wewnętrzne and Plik zbiorczy together or not at all, and never overwrites another file, under every order of a second run, Dad's actions, filesystem errors, and a killed process. Use when a change touches `write_period_files`, `_publish`, `ensure_period_files_absent` in `src/rozliczenia/preparation_files.py`, or `test_publikacja_plikow_okresu` fails.
 pilnuje:
   - src/rozliczenia/preparation_files.py
+ci: .agents/skills/verify-publikacja-plikow-okresu/scripts/explore_publication.py
 ---
 
 # Verify publikacja plików okresu

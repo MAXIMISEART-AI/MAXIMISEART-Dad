@@ -7,6 +7,7 @@ pilnuje:
   - src/rozliczenia/centrum/server.py
   - src/rozliczenia/centrum/app.py
   - src/rozliczenia/centrum/tool_updates.py
+ci: .agents/skills/verify-jedno-uruchomienie-naraz/scripts/explore_runs.py
 ---
 
 # Verify jedno Uruchomienie naraz

@@ -11,6 +11,7 @@ pilnuje:
   - src/rozliczenia/template_file.py
   - src/rozliczenia/workbook_save.py
   - tools/porownanie_rozliczen.py
+ci: .agents/skills/verify-kopia-wzorca/scripts/check_template_copy.py --no-shrink
 ---
 
 # Verify kopia Wzorca
