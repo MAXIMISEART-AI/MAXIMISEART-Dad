@@ -42,6 +42,7 @@ from tests.fixtures.settlement import (
     write_quantity_source,
     write_template,
 )
+from tests.fixtures.intermax import Intermax
 from tests.fixtures.workbooks import hyperlinks
 
 SCRIPT = Path(__file__).resolve().parents[1] / "tools" / "uruchom_proces.py"
@@ -410,6 +411,38 @@ def test_podglad_przygotowania_pliku_zbiorczego_pokazuje_plan_bez_plikow_okresu(
     ]
     assert list(fixture.periods_directory.iterdir()) == []
     assert result["metrics_saved"] is True
+
+
+def test_uporzadkowanie_intermax_ze_skryptu_dla_maszyn_oddaje_karte_uruchomienia_i_kopie(tmp_path: Path) -> None:
+    register = tmp_path / "ZLECENIA INTERMAX OD 08_11_2021.xlsx"
+    Intermax().write(register)
+    copies, metrics = tmp_path / "Kopie INTERMAX", tmp_path / "metrics.jsonl"
+
+    exit_code, result = _run("intermax", "--register", register, "--copies", copies, "--metrics", metrics)
+
+    assert (exit_code, result["result"], result["stop"]) == (0, "OK", None)
+    assert result["summary"]["figures"] == [
+        {"label": "Zlecenia", "value": 6, "unit": "count"},
+        {"label": "Wykonawcy", "value": 3, "unit": "count"},
+    ]
+    assert result["summary"]["counts"] == {
+        "title": "Uporządkowany dzień",
+        "counts": [{"label": "pon 26.10.2026", "count": 6}],
+    }
+    assert [phase["state"] for phase in result["progress"]["phases"]] == ["completed"] * 4
+    assert len(list(copies.iterdir())) == 1
+    assert "intermax" in get_args(contract.ProcessKey)
+    assert "jan.nowak" not in json.dumps(result) and "jan.nowak" not in metrics.read_text(encoding="utf-8")
+
+
+def test_uporzadkowanie_intermax_bez_surowych_zlecen_konczy_kodem_1_z_kodem_komunikatu(tmp_path: Path) -> None:
+    register = tmp_path / "ZLECENIA INTERMAX OD 08_11_2021.xlsx"
+    Intermax(raw=()).write(register)
+
+    exit_code, result = _run("intermax", "--register", register, "--copies", tmp_path / "Kopie", "--metrics", tmp_path / "m.jsonl")
+
+    assert (exit_code, result["result"], result["summary"]) == (1, "BLAD_KRYTYCZNY", None)
+    assert (result["stop"]["kind"], result["stop"]["message"]["code"]) == ("stop", "BRAK_SUROWYCH_ZLECEN")
 
 
 def test_bledne_argumenty_koncza_sie_kodem_1_bez_wyniku_json(tmp_path: Path) -> None:

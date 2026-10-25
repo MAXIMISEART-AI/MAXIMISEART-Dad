@@ -1,7 +1,8 @@
 """Skoroszyt zapisują tylko moduły zapisu, więc obie drogi zapisu dają ten sam plik (#282).
 
 ``template_file`` zapisuje openpyxl, ``template_copy`` kopiuje Wzorzec, ``row_look`` daje obu ten sam
-Wygląd Wiersza danych, a ``workbook_save`` zapisuje plik atomowo. Reszta ``src`` przekazuje im Wiersze danych, ale sama nie pisze do komórek ani plików.
+Wygląd Wiersza danych, ``workbook_save`` zapisuje plik atomowo, a ``intermax_file`` zapisuje dzień Uporządkowania
+INTERMAX podmianą wierszy XML. Reszta ``src`` przekazuje im Wiersze danych, ale sama nie pisze do komórek ani plików.
 """
 
 from __future__ import annotations
@@ -13,7 +14,13 @@ import re
 
 SRC = Path(__file__).resolve().parents[1] / "src"
 WRITERS = frozenset(
-    {"rozliczenia/template_file.py", "rozliczenia/template_copy.py", "rozliczenia/row_look.py", "rozliczenia/workbook_save.py"}
+    {
+        "rozliczenia/template_file.py",
+        "rozliczenia/template_copy.py",
+        "rozliczenia/row_look.py",
+        "rozliczenia/workbook_save.py",
+        "rozliczenia/intermax_file.py",
+    }
 )
 CELL_WRITES = frozenset(
     {"value", "font", "fill", "border", "alignment", "number_format", "protection", "hyperlink", "auto_filter"}
@@ -27,7 +34,10 @@ SHEET_PARTS = frozenset({"row_dimensions", "column_dimensions"})
 CELL_PARAMETERS = frozenset({"row", "column", "value"})  # Worksheet.cell z openpyxl, w odróżnieniu od RowLook.cell
 COLUMN = r"\$?[A-Z]{1,3}\$?"
 CELL_ADDRESS = re.compile(rf"{COLUMN}[0-9]+(?::{COLUMN}[0-9]+)?")
-NOT_WORKBOOK_SAVES = {"phases.save": "PhaseRunner.save to etap Zapisywanie procesu; skoroszyt zapisuje w nim template_file"}
+NOT_WORKBOOK_SAVES = {
+    "phases.save": "PhaseRunner.save to etap Zapisywanie procesu; skoroszyt zapisuje w nim template_file",
+    "intermax_file.save": "Uporządkowanie INTERMAX przekazuje plan dnia modułowi zapisu intermax_file z WRITERS",
+}
 
 
 def _cell_address(index: ast.expr) -> bool:
