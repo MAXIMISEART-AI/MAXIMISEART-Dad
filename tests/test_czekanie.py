@@ -62,6 +62,18 @@ CI_LOOPS = (
     "until ! gh pr checks 1 | grep -q pending; do sleep 30; done && gh pr checks 1",
     's="$(for i in $(seq 1 20); do gh pr checks 1 | grep -q pending || break; sleep 30; done; gh pr checks 1)"',
     "if gh pr view 1 --json state >/dev/null; then until ! gh pr checks 1 | grep -q pending; do sleep 30; done; fi",
+    "for i in $(seq 20); do gh pr checks 1 | grep -c pending; sleep 30; done",
+    "until [ $(for n in 1 2; do gh pr checks $n; done | grep -c pending) = 0 ]; do sleep 30; done",
+    # Wyjście z pętli przez ``exit`` i ``return`` zamiast ``break``.
+    "for i in 1 2 3 4 5 6 7 8; do gh pr checks 1 | grep -q pending || exit 0; sleep 30; done",
+    "f() { for i in 1 2 3 4 5 6 7 8; do gh pr checks 1 | grep -q pending || return 0; sleep 30; done; }; f",
+    # ``&>``, ``>&2`` i ``2>&1`` po ``done`` to przekierowania, nie pętla w tle.
+    "until ! gh pr checks 446 | grep -q pending; do sleep 30; done &>/dev/null",
+    "until ! gh pr checks 446 | grep -q pending; do sleep 30; done &> ci.log; gh pr checks 446",
+    "until ! gh pr checks 446 | grep -q pending; do sleep 30; done >&2",
+    "until ! gh pr checks 446 | grep -q pending; do sleep 30; done > ci.log 2>&1 && gh pr checks 446",
+    # ``&`` za ``;`` puszcza w tło tylko następne polecenie.
+    "until ! gh pr checks 446 | grep -q pending; do sleep 30; done; afplay /System/Library/Sounds/Glass.aiff &",
 )
 WATCHES = (
     "timeout 1500 gh pr checks 215 --watch > .audit/swarm-215/lane1-pr-checks.txt 2>&1; echo exit=$?",
@@ -84,6 +96,7 @@ PGREP_LOOPS = (
     "for i in $(seq 1 19); do pgrep -f mutacje_zmiany.py >/dev/null || break; sleep 30; done; "
     "tail -4 ~/.t3/notes/425/mutacje_zmiany.log",
     "until ! pgrep -l -f mutacje.json >/dev/null; do sleep 5; done",
+    "until pgrep -f serve_centrum >/dev/null; do sleep 1; done; curl -s localhost:8765/health",
 )
 PASSING = (
     "gh pr checks 405 2>&1 | head -20",
@@ -141,6 +154,8 @@ PASSING = (
     "for n in $(seq 247 264); do sleep 1; gh pr view $n --json title; done",
     "for n in {247..264}; do sleep 1; gh pr view $n --json title; done",
     "i=444; while [ $i -le 446 ]; do gh pr view $i --json title; i=$((i + 1)); done",
+    "while IFS= read -r id; do sleep 2; gh run view $id --json jobs; done < runy.txt",
+    "for id in 39805093290 39772151111; do sleep 2; gh run view $id --json jobs; echo exit=$?; done",
     # Próbnik procesów puszczony ``&`` obok pomiaru i ubity ``kill``.
     "(while true; do echo \"$(date +%T) $(pgrep -fl 'serve_centrum|chrome-headless|pytest' | cut -c1-100 | "
     "tr '\\n' ' ')\"; sleep 5; done) > /tmp/wyd165-watch1.log 2>&1 & W=$!; .venv/bin/python "
@@ -192,6 +207,29 @@ def test_to_samo_czekanie_w_tle_przechodzi(command: str) -> None:
     hooked = _bash(command, in_background=True)
 
     assert (hooked.returncode, hooked.stdout, hooked.stderr) == (0, "", "")
+
+
+def _configured_timeout() -> float:
+    entries = json.loads(SETTINGS.read_text(encoding="utf-8"))["hooks"]["PreToolUse"]
+    (timeout,) = [hook["timeout"] for entry in entries if entry["matcher"] == "Bash" for hook in entry["hooks"]]
+    return float(timeout)
+
+
+def test_hook_ocenia_dlugi_ogon_przekierowan_przed_limitem_z_ustawien() -> None:
+    # Wzorzec z zagnieżdżonymi kwantyfikatorami cofa się wykładniczo po ``2>1 2>1 …`` (48 znaków to 14 s).
+    command = "while :; do sleep 1; gh pr checks 1; done " + "2>1" * 2000
+    tool_input = {"command": command, "run_in_background": False}
+
+    hooked = subprocess.run(
+        [sys.executable, str(HOOK)],
+        input=json.dumps({"tool_input": tool_input}),
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=_configured_timeout(),
+    )
+
+    assert hooked.returncode == 2, hooked.stderr
 
 
 @pytest.mark.parametrize(

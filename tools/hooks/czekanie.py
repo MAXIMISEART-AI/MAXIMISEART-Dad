@@ -4,12 +4,13 @@
 Agent na pierwszym planie, który pętli ``until/while/for … sleep`` na ``gh pr checks``, stoi do limitu 600 s
 Basha, choć CI i tak powiadamia: wątek główny przez ``watch_pull_request`` T3, a polecenie w tle przez
 powiadomienie ``run_in_background``. Pętla ``until ! pgrep -f X`` nigdy się nie kończy, bo ``pgrep -f``
-znajduje powłokę, której linia polecenia zawiera tę samą pętlę, a więc i ``X``.
+znajduje powłokę, której linia polecenia zawiera tę samą pętlę, a więc i ``X`` (z tego samego powodu
+``until pgrep -f X`` kończy się od razu).
 
 Odrzuca (kod 2, przyczyna na stderr trafia do agenta) tylko polecenie na pierwszym planie:
 pętlę z ``sleep``, której ciało pyta o CI albo woła ``pgrep -f``, oraz ``gh pr checks --watch`` i ``gh run watch``.
-Pętla ``for`` i ``while read`` czeka tylko z ``break``, ``exit``, ``return`` albo licznikiem prób, a pętla puszczona ``&``
-nie czeka.
+Pętla ``for`` i ``while read`` czeka tylko z ``break``, ``exit``, ``return`` albo licznikiem prób od 0 albo 1
+(``$(seq N)``, ``$(seq 1 N)``, ``{1..N}``, ``for ((``), a pętla puszczona ``&`` nie czeka.
 Wszystko inne, także te polecenia z ``run_in_background``, przechodzi bez słowa (kod 0).
 Wejście, którego nie da się odczytać, też przechodzi, bo hook nie może zatrzymać pracy.
 
@@ -45,9 +46,11 @@ LOOP_WORD = re.compile(rf"{_STARTS}(until|while|for)\b|{_ENDS}(done)\b", re.MULT
 # `for` i `while read` z `sleep` to zwykle partia zapytań z limitem API (`for id in …; do sleep 2; gh run view $id`),
 # a czekaniem są dopiero z wyjściem z pętli albo licznikiem prób od 0 albo 1 (`$(seq 247 264)` to numery PR).
 OVER_LIST = re.compile(r"(?:for|while\s+(?:IFS=\S*\s+)?read)\b")
-STOPS = re.compile(r"^for\s*\(\(|\b(?:break|exit|return)\b|\$\(seq\s+(?:[01]\s+)?\d+\s*\)|\{[01]\.\.\d+\}")
-# Pętla puszczona `&` (próbnik obok pomiaru, ubijany potem `kill`) nie blokuje polecenia.
-IN_BACKGROUND = re.compile(r"\s*\)?(?:\s*\d*[<>]{1,2}&?\s*[^\s;&|]+)*\s*&(?!&)")
+STOPS = re.compile(r"^for\s*\(\(|\b(?:break|exit|return)\b(?!=)|\$\(seq\s+(?:[01]\s+)?\d+\s*\)|\{[01]\.\.\d+\}")
+# Pętla puszczona `&` (próbnik obok pomiaru, ubijany potem `kill`) nie blokuje polecenia, a `&>`, `>&2` i `2>&1`
+# to przekierowania. Bez zagnieżdżonych kwantyfikatorów, bo cofanie po `2>1 2>1 …` nie miałoby końca.
+LIST_END = re.compile(r"[;|\n]")
+LONE_AMPERSAND = re.compile(r"(?<![<>&])&(?![&>])")
 HEREDOC = re.compile(r"(?<!<)<<-?\s*(['\"]?)(\w+)\1")
 SHELL_ARGUMENT = re.compile(r"(?:^|\s)-c\s*$")
 
@@ -67,7 +70,8 @@ class Refusal:
 CI_LOOP = Refusal(f"Odmowa: pętla z sleep na pierwszym planie czeka na CI. {INSTEAD}")
 WATCHING = Refusal(f"Odmowa: gh pr checks --watch i gh run watch blokują na pierwszym planie. {INSTEAD}")
 PGREP_LOOP = Refusal(
-    "Odmowa: pętla z sleep na pgrep -f nie kończy się, bo pgrep -f znajduje własną powłokę tej pętli. "
+    "Odmowa: pętla z sleep na pgrep -f nie widzi procesu, bo pgrep -f znajduje własną powłokę tej pętli: "
+    "until ! pgrep -f X i while pgrep -f X nie kończą się nigdy, a until pgrep -f X kończy się od razu. "
     "Na własny proces uruchom go Bashem z run_in_background: true i czekaj na powiadomienie o jego końcu, "
     "a na proces ze znanym PID sprawdzaj kill -0 $PID, nie pgrep."
 )
@@ -158,7 +162,8 @@ def _loop_bodies(command: str) -> list[str]:
             if depth == 0:
                 end = word.end()
                 break
-        if not IN_BACKGROUND.match(command, end):
+        stop = LIST_END.search(command, end)
+        if not LONE_AMPERSAND.search(command, end, stop.start() if stop else len(command)):
             bodies.append(command[start.start(1) : end])
     return bodies
 
