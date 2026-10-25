@@ -48,7 +48,9 @@ MODES = {"DRY-RUN": "podgląd", "RUN": "zapis"}
 NO_RUNS = "Nie ma jeszcze Uruchomień z Centrum."
 NOT_IN_HISTORY = "Tego Uruchomienia nie ma w historii Centrum. Wybierz inne albo wyślij Uwagę ogólną."
 LAPTOP = ViewportSize(width=1280, height=720)
-WHOLLY_SHOWN = """element => {
+# Measured as painted: in the frame after the next, whose ResizeObserver has already scrolled the list for the last
+# change. A layout read between React's commit and that frame sees the list shrunk but not yet scrolled.
+WHOLLY_SHOWN = """element => new Promise(measured => requestAnimationFrame(() => requestAnimationFrame(() => {
     const box = element.getBoundingClientRect()
     const inside = outer => box.top >= outer.top - 0.5 && box.bottom <= outer.bottom + 0.5
     let shown = inside({top: 0, bottom: innerHeight})
@@ -57,8 +59,8 @@ WHOLLY_SHOWN = """element => {
             shown = shown && inside(parent.getBoundingClientRect())
         }
     }
-    return {shown, top: Math.round(box.top), bottom: Math.round(box.bottom)}
-}"""
+    measured({shown, top: Math.round(box.top), bottom: Math.round(box.bottom)})
+})))"""
 
 
 def _server_time(started_at: str) -> str:
@@ -606,11 +608,14 @@ def _laptop(run: Run, page: Page, about: Locator, target: str) -> None:
         checked = choices.locator('label:has([role="radio"][aria-checked="true"])')
         send = dialog.get_by_role("button", name="Wyślij", exact=True)
         expect(checked).to_have_count(1)
+        # The server's draft makes „Maks dostanie” taller, and the list gives up height for it.
+        expect(dialog.get_by_role("figure", name="Co dostanie Maks", exact=True).locator("p")).to_have_count(2)
         scrolled = dialog.evaluate("element => element.scrollTop")
         row, button = checked.evaluate(WHOLLY_SHOWN), send.evaluate(WHOLLY_SHOWN)
         run.check(
             scrolled == 0 and row["shown"] and button["shown"],
-            f"at {LAPTOP['width']}×{LAPTOP['height']} the checked oldest row and „Wyślij” are on screen without scrolling"
+            f"at {LAPTOP['width']}×{LAPTOP['height']} with the draft in „Maks dostanie” the checked oldest row and „Wyślij”"
+            " are on screen without scrolling"
             f" (dialog scrollTop {scrolled}, row {row}, Wyślij {button})",
         )
         run.capture(page, "196-uwaga-z-historii-laptop", full_page=False)
