@@ -425,6 +425,15 @@ do wpisania w Excelu:
 - Kolumny Y, AB, AD, AJ, AK, AL i AM: w każdym wierszu według `CZYNNOŚCI
   ZREALIZOWANE`. Strona podaje tylko, w ilu wierszach coś w nich wpisałeś.
 
+Dotknij `Wiersze bez reguły` albo `Wiersze z opisu`, a zobaczysz tabelę jak w
+Excelu, tylko z wierszami tego rodzaju. Z lewej stoją numer wiersza, `WYKONAWCA`,
+`URZĄDZENIA`, `CZYNNOŚCI` i `CZYNNOŚCI ZREALIZOWANE`, z prawej kolumny od N do
+AP, które przesuwasz w bok. Dotknij tekstu albo litery kolumny, a zobaczysz
+cały tekst albo pełną nazwę pozycji cennika. Szare liczby wpisało narzędzie.
+Wiersz do uzupełnienia jest żółty. Komórka z Twoją ilością jest zielona, a
+wiersz z choćby jedną Twoją ilością robi się zielony. W tabeli niczego nie
+wpisujesz: ilości wpisujesz w Excelu.
+
 `0` i pusta komórka to to samo. Strona czyta zapisany Plik zbiorczy, także gdy
 masz go otwartego w Excelu, i nigdy go nie zmienia. Czyta go na nowo, gdy
 wracasz do niej z Excela. Jeśli nie widzisz swoich wpisów, zapisz plik w Excelu
