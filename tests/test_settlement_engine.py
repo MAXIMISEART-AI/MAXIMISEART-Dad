@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import errno
 import os
+import re
 import shutil
 import tempfile
 from pathlib import Path
 import time
+import zipfile
 from collections.abc import Callable
 
 from openpyxl import load_workbook
@@ -41,6 +43,7 @@ from tests.fixtures.workbooks import (
     cut_sheet_after_data_rows,
     hyperlinks,
     refused_by_copy,
+    rewrite_parts,
     without_sheet,
 )
 from tests.fixtures.settlement import (
@@ -486,6 +489,57 @@ def test_nieczytelny_plik_zbiorczy_zatrzymuje_przebieg_rozliczen_bezpiecznym_kom
     )
     assert not target_directory.exists()
     assert not list(target_directory.parent.glob(f".{target_directory.name}.staging-*"))
+
+
+def with_undefined_number_format(cell: str) -> Callable[[Path], None]:
+    """Komórka ``cell`` ma styl z numerem formatu liczby, którego nie ma w stylach skoroszytu."""
+
+    def change(path: Path) -> None:
+        workbook = load_workbook(path)
+        try:
+            active_worksheet(workbook)[cell].number_format = "0.000"
+            workbook.save(path)
+        finally:
+            workbook.close()
+        with zipfile.ZipFile(path) as workbook_zip:
+            cell_styles = re.search(rb'<cellXfs count="(\d+)"', workbook_zip.read("xl/styles.xml"))
+        assert cell_styles is not None
+        count = int(cell_styles[1])
+
+        def undefined(name: str, data: bytes) -> bytes:
+            if name == "xl/styles.xml":
+                data = data.replace(b'<cellXfs count="%d"' % count, b'<cellXfs count="%d"' % (count + 1), 1)
+                return data.replace(b"</cellXfs>", b'<xf numFmtId="250" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/></cellXfs>', 1)
+            if name.startswith("xl/worksheets/"):
+                return re.sub(rb'<c r="%s" s="\d+"' % cell.encode(), b'<c r="%s" s="%d"' % (cell.encode(), count), data, count=1)
+            return data
+
+        rewrite_parts(path, undefined)
+
+    return change
+
+
+def test_format_liczby_bez_definicji_poza_kolumnami_wygladu_nie_zatrzymuje_przebiegu_rozliczen(tmp_path: Path) -> None:
+    source_path, target_directory, config_path = make_fixture(tmp_path)
+    with_undefined_number_format("M18")(source_path)
+
+    run_settlements(source_path, config_path, worker_template_path=tmp_path / "Wzorzec rozliczenia pracownika.xlsx")
+
+    assert any(target_directory.glob("*.xlsx"))
+
+
+def test_format_liczby_bez_definicji_w_kolumnach_wygladu_to_uszkodzony_plik_zbiorczy(tmp_path: Path) -> None:
+    source_path, target_directory, config_path = make_fixture(tmp_path)
+    with_undefined_number_format("L18")(source_path)
+
+    with pytest.raises(StopError) as stop:
+        run_settlements(source_path, config_path, worker_template_path=tmp_path / "Wzorzec rozliczenia pracownika.xlsx")
+
+    assert (stop.value.message.code, stop.value.message.what) == (
+        "ZLY_PLIK_ZBIORCZY",
+        f"{UNFIT_COLLECTIVE_FILE_PREFIX} {UNREADABLE_SOURCE_MESSAGE}",
+    )
+    assert not target_directory.exists()
 
 
 @pytest.mark.parametrize(
