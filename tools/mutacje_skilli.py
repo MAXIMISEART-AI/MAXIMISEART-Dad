@@ -70,7 +70,6 @@ LIMIT_S = 30 * 60
 CI_TIMES_S: dict[str, float] = {
     "verify-aktualizacja-narzedzia/ci": 22,
     "verify-centrum-rozliczen/ci": 259,
-    "verify-centrum-rozliczen/check_centrum_mutations.py": 584,
     "verify-jedno-uruchomienie-naraz/ci": 33,
     "verify-jedno-uruchomienie-naraz/check_runs_mutations.py": 332,
     "verify-kopia-wzorca/check_copy_mutations.py": 342,

@@ -57,7 +57,7 @@ Preconditions:
 - **Status okresu.** On Okresy the row `06_12_10_2026` shows `Rozliczenia pracowników gotowe`, region `Następny krok` shows `Okres zamknięty`, and `/api/periods` has `worker_settlement_count: 4`.
 - **Nienadpisywanie.** `POST /api/runs` RUN for `06_12_10_2026` (`api/przebieg-nienadpisywanie-start.json`), then `#/uruchomienia`: label `Zatrzymanie` shows `Folder rozliczeń pracowników tego okresu już istnieje, więc nie został nadpisany.` and `folder 06_12_10_2026\Rozliczenie pracowników 06_12_10_2026`; the result holds no run-root path; the four files keep their bytes.
 - **Needs checking.** Click `Nowe Uruchomienie procesu`, radio `Przebieg rozliczeń` (combobox `Okres` now shows `29_05_10_2026`), and `Podgląd bez zapisu`. Label `Wynik` shows `Podgląd wymaga sprawdzenia · nic nie zapisano` with button `Uruchom ponownie`; label `Ostrzeżenie` shows `Nieznany identyfikator WYKONAWCA`; the result is `WYMAGA_SPRAWDZENIA` with `next_action: rerun`; nothing is written.
-- **Proof.** Screenshots `40`–`49`, `4a`, `4b` and `155`, `api/przebieg-*.json`, checks in `drive.txt`. `scripts/check_centrum_mutations.py` shows the drive fails when the main action after the RUN opens the Plik zbiorczy and when the empty Szablon pracownika is not marked.
+- **Proof.** Screenshots `40`–`49`, `4a`, `4b` and `155`, `api/przebieg-*.json`, checks in `drive.txt`. `scripts/check_centrum_przebieg_rozliczen_mutations.py` shows the drive fails when the main action after the RUN opens the Plik zbiorczy and when the empty Szablon pracownika is not marked.
 
 ## Gotchas
 

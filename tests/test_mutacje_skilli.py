@@ -442,7 +442,7 @@ def test_w_czesci_podstawa_skilla_biegnie_przed_jego_mutacjami(monkeypatch: pyte
     assert [[step.key for step in part] for part in chosen] == [["verify-b/check_b_mutations.py"], ["verify-a/ci", "verify-a/check_a_mutations.py"]]
 
 
-def test_czesci_z_tabeli_czasow_uruchamiaja_kazdy_krok_raz_i_zadna_nie_wydluza_najdluzszego_kroku(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_czesci_z_tabeli_czasow_uruchamiaja_kazdy_krok_raz_i_zadna_nie_przekracza_dolnej_granicy_o_wiecej_niz_najkrotszy_krok(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     times = _load_tool(monkeypatch).CI_TIMES_S
     skills = {key.split("/")[0] for key in times}
     for skill in skills:
@@ -458,8 +458,10 @@ def test_czesci_z_tabeli_czasow_uruchamiaja_kazdy_krok_raz_i_zadna_nie_wydluza_n
     key = {shown: key for key, shown in name.items()}
     assert [part.stdout.splitlines()[-1] for part in parts] == ["MUTACJE SKILLI OK"] * 3
     assert sorted(step for part in ran for step in part) == sorted(name.values())
-    # Ścieżka krytyczna Mutation checks to najdłuższa część: najwyżej najdłuższy krok z najkrótszym.
-    assert max(sum(times[key[step]] for step in part) for part in ran) <= max(times.values()) + min(times.values()), ran
+    # Ścieżka krytyczna Mutation checks to najdłuższa część. Żaden podział nie zejdzie poniżej najdłuższego kroku ani
+    # średniej części, a ten przekracza dłuższą z nich najwyżej o najkrótszy krok.
+    floor = max(max(times.values()), sum(times.values()) / len(parts))
+    assert max(sum(times[key[step]] for step in part) for part in ran) <= floor + min(times.values()), ran
 
 
 def test_tabela_czasow_wymienia_tylko_kroki_skilli(monkeypatch: pytest.MonkeyPatch) -> None:

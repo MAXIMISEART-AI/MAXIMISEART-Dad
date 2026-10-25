@@ -1,0 +1,37 @@
+"""Show that the drive of verify-centrum-rozliczen fails on broken variants of its `aktualizacja` feature.
+
+Each mutation runs the feature on its own copy of the checkout (``tools/mutacje.py``) and must make it fail.
+A mutation whose anchor text is no longer in its file is reported as NIEAKTUALNA: update it to the new code.
+"""
+
+from __future__ import annotations
+
+import argparse
+from pathlib import Path
+import sys
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "tools"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[4] / ".agents/skills/verify-centrum-rozliczen/scripts"))
+
+from cele_mutacji_centrum import AKTUALIZACJA, TOOL_UPDATES
+from mutacje import Edit, Mutation, check_all
+
+MUTATIONS = (
+    Mutation(
+        "wynik AKTUALNA zostaje, gdy najnowsze Wydanie to commit narzędzia",
+        (
+            Edit(
+                TOOL_UPDATES,
+                "            if newest is not None and newest != judged and self._view is view:\n",
+                "            if newest is not None and newest != judged and newest.newest != self._commit() and self._view is view:\n",
+            ),
+        ),
+        AKTUALIZACJA,
+        "karta mówi „Masz najnowszą wersję.” o Wydaniu, którego Centrum już nie zna",
+    ),
+)
+
+
+if __name__ == "__main__":
+    argparse.ArgumentParser(description=__doc__).parse_args()
+    raise SystemExit(check_all(MUTATIONS))

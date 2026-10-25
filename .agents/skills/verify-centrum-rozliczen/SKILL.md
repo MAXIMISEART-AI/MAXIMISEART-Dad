@@ -18,7 +18,7 @@ server's answer and the files on disk.
 
 ## What CI runs and what stays local
 
-CI runs `run_centrum_verification.py --feature all` (the `ci:` key) and `check_centrum_mutations.py`
+CI runs `run_centrum_verification.py --feature all` (the `ci:` key) and the `check_centrum_<feature>_mutations.py` scripts
 in Mutation checks on Windows whenever a change touches this skill; a red run leaves its evidence in
 the `mutation-checks-evidence-<part>` artifact. Run `all` and the mutations locally only to reproduce
 a red Mutation checks step. What stays with you: drive the feature you change, as a background
@@ -209,10 +209,22 @@ Then confirm the evidence directory still exists.
 - `scripts/centrum_self_test.py --evidence-root "$evidenceRoot"`: skill package
   check (with the `wydajnosc` gate on made-up numbers and the machine lock in a
   scratch directory) and evidence hygiene check.
-- `scripts/check_centrum_mutations.py`: shows the drive fails on broken
-  variants of Centrum, each running one feature on its own copy of the checkout;
-  it ends with `MUTACJE OK`, and CI runs it through `tools/mutacje_skilli.py`, so run it
-  locally only to reproduce a red Mutation checks step.
+- `scripts/check_centrum_<feature>_mutations.py`, one script per feature: shows the drive of
+  that feature fails on broken variants of Centrum, each mutation on its own copy of the checkout;
+  each ends with `MUTACJE OK`, and CI runs them through `tools/mutacje_skilli.py`, so run one
+  locally only to reproduce a red Mutation checks step:
+  `scripts/check_centrum_aktualizacja_mutations.py`,
+  `scripts/check_centrum_diagnoza_mutations.py`,
+  `scripts/check_centrum_karta_z_logow_mutations.py`,
+  `scripts/check_centrum_przebieg_rozliczen_mutations.py`,
+  `scripts/check_centrum_przygotowanie_pliku_zbiorczego_mutations.py`,
+  `scripts/check_centrum_uwaga_taty_mutations.py`,
+  `scripts/check_centrum_uzupelnienie_mutations.py`,
+  `scripts/check_centrum_zgloszenie_mutations.py`.
+  A mutation goes into the script of the feature its command drives (`--feature …`), so parallel
+  PRs on different features do not edit one table. A new feature with mutations adds its own
+  `check_centrum_<feature>_mutations.py` and its line here. Paths of Centrum files and the
+  `--feature` commands live in `scripts/cele_mutacji_centrum.py`, in alphabetical order.
 - `tools/quiet_machine.py --status`: what holds the machine now (a
   measurement, other verification runs, test runs or benchmarks).
 
