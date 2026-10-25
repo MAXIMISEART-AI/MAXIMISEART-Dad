@@ -87,7 +87,7 @@ COLLECTIVE_TEMPLATE_HEADERS = (
     "SKUTECZNE",
     "CZYNNOŚCI ZREALIZOWANE",
 )
-COLLECTIVE_ZERO_ROWS = 6
+COLLECTIVE_ZERO_ROWS = 8
 REGISTER_DATE_FORMAT = "dd.mm.yyyy hh:mm"
 HIGHLIGHT_FILL = "FFFFFF00"
 HIGHLIGHT_COLOR = "FFC00000"
@@ -113,12 +113,15 @@ def completed_activities(number: int) -> str:
 
 # Order number -> first word of UMOWA and the whole URZĄDZENIA, so that the Plik zbiorczy rows get Ilości usług from the
 # Reguły ilości (2: router with two TV devices and printing, 4: gateway with wifi6extra and a Saturday usterka,
-# 6: Monday-evening usterka with an unknown component and printing, 7: prewencja, settled from the description).
+# 6: Monday-evening usterka with an unknown component and printing, 7: prewencja, settled from the description,
+# 8: gniazdo, 9: a technicolor variant not on Dad's list). AP of order 8 and AK of order 9 are Ilości tylko dla INEA.
 ORDER_CONTENT: dict[int, tuple[str, str]] = {
     2: ("u", "nokia zte  2*fut"),
     4: ("pr", "gateway wifi6extra, usterka"),
     6: ("U", "usterka przeniesienie"),
     7: ("u", "prewencja"),
+    8: ("pr", "gniazdo"),
+    9: ("pr", "Technicolor 3*globo"),
 }
 
 
@@ -160,6 +163,8 @@ REGISTER_ROWS: dict[int, dict[str, object]] = {
     11: _order(5, datetime(2026, 9, 15, 0, 0), "adrian.testowy", "tak"),  # next period
     12: _order(7, datetime(2026, 9, 13, 9, 0), "adrian.testowy", "tak"),  # Adrian again, after Kamil
     13: _order(6, datetime(2026, 9, 14, 18, 30), "dariusz.fikcyjny2", "TAK"),  # late order of the period
+    14: _order(8, datetime(2026, 9, 8, 11, 0), "dariusz.fikcyjny2", "tak"),
+    15: _order(9, datetime(2026, 9, 14, 10, 0), "kamil.syntetyczny", "tak"),
 }
 
 

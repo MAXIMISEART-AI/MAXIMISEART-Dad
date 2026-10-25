@@ -10,8 +10,10 @@ this index before driving, then the feature file as the recipe.
 - `run_excel_verification.py` built the fixture, `DOCTOR OK` passed, and
   Przygotowanie pliku zbiorczego ended `OK` for `08_14_09_2026`.
 - The Rejestr zleceń is `verify-rozliczenia`'s synthetic one: Zlecenia
-  skuteczne `PREP-SYN-ZL-2`, `-4`, `-7`, `-6` in Plik zbiorczy order
-  (Adrian Testowy twice, Kamil Syntetyczny, Darek Fikcyjny); `-3` is a
+  skuteczne `PREP-SYN-ZL-2`, `-4`, `-7`, `-6`, `-8`, `-9` in Plik zbiorczy order
+  (Adrian Testowy, Kamil Syntetyczny, Adrian Testowy, Darek Fikcyjny twice,
+  Kamil Syntetyczny); `-8` is a `gniazdo` order and `-9` a `Technicolor 3*globo`
+  one, whose `AP` and `AK` are Ilości tylko dla INEA; `-3` is a
   Zlecenie nieskuteczne. Wyróżnienia: ADRES of `-2` yellow with bold dark red
   text, ADRES of `-4` blue, WYKONAWCA of `-4` italic; ADRES of `-7` and `-6`
   none.

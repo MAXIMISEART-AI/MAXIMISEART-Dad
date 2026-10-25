@@ -13,7 +13,7 @@ Wyróżnienia show as they were, and Excel fits each row to its text.
 - `plik-zbiorczy-bez-okna`: the Plik zbiorczy opens in Excel with no dialog.
 - `plik-zbiorczy-lacze`: Excel lists the same external workbook for the Plik zbiorczy as for the Wzorzec pliku zbiorczego.
 - `plik-zbiorczy-formuly`: every Wiersz danych has the R1C1 formulas of `AU18:AY18` of the Wzorzec, and `AU:AX` shows no error.
-- `plik-zbiorczy-ilosci`: Excel holds the Ilości usług Przygotowanie wrote from the Reguły ilości in `N:AP` of the four Zlecenia skuteczne (none for `prewencja`; for the component the Reguły ilości do not know, only V, T and the 45 of a late usterka in N), and the sums of row 15 of the Wzorzec count them.
+- `plik-zbiorczy-ilosci`: Excel holds the Ilości usług Przygotowanie wrote from the Reguły ilości in `N:AP` of the six Zlecenia skuteczne (none for `prewencja`; for the component the Reguły ilości do not know, only V, T and the 45 of a late usterka in N), and the sums of row 15 of the Wzorzec count them.
 - `plik-zbiorczy-wyroznienia`: as in the Rejestr, ADRES of `PREP-SYN-ZL-2` is yellow with bold dark red text, ADRES of `PREP-SYN-ZL-4` blue, ADRES of `PREP-SYN-ZL-7` and `PREP-SYN-ZL-6` without fill, and WYKONAWCA of `PREP-SYN-ZL-4` italic.
 - `plik-zbiorczy-wyglad-wiersza`: Excel auto-fits the Wiersze danych (Wygląd Wiersza danych, no stored height): every row with one line is exactly the sheet's standard height, and the row of `PREP-SYN-ZL-2`, whose CZYNNOŚCI ZREALIZOWANE has two lines, is taller.
 
@@ -29,10 +29,10 @@ Preconditions: the Baseline in `README.md`; both Wzorce were opened as the refer
 - **Rozliczenie wewnętrzne.** Copy it to the desk; `excel.open_file` returns within the 180 s limit; `excel.close` removes `~$`. `STEP … rozliczenie-wewnetrzne-bez-okna | open_seconds=…`.
 - **Plik zbiorczy.** Copy it to the desk and open it; it stays open for `gotowosc-w-excelu`.
 - **Link.** `excel.link_names` equals the Wzorzec pliku zbiorczego's list (`links=1`).
-- **Rows and formulas.** Headers of row 17 give `NUMER ZL.`, `ADRES`, `WYKONAWCA`, `DATA`, each exactly once; `NUMER ZL.` in rows 18–60 must include the four Zlecenia skuteczne, and every row found is checked (`rows=4`). For each, `excel.formulas_r1c1("AU:AY")` equals the reference and `excel.error_cells("AU:AX")` is none.
-- **Ilości usług.** `excel.read` of `N:AP` of each order's row gives exactly `QUANTITIES` of `run_excel_verification.py` as non-zero numbers, and `N15:AP15` their column sums (`cells=17 | sums_row=15`).
+- **Rows and formulas.** Headers of row 17 give `NUMER ZL.`, `ADRES`, `WYKONAWCA`, `DATA`, each exactly once; `NUMER ZL.` in rows 18–60 must include the six Zlecenia skuteczne, and every row found is checked (`rows=6`). For each, `excel.formulas_r1c1("AU:AY")` equals the reference and `excel.error_cells("AU:AX")` is none.
+- **Ilości usług.** `excel.read` of `N:AP` of each order's row gives exactly `QUANTITIES` of `run_excel_verification.py` as non-zero numbers, and `N15:AP15` their column sums (`cells=27 | sums_row=15`).
 - **Wyróżnienia.** `excel.fill` gives interior, font color, bold, italic: ADRES `(0xFFFF00, 0xC00000, True, False)` (`-2`), `(0x00B0F0, 0x000000, False, False)` (`-4`), `(0xFFFFFF, 0x000000, False, False)` (`-7`, `-6`), and WYKONAWCA `(0xFFFFFF, 0x000000, False, True)` (`-4`) (`cells=5`).
-- **Wygląd Wiersza danych.** `excel.row_heights` of each order's row against `excel.standard_height`; `excel.shown_text` of DATA is remembered for `rozliczenia-pracownikow-w-excelu`. `STEP … plik-zbiorczy-wyglad-wiersza | rows=4 | one_line_pt=…`.
+- **Wygląd Wiersza danych.** `excel.row_heights` of each order's row against `excel.standard_height`; `excel.shown_text` of DATA is remembered for `rozliczenia-pracownikow-w-excelu`. `STEP … plik-zbiorczy-wyglad-wiersza | rows=6 | one_line_pt=…`.
 
 ## Gotchas
 

@@ -56,8 +56,8 @@ FORMULAS = "AU{row}:AY{row}"
 FILLED_ORDERS = ("PREP-SYN-ZL-2", "PREP-SYN-ZL-7", "PREP-SYN-ZL-6")
 WORKER_ORDERS = {
     "Adrian Testowy": ("PREP-SYN-ZL-2", "PREP-SYN-ZL-7"),
-    "Darek Fikcyjny": ("PREP-SYN-ZL-6",),
-    "Kamil Syntetyczny": ("PREP-SYN-ZL-4",),
+    "Darek Fikcyjny": ("PREP-SYN-ZL-6", "PREP-SYN-ZL-8"),
+    "Kamil Syntetyczny": ("PREP-SYN-ZL-4", "PREP-SYN-ZL-9"),
 }
 # Wyróżnienia of the synthetic Rejestr: ADRES of order 2 yellow with bold dark red, ADRES of order 4 blue, WYKONAWCA
 # of order 4 italic, ADRES of orders 7 and 6 none. Excel shows no fill as white and the automatic colour as black.
@@ -76,7 +76,12 @@ QUANTITIES = {
     "PREP-SYN-ZL-4": {"N": 45, "O": 1, "S": 2, "V": 1, "AG": 1, "AI": 1, "AO": 1},
     "PREP-SYN-ZL-7": {},
     "PREP-SYN-ZL-6": {"N": 45, "T": 1, "V": 1},
+    "PREP-SYN-ZL-8": {"V": 1, "AE": 1, "AP": 1},
+    "PREP-SYN-ZL-9": {"O": 1, "P": 1, "Q": 2, "S": 4, "V": 1, "Z": 1, "AK": 1},
 }
+# Ilości tylko dla INEA (ADR 0018): AP of the gniazdo order and AK of the technicolor one stay empty in the
+# Rozliczenie pracownika, while the Plik zbiorczy keeps them.
+INEA_ONLY = {"PREP-SYN-ZL-8": "AP", "PREP-SYN-ZL-9": "AK"}
 QUANTITY_SUMS_ROW = 15
 # CZYNNOŚCI ZREALIZOWANE of order 2 has two lines (create_preparation_fixture.completed_activities); every other
 # Wiersz danych has one.
@@ -512,15 +517,21 @@ def worker_files(
             layout = _layout(path)
             rows = _order_rows(path, layout)
             expect(tuple(rows) == orders, f"{label} holds other Zlecenia or another order than the Plik zbiorczy")
+            inea_only = 0
             for order, row in rows.items():
                 shown = excel.read(path, f"A{row}:AT{row}")[0]
-                differing = [
-                    column_letter(column)
-                    for column, (left, right) in enumerate(zip(shown, expected[order], strict=True), start=1)
-                    if left != right
-                ]
+                differing = []
+                for column, (left, right) in enumerate(zip(shown, expected[order], strict=True), start=1):
+                    letter = column_letter(column)
+                    if INEA_ONLY.get(order) == letter:
+                        expect(not right.empty, f"Plik zbiorczy row of {order} has no Ilość tylko dla INEA in {letter}")
+                        if not left.empty:
+                            differing.append(letter)
+                        inea_only += 1
+                    elif left != right:
+                        differing.append(letter)
                 expect(not differing, f"{label} row {row} differs from the Plik zbiorczy in {','.join(differing)}")
-            run.step(feature, "wiersze-a-at", f"{worker} | rows={len(rows)}")
+            run.step(feature, "wiersze-a-at", f"{worker} | rows={len(rows)} | inea_only_empty={inea_only}")
             links = _hyperlinks(run.worker_file(worker), rows)
             unequal = [str(row) for order, row in rows.items() if links[order] != expected_links[order]]
             expect(not unequal, f"{label} rows {', '.join(unequal)} lack the Hiperłącza of the Plik zbiorczy Excel saved")
