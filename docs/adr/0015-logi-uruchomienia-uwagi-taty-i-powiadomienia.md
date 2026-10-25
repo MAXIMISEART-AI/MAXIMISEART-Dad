@@ -57,10 +57,15 @@ co stało się z tym, co wysłał.
   wiersz z odnośnikiem do Logów swojego Uruchomienia, gdy doszły przed
   Diagnozą, a inaczej „jeszcze niewysłane” z identyfikatorem Uruchomienia.
   Logi, które dojdą później, Zgłoszenia nie zmieniają.
-- **Kolejka Skrzynki Zgłoszeń**, wspólna dla Kontroli ilości, Logów i Uwag,
-  rusza przy starcie Centrum i po każdej nowej wysyłce. Brak sieci, brak
-  klucza i odmowa klucza albo dostępu (401, 403, 404) kończą przejście jedną
-  linią dziennika. Odmowa treści jednego pliku (400, 413, 422) zostawia go do
+- **Kolejka Skrzynki Zgłoszeń**, wspólna dla Kontroli ilości, Logów, Uwag i
+  Zgłoszeń (od #426), rusza przy starcie Centrum, po każdej nowej wysyłce i
+  sama minutę po przejściu, które stanęło na braku sieci, braku klucza albo
+  odmowie klucza lub dostępu (401, 403, 404). Limit zapytań GitHuba to brak
+  sieci. Odrzucony klucz nie kosztuje co minutę zapytania: Skrzynka z kluczem
+  taty (ADR 0007) odpowiada odmową bez sieci przez kwadrans. Linia
+  „skrzynka-czeka” trafia do dziennika tylko przy zmianie przyczyny, a każde
+  dostarczenie ją zeruje, żeby ponowienia nie wypierały ostatnich wpisów,
+  które niesie Diagnoza. Odmowa treści jednego pliku (400, 413, 422) zostawia go do
   następnego startu, a następne pliki idą dalej (#332). Wysyłka jest co
   najmniej raz: przerwanie między wysłaniem a znacznikiem dostarczenia
   powtarza komentarz, a porażka w środku Logów wieloczęściowych wysyła przy
@@ -112,8 +117,8 @@ co stało się z tym, co wysłał.
   rozwiązaną, z dopiskiem, że będzie w następnej wersji; zamkniętą bez zmiany w
   kodzie jako przeczytaną (`state_reason` zamkniętego issue: `completed` albo
   brak powodu to rozwiązana, `not_planned` albo `duplicate` to przeczytana).
-  Zgłoszenie nigdy nie czeka na internet: niewysłane zostaje plikiem dla taty,
-  jak dotąd. Powiadomienie o nowej wersji ma notkę Wydania (GitHub Release w
+  Zgłoszenie, które czeka w kolejce, ma stan „czeka na internet” jak Uwaga i
+  przy dostarczeniu staje się wysłanym, bez kropki (#426). Powiadomienie o nowej wersji ma notkę Wydania (GitHub Release w
   formacie `release_notes`), rozwiązane sprawy taty wysłane z tego komputera i
   przycisk Aktualizacji narzędzia, ten sam co w Konfiguracji i Diagnozie
   (`offers_update`). Z Wydań kropkę zapala tylko najnowsze Wydanie na `main` i

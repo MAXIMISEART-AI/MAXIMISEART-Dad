@@ -9,7 +9,9 @@ internet.`, `Rozwiązana. Będzie w następnej wersji.` (Maks closed the issue a
 `duplicate`); a Zgłoszenie takes the neuter forms `Wysłane do Maksa.` and
 `Rozwiązane. Będzie w następnej wersji.`. A Zgłoszenie is named by its
 „Co się stało”, without the code; one recorded before Powiadomienia, without a
-„Co się stało”, has no row. Only Maks's states are new: they light a red
+„Co się stało”, has no row. A Zgłoszenie that waits in the queue of the
+skrzynka reads `Wyślę do Maksa, gdy będzie internet.` like an Uwaga, and
+features/zgloszenie.md checks that row (`zgloszenie-bez-klucza`). Only Maks's states are new: they light a red
 dot on the bell. Entering the view marks them read at once (the dot goes out),
 and the rows that were new keep a small dot and a light background until Dad
 leaves. Centrum asks the skrzynka Zgłoszeń about Dad's open cases at start and

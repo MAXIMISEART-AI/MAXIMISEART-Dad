@@ -36,6 +36,8 @@ from rozliczenia.centrum.shutdown import Shutdown
 from rozliczenia.centrum.tool_freshness import GitHubReleases, PublishedRelease, ToolFreshness
 from rozliczenia.centrum.tool_update import Release
 
+from tests.fixtures.clock import ManualClock
+
 ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -100,7 +102,8 @@ class FakeReportBox:
     ``search_hold`` to skrzynka, która na pytanie o issue z etykietą odpowiada
     dopiero, gdy test ją puści (``set``), jak GitHub bez sieci; ``searching``
     mówi, że takie pytanie już trwa. ``open_hold`` i ``opening`` robią to samo
-    z zakładaniem issue, a ``comment_outcomes`` to przygotowane wyniki komentarzy.
+    z zakładaniem issue, a ``comment_outcomes`` to przygotowane wyniki komentarzy. ``lost_answers`` to tyle
+    następnych zakładanych issue, które skrzynka zakłada, ale odpowiedź się urywa (``Unreachable``).
     ``wait_until`` czeka na wysyłkę w tle.
 
     Issue etykiet z ``background`` to ruch w tle, którego test nie ogląda (np. Logi Uruchomienia w testach
@@ -120,6 +123,7 @@ class FakeReportBox:
     open_hold: threading.Event | None = None
     opening: threading.Event = field(default_factory=threading.Event)
     comment_outcomes: list[CommentOutcome] = field(default_factory=list)
+    lost_answers: int = 0
     background: frozenset[Label] = frozenset()
     background_issues: list[FakeIssue] = field(default_factory=list)
     background_comment_outcomes: list[CommentOutcome] = field(default_factory=list)
@@ -154,6 +158,9 @@ class FakeReportBox:
             outcome = self.outcomes.pop(0) if self.outcomes else Sent(number=len(self.issues) + 1)
             if isinstance(outcome, Sent):
                 self.issues.append(FakeIssue(outcome.number, label, title, body))
+                if self.lost_answers:
+                    self.lost_answers -= 1
+                    outcome = Unreachable()
             self._changed.notify_all()
         return outcome
 
@@ -203,19 +210,6 @@ class FakeReportBox:
         """Maks zamyka issue ``number`` z powodem ``reason`` (``state_reason`` GitHuba) w chwili ``at``."""
 
         self.closed[number] = Closure(reason, at or datetime.now(timezone.utc))
-
-
-@dataclass
-class FakeClock:
-    """Zegar monotoniczny Centrum w sekundach, przesuwany przez test."""
-
-    seconds: float = 0.0
-
-    def __call__(self) -> float:
-        return self.seconds
-
-    def advance(self, *, minutes: float) -> None:
-        self.seconds += minutes * 60
 
 
 @dataclass
@@ -292,6 +286,18 @@ class Centrum:
     metrics: MetricsPaths
     log_path: Path
     report_box: FakeReportBox
+    clock: ManualClock
+
+
+def case_states(client: TestClient, kind: str) -> list[str]:
+    """Stany Spraw taty rodzaju ``kind`` (``uwaga``, ``zgloszenie``) w Powiadomieniach.
+
+    Na nie czeka test, a nie na plik stanu: Centrum podaje sprawy pod blokadą, która trzyma też zapis pliku, a na
+    Windows plik otwarty przez test w pętli blokuje jego zamianę (``os.replace``) i zapis przepada.
+    """
+
+    items = client.get("/api/notifications").json()["items"]
+    return [item["state"] for item in items if item["kind"] == kind]
 
 
 def dad_cases(config: Path, kind: str) -> list[dict[str, Any]]:
@@ -306,7 +312,10 @@ def dad_cases(config: Path, kind: str) -> list[dict[str, Any]]:
 
 
 def centrum(tmp_path: Path, *, today: date = date(2026, 10, 19)) -> Centrum:
+    """Centrum na syntetycznym folderze; zegar stoi, dopóki test go nie przesunie, więc nie zostawia budzików."""
+
     platform = FakePlatform()
+    clock = ManualClock()
     report_box = FakeReportBox(background=RUN_LOGS_IN_BACKGROUND)
     settings_path = tmp_path / "config" / "centrum-ustawienia.yaml"
     metrics = MetricsPaths(preparation=tmp_path / "przygotowanie-metrics.jsonl", settlement=tmp_path / "metrics.jsonl")
@@ -322,9 +331,10 @@ def centrum(tmp_path: Path, *, today: date = date(2026, 10, 19)) -> Centrum:
         tool_freshness=FakeGitHub().freshness(),
         cloud_files=FakeOneDrive().cloud_files(),
         report_box=report_box,
+        clock=clock,
     )
     client = TestClient(app, base_url=CENTRUM, headers={"Origin": CENTRUM})
-    return Centrum(client, platform, settings_path, metrics, log_path, report_box)
+    return Centrum(client, platform, settings_path, metrics, log_path, report_box, clock)
 
 
 def view_timing(**changes: object) -> dict[str, object]:

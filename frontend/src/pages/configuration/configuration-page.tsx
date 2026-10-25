@@ -56,10 +56,11 @@ export function ConfigurationPage() {
   )
 }
 
-/** Czy na tym komputerze jest klucz do Zgłoszeń; wartości klucza serwer nigdy nie wysyła. */
+/** Czy na tym komputerze jest klucz do Zgłoszeń i czy Skrzynka go przyjmuje; wartości klucza serwer nigdy nie wysyła. */
 const REPORT_KEY_LABELS: Record<Configuration["reports"], string> = {
   ready: "Zgłoszenia: gotowe",
   missing_key: "Zgłoszenia: brak klucza",
+  refused_key: "Zgłoszenia: klucz odrzucony",
 }
 
 function ReadOnlyBadge() {

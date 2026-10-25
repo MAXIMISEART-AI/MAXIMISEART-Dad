@@ -1,7 +1,7 @@
 """Powiadomienia (ADR 0015): co stało się z Uwagami taty i Zgłoszeniami wysłanymi z tego komputera i nowe Wydania.
 
-Sprawa taty to Uwaga taty albo wysłane Zgłoszenie (``DadCases``); jej stan w Powiadomieniu to ``Case.state``.
-Powiadomienie to sprawa w jednym stanie, więc nowy stan to nowe Powiadomienie. Nowe są tylko stany, które dał Maks (rozwiązana, przeczytana); wysłanie i czekanie w kolejce
+Sprawa taty to Uwaga taty albo Zgłoszenie (``DadCases``); bez numeru issue czeka w kolejce Skrzynki, a jej stan w
+Powiadomieniu to ``Case.state``. Powiadomienie to sprawa w jednym stanie, więc nowy stan to nowe Powiadomienie. Nowe są tylko stany, które dał Maks (rozwiązana, przeczytana); wysłanie i czekanie w kolejce
 to czynność taty i kropki na dzwonku nie zapala.
 
 Powiadomienie o nowej wersji to opublikowane Wydanie (GitHub Release) o numerze nie wyższym od najnowszego Wydania na
@@ -35,7 +35,8 @@ from fastapi import APIRouter
 from rozliczenia.centrum import contract
 from rozliczenia.centrum.dad_cases import NOTE, Case, DadCases
 from rozliczenia.centrum.log import CentrumLog
-from rozliczenia.centrum.report_box import Closure, ReportBox
+from rozliczenia.centrum.keyed_box import KeyedBox
+from rozliczenia.centrum.report_box import Closure
 from rozliczenia.centrum.atomic_file import replace_atomically
 from rozliczenia.centrum.release_notes import parse
 from rozliczenia.centrum.tool_freshness import PublishedRelease, ReleaseSource, ToolFreshness, offers_update
@@ -112,8 +113,7 @@ class Notifications:
         self,
         cases: DadCases,
         read: ReadNotifications,
-        box: ReportBox,
-        key: Callable[[], str | None],
+        box: KeyedBox,
         freshness: ToolFreshness,
         release: ReleaseSource,
         log: CentrumLog,
@@ -123,7 +123,6 @@ class Notifications:
         self._cases = cases
         self._read = read
         self._box = box
-        self._key = key
         self._freshness = freshness
         self._release = release
         self._log = log
@@ -155,20 +154,18 @@ class Notifications:
     def _start_check_if_due(self) -> threading.Thread | None:
         """Pytanie skrzynki i GitHuba w tle, gdy pora (trwające też się liczy); ``None``, gdy nie ma na co czekać."""
 
-        key = self._key()
         with self._lock:
             now = self._clock()
             if self._asked_at is None or now - self._asked_at >= CHECK_INTERVAL_S:
                 self._asked_at = now  # rezerwuje pytanie: równoległy odczyt nie pyta drugi raz
                 self._check = threading.Thread(
-                    target=self._ask, args=(key,), name="powiadomienia-sprawdzanie", daemon=True
+                    target=self._ask, name="powiadomienia-sprawdzanie", daemon=True
                 )
                 self._check.start()
             return self._check
 
-    def _ask(self, key: str | None) -> None:
-        if key is not None:
-            self._ask_box(key)
+    def _ask(self) -> None:
+        self._ask_box()
         try:
             self._ask_github()
         except Exception as failure:
@@ -189,9 +186,9 @@ class Notifications:
             known = replace(known, published=published)
         self._releases = known
 
-    def _ask_box(self, key: str) -> None:
+    def _ask_box(self) -> None:
         try:
-            self._cases.ask_box(self._box, key)
+            self._cases.ask_box(self._box)
         except Exception as failure:
             self._log.unexpected_failure(failure, where="stan spraw w Powiadomieniach")
 
@@ -253,7 +250,8 @@ class Notifications:
             return contract.DadNoteNotification(
                 kind="uwaga", id=notification_id, at=at, unread=unread, title=case.title, state=state
             )
-        notification_id = f"zgloszenie-{case.number}-{state}"
+        # Zgłoszenie w kolejce nie ma jeszcze numeru; jego odcisk wystarcza, bo problem czeka w kolejce najwyżej raz.
+        notification_id = f"zgloszenie-{case.id if case.number is None else case.number}-{state}"
         unread = self._unread(notification_id, state)
         return contract.ReportNotification(
             kind="zgloszenie", id=notification_id, at=at, unread=unread, what=case.title, state=state

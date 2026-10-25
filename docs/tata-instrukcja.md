@@ -151,20 +151,24 @@ Brak internetu niczego nie psuje, dopóki niczego nie wysyłasz.
 
 ### Zgłoszenie → co zrobić
 
-Gdy wysłanie się nie uda, Centrum zapisze Zgłoszenie w pliku w folderze
-narzędzia, w `config\zgloszenia`, i pokaże komunikat z przyciskiem
-`Spróbuj ponownie`. Plik możesz przesłać Maksowi mailem jako załącznik.
+Gdy Zgłoszenie nie może od razu wyjść, Centrum trzyma je na tym komputerze i
+wyśle je samo, bez klikania. W miejscu przycisku zobaczysz, na co czeka.
+W Powiadomieniach Zgłoszenie ma wtedy `Wyślę do Maksa, gdy będzie internet.`
+
+- `Zgłoszenie czeka na internet. Wyśle się samo.` Niczego nie musisz robić.
+  Zgłoszenie wyjdzie najpóźniej minutę po powrocie internetu.
+- `Zgłoszenie czeka na klucz do Zgłoszeń. Daj znać Maksowi.` Na komputerze
+  nie ma klucza albo klucz przestał działać. Powiedz Maksowi. Gdy wpisze nowy
+  klucz, Zgłoszenie wyjdzie samo.
 
 | Co się stało (fragment) | Co zrobić |
 |---|---|
-| „na tym komputerze nie ma klucza do Zgłoszeń” | Prześlij wskazany plik Maksowi mailem. Gdy Maks wpisze klucz, kliknij `Spróbuj ponownie`. |
-| „klucz do Zgłoszeń wygasł albo jest nieważny” | Prześlij wskazany plik Maksowi mailem i powiedz mu o kluczu. Gdy Maks go wymieni, kliknij `Spróbuj ponownie`. |
-| „brak połączenia z GitHubem” | Sprawdź internet i kliknij `Spróbuj ponownie`. Jeśli to nie pomoże, prześlij wskazany plik Maksowi mailem. |
-| „nie udało się zapisać go w pliku” | Pliku nie ma. Rozwiń `Co zostanie wysłane`, skopiuj treść i wklej ją do maila do Maksa. Po odświeżeniu karty najpierw kliknij `Diagnoza`. |
+| „Nie udało się zapisać Zgłoszenia na tym komputerze” | Kliknij `Spróbuj ponownie`. Jeśli komunikat wraca, rozwiń `Co zostanie wysłane`, skopiuj treść i wklej ją do maila do Maksa. Po odświeżeniu karty najpierw kliknij `Diagnoza`. |
 
 Na stronie `Konfiguracja` widać `Zgłoszenia: gotowe`, gdy klucz do Zgłoszeń
-jest na komputerze, albo `Zgłoszenia: brak klucza`, gdy go nie ma. Klucz wpisuje
-Maks; Ty niczego tam nie wpisujesz.
+jest na komputerze, `Zgłoszenia: brak klucza`, gdy go nie ma, albo
+`Zgłoszenia: klucz odrzucony`, gdy GitHub go nie przyjmuje. Wtedy powiedz
+Maksowi. Klucz wpisuje Maks; Ty niczego tam nie wpisujesz.
 
 ### Napisz do Maksa
 
@@ -244,8 +248,8 @@ przed wysłaniem.
 | „Nowa wersja narzędzia nie wystartowała” | Niczego nie zamykasz: Centrum samo wróciło do poprzedniej wersji, a karta odświeżyła się na niej z tym komunikatem pod tytułem strony. Przekaż sprawę Maksowi: kliknij `Wyślij do Maksa`. |
 | „nie dało się przywrócić poprzedniej wersji” | Kliknij `Zaktualizuj narzędzie` jeszcze raz. Jeśli komunikat wraca, kliknij `Wyślij do Maksa`. |
 
-Bez internetu `Wyślij do Maksa` zapisze Zgłoszenie w pliku: postępuj wtedy
-według tabeli „Zgłoszenie → co zrobić”.
+Bez internetu `Wyślij do Maksa` zostawi Zgłoszenie na tym komputerze i wyśle
+je samo, gdy wróci internet (więcej w „Zgłoszenie → co zrobić”).
 
 ### Komunikaty startu Centrum rozliczeń
 

@@ -166,6 +166,7 @@ REQUIRED_SCREENSHOTS = {
         "57-diagnoza-bez-przyczyny.png",
         "58-diagnoza-nieoczekiwany-wyjatek.png",
         "59-diagnoza-nieoczekiwany-wyjatek-zgloszenie.png",
+        "59b-diagnoza-klucz-odrzucony.png",
     ),
     "aktualnosc-i-onedrive": (
         "76-aktualnosc-nowsza-wersja.png",
@@ -178,8 +179,10 @@ REQUIRED_SCREENSHOTS = {
     "zgloszenie": (
         "60-zgloszenie-podglad.png",
         "61-zgloszenie-bez-klucza.png",
+        "61b-zgloszenie-bez-klucza-powiadomienia.png",
         "62-zgloszenie-konfiguracja-brak-klucza.png",
         "63-zgloszenie-konfiguracja-gotowe.png",
+        "63b-zgloszenie-konfiguracja-odrzucony.png",
         "64-zgloszenie-wyslane.png",
         "65-zgloszenie-po-odswiezeniu.png",
         "66-zgloszenie-kolejne-uruchomienie.png",
@@ -187,6 +190,8 @@ REQUIRED_SCREENSHOTS = {
         "69-zgloszenie-zamkniete-po-diagnozie.png",
         "70-zgloszenie-nowe-z-odnosnikiem.png",
         "71-zgloszenie-inny-problem.png",
+        "72-zgloszenie-bez-sieci.png",
+        "73-zgloszenie-bez-sieci-wyslane.png",
     ),
     "uwaga-taty": (
         "170-uwaga-ikona-w-naglowku.png",

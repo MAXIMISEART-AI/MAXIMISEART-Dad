@@ -49,9 +49,12 @@ Centrum takes the newest one whose body has its exact line (the fingerprint
 line of a Zgłoszenie's problem, or the period line of a Kontrola ilości, which
 then goes into that file's ``comments``). The key is never written
 there. While
-``<root>/skrzynka-zgloszen/brak-sieci`` exists the skrzynka is unreachable, and while
+``<root>/skrzynka-zgloszen/brak-sieci`` exists the skrzynka is unreachable, while
+``<root>/skrzynka-zgloszen/odmawia-klucza`` exists it refuses the key for every question
+(``Refused``, like GitHub's 401 for an expired token), and while
 ``<root>/skrzynka-zgloszen/odrzuca-<label>`` exists it rejects the content of every new
 issue with that label and of every comment to one (``Rejected``, like GitHub's 422).
+GitHub's rate limit (a 403 that is no refusal) only pytest covers, on the GitHub adapter.
 Each question for the issues with a label, closed ones included (how
 Powiadomienia ask about Dad's sent Zgłoszenia and Uwagi), appends its label to
 ``<root>/skrzynka-zgloszen-zapytania.jsonl``. While ``<root>/pacing/skrzynka-ms.txt``
@@ -62,7 +65,8 @@ waiting for the Kontrole ilości it sends again at start.
 Centrum asks the skrzynka for the state of Dad's sent cases, and GitHub for the
 Wydania, at most once per 10 minutes of its monotonic clock; each question for the
 published Wydania appends a line to ``<root>/github/zapytania-wydan.jsonl``; ``<root>/zegar/przesuniecie-min.txt`` moves that
-clock forward by the given minutes, so the drive need not wait.
+clock forward by the given minutes, so the drive need not wait. Wake-ups on that clock (the queue's retry a minute
+after a failure) fire within 0.2 s of their moment, so moving the clock wakes the queue at once.
 
 One harness-only pacing hook: while ``<root>/pacing/szablony-ms.txt`` exists,
 each Szablon pracownika of a Przebieg rozliczeń RUN waits that many
@@ -189,6 +193,8 @@ class FileReportBox:
             time.sleep(int(self._pacing.read_text(encoding="utf-8")) / 1000)
         if (self._directory / "brak-sieci").exists():
             return Unreachable()
+        if self._refuses_key():
+            return Refused()
         if self._rejects(label):
             return Rejected()
         with self._lock:
@@ -209,6 +215,8 @@ class FileReportBox:
 
         if (self._directory / "brak-sieci").exists():
             return Unreachable()
+        if self._refuses_key():
+            return Refused()
         path = self._directory / f"{number}.json"
         with self._lock:
             if not path.is_file():
@@ -224,12 +232,17 @@ class FileReportBox:
     def _rejects(self, label: str) -> bool:
         return (self._directory / f"odrzuca-{label}").exists()
 
+    def _refuses_key(self) -> bool:
+        return (self._directory / "odmawia-klucza").exists()
+
     def labelled_issues(self, label: Label, *, include_closed: bool, key: str) -> IssuesOutcome:
         if include_closed:
             with self._lock, self._directory.with_name(f"{self._directory.name}-zapytania.jsonl").open("a") as asked:
                 asked.write(json.dumps({"label": label}) + "\n")
         if (self._directory / "brak-sieci").exists():
             return Unreachable()
+        if self._refuses_key():
+            return Refused()
         with self._lock:
             issues = [json.loads(path.read_text(encoding="utf-8")) for path in self._directory.glob("*.json")]
         return tuple(
@@ -280,12 +293,32 @@ def _scripted_github(root: Path, clone: Path) -> ToolFreshness:
     )
 
 
-def _scripted_clock(root: Path) -> Callable[[], float]:
-    def clock() -> float:
-        moved = root / "zegar" / "przesuniecie-min.txt"
+class ScriptedClock:
+    """Centrum's clock: monotonic time moved forward by ``<root>/zegar/przesuniecie-min.txt`` (see the module doc)."""
+
+    def __init__(self, root: Path) -> None:
+        self._moved = root / "zegar" / "przesuniecie-min.txt"
+        self._lock = threading.Lock()
+        self._wakes: list[tuple[float, Callable[[], None]]] = []
+        threading.Thread(target=self._fire_due, name="zegar-budzik", daemon=True).start()
+
+    def __call__(self) -> float:
+        moved = self._moved
         return time.monotonic() + (float(moved.read_text(encoding="utf-8")) * 60 if moved.exists() else 0.0)
 
-    return clock
+    def after(self, seconds: float, wake: Callable[[], None]) -> None:
+        with self._lock:
+            self._wakes.append((self() + seconds, wake))
+
+    def _fire_due(self) -> None:
+        while True:
+            time.sleep(0.2)
+            now = self()
+            with self._lock:
+                due = [wake for moment, wake in self._wakes if moment <= now]
+                self._wakes = [(moment, wake) for moment, wake in self._wakes if moment > now]
+            for wake in due:
+                wake()
 
 
 def _scripted_onedrive(root: Path) -> CloudFiles:
@@ -380,7 +413,7 @@ def main(argv: list[str] | None = None) -> int:
         tool_freshness=_scripted_github(root, clone),
         cloud_files=_scripted_onedrive(root),
         report_box=FileReportBox(root / "skrzynka-zgloszen"),
-        clock=_scripted_clock(root),
+        clock=ScriptedClock(root),
         tool_update=ToolClone(
             clone, origin=str(Path(fixture["tool"]["origin"])), find_git=_paced_git(root), install=_paced_install(root)
         ),

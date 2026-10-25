@@ -218,13 +218,10 @@ FILL_SAMPLES: Samples = {
     "only_in_cloud": [lambda: fill_messages.only_in_cloud(SOURCE)],
 }
 
-UNSENT_REPORT = Path("C:/Narzedzie/config/zgloszenia") / f"Zgłoszenie BLAD_PLANU {PERIOD}.md"
+REPORT_QUEUE = Path("C:/Narzedzie/config/zgloszenia/kolejka")
 
 REPORT_SAMPLES: Samples = {
-    "key_missing": [lambda: report_messages.key_missing(UNSENT_REPORT)],
-    "key_refused": [lambda: report_messages.key_refused(UNSENT_REPORT)],
-    "box_unreachable": [lambda: report_messages.box_unreachable(UNSENT_REPORT)],
-    "not_saved": [lambda: report_messages.not_saved(UNSENT_REPORT.parent)],
+    "not_queued": [lambda: report_messages.not_queued(REPORT_QUEUE)],
 }
 
 UPDATE_SAMPLES: Samples = {

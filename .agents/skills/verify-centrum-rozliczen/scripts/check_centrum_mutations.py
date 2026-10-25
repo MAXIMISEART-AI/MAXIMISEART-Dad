@@ -19,6 +19,8 @@ DAD_NOTES = Path("src/rozliczenia/centrum/dad_notes.py")
 APP = Path("src/rozliczenia/centrum/app.py")
 RUN_CARDS = Path("src/rozliczenia/centrum/run_cards.py")
 TOOL_UPDATES = Path("src/rozliczenia/centrum/tool_updates.py")
+KEYED_BOX = Path("src/rozliczenia/centrum/keyed_box.py")
+OUTBOX = Path("src/rozliczenia/centrum/outbox.py")
 WORKBOOK_FILES = Path("src/rozliczenia/workbook_files.py")
 QUANTITIES_TO_FILL = Path("src/rozliczenia/quantities_to_fill.py")
 LIVE_FILE = Path("src/rozliczenia/centrum/live_file.py")
@@ -32,6 +34,7 @@ RUNNER = ".agents/skills/verify-centrum-rozliczen/scripts/run_centrum_verificati
 KARTA = (RUNNER, "--feature", "karta-z-logow")
 UWAGA = (RUNNER, "--feature", "uwaga-taty")
 AKTUALIZACJA = (RUNNER, "--feature", "aktualizacja")
+ZGLOSZENIE = (RUNNER, "--feature", "zgloszenie")
 UZUPELNIENIE = (RUNNER, "--feature", "uzupelnienie")
 DIAGNOZA = (RUNNER, "--feature", "diagnoza")
 PRZYGOTOWANIE = (RUNNER, "--feature", "przygotowanie-pliku-zbiorczego")
@@ -103,6 +106,30 @@ MUTATIONS = (
         ),
         AKTUALIZACJA,
         "karta mówi „Masz najnowszą wersję.” o Wydaniu, którego Centrum już nie zna",
+    ),
+    Mutation(
+        "odmowa Skrzynki nie odrzuca klucza",
+        (
+            Edit(
+                KEYED_BOX,
+                "            self._verdict = _Verdict(digest, isinstance(outcome, Refused), asked_at)\n",
+                "            self._verdict = _Verdict(digest, False, asked_at)\n",
+            ),
+        ),
+        ZGLOSZENIE,
+        "Konfiguracja mówi „Zgłoszenia: gotowe” o kluczu, którego Skrzynka odmawia",
+    ),
+    Mutation(
+        "kolejka nie ponawia wysyłki po porażce",
+        (
+            Edit(
+                OUTBOX,
+                "                    if self._stopped_on is not None and not self._retry_armed:\n",
+                "                    if False:\n",
+            ),
+        ),
+        ZGLOSZENIE,
+        "Zgłoszenie bez sieci nie wysyła się samo po powrocie sieci",
     ),
     Mutation(
         "karta z Logów bez podsumowania",
