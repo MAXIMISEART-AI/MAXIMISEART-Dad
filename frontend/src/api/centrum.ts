@@ -10,6 +10,7 @@ import type {
   GetQuantitiesToFillResponse,
   GetKindTableResponse,
   GetRunCardResponse,
+  GetWithoutQuantityResponse,
   GetToolUpdateResponse,
   NotificationsRead,
   OpenRequest,
@@ -40,6 +41,7 @@ import {
   zGetQuantitiesToFillResponse,
   zGetKindTableResponse,
   zGetRunCardResponse,
+  zGetWithoutQuantityResponse,
   zGetRunSetupResponse,
   zGetSettingsResponse,
   zGetToolUpdateResponse,
@@ -108,6 +110,9 @@ export type QuantitiesToFill = GetQuantitiesToFillResponse
 
 /** Wiersze jednego rodzaju Ilości do uzupełnienia z komórkami N:AP albo Komunikat o pliku (unia z kontraktu po `state`). */
 export type KindTable = GetKindTableResponse
+
+/** Wiersze bez ilości okresu dla okna „Uruchomić z zapisem?” albo „unread”, gdy Pliku zbiorczego nie odczytano. */
+export type WithoutQuantity = GetWithoutQuantityResponse
 
 /** Aktualizacja narzędzia: krok albo wynik (unia z kontraktu). */
 export type ToolUpdate = GetToolUpdateResponse
@@ -218,6 +223,15 @@ export function getQuantitiesToFill(token: string) {
 /** Tabela jednego rodzaju Ilości do uzupełnienia, przeliczana przy każdym odczycie z zapisanego Pliku zbiorczego. */
 export function getKindTable(token: string, kind: FillKind) {
   return call(zGetKindTableResponse, "getKindTable", `/api/periods/${encodeURIComponent(token)}/quantities-to-fill/${kind}`)
+}
+
+/** Wiersze bez ilości okresu dla okna „Uruchomić z zapisem?” Przebiegu rozliczeń, z zapisanego Pliku zbiorczego. */
+export function getWithoutQuantity(token: string) {
+  return call(
+    zGetWithoutQuantityResponse,
+    "getWithoutQuantity",
+    `/api/periods/${encodeURIComponent(token)}/without-quantity`
+  )
 }
 
 /** Rozliczenie pracownika jednego Wykonawcy; ścieżkę wylicza serwer z Folderu okresu, przeglądarka podaje Wykonawcę. */

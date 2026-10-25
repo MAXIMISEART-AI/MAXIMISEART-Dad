@@ -38,6 +38,12 @@ godzinami, z Plikiem zbiorczym otwartym w Excelu, więc strona, która wymaga za
 - **Odczyt mimo blokady Excela.** Jedyna funkcja czytająca Plik zbiorczy dostaje jawne pozwolenie na odczyt mimo
   pliku blokady `~$…`. To nie jest drugi czytnik: Przebieg rozliczeń dalej odmawia pliku otwartego w Excelu,
   bo czyta go do zapisu Rozliczeń pracowników, a tata ma najpierw zapisać i zamknąć plik.
+- **Wiersze bez ilości przy Gotowości (#421).** Okno „Uruchomić z zapisem?” Przebiegu rozliczeń wymienia numery
+  wierszy z listą (bez reguły, z opisu), które nie są zrobione, z tego samego odczytu. Czyta je osobny zasób
+  okresu, gdy karta pokazuje ten okres, a nie ustawienie Przebiegu dla każdego okresu do wyboru, bo jeden odczyt
+  trwa u taty ponad sekundę. Wiersz objęty regułą nigdy tam nie trafia, bo ilości wpisało mu narzędzie.
+  Nieudany odczyt nie blokuje startu: okno mówi, że wierszy nie dało się sprawdzić, a wpis w dzienniku i
+  Komunikat daje strona Uzupełnienia. Gotowość dalej potwierdza tata, a Centrum nie przechowuje stanu „Gotowe”.
 - **Niesprawdzone założenie o Autozapisie OneDrive.** Zakładamy, że Autozapis zmienia plik na dysku kilka sekund
   po wpisie taty. Test Maksa na laptopie taty się nie udał, a to, czy Windows daje czytać plik, który trzyma
   Excel, sprawdzi dopiero pierwsze wdrożenie przez wpis `uzupelnienie-odczyt-nieudany` w dzienniku. Gdy

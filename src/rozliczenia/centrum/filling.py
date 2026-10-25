@@ -9,7 +9,7 @@ Komunikat, który nazywa Plik zbiorczy, i wpis w dzienniku Centrum z przyczyną,
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 import os
 from pathlib import Path
 
@@ -70,7 +70,42 @@ def filling_router(store: SettingsStore, log: CentrumLog, cloud_files: CloudFile
         [listed] = (listed for listed in quantities_to_fill(found.rows).kinds if listed.kind is kind)
         return _table(listed, found.price_list)
 
+    @router.get("/{token}/without-quantity", operation_id="getWithoutQuantity", responses=contract.NOT_FOUND_OR_CONFLICT)
+    def rows_without_quantity(token: str) -> contract.WithoutQuantity:
+        """Wiersze bez ilości dla okna „Uruchomić z zapisem?” Przebiegu rozliczeń tego okresu.
+
+        Tylko na żądanie wybranego okresu, bo odczyt trwa u taty ponad sekundę. Nieudany odczyt nie blokuje startu;
+        Komunikat i wpis w dzienniku daje strona Uzupełnienia, a sam Przebieg rozliczeń nazywa plik.
+        """
+
+        periods_directory = store.load().periods_directory
+        if periods_directory is None or not periods_directory.is_dir():
+            raise contract.Refusal(409, "Najpierw wskaż folder okresów.")
+        return _without_quantity(located_period_folder(periods_directory, requested_period(token)).collective_file)
+
     return router
+
+
+def without_quantity_sentence(rows: Sequence[int]) -> str | None:
+    """„1 wiersz bez ilości: 20”, „3 wiersze bez ilości: 18, 19, 20”, „12 wierszy bez ilości: …”; ``None`` bez wierszy."""
+
+    if not rows:
+        return None
+    count = len(rows)
+    few = count % 10 in (2, 3, 4) and count % 100 not in (12, 13, 14)
+    word = "wiersz" if count == 1 else "wiersze" if few else "wierszy"
+    return f"{count} {word} bez ilości: {', '.join(map(str, rows))}"
+
+
+def _without_quantity(path: Path) -> contract.WithoutQuantity:
+    try:
+        found = collective_file.read_numbered_orders(path)
+    except WorkbookError:
+        return contract.WithoutQuantityUnread(state="unread")
+    if isinstance(found, MissingHeaders):
+        return contract.WithoutQuantityUnread(state="unread")
+    rows = list(quantities_to_fill(found.rows).without_quantity)
+    return contract.WithoutQuantityRead(state="read", rows=rows, sentence=without_quantity_sentence(rows))
 
 
 def _ready(found: QuantitiesToFill) -> contract.QuantitiesToFillReady:

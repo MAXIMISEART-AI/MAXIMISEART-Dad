@@ -390,3 +390,91 @@ def _drive(run: Run, page: Page, collective_file: Path, lock: Path) -> None:
     page.go_back()
     expect(page.get_by_role("heading", level=1)).to_have_text("Uzupełnienie pliku zbiorczego")
     run.check(True, "the link Okresy leads back, and Wstecz returns to the summary of the same period")
+
+    run.step(FEATURE, "uzupelnienie-gotowe")
+    lock.unlink()
+    run.check(not lock.exists(), "harness: Dad closed Excel, so no lock file keeps Uruchom disabled")
+    expected = _without_quantity(_ready(run, "uzupelnienie-gotowe-podsumowanie"))
+    answer = _go_to_settlement(run, page, LAST_COMPLETE, "uzupelnienie-gotowe")
+    run.check(
+        answer == {"state": "read", "rows": expected, "sentence": "2 wiersze bez ilości: 19, 20"} and expected == [19, 20],
+        "the period's rows without quantity are 19 and 20, the summary's rows not done",
+    )
+    run.capture(page, "215-uzupelnienie-gotowe")
+
+    run.step(FEATURE, "uzupelnienie-gotowe-potwierdzenie")
+    page.get_by_role("button", name="Uruchom", exact=True).click()
+    confirm = page.get_by_role("alertdialog", name="Uruchomić z zapisem?")
+    expect(confirm).to_contain_text("„Uruchom” potwierdza Gotowość Pliku zbiorczego")
+    expect(confirm).to_contain_text("2 wiersze bez ilości: 19, 20")
+    expect(confirm.get_by_role("button", name="Uruchom", exact=True)).to_be_enabled()
+    run.check(True, "the confirm dialog lists the rows without quantity, and Dad may still start")
+    run.capture(page, "216-uzupelnienie-gotowe-potwierdzenie")
+    confirm.get_by_role("button", name="Anuluj", exact=True).click()
+    expect(confirm).to_have_count(0)
+
+    run.step(FEATURE, "uzupelnienie-gotowe-po-podgladzie")
+    page.get_by_role("button", name="Podgląd bez zapisu", exact=True).click()
+    live = page.get_by_role("region", name="Podgląd na żywo")
+    expect(live).to_contain_text("Podgląd gotowy · nic nie zapisano")
+    live.get_by_role("button", name="Uruchom", exact=True).click()
+    confirm = page.get_by_role("alertdialog", name="Uruchomić z zapisem?")
+    expect(confirm).to_contain_text("2 wiersze bez ilości: 19, 20")
+    expect(confirm.get_by_role("button", name="Uruchom", exact=True)).to_be_enabled()
+    run.check(True, "after the preview, the result card's Uruchom dialog lists the same rows, Dad's usual path")
+    run.capture(page, "218-uzupelnienie-gotowe-po-podgladzie")
+    confirm.get_by_role("button", name="Anuluj", exact=True).click()
+    expect(confirm).to_have_count(0)
+
+    run.step(FEATURE, "uzupelnienie-gotowe-bez-odczytu")
+    other = run.fixture["settlement"]["needs_check"]
+    assert isinstance(other, str)
+    other_file = Path(str(run.fixture["periods_directory"])) / other / f"Rozliczenie {other} - zbiorcze.xlsx"
+    saved = other_file.read_bytes()
+    try:
+        other_file.write_bytes(b"to nie jest skoroszyt")
+        run.check(True, f"harness: the Plik zbiorczy of {other} is damaged for this step and restored after it")
+        page.goto(f"{run.url.rstrip('/')}/#/uzupelnienie/{other}")
+        expect(page.get_by_role("main").get_by_text(other, exact=True)).to_be_visible()
+        answer = _go_to_settlement(run, page, other, "uzupelnienie-gotowe-bez-odczytu")
+        run.check(
+            answer == {"state": "unread"},
+            f"Gotowe on the summary of {other} selects it, not the preselected {LAST_COMPLETE}, and its rows "
+            "without quantity answer although its Plik zbiorczy cannot be read",
+        )
+        page.get_by_role("button", name="Uruchom", exact=True).click()
+        confirm = page.get_by_role("alertdialog", name="Uruchomić z zapisem?")
+        expect(confirm).to_contain_text("Nie udało się sprawdzić wierszy bez ilości")
+        expect(confirm.get_by_role("button", name="Uruchom", exact=True)).to_be_enabled()
+        run.check(True, "the dialog says the rows could not be checked instead of staying silent, and Dad may start")
+        run.capture(page, "217-uzupelnienie-gotowe-bez-odczytu")
+        confirm.get_by_role("button", name="Anuluj", exact=True).click()
+    finally:
+        other_file.write_bytes(saved)
+    # The draft of the Przebieg form lives in the page; the next feature must start without it.
+    page.goto(run.url)
+    page.reload()
+
+
+def _without_quantity(answer: dict[str, object]) -> list[int]:
+    return sorted(row for rows in _rows(answer).values() for row, done in rows if not done)
+
+
+def _go_to_settlement(run: Run, page: Page, period: str, name: str) -> dict[str, object]:
+    """Clicks Gotowe on the summary: Przebieg rozliczeń with the period chosen; returns the period's rows without quantity."""
+
+    page.get_by_role("button", name="Gotowe, rozlicz pracowników", exact=True).click()
+    expect(page).to_have_url(f"{run.url.rstrip('/')}/#/uruchomienia")
+    expect(page.get_by_text("Nowe Uruchomienie procesu", exact=True)).to_be_visible()
+    expect(page.get_by_role("radio", name="Przebieg rozliczeń")).to_be_checked()
+    expect(page.get_by_role("combobox", name="Okres")).to_contain_text(period)
+    processes = run.api("/api/runs/setup", name)["processes"]
+    assert isinstance(processes, list)
+    [setup] = [process for process in processes if process["process"] == "settlement"]
+    run.check(
+        processes[0]["process"] != "settlement"
+        and setup["preselected_period"] == LAST_COMPLETE
+        and period in [choice["token"] for choice in setup["periods"]],
+        f"Gotowe chose Przebieg rozliczeń and {period}; without it the form shows the first process",
+    )
+    return run.api(f"/api/periods/{period}/without-quantity", f"{name}-wiersze")

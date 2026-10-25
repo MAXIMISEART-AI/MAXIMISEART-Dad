@@ -424,6 +424,26 @@ class QuantitiesToFillProblem(_Model):
 QuantitiesToFill = Annotated[QuantitiesToFillReady | QuantitiesToFillProblem, Field(discriminator="state")]
 
 
+class WithoutQuantityRead(_Model):
+    """Wiersze z listą (bez reguły, z opisu), w których tata nic jeszcze nie wpisał, rosnąco.
+
+    ``sentence`` to zdanie okna „Uruchomić z zapisem?”, np. „3 wiersze bez ilości: 118, 203, 244”; ``None`` bez wierszy.
+    """
+
+    state: Literal["read"]
+    rows: list[int]
+    sentence: str | None
+
+
+class WithoutQuantityUnread(_Model):
+    """Pliku zbiorczego nie udało się odczytać, więc nie wiadomo, które wiersze są bez ilości; start zostaje możliwy."""
+
+    state: Literal["unread"]
+
+
+WithoutQuantity = Annotated[WithoutQuantityRead | WithoutQuantityUnread, Field(discriminator="state")]
+
+
 class KindTableCell(_Model):
     """Komórka N:AP wiersza na stronie rodzaju: wartość z pliku w kolumnie narzędzia, wpis taty, który robi wiersz, albo nic (0)."""
 
@@ -980,6 +1000,7 @@ ApiOperation = Literal[
     "getPeriodBoard",
     "openPeriodPath",
     "getQuantitiesToFill",
+    "getWithoutQuantity",
     "getKindTable",
     "openWorkerSettlement",
     "getRunSetup",

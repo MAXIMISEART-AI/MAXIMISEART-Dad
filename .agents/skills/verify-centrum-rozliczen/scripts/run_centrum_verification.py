@@ -127,6 +127,10 @@ REQUIRED_SCREENSHOTS = {
         "38-przygotowanie-historia.png",
     ),
     "uzupelnienie": (
+        "215-uzupelnienie-gotowe.png",
+        "216-uzupelnienie-gotowe-potwierdzenie.png",
+        "217-uzupelnienie-gotowe-bez-odczytu.png",
+        "218-uzupelnienie-gotowe-po-podgladzie.png",
         "220-uzupelnienie-karta.png",
         "221-uzupelnienie-podsumowanie.png",
         "222-uzupelnienie-po-wpisie.png",

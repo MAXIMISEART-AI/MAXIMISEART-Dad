@@ -9,7 +9,7 @@ import {
   WrenchIcon,
 } from "lucide-react"
 
-import type { Decision, DecisionAnswer } from "@/api/centrum"
+import { getWithoutQuantity, type Decision, type DecisionAnswer, type WithoutQuantity } from "@/api/centrum"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -22,13 +22,15 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
+import { useResource } from "@/lib/use-resource"
 import { CountTiles } from "@/pages/runs/count-tiles"
 
 /**
  * Potwierdzenie zapisu (RUN): przypomnienie o zamknięciu pliku w Excelu i, gdy w historii metryk nie ma
  * udanego podglądu bez zapisu tego okresu (serwer mówi to w wyborze okresu), bursztynowa uwaga. Bez
  * podglądu „Uruchom” jest dozwolone.
- * Gdy proces deklaruje, że „Uruchom” potwierdza Gotowość (Przebieg rozliczeń), okno to mówi.
+ * Gdy proces deklaruje, że „Uruchom” potwierdza Gotowość (Przebieg rozliczeń), okno to mówi i wymienia
+ * wiersze Pliku zbiorczego bez ilości; to tylko informacja, „Uruchom” zostaje dozwolone.
  */
 export function ConfirmRunDialog({
   open,
@@ -49,6 +51,9 @@ export function ConfirmRunDialog({
   previewed: boolean
   onConfirm: () => void
 }) {
+  // Czytane, gdy karta pokazuje okres, a nie dopiero po „Uruchom”: odczyt trwa u taty ponad sekundę.
+  const withoutQuantity = useWithoutQuantity(confirmsReadiness ? period : null)
+
   return (
     <AlertDialog open={open} onOpenChange={onOpenChange}>
       <AlertDialogContent>
@@ -72,6 +77,7 @@ export function ConfirmRunDialog({
               „Uruchom” potwierdza Gotowość Pliku zbiorczego
             </span>
           ) : null}
+          <WithoutQuantityLine withoutQuantity={withoutQuantity} />
           {previewed ? null : (
             <span className="flex items-center gap-2 text-warning">
               <TriangleAlertIcon className="size-4" aria-hidden />
@@ -92,6 +98,63 @@ export function ConfirmRunDialog({
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>
+  )
+}
+
+type PeriodRows = { period: string; found: WithoutQuantity }
+
+const UNREAD: WithoutQuantity = { state: "unread" }
+
+const NO_PERIOD = () => Promise.resolve(null)
+
+// `useResource` pamięta ostatnie dane pod funkcją odczytu, więc każdy okres ma jedną, tę samą funkcję.
+const loads = new Map<string, () => Promise<PeriodRows | null>>()
+
+function rowsOf(period: string) {
+  let load = loads.get(period)
+
+  if (load === undefined) {
+    load = () => getWithoutQuantity(period).then((found) => ({ period, found }))
+    loads.set(period, load)
+  }
+
+  return load
+}
+
+/**
+ * Wiersze bez ilości okresu `period`, czytane od nowa po powrocie do karty (np. z Excela); `null`, dopóki nie ma
+ * odpowiedzi dla tego okresu. Odczyt, który się nie udał, jest jak Plik zbiorczy bez odczytu.
+ */
+function useWithoutQuantity(period: string | null): WithoutQuantity | null {
+  const { resource } = useResource(period === null ? NO_PERIOD : rowsOf(period))
+
+  if (resource.state === "failed") {
+    return UNREAD
+  }
+
+  return resource.state === "ready" && resource.data?.period === period ? resource.data.found : null
+}
+
+/** Wiersze bez ilości okresu; Plik zbiorczy bez odczytu też jest wymieniony, żeby cisza nie znaczyła „nic nie zostało”. */
+function WithoutQuantityLine({ withoutQuantity }: { withoutQuantity: WithoutQuantity | null }) {
+  if (withoutQuantity === null || (withoutQuantity.state === "read" && withoutQuantity.sentence === null)) {
+    return null
+  }
+
+  if (withoutQuantity.state === "unread") {
+    return (
+      <span className="flex items-center gap-2 text-muted-foreground">
+        <InfoIcon className="size-4" aria-hidden />
+        Nie udało się sprawdzić wierszy bez ilości
+      </span>
+    )
+  }
+
+  return (
+    <span className="flex items-start gap-2 text-warning tabular-nums">
+      <TriangleAlertIcon className="mt-0.5 size-4 shrink-0" aria-hidden />
+      {withoutQuantity.sentence}
+    </span>
   )
 }
 
