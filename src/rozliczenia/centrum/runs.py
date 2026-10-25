@@ -190,16 +190,19 @@ class EndedRun:
         """Wynik na karcie Uruchomienia z deklaracji procesu ``view`` (``verdict``)."""
 
         stopped = self.stopped
-        stop_kind = None if stopped is None else stopped.kind
         headline, next_action = verdict(
-            ending=self.ending, stop_kind=stop_kind, result=self.result, dry_run=self.info.dry_run, view=view
+            ending=self.ending,
+            stop_kind=None if stopped is None else stopped.kind,
+            result=self.result,
+            dry_run=self.info.dry_run,
+            view=view,
         )
         return contract.RunOutcome(
             result=self.result,
             headline=headline,
             ending=self.ending,
             next_action=next_action,
-            stop_kind=stop_kind,
+            stop_kind=None if stopped is None else stopped.kind,
             diagnosis=None if stopped is None else stopped.offer,
             report=None if stopped is None or stopped.report is None else stopped.report.state,
             stops=[contract.Message.of(message) for message in self.stops],
