@@ -341,6 +341,8 @@ def test_niezapisane_zgloszenie_powracajacego_problemu_zostawia_jego_poprzednie_
     again = stopped_for_maks(centrum)
     diagnose(centrum, again)
     queue = tmp_path / "config" / "zgloszenia" / "kolejka"
+    # Kolejka z kluczem wysyła Logi Uruchomienia w tle; na Windows folder z plikiem usuwanym w tej chwili nie znika.
+    assert wait_for(lambda: not any(queue.iterdir()))
     shutil.rmtree(queue)
     queue.write_text("", encoding="utf-8")  # plik zamiast folderu: zapis się nie uda
 
