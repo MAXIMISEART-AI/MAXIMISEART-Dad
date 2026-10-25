@@ -22,8 +22,8 @@ HIGHLIGHT = "FFFFFF00"
 LINK = "https://przyklad.invalid/ilosc"
 
 ROWS: list[dict[str, CellValue]] = [
-    {"D": "gniazdo", "AP": 1, "AK": 1},
-    {"D": "Technicolor 2*globo", "AK": 2, "AP": 1},
+    {"D": "nokia zte, gniazdo", "AP": 1, "AK": 1},
+    {"D": "2*globo Technicolor", "AK": 2, "AP": 1},
     {"D": "GNIAZDO", "AK": 3},
     {"D": "globo", "AP": 1, "AK": 1},
 ]

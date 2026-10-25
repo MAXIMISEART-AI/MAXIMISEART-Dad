@@ -24,7 +24,8 @@ _INEA_ONLY: Final[Mapping[QuantityColumn, str]] = MappingProxyType(
 """Kolumna → słowo w URZĄDZENIA (bez względu na wielkość liter i resztę tekstu), przy którym komórka zostaje pusta."""
 
 Cleared = Mapping[QuantityColumn, int]
-"""Kolumna Ilości tylko dla INEA → liczba wyczyszczonych komórek, które miały wartość; każda kolumna, także z 0."""
+"""Kolumna Ilości tylko dla INEA → liczba wyczyszczonych komórek, które miały wartość (także 0); każda kolumna, także
+z liczbą 0."""
 
 
 def without_inea_only(header: Mapping[str, int], rows: Sequence[DataRow]) -> tuple[list[DataRow], Cleared]:

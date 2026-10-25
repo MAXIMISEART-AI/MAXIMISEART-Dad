@@ -354,7 +354,7 @@ def test_logi_przebiegu_rozliczen_maja_liczbe_ilosci_tylko_dla_inea_w_kazdej_kol
     centrum = settling_centrum(tmp_path)
     rows: list[dict[str, CellValue]] = [
         {"D": "gniazdo", "AP": 1},
-        {"D": "technicolor arion", "AK": 2},
+        {"D": "zyxel technicolor arion", "AK": 2},
         {"D": "Technicolor globo", "AK": 1},
         {"D": "globo", "AK": 1, "AP": 1},
     ]
