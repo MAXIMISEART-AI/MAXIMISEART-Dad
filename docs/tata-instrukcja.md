@@ -305,7 +305,8 @@ Rejestr zleceń i folder okresów wskazujesz raz w `Ustawieniach` na stronie
    bez zapisu`. Okienko czeka na Ciebie także po odświeżeniu albo ponownym
    otwarciu karty.
 5. Wynik `Plik zbiorczy przygotowany · wymaga sprawdzenia` oznacza, że oba
-   pliki powstały razem, a ostrzeżenia pod nim mówią, co uzupełnić.
+   pliki powstały razem. Pod nim jest to, co zostało do uzupełnienia w Excelu,
+   z przyciskiem `Uzupełnij`, a niżej ostrzeżenia.
    Przycisk `Folder okresu` otwiera folder z nimi, a na stronie `Okresy` okres
    ma Status `Plik zbiorczy przygotowany`.
 
@@ -418,9 +419,10 @@ Przebiegiem rozliczeń.
 
 ## Uzupełnienie pliku zbiorczego
 
-Gdy okres ma Plik zbiorczy przygotowany, karta `Następny krok` na stronie
-Okresy ma przycisk `Uzupełnij`. Prowadzi na stronę, która pokazuje, co zostało
-do wpisania w Excelu:
+Gdy okres ma Plik zbiorczy przygotowany, przycisk `Uzupełnij` jest na karcie
+`Następny krok`, w wierszu okresu w Tablicy okresów i pod wynikiem
+Przygotowania. Prowadzi na stronę, która pokazuje, co zostało do wpisania w
+Excelu:
 
 - `Wiersze bez reguły`: narzędzie nie zna `URZĄDZEŃ`, więc wpisało najwyżej
   V, T i N. Wiersz jest zrobiony, gdy wpiszesz w nim ilość w innej kolumnie.

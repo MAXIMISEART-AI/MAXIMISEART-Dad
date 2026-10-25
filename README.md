@@ -314,7 +314,7 @@ uv venv -p 3.12 .venv && uv pip install -p .venv -e ".[dev]"
 .venv/bin/python -m ruff check
 .venv/bin/python -m mypy
 ```
-Check formatowania nie jest wymagany. Zadania CI poza E2E i Timing guard
+Check formatowania nie jest wymagany. Sprawdzenia CI poza krokami E2E i Timing guard
 (ruff, mypy, pytest, mutacje, frontend z odtwarzalnym buildem) odtwarza lokalnie
 `.venv/bin/python tools/ci_lokalnie.py --tylko <zadania>` (Windows: `py -3 tools/ci_lokalnie.py --tylko <zadania>`).
 Mutacje (`change-mutations`, `mutations`) liczy CI na GitHubie, więc lokalnie biegną

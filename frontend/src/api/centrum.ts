@@ -73,6 +73,7 @@ export type {
   Figure,
   FillKind,
   KindToFill,
+  QuantitiesToFillReady,
   KindTableCell,
   KindTableRow,
   PriceListItem,

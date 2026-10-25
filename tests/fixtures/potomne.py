@@ -43,9 +43,13 @@ def beating(beats: Path) -> bool:
 
 def wait_for(condition: Callable[[], bool], seconds: float = 60) -> bool:
     deadline = time.monotonic() + seconds
-    while not condition() and time.monotonic() < deadline:
+    while True:
+        expired = time.monotonic() >= deadline
+        if condition():
+            return True
+        if expired:
+            return False
         time.sleep(0.05)
-    return condition()
 
 
 def worktrees(repo: Path) -> list[Path]:

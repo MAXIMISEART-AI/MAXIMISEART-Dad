@@ -2,7 +2,15 @@ import { cn } from "cn"
 import { ArrowLeftIcon, CalendarRangeIcon } from "lucide-react"
 import type * as React from "react"
 
-import { getKindTable, type FillKind, type KindTable, type KindTableCell, type KindTableRow, type PriceListItem } from "@/api/centrum"
+import {
+  getKindTable,
+  type FillKind,
+  type KindTable,
+  type KindTableCell,
+  type KindTableRow,
+  type PriceListItem,
+  type QuantitiesToFill,
+} from "@/api/centrum"
 import type { RowState } from "@/api/generated"
 import { PageHeader } from "@/components/page-header"
 import { ThreePartMessage } from "@/components/three-part-message"
@@ -14,6 +22,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { href } from "@/lib/address"
 import { useContentEntrance } from "@/lib/content-entrance"
 import { useLiveFile } from "@/lib/use-live-file"
+import type { Resource } from "@/lib/use-resource"
 import { SaveHint } from "@/pages/filling/save-hint"
 
 // Wygląd wiersza po jego stanie z serwera; tło przypiętych komórek jest kryjące, bo pod nimi przewijają się ilości.
@@ -65,6 +74,11 @@ function tableOf(token: string, kind: FillKind) {
   return load
 }
 
+/** Plik zbiorczy jest w Folderze okresu: odczytany albo z Komunikatem, który go nazywa (uszkodzony, bez nagłówka). */
+export function hasCollectiveFile(resource: Resource<QuantitiesToFill | KindTable>): boolean {
+  return resource.state === "ready" && (resource.data.state === "ready" || resource.data.collective_file_exists)
+}
+
 /** Strona rodzaju Ilości do uzupełnienia `#/uzupelnienie/<okres>/<rodzaj>`: wiersze rodzaju jak w Excelu, tylko do podglądu. */
 export function KindPage({
   title,
@@ -90,6 +104,30 @@ export function KindPage({
         <ArrowLeftIcon className="size-4" aria-hidden />
         Podsumowanie
       </a>
+      <KindContent title={title} token={token} kind={kind} heading={heading} hint={hint} action={action} />
+    </>
+  )
+}
+
+function KindContent({
+  title,
+  token,
+  kind,
+  heading,
+  hint,
+  action,
+}: {
+  title: string
+  token: string
+  kind: FillKind
+  heading: string
+  hint: string
+  action: React.ReactNode
+}) {
+  const { resource } = useLiveFile(token, tableOf(token, kind))
+
+  return (
+    <>
       <PageHeader
         title={title}
         badge={
@@ -98,15 +136,14 @@ export function KindPage({
             {token}
           </Badge>
         }
-        action={action}
+        action={hasCollectiveFile(resource) ? action : undefined}
       />
-      <KindContent token={token} kind={kind} heading={heading} hint={hint} />
+      <KindState resource={resource} heading={heading} hint={hint} />
     </>
   )
 }
 
-function KindContent({ token, kind, heading, hint }: { token: string; kind: FillKind; heading: string; hint: string }) {
-  const { resource } = useLiveFile(token, tableOf(token, kind))
+function KindState({ resource, heading, hint }: { resource: Resource<KindTable>; heading: string; hint: string }) {
   const entrance = useContentEntrance(resource.state === "loading")
 
   switch (resource.state) {

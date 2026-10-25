@@ -271,7 +271,7 @@ def origin_asking_for_login() -> Iterator[str]:
     """Serwer HTTP na tym komputerze, który na każde pytanie Gita odpowiada „401: zaloguj się”, jak GitHub."""
 
     server = ThreadingHTTPServer(("127.0.0.1", 0), _LoginRequired)
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread = threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True)
     thread.start()
     try:
         yield f"http://127.0.0.1:{server.server_address[1]}/MAXIMISEART-Dad.git"
@@ -330,7 +330,7 @@ def github_api_of(origin: Path) -> Iterator[str]:
             pass
 
     server = ThreadingHTTPServer(("127.0.0.1", 0), _Api)
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread = threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True)
     thread.start()
     try:
         yield f"http://127.0.0.1:{server.server_address[1]}/repo"
