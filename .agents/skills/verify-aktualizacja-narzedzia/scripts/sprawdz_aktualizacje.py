@@ -5,6 +5,9 @@ Uruchamia TLC na każdej konfiguracji z ``model/*.cfg``, porównuje wynik z
 trzeba mieć w systemie: przypięte ``jdk4py`` i ``tla2tools.jar`` trafiają raz do
 ``.verification/formal-aktualizacja`` (ignorowanego przez Gita). Na końcu
 ostrzega, gdy pokryty kod zmienił się od commitu synchronizacji z ``SKILL.md``.
+Płytki klon bez tego commitu (CI) najpierw dopobiera historię. W CI
+(``GITHUB_ACTIONS=true``) rozjazd modelu z kodem albo brak commitu kończy
+się od razu linią ``AKTUALIZACJA: ROZJAZD MODELU Z KODEM`` i kodem 1, bez TLC.
 
     .venv/bin/python .agents/skills/verify-aktualizacja-narzedzia/scripts/sprawdz_aktualizacje.py
     py -3 .agents\\skills\\verify-aktualizacja-narzedzia\\scripts\\sprawdz_aktualizacje.py
@@ -35,6 +38,7 @@ TLA_URL = "https://github.com/tlaplus/tlaplus/releases/download/v1.7.4/tla2tools
 TLA_SHA256 = "936a262061c914694dfd669a543be24573c45d5aa0ff20a8b96b23d01e050e88"
 
 PASSES, VIOLATES = "przechodzi", "narusza"
+DRIFT = "AKTUALIZACJA: ROZJAZD MODELU Z KODEM"
 # Niezmienniki obietnicy, każdy z wariantem ``…PozaZnanymi`` w modelu, i ich zdanie dla czytelnika.
 PROMISES = {
     "TataMaDzialajacaWersje": "tata zostaje bez wersji, która startuje, albo bez swojego pliku w config/.",
@@ -63,6 +67,10 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
+    drift = _drift(ROOT, (SKILL / "SKILL.md").read_text(encoding="utf-8"))
+    if drift is not None and os.environ.get("GITHUB_ACTIONS") == "true":
+        print(f"UWAGA: {drift}\n\n{DRIFT}")
+        return 1
     expected = json.loads((MODEL / "oczekiwane.json").read_text(encoding="utf-8"))
     names = args.config or sorted(path.stem for path in MODEL.glob("*.cfg"))
     java, jar = _java(), _tla_tools()
@@ -106,7 +114,8 @@ def main(argv: list[str] | None = None) -> int:
         elif own == VIOLATES:
             known.append(name)
 
-    _warn_about_drift()
+    if drift is not None:
+        print(f"\nUWAGA: {drift}")
     print()
     if broken:
         print(f"AKTUALIZACJA: BŁĄD MODELU ({len(broken)})")
@@ -302,31 +311,29 @@ def _description(name: str) -> str:
     return first.removeprefix("\\*").strip()
 
 
-def _warn_about_drift() -> None:
-    """Ostrzega, gdy plik z tabeli pokrycia w SKILL.md zmienił się od commitu synchronizacji."""
+def _drift(root: Path, skill_md: str) -> str | None:
+    """Czym pokryty kod z tabeli w SKILL.md różni się od commitu synchronizacji; ``None``, gdy niczym."""
 
-    text = (SKILL / "SKILL.md").read_text(encoding="utf-8")
-    sync = re.search(r"Sync commit: `([0-9a-f]{7,40})`", text)
-    covered = sorted(set(re.findall(r"`(src/rozliczenia/[\w/]+\.py)`", text)))
+    sync = re.search(r"Sync commit: `([0-9a-f]{7,40})`", skill_md)
+    covered = sorted(set(re.findall(r"`(src/rozliczenia/[\w/]+\.py)`", skill_md)))
     if sync is None or not covered:
-        print("\nUWAGA: SKILL.md nie ma commitu synchronizacji albo tabeli pokrycia.")
-        return
-    diff = subprocess.run(
-        ["git", "diff", "--name-only", sync.group(1), "--", *covered],
-        cwd=ROOT,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    if diff.returncode != 0:
-        print(
-            f"\nUWAGA: commitu synchronizacji {sync.group(1)} nie ma w tej historii; porównaj pokryty kod ręcznie."
-        )
-    elif diff.stdout.strip():
-        changed = ", ".join(diff.stdout.split())
-        print(
-            f"\nUWAGA: pokryty kod zmienił się od {sync.group(1)}: {changed}. Sprawdź, czy model dalej go opisuje."
-        )
+        return "SKILL.md nie ma commitu synchronizacji albo tabeli pokrycia."
+    commit = f"{sync.group(1)}^{{commit}}"
+    if _git(root, "cat-file", "-e", commit) is None:
+        # Płytki klon CI ma tylko ostatnie commity; w pełnym klonie ``--unshallow`` pada i niczego nie zmienia.
+        _git(root, "fetch", "--quiet", "--unshallow", "origin")
+    if _git(root, "cat-file", "-e", commit) is None or (changed := _git(root, "diff", "--name-only", sync.group(1), "--", *covered)) is None:
+        return f"commitu synchronizacji {sync.group(1)} nie ma w tej historii; porównaj pokryty kod ręcznie."
+    if changed:
+        return f"pokryty kod zmienił się od {sync.group(1)}: {', '.join(changed.split())}. Sprawdź, czy model dalej go opisuje."
+    return None
+
+
+def _git(root: Path, *arguments: str) -> str | None:
+    """Wyjście polecenia ``git`` bez końcowych białych znaków; ``None``, gdy się nie udało."""
+
+    done = subprocess.run(["git", *arguments], cwd=root, capture_output=True, text=True, check=False)
+    return done.stdout.strip() if done.returncode == 0 else None
 
 
 if __name__ == "__main__":
