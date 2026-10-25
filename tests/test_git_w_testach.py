@@ -1,3 +1,15 @@
+"""Git w testach ma jedną konfigurację: sesyjna fixture ``git_bez_konfiguracji_komputera`` z ``tests/conftest.py``.
+
+Git uruchomiony z procesu testów ze środowiskiem bez konfiguracji testów wywraca test, gdy idzie przez ``subprocess``
+(lista, krotka, pełna ścieżka, ``env``, ``env -i``, ``env -u``, ``sh -c`` i ``shell=True``, także z ``unset`` albo
+przypisaniem przed gitem, ``executable=``), ``os.system``, ``os.posix_spawn`` albo ``os.posix_spawnp``, a ``git commit``
+z ``src/`` pada z „Author identity unknown”. Ten moduł pada, gdy fixture albo któraś z tych dróg zniknie.
+
+Granica: git w osobnym procesie (skrypt ``tools/``, ``python -c``) dziedziczy zmienne, ale straży tam nie ma; git po
+``if``/``then``, w ``{ …; }``, po ``!``, ``time`` albo ``exec`` w powłoce oraz przez ``os.exec*`` i ``os.spawn*`` łapie
+tylko przegląd.
+"""
+
 from __future__ import annotations
 
 from collections.abc import Callable

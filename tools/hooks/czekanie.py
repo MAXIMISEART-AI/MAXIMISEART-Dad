@@ -8,14 +8,20 @@ znajduje powłokę, której linia polecenia zawiera tę samą pętlę, a więc i
 ``until pgrep -f X`` kończy się od razu).
 
 Odrzuca (kod 2, przyczyna na stderr trafia do agenta) tylko polecenie na pierwszym planie:
-pętlę z ``sleep``, której ciało pyta o CI albo woła ``pgrep -f``, oraz ``gh pr checks --watch`` i ``gh run watch``.
+pętlę z ``sleep``, której ciało pyta o CI (``gh pr checks``, ``gh pr view``, ``gh run view``/``list``, ``gh api``
+o check-runs, actions/runs albo status commitu) albo woła ``pgrep -f``, oraz ``gh pr checks --watch`` i ``gh run watch``.
 Pętla ``for`` i ``while read`` czeka tylko z ``break``, ``exit``, ``return`` albo licznikiem prób od 0 albo 1
-(``$(seq N)``, ``$(seq 1 N)``, ``{1..N}``, ``for ((``), a pętla puszczona ``&`` nie czeka.
+(``$(seq N)``, ``$(seq 1 N)``, ``{1..N}``, ``for ((``), bo bez nich to partia zapytań z ``sleep`` jako limitem API,
+a pętla puszczona ``&`` nie czeka.
 Wszystko inne, także te polecenia z ``run_in_background``, przechodzi bez słowa (kod 0).
 Wejście, którego nie da się odczytać, też przechodzi, bo hook nie może zatrzymać pracy.
 
 Ciała heredoców (skrypt Pythona, treść commitu) i napisy ze spacją w cudzysłowach (opis commitu, wiersz logu)
 hook pomija, bo to nie są polecenia powłoki; zostawia z nich ``$(…)`` i ciało ``bash -c '…'``.
+
+Granica: inne harnessy niż Claude Code (Codex, opencode), pętlę w skrypcie uruchomionym z pliku, w Pythonie
+(``time.sleep``) albo z adresem ``gh api`` w cudzysłowie, czekanie na plik wyjścia zadania w tle i pętle, których
+wzorca hook nie zna, łapie tylko przegląd.
 Uruchamia go systemowy Python (na Macu 3.9), więc ruff sprawdza ten plik pod 3.9
 (``per-file-target-version`` w ``pyproject.toml``), a plik importuje tylko bibliotekę standardową.
 """

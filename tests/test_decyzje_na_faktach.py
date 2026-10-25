@@ -4,6 +4,8 @@ Plan procesu oddaje typowane fakty, a jedno miejsce na proces tłumaczy je na os
 Decyzję taty. Decyzja to porównanie (``==``, ``in``…) albo ``match`` z ``.code`` w wyrażeniu; zapis kodu do
 metryk albo tekstu wyjątku decyzją nie jest. Centrum rozliczeń jest poza testem, bo jego wyniki Aktualizacji
 narzędzia też mają pole ``code``, a nie są Komunikatami.
+
+Granica: decyzję przez ``getattr``, słownik po kodzie albo w Centrum rozliczeń łapie tylko przegląd.
 """
 
 from __future__ import annotations

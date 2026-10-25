@@ -42,8 +42,12 @@ fragmentu ma linię początku fragmentu, więc obejmuje je komentarz nad nim alb
 terminie nie obowiązuje, ale narzędzie widzi go dopiero przy
 następnej zmianie jego pliku, a komentarz ``mutacje-zmiany:`` w innej postaci kończy narzędzie błędem.
 
-Kończy się ``MUTACJE ZMIANY OK | …`` albo ``MUTACJE ZMIANY FAIL | …``. Nie zastępuje mutacji z opisu PR: zachowanie,
-którego żadna z tych mutacji nie psuje (np. inny klucz wyszukiwania), dalej sprawdza przegląd.
+Kończy się ``MUTACJE ZMIANY OK | …`` albo ``MUTACJE ZMIANY FAIL | …``. W CI biegnie na Linuksie w trzech częściach
+zadania ``Change mutations``, a ``Required CI status`` wymaga każdej z nich.
+
+Granica: nie zastępuje mutacji z opisu PR. Obietnicę, której żadna z tych mutacji nie psuje (inny klucz
+wyszukiwania, kolejność kroków), samo usunięcie linii, dekoratory, kod poza ``src/`` i kod innego systemu łapie tylko
+przegląd z mutacjami z ``tools/mutacje.py``.
 
 Poza CI biegnie tylko do odtworzenia porażki zadania z runu Actions tej gałęzi (``tools/ciezkie_ci.py``):
 
