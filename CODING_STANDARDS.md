@@ -5,6 +5,7 @@ A rule that a check enforces sits in its section's table, one line per rule, bes
 
 ## Domain Language
 
+- Read `GLOSSARY.md` and the relevant ADR in `docs/adr/` before changing a domain seam.
 - Use the exact terms defined in `GLOSSARY.md` in issue titles, specifications, hypotheses, and test names.
   `GLOSSARY.md` is the single source of truth for domain vocabulary.
 - Name tests after the domain behaviour they protect.
@@ -74,7 +75,7 @@ A rule that a check enforces sits in its section's table, one line per rule, bes
 - Name a file that a test reads or runs with a literal path (`ROOT / "docs" / "adr"`), not a path built from a variable.
   `tools/szybko.py` selects tests from imports and such literals, so a path built at run time hides the dependency.
 - Expect the error a test is about, not any error of its class: `pytest.raises` of a broad exception (`ValueError`, `OSError`) takes `match=` on its message, and the block holds the one statement that raises (ruff PT011, PT012).
-- Prove that a new test or check fails on the broken code it guards with `tools/mutacje.py`, the repository's one mutation engine.
+- Prove that a new test or check fails on the broken code it guards with `tools/mutacje.py`, the repository's one mutation engine: use it rather than writing another; to check every commit of a branch use `tools/ci_lokalnie.py --kazdy-commit`, not `git rebase --exec`.
   Run it once for each test or check added or changed in a round of work.
   A rebase, or a fix that leaves the test unchanged, does not need a new run.
 - A line that `tools/mutacje_zmiany.py` reports as `NIEWYKRYTA` is behaviour without a test: add the test that catches it.

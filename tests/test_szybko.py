@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import itertools
 import json
 import os
 from pathlib import Path, PurePosixPath
@@ -676,6 +677,13 @@ def _rule_rows(text: str) -> list[str]:
     return rows
 
 
+def _table_headers(text: str) -> list[str]:
+    """Nagłówek każdej tabeli Markdown w tekście: linia ``|`` tuż nad separatorem ``|---``."""
+
+    lines = [line.strip() for line in text.splitlines()]
+    return [header for header, below in itertools.pairwise(lines) if header.startswith("|") and below.startswith("|---")]
+
+
 def test_kazdy_test_z_tabel_regul_jest_testem_struktury_albo_ma_powod() -> None:
     """Tabele reguł żyją w ``RULE_TABLES``: plik bez tabeli i tabela w innym pliku Markdown wywracają test."""
 
@@ -701,6 +709,13 @@ def test_kazdy_test_z_tabel_regul_jest_testem_struktury_albo_ma_powod() -> None:
     )
 
     assert [path.relative_to(ROOT).as_posix() for path, found in rows.items() if not found] == []
+    other_tables = {
+        path.relative_to(ROOT).as_posix(): header
+        for path in RULE_TABLES
+        for header in _table_headers(path.read_text(encoding="utf-8"))
+        if header not in RULE_TABLE_HEADERS
+    }
+    assert other_tables == {}, "tabela w pliku reguł to tabela reguł: nagłówek z RULE_TABLE_HEADERS"
     assert elsewhere == [], "dopisz plik z tabelą reguł do RULE_TABLES"
     undecided = named - structure - BY_CHANGE_ONLY.keys()
     assert undecided == set(), "dopisz test do STRUCTURE w tools/szybko.py albo powód do BY_CHANGE_ONLY"

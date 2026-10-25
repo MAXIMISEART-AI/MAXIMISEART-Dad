@@ -15,7 +15,7 @@
 
 - Dziecko `delegate_task` kończy zadanie na pushu i utworzeniu PR, a zwraca URL PR i pełny SHA HEAD. Rodzic wywołuje `watch_pull_request` i kończy turę, a T3 budzi go po końcu CI.
 - Przegląd PR zlecaj zaraz po pushu, równolegle z CI.
-- PR jest gotowy do merge'a, gdy `Required CI status` na GitHubie jest zielony dla HEAD PR, a agent wykonał workflow skilli `verify-*` z linii `SKILLE VERIFY` narzędzia `tools/skille_dla_zmiany.py`. `SZYBKO OK` i `CI LOKALNIE OK` gotowości nie dają.
+- PR jest gotowy do merge'a, gdy CI na GitHubie jest zielone dla HEAD PR (`Required CI status` i każdy inny workflow, który biegnie na PR) i przeszły skille `verify-*` z linii `SKILLE VERIFY` narzędzia `tools/skille_dla_zmiany.py`: ich polecenia z linii `LICZY CI` przechodzą w zielonym CI, a resztę ich workflow agent wykonał i skończył bez FAIL. `SZYBKO OK` i `CI LOKALNIE OK` gotowości nie dają.
 - Merge PR: tylko `.venv/bin/python tools/scal_pr.py N` (Windows: `py -3 tools/scal_pr.py N`), nigdy gołe `gh pr merge`; warunki scalenia i postać werdyktów podaje jego `--help`. Zgoda to komentarz albo recenzja niezależnego recenzenta, której pierwsza linia to `WERDYKT: PASS <pełny SHA HEAD>`.
 - CI i gałąź: przeczytaj [`docs/agents/pr-i-ci.md`](docs/agents/pr-i-ci.md), zanim uruchomisz lokalnie zadanie CI albo zrobisz rebase lub merge `main` do gałęzi, i gdy zadanie CI padło, status `scalenie z main` nie jest zielony, `main` jest czerwony albo chcesz sprawdzić każdy commit gałęzi.
 
