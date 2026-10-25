@@ -257,6 +257,17 @@ def test_po_braku_sieci_kolejka_ponawia_po_minucie_bez_kolejnej_wysylki(tmp_path
     assert queue.clock.wakes == 0
 
 
+def test_kolejne_przejscia_przed_budzeniem_nie_nastawiaja_drugiego_budzenia(tmp_path: Path) -> None:
+    queue = Queue(tmp_path, FakeReportBox(search_failure=Unreachable()))
+    queue.outbox.post(post(["treść\n"]))
+    queue.passed()
+
+    queue.outbox.send_in_background()
+    queue.passed()
+
+    assert queue.clock.wakes == 1
+
+
 def test_kolejka_bez_porazki_nie_nastawia_ponowienia(tmp_path: Path) -> None:
     queue = Queue(tmp_path, FakeReportBox())
 
