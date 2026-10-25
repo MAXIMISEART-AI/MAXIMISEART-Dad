@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"$CLAUDE_PROJECT_DIR/tools/hooks/czekanie.py\""
+            "command": "test ! -f \"$CLAUDE_PROJECT_DIR/tools/hooks/czekanie.py\" || python3 \"$CLAUDE_PROJECT_DIR/tools/hooks/czekanie.py\""
           }
         ]
       }

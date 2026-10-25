@@ -167,18 +167,16 @@ def test_nieczytelne_wejscie_hooka_przechodzi(stdin: str) -> None:
     assert (hooked.returncode, hooked.stdout) == (0, "")
 
 
-@pytest.mark.skipif(sys.platform == "win32", reason="python3 na Windows bywa aliasem Microsoft Store")
-def test_ustawienia_projektu_wpinaja_hook_dla_basha() -> None:
+def _configured(project: Path) -> list[subprocess.CompletedProcess[str]]:
     entries = json.loads(SETTINGS.read_text(encoding="utf-8"))["hooks"]["PreToolUse"]
     commands = [hook["command"] for entry in entries if entry["matcher"] == "Bash" for hook in entry["hooks"]]
     tool_input = {"command": PGREP_LOOPS[0], "run_in_background": False}
-
-    hooked = [
+    return [
         subprocess.run(
             command,
             shell=True,
             input=json.dumps({"tool_name": "Bash", "tool_input": tool_input}),
-            env={**os.environ, "CLAUDE_PROJECT_DIR": str(ROOT)},
+            env={**os.environ, "CLAUDE_PROJECT_DIR": str(project)},
             capture_output=True,
             text=True,
             check=False,
@@ -186,4 +184,17 @@ def test_ustawienia_projektu_wpinaja_hook_dla_basha() -> None:
         for command in commands
     ]
 
+
+@pytest.mark.skipif(sys.platform == "win32", reason="python3 na Windows bywa aliasem Microsoft Store")
+def test_ustawienia_projektu_wpinaja_hook_dla_basha() -> None:
+    hooked = _configured(ROOT)
+
     assert [(run.returncode, "pgrep -f" in run.stderr) for run in hooked] == [(2, True)]
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="python3 na Windows bywa aliasem Microsoft Store")
+def test_checkout_bez_skryptu_hooka_nie_blokuje_basha(tmp_path: Path) -> None:
+    # Sesja trzyma ustawienia ze startu, a checkout sprzed hooka nie ma skryptu; python3 bez pliku kończy się kodem 2.
+    hooked = _configured(tmp_path)
+
+    assert [(run.returncode, run.stderr) for run in hooked] == [(0, "")]
