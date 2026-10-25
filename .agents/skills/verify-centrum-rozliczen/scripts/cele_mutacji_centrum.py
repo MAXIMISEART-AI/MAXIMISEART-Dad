@@ -1,0 +1,36 @@
+"""Pliki Centrum i polecenia funkcji, których używają skrypty mutacji ``check_centrum_<funkcja>_mutations.py``.
+
+Nazwa bez ``mutation``: ``tools/mutacje_skilli.py`` daje FAIL plikowi skilla z ``mutation`` w nazwie spoza wzorca
+``check_*_mutations.py``.
+
+Stałe trzymaj w kolejności alfabetycznej: dopiski dwóch PR-ów trafiają wtedy w różne miejsca pliku.
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+APP = Path("src/rozliczenia/centrum/app.py")
+# The committed frontend build: a change of the frontend source needs its anchor here after `npm run regen`.
+BUILD = Path("src/rozliczenia/centrum/static/assets/index.js")
+DAD_NOTES = Path("src/rozliczenia/centrum/dad_notes.py")
+FILLING = Path("src/rozliczenia/centrum/filling.py")
+KEYED_BOX = Path("src/rozliczenia/centrum/keyed_box.py")
+LIVE_FILE = Path("src/rozliczenia/centrum/live_file.py")
+OUTBOX = Path("src/rozliczenia/centrum/outbox.py")
+QUANTITIES_TO_FILL = Path("src/rozliczenia/quantities_to_fill.py")
+RUN_CARDS = Path("src/rozliczenia/centrum/run_cards.py")
+RUN_VIEW = Path("src/rozliczenia/centrum/run_view.py")
+SETTINGS = Path("src/rozliczenia/centrum/settings.py")
+STOPS = Path("src/rozliczenia/centrum/stops.py")
+TOOL_UPDATES = Path("src/rozliczenia/centrum/tool_updates.py")
+WORKBOOK_FILES = Path("src/rozliczenia/workbook_files.py")
+RUNNER = ".agents/skills/verify-centrum-rozliczen/scripts/run_centrum_verification.py"
+AKTUALIZACJA = (RUNNER, "--feature", "aktualizacja")
+DIAGNOZA = (RUNNER, "--feature", "diagnoza")
+KARTA = (RUNNER, "--feature", "karta-z-logow")
+PRZEBIEG = (RUNNER, "--feature", "przebieg-rozliczen")
+PRZYGOTOWANIE = (RUNNER, "--feature", "przygotowanie-pliku-zbiorczego")
+UWAGA = (RUNNER, "--feature", "uwaga-taty")
+UZUPELNIENIE = (RUNNER, "--feature", "uzupelnienie")
+ZGLOSZENIE = (RUNNER, "--feature", "zgloszenie")
