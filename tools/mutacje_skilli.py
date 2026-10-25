@@ -65,11 +65,20 @@ BASELINE = "PODSTAWA"
 # Najdłuższy skrypt trwał w CI na Windows 770 s; limit łapie zawieszenie, a nie wolny runner.
 LIMIT_S = 30 * 60
 # Czas kroku w zadaniu CI na windows-latest, mediana runów 40205575015, 40207090403, 40207957312, 40208186531 i
-# 40209671390 (mutacje Centrum od #443, bez pierwszego; podstawa Centrum z jednej próby); dzieli kroki na części.
+# 40209671390 (bez pierwszego; podstawa Centrum z jednej próby, skrypty mutacji Centrum z runu 40236525553 po
+# podziale w #464); dzieli kroki na części.
 # Klucz to ``<skill>/ci`` dla podstawy i ``<skill>/<skrypt>`` dla skryptu mutacji.
 CI_TIMES_S: dict[str, float] = {
     "verify-aktualizacja-narzedzia/ci": 22,
     "verify-centrum-rozliczen/ci": 259,
+    "verify-centrum-rozliczen/check_centrum_aktualizacja_mutations.py": 111,
+    "verify-centrum-rozliczen/check_centrum_diagnoza_mutations.py": 48,
+    "verify-centrum-rozliczen/check_centrum_karta_z_logow_mutations.py": 53,
+    "verify-centrum-rozliczen/check_centrum_przebieg_rozliczen_mutations.py": 147,
+    "verify-centrum-rozliczen/check_centrum_przygotowanie_pliku_zbiorczego_mutations.py": 80,
+    "verify-centrum-rozliczen/check_centrum_uwaga_taty_mutations.py": 95,
+    "verify-centrum-rozliczen/check_centrum_uzupelnienie_mutations.py": 257,
+    "verify-centrum-rozliczen/check_centrum_zgloszenie_mutations.py": 49,
     "verify-jedno-uruchomienie-naraz/ci": 33,
     "verify-jedno-uruchomienie-naraz/check_runs_mutations.py": 332,
     "verify-kopia-wzorca/check_copy_mutations.py": 342,
