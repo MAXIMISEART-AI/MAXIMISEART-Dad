@@ -12,7 +12,7 @@ from typing import Any, NoReturn
 import pytest
 
 from rozliczenia.input_checks import FILE_READERS
-from rozliczenia.workbook_files import TemplateFile
+from rozliczenia.template_file import TemplateFile
 
 from tests.fixtures.centrum import NO_RELEASE, FakeGitHub, finished_view, phase_states, view_timing, views_until
 from tests.fixtures.centrum_processes import (
@@ -56,6 +56,16 @@ def test_zatrzymanie_dla_taty_proponuje_uruchom_ponownie(tmp_path: Path) -> None
     result = stop_of(centrum)
 
     assert (result["stop_kind"], result["next_action"], result["diagnosis"]) == ("for_tata", "rerun", None)
+    assert (result["headline"], result["opens"]) == ("Do poprawy", "order_register")
+
+
+def test_brak_rejestru_nie_proponuje_otwarcia_rejestru(tmp_path: Path) -> None:
+    centrum = preparing_centrum(tmp_path)
+    centrum.fixture.register_path.unlink()
+
+    result = stop_of(centrum)
+
+    assert (result["stop_kind"], result["headline"], result["opens"]) == ("for_tata", "Do poprawy", None)
 
 
 def test_zatrzymanie_ktore_kaze_przekazac_komunikat_jest_do_maksa(tmp_path: Path) -> None:
@@ -64,7 +74,7 @@ def test_zatrzymanie_ktore_kaze_przekazac_komunikat_jest_do_maksa(tmp_path: Path
 
     result = stop_of(centrum)
 
-    assert (result["stop_kind"], result["diagnosis"]) == ("for_maks", "on_request")
+    assert (result["stop_kind"], result["diagnosis"], result["headline"]) == ("for_maks", "on_request", "Błąd")
 
 
 def test_nieoczekiwany_wyjatek_jest_do_maksa_a_diagnoza_zaczyna_sie_sama(tmp_path: Path) -> None:
@@ -83,7 +93,7 @@ def test_identyczny_komunikat_przy_ponownym_uruchomieniu_to_powtorka(tmp_path: P
 
     again = stop_of(centrum)
 
-    assert (again["stop_kind"], again["diagnosis"]) == ("repeated", "on_request")
+    assert (again["stop_kind"], again["diagnosis"], again["headline"]) == ("repeated", "on_request", "Do poprawy")
 
 
 def test_powtorka_trafia_do_historii_metryk_jako_zatrzymanie_dla_taty(tmp_path: Path) -> None:
@@ -118,6 +128,42 @@ def test_uruchomienie_bez_zatrzymania_przerywa_powtorke(tmp_path: Path) -> None:
     stop_of(centrum)
     register_lock.unlink()
     assert run_to_end(centrum, dry_run=True)["result"]["stop_kind"] is None
+    lock(centrum.fixture.register_path)
+
+    again = stop_of(centrum)
+
+    assert again["stop_kind"] == "for_tata"
+
+
+def declined(centrum: PreparingCentrum) -> dict[str, Any]:
+    """Uruchom na niepełnym okresie, w którym tata wybiera „Przerwij” w Decyzji taty."""
+
+    centrum.start(dry_run=False)
+    view = views_until(centrum.client, "awaiting_decision")[-1]
+    assert centrum.client.post(f"/api/runs/{view['run']['id']}/decision", json={"answer": "abort"}).status_code == 200
+    return finished_view(centrum.client)
+
+
+def test_odmowa_w_decyzji_taty_nie_jest_powtorka_i_nie_ma_diagnozy(tmp_path: Path) -> None:
+    centrum = preparing_centrum(tmp_path, incomplete_period_rows())
+    first = declined(centrum)
+
+    again = declined(centrum)
+    diagnosis = centrum.client.post(f"/api/runs/{again['run']['id']}/diagnosis")
+
+    assert [(view["result"]["stop_kind"], view["result"]["diagnosis"]) for view in (first, again)] == [
+        ("declined", None),
+        ("declined", None),
+    ]
+    assert diagnosis.status_code == 409
+
+
+def test_odmowa_w_decyzji_taty_przerywa_powtorke(tmp_path: Path) -> None:
+    centrum = preparing_centrum(tmp_path, incomplete_period_rows())
+    register_lock = lock(centrum.fixture.register_path)
+    stop_of(centrum)
+    register_lock.unlink()
+    declined(centrum)
     lock(centrum.fixture.register_path)
 
     again = stop_of(centrum)

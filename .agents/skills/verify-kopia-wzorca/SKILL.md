@@ -1,6 +1,6 @@
 ---
 name: verify-kopia-wzorca
-description: Check with generated Wiersze danych that every Rozliczenie pracownika written by the template copy (ADR 0008, `template_copy.py`) is the file the old openpyxl path would write, keeps the rest of the Wzorzec byte for byte, and has the shape Excel needs. Use when a change touches `src/rozliczenia/template_copy.py`, `src/rozliczenia/workbook_parts.py`, `src/rozliczenia/highlights.py`, `src/rozliczenia/row_look.py`, `src/rozliczenia/hyperlinks.py`, `TemplateFile` or `_write_rows` in `src/rozliczenia/workbook_files.py`, `tools/porownanie_rozliczen.py`, or when `tests/test_kopia_wzorca.py` fails.
+description: Check with generated Wiersze danych that every Rozliczenie pracownika written by the template copy (ADR 0008, `template_copy.py`) is the file the old openpyxl path would write, keeps the rest of the Wzorzec byte for byte, and has the shape Excel needs. Use when a change touches `src/rozliczenia/template_copy.py`, `src/rozliczenia/workbook_parts.py`, `src/rozliczenia/highlights.py`, `src/rozliczenia/row_look.py`, `src/rozliczenia/hyperlinks.py`, `src/rozliczenia/template_file.py`, `src/rozliczenia/workbook_save.py`, `tools/porownanie_rozliczen.py`, or when `tests/test_kopia_wzorca.py` fails.
 pilnuje:
   - src/rozliczenia/template_copy.py
   - src/rozliczenia/workbook_parts.py
@@ -8,6 +8,8 @@ pilnuje:
   - src/rozliczenia/row_look.py
   - src/rozliczenia/hyperlinks.py
   - src/rozliczenia/workbook_files.py
+  - src/rozliczenia/template_file.py
+  - src/rozliczenia/workbook_save.py
   - tools/porownanie_rozliczen.py
 ---
 
@@ -63,21 +65,21 @@ Coverage, confirmed at **sync commit `5714940`** (PR #345, sheet chunks compress
 
 | Code | What the check covers |
 | --- | --- |
-| `src/rozliczenia/template_copy.py` (all of it but the Plik zbiorczy branch, `SheetLayout.collective_file`, which pytest covers in `tests/test_plik_zbiorczy_kopia_wzorca.py`) | the code under verification |
+| `src/rozliczenia/template_copy.py` (all of it but the Plik zbiorczy branch, `SheetLayout.period_file`, which pytest covers in `tests/test_plik_zbiorczy_kopia_wzorca.py`) | the code under verification |
 | `src/rozliczenia/workbook_parts.py` (`SheetData`, `relationships`, `office_document`, `relationships_part`) | row index the copy splices on and the parts it finds by relationship |
 | `src/rozliczenia/highlights.py` (`Highlights.of`, `font_over`, `fill_over`) | Wyróżnienia both paths lay over the Wzorzec's font and fill |
 | `src/rozliczenia/row_look.py` (`RowLook`, `CellLook`, `wraps`) | Wygląd Wiersza danych both paths give A:L; judged by WYGLAD_WIERSZA |
 | `src/rozliczenia/hyperlinks.py` (`Hyperlink`) | the Hiperłącze both paths write; its reader `read_sheet_hyperlinks` is covered by pytest (`tests/test_hiperlacza_pliku_zbiorczego.py`), not here |
-| `src/rozliczenia/workbook_files.py`: `TemplateFile` (`check`, `create`, `_read`, `_template_copy`, `_create_with_openpyxl`), `_placed` (columns already in order), `_write_atomically`, `_package_writer` | the real entry point; which path it takes |
-| `src/rozliczenia/workbook_files.py`: `TemplateFile._create_with_openpyxl`, `_write_rows`, `_request_full_recalculation`, `_save_atomically`, `_restore_external_link_parts` | the reference (old openpyxl path) |
+| `src/rozliczenia/template_file.py`: `TemplateFile` (`check`, `create`, `_read`, `_template_copy`, `_create_with_openpyxl`), `_placed` (columns already in order), `_package_writer`, `Route`; `src/rozliczenia/workbook_save.py`: `write_atomically` | the real entry point; which path it takes (`create` returns it) |
+| `src/rozliczenia/template_file.py`: `TemplateFile._create_with_openpyxl`, `_write_rows`, `_request_full_recalculation`; `src/rozliczenia/workbook_save.py`: `save_from_template`, `_restore_external_link_parts` | the reference (old openpyxl path) |
 | `tools/porownanie_rozliczen.py` (`compare_worker_settlements` and its per-cell helpers, `_hyperlink` among them) | the judge for WIERNA_KOPIA |
-| `tools/syntetyczne_wzorce.py` (`write_settlement_template`), `tests/fixtures/settlement.py` (`write_template`), `tests/fixtures/workbooks.py` (`add_external_link_fixture`, `refused_by_copy`, `has_xml_comment`) | the Wzorce under test and the twin the copy refuses |
+| `tools/syntetyczne_wzorce.py` (`write_settlement_template`), `tests/fixtures/settlement.py` (`write_template`), `tests/fixtures/workbooks.py` (`add_external_link_fixture`, `refused_by_copy`) | the Wzorce under test and the twin the copy refuses |
 
 Run the check when a diff touches any of these. To see whether the covered code moved since the
 sync commit:
 
 ```bash
-git diff --stat 5714940 -- src/rozliczenia/template_copy.py src/rozliczenia/sheet_data.py src/rozliczenia/workbook_parts.py src/rozliczenia/highlights.py src/rozliczenia/row_look.py src/rozliczenia/hyperlinks.py src/rozliczenia/workbook_files.py tools/porownanie_rozliczen.py tools/syntetyczne_wzorce.py tests/fixtures/settlement.py tests/fixtures/workbooks.py
+git diff --stat 5714940 -- src/rozliczenia/template_copy.py src/rozliczenia/sheet_data.py src/rozliczenia/workbook_parts.py src/rozliczenia/highlights.py src/rozliczenia/row_look.py src/rozliczenia/hyperlinks.py src/rozliczenia/workbook_files.py src/rozliczenia/template_file.py src/rozliczenia/workbook_save.py tools/porownanie_rozliczen.py tools/syntetyczne_wzorce.py tests/fixtures/settlement.py tests/fixtures/workbooks.py
 ```
 
 Changes elsewhere (reading the Plik zbiorczy, `engine.py`, publication of the Folder rozliczeń

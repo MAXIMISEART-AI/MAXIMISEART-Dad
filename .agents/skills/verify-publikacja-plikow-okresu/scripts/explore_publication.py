@@ -479,7 +479,7 @@ class _StagingDirectory:
 
 @contextmanager
 def harness(disk: VirtualDisk, scheduler: Scheduler) -> Iterator[None]:
-    def write_period_file(template_path: Path, layout: object, target: Path, orders: object) -> None:
+    def write_period_file(template: object, target: Path, rows: object) -> None:
         scheduler.step(
             "zapis skoroszytu",
             (target,),
@@ -628,8 +628,8 @@ def make_layout() -> Layout:
     periods_directory = disk_root / "Rozliczenia"
     # As in prepare_collective_file(): the value is built only from a checked period.
     files = preparation_files.PeriodFiles(
-        internal_template=disk_root / "config" / "Wzorzec rozliczenia wewnętrznego.xlsx",
-        collective_template=disk_root / "config" / "Wzorzec pliku zbiorczego.xlsx",
+        internal_template=preparation_files.internal_template(disk_root / "config" / "Wzorzec rozliczenia wewnętrznego.xlsx"),
+        collective_template=preparation_files.collective_template(disk_root / "config" / "Wzorzec pliku zbiorczego.xlsx"),
         folder=PeriodFolder(periods_directory, parse_period_token(PERIOD)),
     )
     return Layout(disk_root, periods_directory, files)

@@ -25,7 +25,7 @@ They complement `GLOSSARY.md`, the ADRs, and the executable checks; they do not 
 
 - Write a Komunikat's text only in a process's catalog (`preparation_messages`, `settlement_messages`).
   Two known exceptions wait for their own change: `WorkerConfigError.detail` and `PeriodFolderError.message`.
-  Workbook code (`workbook_files`) raises `WorkbookError`, and each caller translates the error with one catalog function.
+  Workbook code (`workbook_files`, `template_file`) raises `WorkbookError`, and each caller translates the error with one catalog function.
   The files that Sprawdzanie reads go through `input_checks`, which translates their reader errors once for both processes, the Diagnoza and the Konfiguracja.
   That function ends its `match` on `Problem` with `assert_never`, so mypy rejects a new `Problem` until every catalog handles it.
   Other code calls its catalog's factories directly, and a process summary reports its problems as warning Komunikaty in `warnings`.
@@ -66,6 +66,13 @@ They complement `GLOSSARY.md`, the ADRs, and the executable checks; they do not 
   It mutates a copy of the checkout, never the checkout.
   Run it once for each test or check added or changed in a round of work.
   A rebase, or a fix that leaves the test unchanged, does not need a new run.
+- Every changed line of `src/` needs a test that fails when the line is broken: `tools/mutacje_zmiany.py` (CI job `Change mutations`) mutates each changed line and fails on a mutation no test catches.
+  Add the test that catches it.
+  Only a mutation that leaves the behaviour unchanged gets `# mutacje-zmiany: <reason> | do YYYY-MM-DD | zgoda <who>` on its line, with Maks's approval.
+- A PR that adds or changes a check (a structure test, a lint rule, a CI job, a checking tool) shows its result on real history in the PR body, from `tools/na_scalonych_pr.py`.
+  On the commits of the PRs whose review found the mistake (`--commit <SHA>`), it finds what the review found.
+  On a few recent merged PRs (`--ostatnie 5`), including one with Windows-only code, it raises no false alarm.
+  The reviewer reruns at least one of these.
 
 ## Frontend
 

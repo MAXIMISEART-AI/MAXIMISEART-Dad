@@ -57,8 +57,10 @@ ORDER_LINK = "https://przyklad.invalid/zlecenie?caseId=PREP-SYN-LINK&tw=1&wiersz
 REGISTER_ROWS_OF_ORDERS = {"PREP-SYN-ZL-2": 4, "PREP-SYN-ZL-4": 9, "PREP-SYN-ZL-7": 12, "PREP-SYN-ZL-6": 13}
 EXPECTED_ROWS = sum(len(orders) for orders in EXPECTED_WORKER_ORDERS.values())
 TEMPLATES = len(EXPECTED_WORKER_ORDERS)
-FILE_PLAN = [
-    contract.WorkerFile(file=f"Rozliczenie {PERIOD} - {name}.xlsx", rows=len(orders))
+WORKER_SETTLEMENTS = [
+    contract.WorkerSettlement(
+        worker=name, file=f"Rozliczenie {PERIOD} - {name}.xlsx", orders=len(orders), empty=not orders
+    )
     for name, orders in EXPECTED_WORKER_ORDERS.items()
 ]
 PHASES = ("Sprawdzanie", "Odczyt danych", "Planowanie", "Zapisywanie")
@@ -143,7 +145,7 @@ def _assert_dry_run(root: Path, result_path: Path | None) -> int:
             ],
             counts=None,
             files=[],
-            file_plan=FILE_PLAN,
+            worker_settlements=WORKER_SETTLEMENTS,
         ):
             errors.append("dry-run plan does not list every Wykonawca's file with its Zlecenia skuteczne")
         if dict(figures(result.progress.figures)).get("Problemy") != 0:
@@ -378,7 +380,7 @@ def _assert_run(root: Path, result_path: Path | None) -> int:
                 ],
                 counts=None,
                 files=[],
-                file_plan=FILE_PLAN,
+                worker_settlements=WORKER_SETTLEMENTS,
             )
             or (progress.template_total, progress.templates_completed) != (TEMPLATES, TEMPLATES)
         ):

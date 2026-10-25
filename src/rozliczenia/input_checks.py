@@ -27,7 +27,8 @@ from .period_folder import (
 from .preparation_files import PeriodFiles
 from .preparation_register import RegisterSheet
 from .settlement_period import SettlementPeriod, parse_period_token
-from .workbook_files import Layout, Problem, TemplateFile, WorkbookError
+from .template_file import TemplateFile
+from .workbook_files import Problem, WorkbookError
 from .worker_config import WorkerConfigError, load_worker_mapping
 
 
@@ -45,7 +46,7 @@ class Readers:
     Rejestr, którego nie ma albo który jest otwarty w Excelu, to też ``WorkbookError``.
     """
     template: Callable[[TemplateFile], None]
-    """Sprawdzanie Wzorca: istnieje, nie jest otwarty, daje się odczytać i ma układ swojego ``Layout``."""
+    """Sprawdzanie Wzorca: istnieje, nie jest otwarty, daje się odczytać i ma układ swojego pliku."""
 
 
 FILE_READERS: Final = Readers(register=preparation_register.read_register, template=TemplateFile.check)
@@ -68,15 +69,15 @@ class ProcessTemplate:
 
     @classmethod
     def internal(cls, path: Path) -> ProcessTemplate:
-        return cls(preparation_files.period_template(path, Layout.INTERNAL_SETTLEMENT), messages.template_unusable)
+        return cls(preparation_files.internal_template(path), messages.template_unusable)
 
     @classmethod
     def collective(cls, path: Path) -> ProcessTemplate:
-        return cls(preparation_files.period_template(path, Layout.COLLECTIVE_FILE), messages.template_unusable)
+        return cls(preparation_files.collective_template(path), messages.template_unusable)
 
     @classmethod
     def worker(cls, path: Path) -> ProcessTemplate:
-        return cls(TemplateFile(path, Layout.WORKER_SETTLEMENT), settlement_messages.worker_template_unusable)
+        return cls(TemplateFile.worker_settlement(path), settlement_messages.worker_template_unusable)
 
     def problem(self, readers: Readers) -> TemplateProblem | None:
         """``None``, gdy Wzorzec przechodzi Sprawdzanie."""
@@ -111,13 +112,11 @@ def check_preparation(
     settlement_period = _parse_period(period)
     with _stops(messages.register_unusable):
         workbook_files.ensure_available(register)
-    ProcessTemplate.internal(internal_template).checked(readers)
-    ProcessTemplate.collective(collective_template).checked(readers)
+    internal = ProcessTemplate.internal(internal_template).checked(readers)
+    collective = ProcessTemplate.collective(collective_template).checked(readers)
     if not periods_directory.is_dir():
         raise StopError(messages.periods_directory_missing(periods_directory))
-    files = PeriodFiles(
-        internal_template, collective_template, _locate_period_folder(periods_directory, settlement_period)
-    )
+    files = PeriodFiles(internal, collective, _locate_period_folder(periods_directory, settlement_period))
     preparation_files.ensure_period_files_absent(files)
     return files, _worker_mapping(config, messages.worker_config_problem)
 
