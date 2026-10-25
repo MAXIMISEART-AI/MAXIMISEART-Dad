@@ -52,6 +52,16 @@ CI_LOOPS = (
     "perl -e 'select(undef,undef,undef,30)'; done",
     "until grep -q done $F && ! gh pr checks 282 2>/dev/null | grep -q pending; do sleep 30; done; "
     "gh pr checks 282 2>&1 | cat",
+    'for i in 1 2 3 4 5 6 7 8; do o=$(gh pr checks 215 2>&1); if ! echo "$o" | grep -q pending; then break; fi; '
+    'sleep 30; done; echo "$o" | cut -f1,2,3',
+    # Syntetyczne: ``for`` z licznikiem prób bez ``break``, pętla przed ``&&``, pętla w ``"$(…)"`` z zagnieżdżonym
+    # ``$(seq …)`` i pętla po ``then``.
+    "for i in $(seq 1 20); do gh pr checks 1 | grep -c pending; sleep 30; done",
+    "for i in {1..20}; do gh pr checks 1 | grep -c pending; sleep 30; done",
+    "for ((i = 0; i < 20; i++)); do gh pr checks 1 | grep -c pending; sleep 30; done",
+    "until ! gh pr checks 1 | grep -q pending; do sleep 30; done && gh pr checks 1",
+    's="$(for i in $(seq 1 20); do gh pr checks 1 | grep -q pending || break; sleep 30; done; gh pr checks 1)"',
+    "if gh pr view 1 --json state >/dev/null; then until ! gh pr checks 1 | grep -q pending; do sleep 30; done; fi",
 )
 WATCHES = (
     "timeout 1500 gh pr checks 215 --watch > .audit/swarm-215/lane1-pr-checks.txt 2>&1; echo exit=$?",
@@ -73,6 +83,7 @@ PGREP_LOOPS = (
     "do sleep 15; done; tail -1 .scratch/pytest-serial.txt",
     "for i in $(seq 1 19); do pgrep -f mutacje_zmiany.py >/dev/null || break; sleep 30; done; "
     "tail -4 ~/.t3/notes/425/mutacje_zmiany.log",
+    "until ! pgrep -l -f mutacje.json >/dev/null; do sleep 5; done",
 )
 PASSING = (
     "gh pr checks 405 2>&1 | head -20",
@@ -112,6 +123,32 @@ PASSING = (
     ".bucket')\n  [ \"$r\" != pending ] && break\n  sleep 60\ndone\nEOF\nchmod +x ~/.t3/notes/uzupelnienie-415/418/r2/czekaj.sh",
     "git commit -q -m \"docs(agents): nie pisz until gh pr checks; do sleep 30; done, tylko watch_pull_request\"",
     'git -c user.name=v311 commit -q -m "until ! pgrep -f mutacje; do sleep 5; done wisi"',
+    # Partie zapytań z sleep jako limitem API: ``for`` po liście i ``while read`` bez wyjścia z pętli i licznika.
+    "for id in 39805093290 39772151111 39771042902 39601913795 39601190727; do sleep 2; gh run view $id --json "
+    'jobs,headBranch,headSha --jq "(.headBranch) as \\$b | (.headSha[0:7]) as \\$s | .jobs[]|select(.conclusion=='
+    '\\"failure\\")|\\"$id \\(\\$b) \\(\\$s) \\(.databaseId) \\(.name)\\"" || echo "$id ERR"; done | '
+    "tee -a ~/.t3/notes/noc-2026-10-23/V293/joby-czerwone.txt",
+    "for id in 39805093290 39772151111 39771042902 39601913795 39601190727; do sleep 2; gh api "
+    '"repos/MAXIMISEART-AI/MAXIMISEART-Dad/actions/runs/$id/jobs?per_page=20" --jq ".jobs[]|select(.conclusion=='
+    '\\"failure\\")|\\"$id \\(.head_branch) \\(.head_sha[0:7]) \\(.id) \\(.name)\\"" 2>&1 | head -5; gh api '
+    '"repos/MAXIMISEART-AI/MAXIMISEART-Dad/actions/runs/$id" --jq \'"   run: \\(.head_branch) \\(.event) '
+    '\\(.conclusion)"\' 2>&1 | head -2; done',
+    "while read id ev br sha at; do grep -qx $id $V/.ok && continue; sleep 1; gh api "
+    '"repos/MAXIMISEART-AI/MAXIMISEART-Dad/actions/runs/$id/jobs?per_page=100" --jq ".jobs[]|select(.conclusion=='
+    '\\"failure\\")|\\"$id $br $sha \\(.id) \\(.name)\\"" || echo "$id ERR"; done < $V/runy-czerwone.txt',
+    "for n in $(seq 247 264); do printf \"#%s \" $n; gh pr view $n --json isDraft,statusCheckRollup --jq "
+    "'[.isDraft, ([.statusCheckRollup[]|.conclusion]|map(select(.!=\"SUCCESS\"))|length)]|@tsv'; done",
+    "for n in $(seq 247 264); do sleep 1; gh pr view $n --json title; done",
+    "for n in {247..264}; do sleep 1; gh pr view $n --json title; done",
+    "i=444; while [ $i -le 446 ]; do gh pr view $i --json title; i=$((i + 1)); done",
+    # Próbnik procesów puszczony ``&`` obok pomiaru i ubity ``kill``.
+    "(while true; do echo \"$(date +%T) $(pgrep -fl 'serve_centrum|chrome-headless|pytest' | cut -c1-100 | "
+    "tr '\\n' ' ')\"; sleep 5; done) > /tmp/wyd165-watch1.log 2>&1 & W=$!; .venv/bin/python "
+    ".agents/skills/verify-centrum-rozliczen/scripts/run_centrum_verification.py --feature wydajnosc; kill $W",
+    # Syntetyczne: pętla zakończona przed ``sleep`` i wzorce wyszukiwania ze słowem pętli.
+    "for f in a b; do echo $f; done; sleep 10; gh pr checks 1",
+    "rg -n 'while|until' tools/hooks/czekanie.py; sleep 1; gh pr checks 446",
+    'grep -nw "until" tools/hooks/czekanie.py; sleep 1; gh pr checks 446',
 )
 
 

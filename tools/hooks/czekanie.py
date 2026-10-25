@@ -8,6 +8,8 @@ znajduje powłokę, której linia polecenia zawiera tę samą pętlę, a więc i
 
 Odrzuca (kod 2, przyczyna na stderr trafia do agenta) tylko polecenie na pierwszym planie:
 pętlę z ``sleep``, której ciało pyta o CI albo woła ``pgrep -f``, oraz ``gh pr checks --watch`` i ``gh run watch``.
+Pętla ``for`` i ``while read`` czeka tylko z ``break``, ``exit``, ``return`` albo licznikiem prób, a pętla puszczona ``&``
+nie czeka.
 Wszystko inne, także te polecenia z ``run_in_background``, przechodzi bez słowa (kod 0).
 Wejście, którego nie da się odczytać, też przechodzi, bo hook nie może zatrzymać pracy.
 
@@ -34,10 +36,18 @@ PGREP = re.compile(r"\bpgrep\s+(?:-\w+\s+)*-\w*f")
 # Agenci śpią też przez `perl -e 'select(undef,undef,undef,N)'`, gdy harness blokuje sam `sleep`.
 SLEEP = re.compile(r"(?<![\w.$-])sleep\s+\S|\bselect\(undef\b")
 WHITESPACE = re.compile(r"\s")
+# W napisie bez spacji (`perl -e 'select(undef,…)'`, wzorzec `rg 'while|until'`) słowo pętli nie stoi na pozycji polecenia.
+QUOTED_SEPARATOR = re.compile(r"[;&|{!`]")
 # Słowo pętli liczy się na pozycji polecenia, więc „done” w `grep -q done` nie zamyka pętli.
-_STARTS = r"(?:^|(?<=[;&|({!`'\"])|(?<=\bdo)|(?<=\bthen)|(?<=\belse))\s*"
+_STARTS = r"(?:^|(?<=[;&|({!`])|(?<=\bdo)|(?<=\bthen)|(?<=\belse))\s*"
 _ENDS = r"(?:(?<=[;&\n])|(?<=\bdo))\s*"
 LOOP_WORD = re.compile(rf"{_STARTS}(until|while|for)\b|{_ENDS}(done)\b", re.MULTILINE)
+# `for` i `while read` z `sleep` to zwykle partia zapytań z limitem API (`for id in …; do sleep 2; gh run view $id`),
+# a czekaniem są dopiero z wyjściem z pętli albo licznikiem prób od 0 albo 1 (`$(seq 247 264)` to numery PR).
+OVER_LIST = re.compile(r"(?:for|while\s+(?:IFS=\S*\s+)?read)\b")
+STOPS = re.compile(r"^for\s*\(\(|\b(?:break|exit|return)\b|\$\(seq\s+(?:[01]\s+)?\d+\s*\)|\{[01]\.\.\d+\}")
+# Pętla puszczona `&` (próbnik obok pomiaru, ubijany potem `kill`) nie blokuje polecenia.
+IN_BACKGROUND = re.compile(r"\s*\)?(?:\s*\d*[<>]{1,2}&?\s*[^\s;&|]+)*\s*&(?!&)")
 HEREDOC = re.compile(r"(?<!<)<<-?\s*(['\"]?)(\w+)\1")
 SHELL_ARGUMENT = re.compile(r"(?:^|\s)-c\s*$")
 
@@ -96,7 +106,7 @@ def _code(command: str, start: int = 0, inside_substitution: bool = False) -> tu
         if char in "'\"":
             literal, end = _quoted(command, index)
             shell_argument = SHELL_ARGUMENT.search("".join(kept[-12:]))
-            kept.append(command[index:end] if shell_argument else literal)
+            kept.append(";" + command[index + 1 : end] if shell_argument else literal)
             index = end
             continue
         if inside_substitution and char == ")":
@@ -131,11 +141,11 @@ def _quoted(command: str, start: int) -> tuple[str, int]:
                 index += 1
         end, kept = index + 1, "".join(parts) + '"'
     literal = command[start:end]
-    return (kept if WHITESPACE.search(literal) else literal), end
+    return (kept if WHITESPACE.search(literal) else QUOTED_SEPARATOR.sub("_", literal)), end
 
 
 def _loop_bodies(command: str) -> list[str]:
-    """Tekst każdej pętli od słowa ``until``/``while``/``for`` do jej ``done`` (albo do końca polecenia)."""
+    """Tekst każdej pętli na pierwszym planie od słowa ``until``/``while``/``for`` do jej ``done`` (albo do końca polecenia)."""
 
     words = list(LOOP_WORD.finditer(command))
     bodies = []
@@ -148,7 +158,8 @@ def _loop_bodies(command: str) -> list[str]:
             if depth == 0:
                 end = word.end()
                 break
-        bodies.append(command[start.start(1) : end])
+        if not IN_BACKGROUND.match(command, end):
+            bodies.append(command[start.start(1) : end])
     return bodies
 
 
@@ -159,7 +170,7 @@ def judge(command: str, in_background: bool) -> Optional[Refusal]:
     if WATCH.search(shell):
         return WATCHING
     for body in _loop_bodies(shell):
-        if not SLEEP.search(body):
+        if not SLEEP.search(body) or (OVER_LIST.match(body) and not STOPS.search(body)):
             continue
         if ASKS_CI.search(body):
             return CI_LOOP
