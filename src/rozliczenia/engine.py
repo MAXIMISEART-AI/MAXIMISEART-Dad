@@ -8,6 +8,7 @@ from pathlib import Path
 
 from . import collective_file, input_checks, settlement_files, settlement_messages
 from .domain import ProgressObserver, SettlementSummary, WorkerResult
+from .inea_only_quantities import Cleared
 from .input_checks import FILE_READERS, Readers
 from .message import Message, StopError
 from .order_facts import CollectiveOrders
@@ -22,10 +23,12 @@ def default_worker_template_path() -> Path:
     return Path(__file__).resolve().parents[2] / "config" / "Wzorzec rozliczenia pracownika.xlsx"
 
 
-def _read_source_rows(source_path: Path) -> tuple[dict[str, list[DataRow]], list[int], CollectiveOrders]:
+def _read_source_rows(
+    source_path: Path,
+) -> tuple[dict[str, list[DataRow]], list[int], CollectiveOrders, Cleared]:
     """Czyta Wiersze danych Pliku zbiorczego z ich Wyróżnieniami i grupuje je po identyfikatorze WYKONAWCA.
 
-    Wiersze danych bez Wykonawcy nie trafiają do grup; zostają ich numery.
+    Wiersze danych bez Wykonawcy nie trafiają do grup; zostają ich numery. W grupach nie ma Ilości tylko dla INEA.
     """
 
     try:
@@ -35,7 +38,7 @@ def _read_source_rows(source_path: Path) -> tuple[dict[str, list[DataRow]], list
     rows_by_worker: defaultdict[str, list[DataRow]] = defaultdict(list)
     for row in read.rows:
         rows_by_worker[normalize_text(row.worker)].append(row)
-    return dict(rows_by_worker), read.without_worker, read.orders
+    return dict(rows_by_worker), read.without_worker, read.orders, read.inea_only
 
 
 @dataclass(frozen=True)
@@ -104,7 +107,7 @@ def run_settlements(
     )
     target_directory = folder.worker_settlements
     worker_names = list(mapping.values())
-    rows_by_worker, without_worker, orders = phases.read(
+    rows_by_worker, without_worker, orders, inea_only = phases.read(
         lambda: _read_source_rows(source_path),
         issue_count=lambda read_rows: len(read_rows[1]),
     )
@@ -118,7 +121,9 @@ def run_settlements(
         templates=lambda _planned: worker_names,
         issue_count=lambda planned: len(planned[1]),
     )
-    summary = SettlementSummary(folder.period.token, source_path, target_directory, orders=orders, warnings=warnings)
+    summary = SettlementSummary(
+        folder.period.token, source_path, target_directory, orders=orders, inea_only_cleared=inea_only, warnings=warnings
+    )
 
     def settle(directory: Path, worker_name: str) -> WorkerResult:
         target_path = directory / folder.worker_settlement(worker_name).name
