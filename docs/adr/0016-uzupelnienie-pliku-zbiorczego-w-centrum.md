@@ -56,8 +56,10 @@ godzinami, z Plikiem zbiorczym otwartym w Excelu, więc strona, która wymaga za
   dalej jest plik. Przejścia serii nieudanych prób opisuje tabela w `LastGoodReads` (`live_file.py`). Kończy ją
   dobry odczyt. Serię, która jeszcze nie oddała Komunikatu, kończy też cisza dłuższa niż kilka odstępów
   odpytywania (ukryta karta, także zasłonięta przez zmaksymalizowany Excel), ale tylko wtedy, gdy znacznik zapisu
-  zmienił się od ostatniej porażki. Bez zmiany znacznika plik nie mógł wrócić, więc trwała porażka oglądana
-  zrywami daje Komunikat po około minucie, jak mówi historia 24. Przerwę mierzy się od końca ostatniej porażki
+  zmienił się od ostatniej porażki. Bez zmiany znacznika seria trwa, więc trwała porażka oglądana zrywami daje
+  Komunikat po około minucie, jak mówi historia 24. Plik może jednak wrócić bez zmiany znacznika (zdjęta blokada
+  albo przywrócone prawa dostępu); wtedy Komunikat znika najpóźniej przy powrocie do karty, bo `useResource`
+  czyta wtedy plik od nowa, a dobry odczyt kończy serię. Przerwę mierzy się od końca ostatniej porażki
   do początku następnej próby, więc wolny nieudany odczyt (OneDrive pobiera plik) nie przerywa serii. Seria
   z Komunikatem, także oddanym od razu z braku dobrego odczytu, trwa do dobrego odczytu, bo po Komunikacie strona
   nie ponawia odczytu sama. Do dziennika trafia przyczyna (kod Komunikatu), której tam nie ma od ostatniego

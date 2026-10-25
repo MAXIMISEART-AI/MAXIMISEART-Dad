@@ -99,7 +99,7 @@ class LastGoodReads(Generic[T]):
                                                                                 czyta tylko po zmianie znacznika
     porażka                 od końca ostatniej porażki do początku tej próby    ta sama: strona ponawia co 3 s
                             najwyżej ``RETRY_GAP_S``
-    porażka                 znacznik zapisu taki sam jak przy ostatniej         ta sama: plik nie mógł wrócić
+    porażka                 znacznik zapisu taki sam jak przy ostatniej         ta sama: plik się nie zmienił
     porażka                 inaczej (cisza i zapis pliku, którego nikt nie      nowa, z przyczynami z dziennika
                             czytał: ukryta karta)                               poprzedniej
     ======================  ==================================================  ==================================
