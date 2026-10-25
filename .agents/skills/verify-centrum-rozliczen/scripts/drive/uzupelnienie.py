@@ -466,7 +466,8 @@ def _drive(run: Run, page: Page, collective_file: Path, lock: Path) -> None:
     run.check(True, "the link Okresy leads back, and Wstecz returns to the summary of the same period")
 
     run.step(FEATURE, "uzupelnienie-gotowe")
-    lock.unlink()
+    # `uzupelnienie-odczyt-nieudany` already removed it.
+    lock.unlink(missing_ok=True)
     run.check(not lock.exists(), "harness: Dad closed Excel, so no lock file keeps Uruchom disabled")
     expected = _without_quantity(_ready(run, "uzupelnienie-gotowe-podsumowanie"))
     answer = _go_to_settlement(run, page, LAST_COMPLETE, "uzupelnienie-gotowe")
