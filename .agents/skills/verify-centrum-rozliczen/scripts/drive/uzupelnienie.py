@@ -140,6 +140,7 @@ def drive_result_card(run: Run, page: Page) -> None:
     original = collective_file.read_bytes()
     try:
         _write_dad_value(collective_file, EXPECTED_ROWS["without_rule"][0])
+        run.check(True, f"harness: one value typed into column {DAD_COLUMN} of row 18 while the summary is open")
         page.evaluate(WATCH_RESULT_SUMMARY)
         page.go_back()
         expect(filling).to_contain_text("1 z 2")
