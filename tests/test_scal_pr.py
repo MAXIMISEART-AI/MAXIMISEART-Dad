@@ -69,9 +69,8 @@ GREEN = [
 ]
 COMMIT_STATUS = {"__typename": "StatusContext", "context": "Required CI status", "state": "SUCCESS"}
 NOT_ACTIONS = "CI: brak „Required CI status” z GitHub Actions na HEAD"
-NO_PASS = "werdykt: brak komentarza ani recenzji „WERDYKT: PASS {short}”"
-OBJECTION = "werdykt: sprzeciw dla {short} bez nowszego „WERDYKT: PASS {short}”"
-UNREADABLE = "werdykt: nieczytelny dla {short} bez nowszego „WERDYKT: PASS {short}”"
+NO_PASS = "werdykt: brak komentarza ani recenzji „WERDYKT: PASS {head}”"
+OBJECTION = "werdykt: FAIL dla {short} bez nowszego „WERDYKT: PASS {head}”"
 
 
 class FakeGitHub:
@@ -185,7 +184,7 @@ def test_gotowy_pr_jest_scalany_z_jego_head_a_po_merge_biegnie_sprzatanie(tmp_pa
     main = github.push_main({"kod/nazwa.py": 'NAZWA = "z main"\n'})
     github.comment(1, f"WERDYKT: FAIL {head}\n- krytyczne: brak testu")
     github.comment(1, f"Poprawione w {head[:7]}.")
-    github.comment(1, f"WERDYKT: PASS {head[:9]}\n- drobne: nazwa")
+    github.comment(1, f"WERDYKT: PASS {head}\n- drobne: nazwa")
 
     checked = github.run("1", "--bez-merge")
     merged = github.run("1")
@@ -230,11 +229,11 @@ def test_gotowy_pr_jest_scalany_z_jego_head_a_po_merge_biegnie_sprzatanie(tmp_pa
         (GREEN, [("WERDYKT: PASS {head}", "CONTRIBUTOR", "COMMENTED")], NO_PASS),
         (GREEN, [("WERDYKT: PASS {head}", "OWNER", "PENDING")], NO_PASS),
         (GREEN, [("Recenzja: WERDYKT: PASS {head}", "OWNER")], NO_PASS),
-        (GREEN, [("WERDYKT: PASS {head} — bez uwag", "OWNER")], UNREADABLE),
-        (GREEN, [("WERDYKT: PASS {head6}", "OWNER")], UNREADABLE),
-        (GREEN, [("\ufeffWERDYKT: PASS {head}", "OWNER")], UNREADABLE),
-        (GREEN, [("## Werdykt niezależny: PASS", "OWNER")], UNREADABLE),
-        (GREEN, [("WERDYKT: PASS {head}", "OWNER"), ("**Werdykt: PASS** dla {head}", "MEMBER")], UNREADABLE),
+        (GREEN, [("WERDYKT: PASS {head} — bez uwag", "OWNER")], NO_PASS),
+        (GREEN, [("WERDYKT: PASS {head7}", "OWNER")], NO_PASS),
+        (GREEN, [("WERDYKT: PASS {upper}", "OWNER")], NO_PASS),
+        (GREEN, [("**WERDYKT: PASS {head}**", "OWNER")], NO_PASS),
+        (GREEN, [("## Werdykt niezależny: PASS", "OWNER")], NO_PASS),
         (GREEN, [("WERDYKT: PASS {head}", "OWNER"), ("WERDYKT: FAIL {head}", "MEMBER")], OBJECTION),
         ([_check_run("COMPLETED", "FAILURE")], [], f"CI: „Required CI status” FAILURE; {NO_PASS}"),
     ],
@@ -253,10 +252,10 @@ def test_gotowy_pr_jest_scalany_z_jego_head_a_po_merge_biegnie_sprzatanie(tmp_pa
         "pass-w-nieopublikowanej-recenzji",
         "pass-nie-w-pierwszej-linii",
         "pass-z-dopiskiem-w-pierwszej-linii",
-        "pass-z-6-znakami-sha",
-        "pass-z-bom",
+        "pass-z-7-znakami-sha",
+        "pass-z-sha-wielkimi-literami",
+        "pass-w-markdownie",
         "pass-w-naglowku",
-        "pass-w-markdownie-po-pass",
         "fail-po-pass",
         "wszystkie-przyczyny-naraz",
     ],
@@ -270,108 +269,27 @@ def test_bez_zielonego_ci_albo_werdyktu_pass_dla_head_pr_nie_jest_scalany(
     git(github.checkout, "push", "--quiet", "--force", "origin", f"{head}:refs/pull/1/head")
     github.update(1, headRefOid=head, statusCheckRollup=ci)
     for body, association, *state in comments:
-        text = body.format(head=head, old=old, head6=head[:6])
+        text = body.format(head=head, old=old, head7=head[:7], upper=head.upper())
         github.review(1, text, association, state=state[0]) if state else github.comment(1, text, association)
 
     answered = github.run("1")
 
     assert answered.returncode == 1, answered.stdout + answered.stderr
-    assert _last_line(answered) == f"SCAL ODMOWA | #1 {head[:7]} | {reason.format(short=head[:7])}"
+    assert _last_line(answered) == f"SCAL ODMOWA | #1 {head[:7]} | {reason.format(short=head[:7], head=head)}"
     assert github.merges() == []
 
 
 @pytest.mark.parametrize(
     ("kind", "objection"),
     [
-        ("comment", "WERDYKT: FAIL {head} — brak testu"),
-        ("comment", "WERDYKT: FAIL {head}."),
-        ("comment", "**WERDYKT: FAIL {head}**"),
-        ("comment", "WERDYKT: FAIL"),
-        ("comment", "Werdykt: FAIL {head}"),
-        ("comment", "WERDYKT:  FAIL {head}"),
-        ("comment", "WERDYKT: FAIL {head}"),
-        ("comment", "Recenzja V338r2: fail dla {head}"),
-        ("comment", "Werdyktu jeszcze nie ma, czekam na CI"),
-        ("comment", "## Weryfikacja niezależna: FAIL"),
-        ("comment", "Weryfikacja niezależna: FAIL @ {head8}"),
-        ("comment", "_Weryfikacja {head8}: do poprawy_"),
-        ("comment", "VERDICT: FAIL {head}"),
-        ("comment", "Verdict for {head}: changes requested"),
-        ("comment", "❌ WERDYKT: FAIL {head}"),
-        ("comment", "V338r2 WERDYKT: FAIL {head}"),
-        ("comment", "## V338r2\n\nWERDYKT: FAIL {head}"),
-        ("comment", "\n\nWERDYKT: FAIL {head}"),
-        ("comment", "| WERDYKT | FAIL {head} |"),
-        ("comment", "> WERDYKT: FAIL {head}"),
-        ("comment", "> Werdykt dla {head}: do poprawy"),
-        ("comment", "﻿WERDYKT: FAIL {head}"),
-        ("comment", "​WERDYKT: FAIL {head}"),
-        ("comment", "WERDYKT 20261024: FAIL"),
-        ("comment", "WERDYKT: FAIL, run 18234567890"),
-        ("comment", "Werdykt: FAIL, deadbeef w teście"),
-        ("comment", "WERDYKT: FAIL {upper}"),
-        ("comment", "WERDYKT: FAIL {head}0"),
-        ("comment", "Werdykt: FAIL {head7} (poprzednio {old7})"),
-        ("comment", "V338r4: FAILED {head7}"),
-        ("comment", "Weryfikacja: FAILURE"),
-        ("comment", "## V338r4\n\n**FAIL** {head7}: brak testu"),
-        ("comment", "## V338r4 niezależny przegląd\n\nWynik: FAIL {head7}"),
-        ("comment", "## V338r3\n\nWerdykt V338r3: FAIL {head7}"),
-        ("comment", "Przegląd niezależny V338r4 dla PR: FAIL {head7}"),
-        ("comment", "❌ NIE PASS {head7}"),
-        ("comment", "## V338r4\n\nNie pass: brak testu"),
-        ("comment", "Ocena: ＦＡＩＬ {head7}"),
-        ("comment", "Werdykt: PASS {head7}, ale nie pass dla Windows"),
+        ("comment", "WERDYKT: FAIL {head}"),
+        ("comment", "WERDYKT: FAIL {head}\n- krytyczne: brak testu"),
+        ("comment", "\n\n  WERDYKT: FAIL {head}  \r\n"),
         ("COMMENTED", "WERDYKT: FAIL {head}"),
-        ("COMMENTED", "Weryfikacja niezależna: FAIL"),
         ("CHANGES_REQUESTED", "Popraw nazwę funkcji."),
         ("CHANGES_REQUESTED", ""),
     ],
-    ids=[
-        "dopisek",
-        "kropka",
-        "markdown",
-        "bez-sha",
-        "male-litery-werdyktu",
-        "dwie-spacje",
-        "twarda-spacja",
-        "male-litery-fail",
-        "werdykt-bez-fail",
-        "naglowek-weryfikacji-jak-na-305",
-        "weryfikacja-z-sha-jak-na-229",
-        "weryfikacja-bez-fail",
-        "po-angielsku",
-        "po-angielsku-bez-fail",
-        "emoji",
-        "prefiks-recenzenta",
-        "naglowek-nad-werdyktem",
-        "puste-linie-przed-werdyktem",
-        "tabela",
-        "cytat",
-        "cytat-bez-fail",
-        "bom",
-        "zerowa-szerokosc",
-        "data-to-nie-sha",
-        "numer-runu-to-nie-sha",
-        "slowo-hex-i-galaz-to-nie-sha",
-        "sha-head-wielkimi",
-        "sha-head-ze-znakiem-za-nim",
-        "head-i-starszy-commit",
-        "failed",
-        "failure",
-        "fail-w-markdownie-pod-naglowkiem",
-        "wynik-pod-naglowkiem",
-        "werdykt-pod-naglowkiem-z-fail-jako-trzecim-slowem",
-        "fail-jako-szoste-slowo",
-        "nie-pass",
-        "nie-pass-pod-naglowkiem",
-        "fail-pelnej-szerokosci",
-        "pass-i-nie-pass",
-        "recenzja",
-        "recenzja-weryfikacji",
-        "prosba-o-zmiany",
-        "prosba-o-zmiany-bez-tresci",
-    ],
+    ids=["komentarz", "komentarz-ze-znaleziskami", "puste-linie-i-odstepy", "recenzja", "prosba-o-zmiany", "prosba-o-zmiany-bez-tresci"],
 )
 def test_sprzeciw_zaufanego_konta_dla_head_po_pass_blokuje_merge(tmp_path: Path, kind: str, objection: str) -> None:
     github = FakeGitHub(tmp_path, {"kod/__init__.py": SUM})
@@ -379,60 +297,55 @@ def test_sprzeciw_zaufanego_konta_dla_head_po_pass_blokuje_merge(tmp_path: Path,
     head = github.commit_on(old, {"kod/inne.py": "INNE: int = 2\n"}, "PR 1 po poprawce")
     git(github.checkout, "push", "--quiet", "--force", "origin", f"{head}:refs/pull/1/head")
     github.update(1, headRefOid=head)
-    git(github.checkout, "branch", "deadbeef", old)
     github.comment(1, f"WERDYKT: PASS {head}")
-    body = objection.format(head=head, head7=head[:7], head8=head[:8], upper=head.upper(), old7=old[:7])
+    body = objection.format(head=head)
     github.comment(1, body) if kind == "comment" else github.review(1, body, state=kind)
 
     answered = github.run("1")
 
     assert answered.returncode == 1, answered.stdout + answered.stderr
-    assert _last_line(answered) == f"SCAL ODMOWA | #1 {head[:7]} | {OBJECTION.format(short=head[:7])}"
+    assert _last_line(answered) == f"SCAL ODMOWA | #1 {head[:7]} | {OBJECTION.format(short=head[:7], head=head)}"
     assert github.merges() == []
 
 
 @pytest.mark.parametrize(
     "verdicts",
     [
-        [("comment", "WERDYKT: PASS {head}"), ("comment", "Werdykt: FAIL `{old}` — poprawione w nowym commicie")],
-        [("comment", "WERDYKT: PASS {head}"), ("comment", "WERDYKT: FAIL {old7}")],
-        [("comment", "WERDYKT: PASS {head}"), ("comment", "## V338r2\n\nWERDYKT: FAIL {old}")],
-        [("comment", "**Werdykt:** FAIL {head}"), ("comment", "WERDYKT: PASS {head}")],
+        [("comment", "WERDYKT: PASS {head}"), ("comment", "WERDYKT: FAIL {old}")],
+        [("comment", "WERDYKT: FAIL {head}"), ("comment", "WERDYKT: PASS {head}")],
         [("COMMENTED", "WERDYKT: FAIL {head}"), ("comment", "WERDYKT: PASS {head}")],
         [("comment", "WERDYKT: FAIL {head}"), ("COMMENTED", "WERDYKT: PASS {head}")],
         [("comment", "WERDYKT: PASS {head}"), ("comment", "WERDYKT: FAIL {head}", "CONTRIBUTOR")],
-        [("comment", "WERDYKT: PASS {head}"), ("comment", "Poprawki w {head7}\n\nWeryfikacja lokalna: SZYBKO OK")],
         [("comment", "WERDYKT: PASS {head}"), ("COMMENTED", "")],
         [("comment", "WERDYKT: PASS {head}\r\n\r\n- drobne: nazwa")],
-        [("comment", "  WERDYKT: PASS {head7}  ")],
-        [("comment", "WERDYKT: PASS {head}\n\nNiezależne werdykty: V1 (FAIL {old7} tylko przez czerwone CI), V1r2 PASS.\n- FAIL w r1: brak testu\nWerdykt V1: FAIL")],
-        [("comment", "WERDYKT: PASS {head}"), ("comment", "Stan nocy 04:30\n- V1 (FAIL przez CI)\n- Werdykt V1: FAIL {old7}\n- FAIL {old7} poprawiony")],
+        [("comment", "  WERDYKT: PASS {head}  ")],
         [("CHANGES_REQUESTED", "Popraw nazwę funkcji."), ("comment", "WERDYKT: PASS {head}")],
         [("comment", "WERDYKT: PASS {head}"), ("CHANGES_REQUESTED", "Popraw nazwę funkcji.", "CONTRIBUTOR")],
         [("comment", "WERDYKT: PASS {head}"), ("PENDING", "WERDYKT: FAIL {head}")],
-        [("comment", "WERDYKT: PASS {head}"), ("comment", "**Werdykt: PASS** dla {old7}")],
+        [("comment", "WERDYKT: PASS {head}"), ("comment", "WERDYKT: FAIL {head7}")],
+        [("comment", "WERDYKT: PASS {head}"), ("comment", "WERDYKT: FAIL {head} — brak testu")],
+        [("comment", "WERDYKT: PASS {head}"), ("comment", "Werdykt: FAIL {head}")],
+        [("comment", "WERDYKT: PASS {head}"), ("comment", "## Przegląd\n\nWERDYKT: FAIL {head}")],
     ],
     ids=[
-        "sprzeciw-dla-starszego-commitu",
-        "sprzeciw-dla-starszego-commitu-7-znakow",
-        "naglowek-nad-sprzeciwem-dla-starszego-commitu",
-        "pass-po-sprzeciwie",
+        "fail-dla-starszego-commitu",
+        "pass-po-fail",
         "pass-po-starszej-recenzji-z-fail",
         "pass-w-recenzji-po-fail",
-        "sprzeciw-kontrybutora",
-        "dalsza-linia-weryfikacji-bez-fail",
+        "fail-kontrybutora",
         "recenzja-bez-tresci",
         "pass-z-crlf",
         "pass-z-odstepami",
-        "pass-koordynatora-z-lista-fail-jak-na-345",
-        "status-po-pass-z-fail-dla-starszego-commitu",
         "pass-po-prosbie-o-zmiany",
         "prosba-o-zmiany-kontrybutora",
         "nieopublikowana-recenzja-z-fail",
-        "nieczytelny-pass-dla-starszego-commitu",
+        "fail-ze-skroconym-sha-to-nie-werdykt",
+        "fail-z-dopiskiem-to-nie-werdykt",
+        "fail-z-malymi-literami-to-nie-werdykt",
+        "fail-nie-w-pierwszej-linii-to-nie-werdykt",
     ],
 )
-def test_sprzeciw_dla_innego_commitu_starszy_niz_pass_albo_bez_prawa_zapisu_nie_blokuje(
+def test_sprzeciw_dla_innego_commitu_starszy_niz_pass_bez_prawa_zapisu_albo_poza_kontraktem_nie_blokuje(
     tmp_path: Path, verdicts: list[tuple[str, ...]]
 ) -> None:
     github = FakeGitHub(tmp_path, {"kod/__init__.py": SUM})
@@ -441,7 +354,7 @@ def test_sprzeciw_dla_innego_commitu_starszy_niz_pass_albo_bez_prawa_zapisu_nie_
     git(github.checkout, "push", "--quiet", "--force", "origin", f"{head}:refs/pull/1/head")
     github.update(1, headRefOid=head)
     for kind, body, *association in verdicts:
-        text = body.format(head=head, head7=head[:7], old=old, old7=old[:7])
+        text = body.format(head=head, head7=head[:7], old=old)
         github.comment(1, text, *association) if kind == "comment" else github.review(1, text, *association, state=kind)
 
     answered = github.run("1", "--bez-merge")
