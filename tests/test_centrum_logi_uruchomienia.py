@@ -355,7 +355,7 @@ def test_logi_przebiegu_rozliczen_maja_liczbe_ilosci_tylko_dla_inea_w_kazdej_kol
     rows: list[dict[str, CellValue]] = [
         {"D": "gniazdo", "AP": 1},
         {"D": "zyxel technicolor arion", "AK": 2},
-        {"D": "Technicolor globo", "AK": 1},
+        {"D": "Technicolor, globo lub cam", "AK": 1},
         {"D": "globo", "AK": 1, "AP": 1},
     ]
     write_quantity_source(centrum.collective_file, rows)

@@ -26,8 +26,9 @@ ROWS: list[dict[str, CellValue]] = [
     {"D": "2*globo Technicolor", "AK": 2, "AP": 1},
     {"D": "GNIAZDO", "AK": 3},
     {"D": "globo", "AP": 1, "AK": 1},
+    {"D": "gniazdo technicolor", "AP": 0, "AK": 1},
 ]
-EMPTIED = {("AP", 18), ("AP", 20), ("AK", 19)}
+EMPTIED = {("AP", 18), ("AP", 20), ("AK", 19), ("AP", 22), ("AK", 22)}
 
 
 def a_at(path: Path, rows: range) -> dict[tuple[str, int], object]:
@@ -74,14 +75,14 @@ def test_rozliczenie_pracownika_nie_ma_ilosci_tylko_dla_inea_a_plik_zbiorczy_i_k
     preview = run_settlements(source_path, config_path, worker_template_path=template_path, dry_run=True)
     summary = run_settlements(source_path, config_path, worker_template_path=template_path)
 
-    assert dict(summary.inea_only_cleared) == {AP: 1, AK: 1}, "bez pustego AP w wierszu GNIAZDO"
+    assert dict(summary.inea_only_cleared) == {AP: 2, AK: 2}, "puste AP w wierszu GNIAZDO się nie liczy, 0 się liczy"
     assert dict(preview.inea_only_cleared) == dict(summary.inea_only_cleared)
     assert source_path.read_bytes() == source_before
     assert isinstance(summary.orders, tuple)
-    assert [(order.quantity("AP"), order.quantity("AK")) for order in summary.orders] == [(1, 1), (1, 2), (0, 3), (1, 1)]
+    assert [(order.quantity("AP"), order.quantity("AK")) for order in summary.orders] == [(1, 1), (1, 2), (0, 3), (1, 1), (0, 1)]
     written = target_directory / f"Rozliczenie {PERIOD} - Adrian Testowy.xlsx"
     assert written_by_copy(written) is (route == "kopia")
-    source, settlement = a_at(source_path, range(18, 22)), a_at(written, range(18, 22))
+    source, settlement = a_at(source_path, range(18, 23)), a_at(written, range(18, 23))
     assert {key: settlement[key] for key in EMPTIED} == dict.fromkeys(EMPTIED)
     assert {key: value for key, value in settlement.items() if key not in EMPTIED} == {
         key: value for key, value in source.items() if key not in EMPTIED
@@ -111,4 +112,4 @@ def test_bez_naglowka_urzadzenia_rozliczenie_pracownika_ma_ilosci_jak_plik_zbior
 
     assert dict(summary.inea_only_cleared) == {AP: 0, AK: 0}
     written = target_directory / f"Rozliczenie {PERIOD} - Adrian Testowy.xlsx"
-    assert a_at(written, range(18, 22)) == a_at(source_path, range(18, 22))
+    assert a_at(written, range(18, 23)) == a_at(source_path, range(18, 23))
