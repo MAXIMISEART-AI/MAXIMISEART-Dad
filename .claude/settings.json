@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "test ! -f \"$CLAUDE_PROJECT_DIR/tools/hooks/czekanie.py\" || python3 \"$CLAUDE_PROJECT_DIR/tools/hooks/czekanie.py\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}
