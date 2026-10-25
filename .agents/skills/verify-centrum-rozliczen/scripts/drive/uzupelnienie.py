@@ -131,14 +131,20 @@ def drive_result_card(run: Run, page: Page) -> None:
     )
     _check_screen(run, filling, answer, "on the Przygotowanie result card")
     run.capture(page, "230-uzupelnienie-wynik")
-    filling.get_by_role("button", name="Uzupełnij", exact=True).click()
+    # The summary first shows the card's copy and reads again in the background; that read ends before the file
+    # changes, so the page's copy is surely older than the file below.
+    with page.expect_response(lambda response: response.url.endswith(API)):
+        filling.get_by_role("button", name="Uzupełnij", exact=True).click()
     expect(page).to_have_url(f"{run.url.rstrip('/')}/{SUMMARY}")
     _check_screen(run, page, answer, "on the summary opened from the result card")
 
     run.step(FEATURE, "uzupelnienie-wynik-bez-starej-kopii")
     collective_file = period_files(run)[1]
     original = collective_file.read_bytes()
+    # The summary asks for the file's version every 3 s and would read the new file into its copy before Wstecz.
+    page.route(f"**{VERSION_API}", lambda route: route.abort())
     try:
+        run.check(True, "harness: the summary's version checks get no answer, so its copy stays the one read before")
         _write_dad_value(collective_file, EXPECTED_ROWS["without_rule"][0])
         run.check(True, f"harness: one value typed into column {DAD_COLUMN} of row 18 while the summary is open")
         page.evaluate(WATCH_RESULT_SUMMARY)
@@ -153,6 +159,7 @@ def drive_result_card(run: Run, page: Page) -> None:
             "back on the result card the summary waits for its read instead of the summary page's older copy",
         )
     finally:
+        page.unroute(f"**{VERSION_API}")
         collective_file.write_bytes(original)
     run.check(True, "Uzupełnij on the result card opens the same summary, and Wstecz returns to the result")
 
