@@ -187,13 +187,10 @@ class UpdateReport:
         return _report(self.message, lines, fingerprint)
 
 
-_FINGERPRINT_PREFIX: Final = "- Odcisk problemu: "
-
-
 def fingerprint_line(fingerprint: str) -> str:
     """Wiersz treści Zgłoszenia z odciskiem problemu, po którym Centrum znajduje otwarte Zgłoszenie w skrzynce."""
 
-    return f"{_FINGERPRINT_PREFIX}{fingerprint}"
+    return f"- Odcisk problemu: {fingerprint}"
 
 
 def _message_lines(message: Message) -> list[str]:
@@ -439,7 +436,7 @@ class Reports:
 
         if not isinstance(post.target, ReportIssue):
             return
-        fingerprint = post.target.line.removeprefix(_FINGERPRINT_PREFIX)
+        fingerprint = post.target.line.removeprefix(fingerprint_line(""))
         if not self._cases.numbered(REPORT, fingerprint, number):
             return
         with self._lock:

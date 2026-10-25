@@ -8,6 +8,7 @@ Aktualizacja, a okablowanie obu źródeł sprawdzają ich testy HTTP (``test_cen
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 import threading
 from pathlib import Path
 from typing import Any
@@ -18,7 +19,7 @@ from pydantic import BaseModel
 from rozliczenia.centrum import update_messages
 from rozliczenia.centrum.keyed_box import KeyedBox, read_report_key
 from rozliczenia.centrum.log import CentrumLog
-from rozliczenia.centrum.dad_cases import DAD_CASES_FILE, DadCases
+from rozliczenia.centrum.dad_cases import DAD_CASES_FILE, NOTE, Case, DadCases
 from rozliczenia.centrum.outbox import RETRY_S, Outbox, Post, ReportIssue
 from rozliczenia.centrum.report_box import IssuesOutcome, Label, Refused, Unreachable
 from rozliczenia.centrum.reports import (
@@ -437,11 +438,23 @@ def test_inny_problem_wysyla_sie_osobno_obok_otwartego_zgloszenia(computer: Comp
     first, _, _ = prepared(reports, computer)
     first.send()
 
-    other, owner, _ = prepared(reports, computer, OTHER_BRANCH)
+    other, owner, body = prepared(reports, computer, OTHER_BRANCH)
 
     assert owner.states == [READY]
+    assert "Poprzednie Zgłoszenie" not in body
     assert dump(other.send()) == SENT
     assert [report.title.split(":")[0] for report in computer.box.sent] == [NO_CONNECTION, OTHER_BRANCH]
+
+
+def test_uwaga_taty_o_identyfikatorze_rownym_odciskowi_nie_jest_poprzednim_zgloszeniem(computer: Computer) -> None:
+    computer.with_key()
+    fingerprint = source(computer).fingerprint.digest
+    note = Case(NOTE, fingerprint, "Uwaga o tym samym identyfikatorze", None, datetime.now(timezone.utc), 4)
+    DadCases(computer.config, computer.log).add(note)
+
+    _, _, body = prepared(computer.reports(), computer)
+
+    assert "Poprzednie Zgłoszenie" not in body
 
 
 def test_po_zamknieciu_zgloszenia_powracajacy_problem_wysyla_nowe_z_odnosnikiem_do_poprzedniego(computer: Computer) -> None:

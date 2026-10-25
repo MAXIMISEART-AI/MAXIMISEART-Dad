@@ -140,10 +140,10 @@ def configuration_router(
     files: ConfigurationFiles,
     freshness: ToolFreshness,
     release: ReleaseSource,
-    report_key: Callable[[], KeyJudgement],
+    key_judgement: Callable[[], KeyJudgement],
     readers: Readers,
 ) -> APIRouter:
-    """Konfiguracja; ``report_key`` mówi, co wiadomo o kluczu do Zgłoszeń (bez jego wartości) i czeka na Skrzynkę
+    """Konfiguracja; ``key_judgement`` mówi, co wiadomo o kluczu do Zgłoszeń (bez jego wartości) i czeka na Skrzynkę
     najwyżej ``CONFIGURATION_WAIT_S``.
 
     Aktualność narzędzia porównuje commit narzędzia z najnowszym Wydaniem na GitHubie według ``release``: odpowiedzi
@@ -163,7 +163,7 @@ def configuration_router(
             update_offered=offers_update(judgement),
             templates=[checked.status(template) for template in files.templates()],
             workers=_workers(files.worker_config),
-            reports=_KEY_STATE[report_key()],
+            reports=_KEY_STATE[key_judgement()],
         )
 
     return router

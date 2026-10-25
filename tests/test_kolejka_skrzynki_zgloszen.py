@@ -311,6 +311,34 @@ def test_po_dostarczeniu_ta_sama_przyczyna_czekania_znowu_trafia_do_dziennika(tm
     assert waiting_causes(queue) == ["brak-sieci", "brak-sieci"]
 
 
+def test_dostarczenie_w_przejsciu_zeruje_przyczyne_czekania_takze_przed_nastepnym_plikiem(tmp_path: Path) -> None:
+    queue = Queue(tmp_path, FakeReportBox(search_failure=Unreachable(), comment_outcomes=[Unreachable()]))
+    queue.queued("pierwsza\n", "druga\n")
+    queue.outbox.resume()
+    queue.passed()
+    queue.box.search_failure = None
+
+    queue.clock.advance(RETRY_S)
+    queue.passed()
+
+    assert len(queue.box.issues) == 1
+    assert waiting_causes(queue) == ["brak-sieci", "brak-sieci"]
+
+
+def test_przejscie_do_konca_po_braku_sieci_nie_nastawia_ponowienia(tmp_path: Path) -> None:
+    queue = Queue(tmp_path, FakeReportBox(search_failure=Unreachable()))
+    queue.outbox.post(post(["treść\n"]))
+    queue.passed()
+    queue.box.search_failure = None
+    queue.box.outcomes = [Rejected()]
+
+    queue.clock.advance(RETRY_S)
+    queue.passed()
+
+    assert "przyczyna=odmowa-tresci" in queue.log()
+    assert queue.clock.wakes == 0
+
+
 def test_tresc_ktorej_skrzynka_odmawia_zostaje_w_kolejce_a_nastepna_wychodzi_w_tym_samym_przejsciu(
     tmp_path: Path,
 ) -> None:

@@ -208,6 +208,19 @@ def test_po_braku_odpowiedzi_sprawdzenie_klucza_wraca_po_minucie() -> None:
     assert len(skrzynka.box.listed) == 2
 
 
+def test_bez_odpowiedzi_na_ponowne_sprawdzenie_przyjetego_klucza_nastepne_dopiero_po_minucie() -> None:
+    skrzynka = Skrzynka()
+    accepted(skrzynka)
+    skrzynka.box.search_failure = Unreachable()
+    skrzynka.clock.advance(ACCEPTED_KEPT_S)
+    accepted(skrzynka)
+
+    skrzynka.clock.advance(NO_ANSWER_KEPT_S - 1)
+    accepted(skrzynka)
+
+    assert len(skrzynka.box.listed) == 2
+
+
 def test_spozniona_zgoda_sprzed_odmowy_nie_cofa_odmowy() -> None:
     hold = threading.Event()
     skrzynka = Skrzynka(FakeReportBox(search_hold=hold, outcomes=[Refused()]))

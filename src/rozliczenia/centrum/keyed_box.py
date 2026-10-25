@@ -196,12 +196,11 @@ class KeyedBox:
         Po pytaniu tym kluczem bez odpowiedzi dopiero po ``NO_ANSWER_KEPT_S``.
         """
 
-        if self._no_answer is not None and self._no_answer[0] == key and now - self._no_answer[1] < NO_ANSWER_KEPT_S:
-            return False
-        verdict = self._verdict
+        no_answer, verdict = self._no_answer, self._verdict
+        silent = no_answer is not None and no_answer[0] == key and now - no_answer[1] < NO_ANSWER_KEPT_S
         if verdict is None or verdict.key != key:
-            return True
-        return now - verdict.asked_at >= (REFUSED_KEPT_S if verdict.refused else ACCEPTED_KEPT_S)
+            return not silent
+        return not silent and now - verdict.asked_at >= (REFUSED_KEPT_S if verdict.refused else ACCEPTED_KEPT_S)
 
 
 def read_report_key(config_directory: Path) -> str | None:

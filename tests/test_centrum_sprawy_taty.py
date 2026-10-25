@@ -296,6 +296,19 @@ def test_sprawe_wskazuje_rodzaj_i_identyfikator_a_z_kilku_wysylek_liczy_sie_osta
     assert cases(tmp_path) == [first, again]
 
 
+def test_numer_zgloszenia_dostaje_tylko_czekajace_zgloszenie_a_bez_niego_nic_sie_nie_zmienia(tmp_path: Path) -> None:
+    stored = DadCases(tmp_path / "config", log(tmp_path))
+    queued = Case(REPORT, "3f0c1b2a9d8e7f60", "Brak Wzorca", None, at(22, 8), None)
+    note = Case(NOTE, "3f0c1b2a9d8e7f60", "Uwaga o tym samym identyfikatorze", None, at(23, 8), None)
+    for case in (queued, note):
+        stored.add(case)
+
+    answers = (stored.numbered(REPORT, "3f0c1b2a9d8e7f60", 15), stored.numbered(REPORT, "3f0c1b2a9d8e7f60", 16))
+
+    assert answers == (True, False)
+    assert cases(tmp_path) == [Case(REPORT, "3f0c1b2a9d8e7f60", "Brak Wzorca", None, at(22, 8), 15), note]
+
+
 class AnsweringBox:
     """Skrzynka, która na pytanie o issue z etykietą odpowiada z góry ustaloną odpowiedzią i zapisuje pytania."""
 

@@ -485,7 +485,8 @@ class Outbox:
     Przejście, które stanęło na przyczynie dla całej kolejki, nastawia jedno budzenie ``clock`` za ``RETRY_S``, chyba
     że już jest nastawione; budzenie rusza wysyłkę w tle. Odrzucona treść i wysyłka czekająca w ``prepare`` budzenia
     nie nastawiają: ponowienie im nie pomoże. Linia „skrzynka-czeka” trafia do dziennika tylko przy zmianie przyczyny
-    (każde dostarczenie ją zeruje), bo budzenie co minutę zapełniłoby ostatnie wpisy, które niesie Diagnoza.
+    (zeruje ją każde dostarczenie i przejście do końca), bo budzenie co minutę zapełniłoby ostatnie wpisy, które niesie
+    Diagnoza.
     """
 
     def __init__(
@@ -512,7 +513,7 @@ class Outbox:
         self._draining = False
         self._again = False
         self._retry_armed = False
-        self._waiting_logged: WaitingCause | None = None  # tylko wątek kolejki
+        self._stopped_on: WaitingCause | None = None  # tylko wątek kolejki
         self._first_comments: dict[tuple[str, Label], str | None] = {} if addresses is None else _read_addresses(addresses)
         self._undeleted: set[str] = set()  # wysłane w tej pracy Centrum, usunięcie się nie udało i jest w dzienniku
         self._unreadable: set[str] = set()  # nieczytelne, już w dzienniku tej pracy Centrum
@@ -596,15 +597,14 @@ class Outbox:
 
     def _drain(self) -> None:
         while True:
-            stopped: WaitingCause | None = None
             try:
-                stopped = self._send_all()
+                self._send_all()
             except Exception as failure:
                 self._log.unexpected_failure(failure, where="wysyłka do Skrzynki Zgłoszeń")
             with self._changed:
                 if not self._again:
                     self._draining = False
-                    if stopped is not None and not self._retry_armed:
+                    if self._stopped_on is not None and not self._retry_armed:
                         self._retry_armed = True
                         self._clock.after(RETRY_S, self._woken)
                     self._changed.notify_all()
@@ -616,10 +616,10 @@ class Outbox:
             self._retry_armed = False
         self.send_in_background()
 
-    def _send_all(self) -> WaitingCause | None:
+    def _send_all(self) -> None:
         """Pliki kolejki po nazwie (czas utworzenia); porażka skrzynki zatrzymuje przejście albo pomija plik (``_waiting``).
 
-        Zwraca przyczynę, na której przejście stanęło, albo ``None``.
+        ``_stopped_on`` to potem przyczyna, na której przejście stanęło, albo ``None``.
         """
 
         for path in sorted(self._directory.glob("*.json")):
@@ -647,16 +647,16 @@ class Outbox:
             if not isinstance(outcome, Delivered):
                 cause, then = _waiting(outcome)
                 if then == "stop":
-                    if cause != self._waiting_logged:
-                        self._waiting_logged = cause
+                    if cause != self._stopped_on:
                         self._log.box_post_waiting(label=label, period=period, cause=cause)
-                    return cause
+                    self._stopped_on = cause
+                    return
                 self._rejected.add(path.name)
                 with self._lock:
                     self._rejected_posts.add((post.run_id, label))
                 self._log.box_post_waiting(label=label, period=period, cause=cause, file=path.name)
                 continue
-            self._waiting_logged = None
+            self._stopped_on = None
             self._log.box_post_sent(label=label, period=period, number=outcome.number)
             self._on_delivered(post, outcome.number)
             with self._changed:
@@ -666,7 +666,7 @@ class Outbox:
             with suppress(OSError):  # bez znacznika chroni już tylko _undeleted, do końca tej pracy Centrum
                 replace_atomically(path, _queue_text(post, delivered_parts=len(post.parts)))
             self._remove(path)
-        return None
+        self._stopped_on = None
 
     def _remember_address(self, post: Post, outcome: Delivered) -> None:
         """Dopisuje adres pierwszego komentarza do pliku ``addresses``; nieudany zapis to tylko wpis w dzienniku."""
