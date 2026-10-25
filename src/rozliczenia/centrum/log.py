@@ -98,6 +98,15 @@ class CentrumLog:
 
         self._write("nieoczekiwany-wyjatek", typ=type(failure).__name__, miejsce=where)
 
+    def fill_unreadable(self, *, period: str, cause: str, excel_lock: str, failure: str) -> None:
+        """Nieudany odczyt Pliku zbiorczego dla Uzupełnienia: kod Komunikatu, plik blokady Excela i typ błędu.
+
+        ``excel_lock`` to ``tak``, ``nie`` albo ``nieznany``; ``failure`` to nazwa typu błędu systemu albo
+        openpyxl, a ``-`` bez niego. Po tym wpisie wiadomo, czy Windows daje czytać plik, który trzyma Excel (ADR 0016).
+        """
+
+        self._write("uzupelnienie-odczyt-nieudany", okres=period, przyczyna=cause, excel=excel_lock, typ=failure)
+
     def diagnosed(self, *, process: str, period: str, cause: str) -> None:
         """Diagnoza Zatrzymania: klucz procesu, token okresu i kod Komunikatu wyjaśnienia."""
 

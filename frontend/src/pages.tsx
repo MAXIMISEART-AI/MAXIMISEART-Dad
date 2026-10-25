@@ -1,8 +1,18 @@
-import * as React from "react"
-import { BellIcon, CalendarRangeIcon, ChartColumnIcon, PlayIcon, SlidersHorizontalIcon, type LucideIcon } from "lucide-react"
+import type * as React from "react"
+import {
+  BellIcon,
+  CalendarRangeIcon,
+  ChartColumnIcon,
+  ClipboardPenLineIcon,
+  PlayIcon,
+  SlidersHorizontalIcon,
+  type LucideIcon,
+} from "lucide-react"
 
 import type { ViewTiming } from "@/api/generated"
+import { hashParts, href, useHash, type Href } from "@/lib/address"
 import { ConfigurationPage } from "@/pages/configuration/configuration-page"
+import { FillingPage } from "@/pages/filling/filling-page"
 import { MetricsPage } from "@/pages/metrics/metrics-page"
 import { NotificationsPage } from "@/pages/notifications/notifications-page"
 import { PeriodsPage } from "@/pages/periods/periods-page"
@@ -19,8 +29,9 @@ export const NOTIFICATIONS_PAGE = {
 
 /**
  * Strony Centrum. Nowa strona to nowy wpis: menu, adres `#/<id>` i treść biorą się stąd. Strona z `menu: false`
- * (Powiadomienia, otwierane dzwonkiem) nie ma pozycji w menu. Kolejność wpisów to kolejność w menu; pierwszy wpis
- * jest stroną startową.
+ * (Powiadomienia, otwierane dzwonkiem; Uzupełnienie, otwierane z Okresów) nie ma pozycji w menu, a `inMenu` to
+ * pozycja menu, którą wtedy podświetla. Człony adresu za `#/<id>` (np. okres w `#/uzupelnienie/<okres>`) czyta
+ * sama strona przez `usePagePath`. Kolejność wpisów to kolejność w menu; pierwszy wpis jest stroną startową.
  */
 export const PAGES = [
   { id: "okresy", title: "Okresy", icon: CalendarRangeIcon, Content: PeriodsPage, menu: true },
@@ -28,6 +39,14 @@ export const PAGES = [
   { id: "metryki", title: "Metryki", icon: ChartColumnIcon, Content: MetricsPage, menu: true },
   { id: "konfiguracja", title: "Konfiguracja", icon: SlidersHorizontalIcon, Content: ConfigurationPage, menu: true },
   NOTIFICATIONS_PAGE,
+  {
+    id: "uzupelnienie",
+    title: "Uzupełnienie pliku zbiorczego",
+    icon: ClipboardPenLineIcon,
+    Content: FillingPage,
+    menu: false,
+    inMenu: "okresy",
+  },
 ] as const satisfies ReadonlyArray<{
   // Identyfikator strony z kontraktu: pod nim pomiar widoku trafia do dziennika Centrum.
   id: ViewTiming["page"]
@@ -35,30 +54,29 @@ export const PAGES = [
   icon: LucideIcon
   Content: React.ComponentType
   menu: boolean
+  inMenu?: ViewTiming["page"]
 }>
 
 export type Page = (typeof PAGES)[number]
 
-export type PageHref = `#/${Page["id"]}`
+export type PageHref = Href
 
-function pageFromHash(): Page {
-  const id = window.location.hash.replace(/^#\//, "")
+function pageOf(hash: string): Page {
+  const [id] = hashParts(hash)
 
   return PAGES.find((page) => page.id === id) ?? PAGES[0]
 }
 
 export function pageHref(page: Page): PageHref {
-  return `#/${page.id}`
+  return href(page.id)
 }
 
-/** Bieżąca strona z adresu (`#/okresy`), więc działa Wstecz w przeglądarce i odświeżenie karty. */
-export function useCurrentPage(): Page {
-  return React.useSyncExternalStore(
-    (onChange) => {
-      window.addEventListener("hashchange", onChange)
+/** Pozycja menu podświetlona na stronie `page`: ona sama albo, dla strony spoza menu, jej `inMenu`. */
+export function menuPageId(page: Page): Page["id"] {
+  return "inMenu" in page ? page.inMenu : page.id
+}
 
-      return () => window.removeEventListener("hashchange", onChange)
-    },
-    pageFromHash
-  )
+/** Bieżąca strona z adresu (`#/okresy`, `#/uzupelnienie/<okres>`), więc działa Wstecz w przeglądarce i odświeżenie karty. */
+export function useCurrentPage(): Page {
+  return pageOf(useHash())
 }

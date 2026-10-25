@@ -21,6 +21,8 @@ RUN_CARDS = Path("src/rozliczenia/centrum/run_cards.py")
 TOOL_UPDATES = Path("src/rozliczenia/centrum/tool_updates.py")
 KEYED_BOX = Path("src/rozliczenia/centrum/keyed_box.py")
 OUTBOX = Path("src/rozliczenia/centrum/outbox.py")
+WORKBOOK_FILES = Path("src/rozliczenia/workbook_files.py")
+QUANTITIES_TO_FILL = Path("src/rozliczenia/quantities_to_fill.py")
 SETTINGS = Path("src/rozliczenia/centrum/settings.py")
 STOPS = Path("src/rozliczenia/centrum/stops.py")
 RUN_VIEW = Path("src/rozliczenia/centrum/run_view.py")
@@ -29,6 +31,7 @@ KARTA = (RUNNER, "--feature", "karta-z-logow")
 UWAGA = (RUNNER, "--feature", "uwaga-taty")
 AKTUALIZACJA = (RUNNER, "--feature", "aktualizacja")
 ZGLOSZENIE = (RUNNER, "--feature", "zgloszenie")
+UZUPELNIENIE = (RUNNER, "--feature", "uzupelnienie")
 DIAGNOZA = (RUNNER, "--feature", "diagnoza")
 PRZYGOTOWANIE = (RUNNER, "--feature", "przygotowanie-pliku-zbiorczego")
 PRZEBIEG = (RUNNER, "--feature", "przebieg-rozliczen")
@@ -117,12 +120,24 @@ MUTATIONS = (
         (
             Edit(
                 OUTBOX,
-                "                    if stopped is not None and not self._retry_armed:\n",
+                "                    if self._stopped_on is not None and not self._retry_armed:\n",
                 "                    if False:\n",
             ),
         ),
         ZGLOSZENIE,
         "Zgłoszenie bez sieci nie wysyła się samo po powrocie sieci",
+    ),
+    Mutation(
+        "plik blokady Excela blokuje odczyt Uzupełnienia",
+        (Edit(WORKBOOK_FILES, "    if open_in_excel and not despite_excel_lock:\n", "    if open_in_excel:\n"),),
+        UZUPELNIENIE,
+        "tata z Plikiem zbiorczym otwartym w Excelu widzi Komunikat zamiast swoich postępów",
+    ),
+    Mutation(
+        "wpis taty nie robi wiersza",
+        (Edit(QUANTITIES_TO_FILL, "    return any(order.quantity(column) != 0 for", "    return False and any(order.quantity(column) != 0 for"),),
+        UZUPELNIENIE,
+        "wiersz, który tata uzupełnił w Excelu, zostaje na liście do zrobienia",
     ),
     Mutation(
         "„Otwórz Rejestr zleceń” niczego nie otwiera",

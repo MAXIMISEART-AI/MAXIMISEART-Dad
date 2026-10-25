@@ -449,6 +449,83 @@
         }
       }
     },
+    "/api/periods/{token}/quantities-to-fill": {
+      "get": {
+        "tags": [
+          "okresy"
+        ],
+        "summary": "Quantities",
+        "operationId": "getQuantitiesToFill",
+        "parameters": [
+          {
+            "name": "token",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/QuantitiesToFillReady"
+                    },
+                    {
+                      "$ref": "#/components/schemas/QuantitiesToFillProblem"
+                    }
+                  ],
+                  "discriminator": {
+                    "propertyName": "state",
+                    "mapping": {
+                      "ready": "#/components/schemas/QuantitiesToFillReady",
+                      "problem": "#/components/schemas/QuantitiesToFillProblem"
+                    }
+                  },
+                  "title": "Response Getquantitiestofill"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/periods/{token}/worker-settlements/open": {
       "post": {
         "tags": [
@@ -1382,6 +1459,7 @@
               "changeTheme",
               "getPeriodBoard",
               "openPeriodPath",
+              "getQuantitiesToFill",
               "openWorkerSettlement",
               "getRunSetup",
               "startRun",
@@ -1903,6 +1981,26 @@
         ],
         "title": "DecisionAnswer"
       },
+      "DescriptionColumn": {
+        "properties": {
+          "column": {
+            "type": "string",
+            "title": "Column"
+          },
+          "rows": {
+            "type": "integer",
+            "title": "Rows"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "column",
+          "rows"
+        ],
+        "title": "DescriptionColumn",
+        "description": "Kolumna z opisu technika i liczba wierszy, w których tata coś w niej wpisał."
+      },
       "Diagnosis": {
         "properties": {
           "explanation": {
@@ -2008,6 +2106,15 @@
         "title": "Figure",
         "description": "Liczba karty Uruchomienia z etykietą; ``unit`` ``ms`` to czas, który przeglądarka pokazuje w sekundach."
       },
+      "FillKind": {
+        "type": "string",
+        "enum": [
+          "without_rule",
+          "from_description"
+        ],
+        "title": "FillKind",
+        "description": "Rodzaj Ilości do uzupełnienia, który ma listę wierszy."
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -2053,6 +2160,33 @@
         ],
         "title": "Health",
         "description": "Tożsamość działającego Centrum.\n\n``commit`` to skrócony commit narzędzia, z którego Centrum wystartowało, jak na Konfiguracji (``None`` poza\nklonem Gita); po nim launcher i opiekun ponownego startu rozpoznają wersję działającego Centrum, a karta\npokazuje go w „Zaktualizowano”. ``instance`` to losowy identyfikator tego startu Centrum: po ponownym starcie\njest inny, także gdy commit się nie zmienił."
+      },
+      "KindToFill": {
+        "properties": {
+          "kind": {
+            "$ref": "#/components/schemas/FillKind"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/RowToFill"
+            },
+            "type": "array",
+            "title": "Rows"
+          },
+          "done": {
+            "type": "boolean",
+            "title": "Done"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "kind",
+          "rows",
+          "done"
+        ],
+        "title": "KindToFill",
+        "description": "Rodzaj Ilości do uzupełnienia z listą wierszy; ``done``: każdy wiersz zrobiony, także gdy wierszy nie ma."
       },
       "LoggedOutcome": {
         "properties": {
@@ -3029,6 +3163,58 @@
         "title": "Progress",
         "description": "Wyświetlany podzbiór snapshotu jedynej projekcji postępu (ADR 0002): etapy, Szablony pracowników i liczby."
       },
+      "QuantitiesToFillProblem": {
+        "properties": {
+          "state": {
+            "type": "string",
+            "const": "problem",
+            "title": "State"
+          },
+          "message": {
+            "$ref": "#/components/schemas/Message"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "state",
+          "message"
+        ],
+        "title": "QuantitiesToFillProblem",
+        "description": "Pliku zbiorczego nie udało się odczytać; Komunikat go nazywa."
+      },
+      "QuantitiesToFillReady": {
+        "properties": {
+          "state": {
+            "type": "string",
+            "const": "ready",
+            "title": "State"
+          },
+          "kinds": {
+            "items": {
+              "$ref": "#/components/schemas/KindToFill"
+            },
+            "type": "array",
+            "title": "Kinds"
+          },
+          "description_columns": {
+            "items": {
+              "$ref": "#/components/schemas/DescriptionColumn"
+            },
+            "type": "array",
+            "title": "Description Columns"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "state",
+          "kinds",
+          "description_columns"
+        ],
+        "title": "QuantitiesToFillReady",
+        "description": "Ilości do uzupełnienia okresu przeliczone z zapisanego Pliku zbiorczego; ``kinds`` ma każdy rodzaj z listą."
+      },
       "ReadyPath": {
         "properties": {
           "state": {
@@ -3318,6 +3504,26 @@
         ],
         "title": "ResultCounts",
         "description": "Wyniki Uruchomień procesu; przerwane dzielą się na ``stopped`` i ``failed``.\n\n``stopped``: Zatrzymania „dla taty” i przerwane ze starych rekordów bez rodzaju. ``failed``: Zatrzymania\n„do Maksa”, także nieoczekiwany wyjątek."
+      },
+      "RowToFill": {
+        "properties": {
+          "row": {
+            "type": "integer",
+            "title": "Row"
+          },
+          "done": {
+            "type": "boolean",
+            "title": "Done"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "row",
+          "done"
+        ],
+        "title": "RowToFill",
+        "description": "Wiersz Pliku zbiorczego z Ilościami do uzupełnienia: numer wiersza i czy tata już coś w nim wpisał."
       },
       "RunAwaitingDecision": {
         "properties": {
@@ -4287,7 +4493,8 @@
               "uruchomienia",
               "metryki",
               "konfiguracja",
-              "powiadomienia"
+              "powiadomienia",
+              "uzupelnienie"
             ],
             "title": "Page"
           },

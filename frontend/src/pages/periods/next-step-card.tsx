@@ -1,26 +1,41 @@
-import { CalendarRangeIcon, CircleCheckIcon, FolderXIcon } from "lucide-react"
+import { CalendarRangeIcon, CircleCheckIcon, ClipboardPenLineIcon, FolderXIcon } from "lucide-react"
 
 import type { PeriodRow } from "@/api/centrum"
 import { PeriodPath } from "@/components/period-path"
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
+import { href } from "@/lib/address"
 import { fullDate } from "@/lib/format"
 import { PreviewAction } from "@/pages/periods/prepare-actions"
 
 /**
  * „Następny krok” zawsze dla ostatniego pełnego okresu: krótki tytuł, fakty z ikonami i droga okresu.
  * Gdy okres ma następny krok (Przygotowanie pliku zbiorczego albo Przebieg rozliczeń), jedyną akcją
- * główną strony jest „Podgląd bez zapisu” tego procesu.
+ * główną strony jest „Podgląd bez zapisu” tego procesu. Przy przygotowanym Pliku zbiorczym akcją główną jest
+ * „Uzupełnij” (podsumowanie Uzupełnienia pliku zbiorczego), a podgląd Przebiegu rozliczeń zostaje obok jako drugi.
  */
 export function NextStepCard({ period }: { period: PeriodRow }) {
   const step = period.next_step
+  const filling = period.status === "collective_file_prepared"
 
   return (
     <Card className="bg-linear-to-br from-muted/60 to-card" role="region" aria-label="Następny krok">
       <CardContent className="relative flex flex-col gap-4 py-2">
         {step.action === "none" ? null : (
-          <div className="absolute top-1/2 right-4 -translate-y-1/2">
-            <PreviewAction period={period} step={step} />
+          <div className="absolute top-1/2 right-4 flex -translate-y-1/2 flex-col items-end gap-1.5">
+            {filling ? (
+              <Button
+                size="lg"
+                className="h-11 px-5 text-base"
+                nativeButton={false}
+                render={<a href={href("uzupelnienie", period.token)} />}
+              >
+                <ClipboardPenLineIcon data-icon="inline-start" />
+                Uzupełnij
+              </Button>
+            ) : null}
+            <PreviewAction period={period} step={step} secondary={filling} />
           </div>
         )}
         <Badge variant="outline">Następny krok</Badge>

@@ -547,7 +547,7 @@ def test_format_liczby_bez_definicji_w_kolumnach_wygladu_to_uszkodzony_plik_zbio
     [
         ("read_bytes", PermissionError(errno.EACCES, "The process cannot access the file because it is being used by another process")),
         ("read_bytes", OSError(errno.EIO, "The cloud file provider is not running")),
-        ("is_file", PermissionError(errno.EACCES, "Permission denied")),
+        ("stat", PermissionError(errno.EACCES, "Permission denied")),
     ],
     ids=["zablokowany-przez-inny-program", "onedrive-bez-sieci", "folder-bez-dostepu"],
 )
@@ -557,10 +557,10 @@ def test_plik_zbiorczy_niedostepny_do_odczytu_nie_jest_nazwany_uszkodzonym(
     source_path, target_directory, config_path = make_fixture(tmp_path)
     original = getattr(Path, failing)
 
-    def blocked(path: Path) -> object:
+    def blocked(path: Path, **options: object) -> object:
         if path == source_path:
             raise error
-        return original(path)
+        return original(path, **options)
 
     monkeypatch.setattr(Path, failing, blocked)
 

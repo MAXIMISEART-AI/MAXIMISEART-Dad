@@ -19,21 +19,35 @@ export function stepProcess(step: NextStep): Process | null {
   return step.action === "none" ? null : STEP_PROCESSES[step.action]
 }
 
+const PRIMARY_LOOK = { size: "lg", className: "h-11 px-5 text-base" } as const
+
+const SECONDARY_LOOK = { variant: "ghost", className: "text-muted-foreground" } as const
+
 function showRuns() {
   window.location.hash = RUNS_PAGE
 }
 
 /**
- * Akcja główna karty „Następny krok”: podgląd bez zapisu procesu następnego kroku od razu,
+ * Akcja karty „Następny krok”: podgląd bez zapisu procesu następnego kroku od razu,
  * a w trakcie Uruchomienia przejście do podglądu na żywo. Podpowiedź podglądu przychodzi z krokiem.
+ * Główna, chyba że karta ma inną akcję główną (`secondary`).
  */
-export function PreviewAction({ period, step }: { period: PeriodRow; step: ProcessStep }) {
+export function PreviewAction({
+  period,
+  step,
+  secondary,
+}: {
+  period: PeriodRow
+  step: ProcessStep
+  secondary: boolean
+}) {
   const { view, start } = useRuns()
   const process = STEP_PROCESSES[step.action]
+  const look = secondary ? SECONDARY_LOOK : PRIMARY_LOOK
 
   if (isActive(view)) {
     return (
-      <Button size="lg" className="h-11 px-5 text-base" onClick={showRuns}>
+      <Button {...look} onClick={showRuns}>
         <PlayIcon data-icon="inline-start" />
         Pokaż podgląd na żywo
       </Button>
@@ -45,8 +59,7 @@ export function PreviewAction({ period, step }: { period: PeriodRow; step: Proce
       <TooltipTrigger
         render={
           <Button
-            size="lg"
-            className="h-11 px-5 text-base"
+            {...look}
             onClick={() =>
               start({ process, period: period.token, dry_run: true }).then((started) => started && showRuns())
             }

@@ -1,6 +1,6 @@
 """Aplikacja HTTP Centrum rozliczeń: API pod ``/api`` i zbudowany frontend pod ``/``.
 
-Każda grupa zasobów ma własny router (``settings_router``, ``periods_router``,
+Każda grupa zasobów ma własny router (``settings_router``, ``periods_router``, ``filling_router``,
 ``runs_router``, ``notifications_router``, ``dad_notes_router``, ``metrics_router``,
 ``configuration_router``, ``tool_update_router``, ``shutdown_router``, ``timing_router``);
 ``create_app`` składa je, pilnuje nagłówków ``Host`` i ``Origin`` (ADR 0004),
@@ -32,6 +32,7 @@ from rozliczenia.centrum.contract import Health, Problem, Refusal
 from rozliczenia.centrum.dad_cases import DadCases
 from rozliczenia.centrum.dad_notes import after_delivery, dad_notes_router, with_logs
 from rozliczenia.centrum.diagnosis import Surroundings, diagnose, files_of_process
+from rozliczenia.centrum.filling import filling_router
 from rozliczenia.centrum.log import CentrumLog
 from rozliczenia.centrum.metrics import metrics_router, read_runs
 from rozliczenia.centrum.notifications import NOTIFICATIONS_FILE, Notifications, ReadNotifications, notifications_router
@@ -172,6 +173,7 @@ def create_app(
         cloud_files or CloudFiles.of_system(),
         lambda: box.judge(wait_s=report_search_deadline_s),
     )
+    app.include_router(filling_router(store, log, surroundings.cloud_files))
     # Kontrola ilości, Logi Uruchomienia, Uwagi taty i Zgłoszenia: w kolejce Skrzynki, wysyłane w tle (ADR 0007, 0013,
     # 0015); numer issue Uwagi albo Zgłoszenia trafia do jego Sprawy taty.
 

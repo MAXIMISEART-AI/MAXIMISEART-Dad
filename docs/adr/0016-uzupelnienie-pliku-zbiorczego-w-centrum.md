@@ -1,0 +1,45 @@
+# ADR 0016: Uzupełnienie pliku zbiorczego w Centrum: treść wierszy w przeglądarce i odczyt pliku otwartego w Excelu
+
+## Status
+
+Zaakceptowana. Zmienia dwie zasady [ADR 0004](0004-centrum-rozliczen-adapter.md) tylko dla stron
+Uzupełnienia pliku zbiorczego (specyfikacja #415):
+
+- regułę prywatności „Adresy klientów, numery zleceń, treści Wierszy danych i tekst wyjątków nie trafiają do
+  przeglądarki”: przeglądarka dostaje wybrane pola wierszy Ilości do uzupełnienia (niżej);
+- zasadę, że skoroszyt otwarty w Excelu daje Komunikat: te strony czytają ostatnią zapisaną wersję Pliku
+  zbiorczego, który trzyma Excel.
+
+## Kontekst
+
+Po Przygotowaniu pliku zbiorczego tata wpisuje w Excelu Ilości do uzupełnienia. Numery wierszy dostawał tylko w
+ostrzeżeniach na karcie wyniku, które giną z Uruchomieniem, a postępu nie widział nigdzie. Uzupełnianie trwa
+godzinami, z Plikiem zbiorczym otwartym w Excelu, więc strona, która wymaga zamknięcia pliku, nic by mu nie dała.
+
+## Decyzja
+
+- **Stan zawsze z pliku.** Każdy odczyt strony przelicza Reguły ilości na Wierszach danych zapisanego Pliku
+  zbiorczego i czyta Ilości usług taty tym samym odczytem i filtrem co Kontrola ilości (ADR 0013). Centrum nic
+  nie przechowuje i nigdy nie zmienia Pliku zbiorczego z tych stron.
+- **Co widzi przeglądarka.** Dla wierszy Ilości do uzupełnienia: numer wiersza Pliku zbiorczego, `WYKONAWCA`,
+  `URZĄDZENIA`, `CZYNNOŚCI`, `CZYNNOŚCI ZREALIZOWANE`, litery kolumn `N:AP` z nazwami pozycji cennika ze Wzorca
+  oraz Ilości usług narzędzia i taty. Nigdy adresu, numeru zlecenia ani `UMOWA`. Pierwsza strona (#417) pokazuje
+  z tego tylko numery wierszy, stan „zrobione” i liczniki kolumn z opisu technika.
+- **Dane nie wychodzą z komputera.** Te pola nie trafiają do Logów Uruchomienia, Zgłoszenia, Uwagi taty,
+  dziennika Centrum ani pomiaru widoku. Dziennik dostaje przy nieudanym odczycie tylko token okresu, kod
+  Komunikatu, stan pliku blokady Excela i nazwę typu błędu.
+- **Odczyt mimo blokady Excela.** Jedyna funkcja czytająca Plik zbiorczy dostaje jawne pozwolenie na odczyt mimo
+  pliku blokady `~$…`. To nie jest drugi czytnik: Przebieg rozliczeń dalej odmawia pliku otwartego w Excelu,
+  bo czyta go do zapisu Rozliczeń pracowników, a tata ma najpierw zapisać i zamknąć plik.
+- **Niesprawdzone założenie o Autozapisie OneDrive.** Zakładamy, że Autozapis zmienia plik na dysku kilka sekund
+  po wpisie taty. Test Maksa na laptopie taty się nie udał, a to, czy Windows daje czytać plik, który trzyma
+  Excel, sprawdzi dopiero pierwsze wdrożenie przez wpis `uzupelnienie-odczyt-nieudany` w dzienniku. Gdy
+  założenie nie działa, zabezpieczeniem jest wskazówka „Nie widzisz zmian? Zapisz w Excelu (Ctrl+S)”.
+
+## Odrzucone warianty
+
+- **Kopia stanu w Centrum.** Lista wierszy zapisana przy Przygotowaniu przestaje być prawdziwa po usunięciu
+  wiersza albo poprawce `URZĄDZENIA` w Excelu i trzeba ją przechowywać obok plików okresu.
+- **Zaznaczenie komórek kolorem w samym Pliku zbiorczym.** Kolor zostaje po wpisie, bo Excel go nie zdejmie, a
+  Wyróżnienia przechodzą do Rozliczeń pracowników.
+- **Edycja ilości w Centrum.** Wymaga zapisu do pliku, który tata ma otwarty, i osobnej decyzji (ADR 0004).

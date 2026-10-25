@@ -14,6 +14,7 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 from rozliczenia import domain
 from rozliczenia.message import DadFile, Message as ProcessMessage
 from rozliczenia.period_folder import PeriodStatus
+from rozliczenia.quantities_to_fill import FillKind
 
 
 class _Model(BaseModel):
@@ -381,6 +382,46 @@ class Message(_Model):
     @classmethod
     def of(cls, message: ProcessMessage) -> Message:
         return cls(what=message.what, where=message.where, action=message.action)
+
+
+class RowToFill(_Model):
+    """Wiersz Pliku zbiorczego z Ilościami do uzupełnienia: numer wiersza i czy tata już coś w nim wpisał."""
+
+    row: int
+    done: bool
+
+
+class KindToFill(_Model):
+    """Rodzaj Ilości do uzupełnienia z listą wierszy; ``done``: każdy wiersz zrobiony, także gdy wierszy nie ma."""
+
+    kind: FillKind
+    rows: list[RowToFill]
+    done: bool
+
+
+class DescriptionColumn(_Model):
+    """Kolumna z opisu technika i liczba wierszy, w których tata coś w niej wpisał."""
+
+    column: str
+    rows: int
+
+
+class QuantitiesToFillReady(_Model):
+    """Ilości do uzupełnienia okresu przeliczone z zapisanego Pliku zbiorczego; ``kinds`` ma każdy rodzaj z listą."""
+
+    state: Literal["ready"]
+    kinds: list[KindToFill]
+    description_columns: list[DescriptionColumn]
+
+
+class QuantitiesToFillProblem(_Model):
+    """Pliku zbiorczego nie udało się odczytać; Komunikat go nazywa."""
+
+    state: Literal["problem"]
+    message: Message
+
+
+QuantitiesToFill = Annotated[QuantitiesToFillReady | QuantitiesToFillProblem, Field(discriminator="state")]
 
 
 class Count(_Model):
@@ -890,7 +931,7 @@ class NotificationsRead(_Model):
 
 
 # Strony Centrum (`frontend/src/pages.tsx`): z bocznego menu i widok Powiadomienia; identyfikator to adres `#/<id>` strony.
-PageId = Literal["okresy", "uruchomienia", "metryki", "konfiguracja", "powiadomienia"]
+PageId = Literal["okresy", "uruchomienia", "metryki", "konfiguracja", "powiadomienia", "uzupelnienie"]
 # Zimny start strony (otwarcie albo odświeżenie karty) albo przejście w menu.
 ViewKind = Literal["cold_start", "navigation"]
 # Operacje API, które przeglądarka mierzy: nazwy (`operation_id`) zamiast adresu z tokenem okresu. Trasy spoza
@@ -904,6 +945,7 @@ ApiOperation = Literal[
     "changeTheme",
     "getPeriodBoard",
     "openPeriodPath",
+    "getQuantitiesToFill",
     "openWorkerSettlement",
     "getRunSetup",
     "startRun",

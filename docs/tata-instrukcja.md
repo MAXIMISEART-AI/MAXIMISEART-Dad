@@ -347,8 +347,8 @@ uruchomienie dostaje komunikat, że trwa już Uruchomienie procesu. Zakładka
 
 1. Uzupełnij `UWAGI` i `zwrot` w Rozliczeniu wewnętrznym.
 2. Przejrzyj Ilości usług w Pliku zbiorczym. Uzupełnij kolumny z opisu
-   technika i wiersze wskazane w ostrzeżeniach. Jeśli chcesz pominąć jakieś
-   Zlecenie skuteczne, usuń je ręcznie.
+   technika i wiersze wskazane w ostrzeżeniach (niżej, „Uzupełnienie pliku
+   zbiorczego”). Jeśli chcesz pominąć jakieś Zlecenie skuteczne, usuń je ręcznie.
 3. Zapisz i zamknij oba pliki.
 4. Uruchom Przebieg rozliczeń w Centrum rozliczeń.
 
@@ -415,6 +415,34 @@ Przebiegiem rozliczeń.
 | „rozlicza się z opisu technika” | Prewencja, niedostępność usług albo puste `URZĄDZENIA`: narzędzie nie wpisało w tych wierszach żadnych ilości. Wpisz je według `CZYNNOŚCI ZREALIZOWANE`. |
 | „Ilości, które wynikają z opisu technika” | Przypomnienie przy każdym Przygotowaniu. W kolumnach Y, AB, AD, AJ, AK, AL i AM uzupełnij ilości według `CZYNNOŚCI ZREALIZOWANE` w każdym wierszu. |
 | „Dolne wiersze Pliku zbiorczego nie mają zer w kolumnach ilości” | Pliki powstały. Narzędzie wpisało ilości w tych wierszach tak samo jak w pozostałych, a puste komórki liczą się jak 0. Sprawdź je jak pozostałe wiersze. Jeśli zdarza się to często, poproś osobę utrzymującą narzędzie o dodanie wierszy z zerami we Wzorcu pliku zbiorczego. |
+
+## Uzupełnienie pliku zbiorczego
+
+Gdy okres ma Plik zbiorczy przygotowany, karta `Następny krok` na stronie
+Okresy ma przycisk `Uzupełnij`. Prowadzi na stronę, która pokazuje, co zostało
+do wpisania w Excelu:
+
+- `Wiersze bez reguły`: narzędzie nie zna `URZĄDZEŃ`, więc wpisało najwyżej
+  V, T i N. Wiersz jest zrobiony, gdy wpiszesz w nim ilość w innej kolumnie.
+- `Wiersze z opisu`: prewencja, niedostępność usług albo puste `URZĄDZENIA`.
+  Wiersz jest zrobiony, gdy wpiszesz w nim jakąkolwiek ilość.
+- Kolumny Y, AB, AD, AJ, AK, AL i AM: w każdym wierszu według `CZYNNOŚCI
+  ZREALIZOWANE`. Strona podaje tylko, w ilu wierszach coś w nich wpisałeś.
+
+`0` i pusta komórka to to samo. Strona czyta zapisany Plik zbiorczy, także gdy
+masz go otwartego w Excelu, i nigdy go nie zmienia. Czyta go na nowo, gdy
+wracasz do niej z Excela. Jeśli nie widzisz swoich wpisów, zapisz plik w Excelu
+(Ctrl+S). `Otwórz Plik zbiorczy` otwiera plik w Excelu.
+
+### Uzupełnienie → co zrobić
+
+| Co się stało (fragment) | Co zrobić |
+|---|---|
+| „Nie ma Pliku zbiorczego tego okresu” | Jeśli okresu nie przygotowano, najpierw przygotuj plik zbiorczy. Jeśli plik ma inną nazwę albo leży w innym folderze, przywróć go do Folderu okresu pod nazwą `Rozliczenie {okres} - zbiorcze.xlsx` i odśwież stronę. |
+| „Nie można teraz odczytać Pliku zbiorczego” | Poczekaj, aż OneDrive skończy synchronizację, i odśwież stronę. Jeśli komunikat wraca, zapisz i zamknij Plik zbiorczy w Excelu i odśwież stronę. |
+| „Plik zbiorczy jest uszkodzony” | Sprawdź, czy plik otwiera się w Excelu. Jeśli tak, zapisz go w Excelu i odśwież stronę. W innym wypadku przekaż komunikat osobie utrzymującej narzędzie. |
+| „Brakuje nagłówka w Pliku zbiorczym” | Przywróć wskazany nagłówek tak jak w Wzorcu pliku zbiorczego, zapisz plik i odśwież stronę. |
+| „Plik zbiorczy jest tylko w OneDrive w chmurze” | W Eksploratorze plików kliknij plik prawym przyciskiem myszy i wybierz „Zawsze zachowuj na tym urządzeniu”. Gdy się pobierze, odśwież stronę. |
 
 ## Przebieg rozliczeń
 

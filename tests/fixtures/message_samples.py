@@ -13,7 +13,7 @@ from pathlib import Path
 
 from rozliczenia import preparation_messages as messages
 from rozliczenia import settlement_messages
-from rozliczenia.centrum import diagnosis_messages, report_messages, start_problems, update_messages
+from rozliczenia.centrum import diagnosis_messages, fill_messages, report_messages, start_problems, update_messages
 from rozliczenia.centrum.tool_update import LIBRARIES_FAILED, NEW_VERSION_FAILED, ROLLBACK_FAILED, UNEXPECTED
 from rozliczenia.message import Message
 from rozliczenia.period_folder import PeriodFolderLookupError
@@ -205,6 +205,17 @@ DIAGNOSIS_SAMPLES: Samples = {
     "newer_tool_version": [diagnosis_messages.newer_tool_version],
     "file_only_in_cloud": [lambda: diagnosis_messages.file_only_in_cloud(SOURCE)],
     "period_file_open": [lambda: diagnosis_messages.period_file_open(PERIOD_DIRECTORY / f"Rozliczenie wew. {PERIOD}.xlsx")],
+}
+
+FILL_SAMPLES: Samples = {
+    "collective_file_unusable": [
+        partial(fill_messages.collective_file_unusable, WorkbookError(SOURCE, problem)) for problem in Problem
+    ],
+    "headers_missing": [
+        lambda: fill_messages.headers_missing(SOURCE, ("URZĄDZENIA",)),
+        lambda: fill_messages.headers_missing(SOURCE, ("UMOWA", "DATA")),
+    ],
+    "only_in_cloud": [lambda: fill_messages.only_in_cloud(SOURCE)],
 }
 
 REPORT_QUEUE = Path("C:/Narzedzie/config/zgloszenia/kolejka")
