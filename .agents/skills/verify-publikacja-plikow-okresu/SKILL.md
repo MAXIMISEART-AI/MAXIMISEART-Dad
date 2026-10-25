@@ -3,6 +3,7 @@ name: verify-publikacja-plikow-okresu
 description: Exhaustively check that Przygotowanie pliku zbiorczego publishes Rozliczenie wewnętrzne and Plik zbiorczy together or not at all, and never overwrites another file, under every order of a second run, Dad's actions, filesystem errors, and a killed process. Use when a change touches `write_period_files`, `_publish`, `ensure_period_files_absent` in `src/rozliczenia/preparation_files.py`, or `test_publikacja_plikow_okresu` fails.
 pilnuje:
   - src/rozliczenia/preparation_files.py
+  - src/rozliczenia/collective_preparation.py
 ci: .agents/skills/verify-publikacja-plikow-okresu/scripts/explore_publication.py
 ---
 
@@ -41,6 +42,21 @@ touches any of these, or the exception mapping in `write_period_files`, or makes
 Changes to workbook content (`_write_period_file`, styles, Rejestr reading) do
 not matter here: the check replaces workbook writing with one step that creates
 the staged file.
+
+**Sync commit: `11588db1`** (2026-10-25, `main` after #474). At this commit the
+checker was confirmed to describe the code above. Before it the skill recorded
+none; from `cb4e044d`, the last change to its scripts, `preparation_files.py`
+changed only the row type (`RegisterRow`) and the Wzorce calls, and
+`prepare_collective_file` still publishes only through `write_period_files`. To
+see whether the checker needs another look:
+
+```bash
+git log --oneline 11588db1..HEAD -- src/rozliczenia/preparation_files.py src/rozliczenia/collective_preparation.py
+```
+
+Read each listed commit against the steps above. Move the sync commit forward
+only after the checker matches the code at the new commit and the check and its
+mutations pass there.
 
 ## Run
 

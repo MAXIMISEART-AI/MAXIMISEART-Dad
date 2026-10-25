@@ -7,6 +7,10 @@ kończy się ``ModuleNotFoundError``, bo pakiet ``rozliczenia`` kopii szuka modu
 spoza standardowej aktualizacja, którą opiekun kończy, mogła właśnie zmienić (``pip_install``). Test uruchomienia
 kopii (``test_opiekun_ponownego_startu.py``) łapie brak modułu dopiero po minucie czekania na nową wersję, a
 bibliotekę spoza standardowej, którą Python ma, przepuszcza.
+
+Test czyta AST importów, także względnych, importów w funkcji i pakietów nad modułem. Nowy moduł bez zależności
+trafia do ``STDLIB_ONLY`` z powodem. Granica: import przez ``importlib`` albo ``__import__`` z napisu łapie tylko
+przegląd.
 """
 
 from __future__ import annotations

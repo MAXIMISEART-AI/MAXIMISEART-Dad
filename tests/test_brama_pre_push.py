@@ -1,7 +1,8 @@
 """Brama ``tools/hooks/pre-push``: push agenta, który wysyła HEAD, przechodzi tylko po ruff i mypy dla obu systemów.
 
 Każdy test robi prawdziwy ``git push`` do tymczasowego repozytorium bare. Test kroków bramy uruchamia prawdziwe
-``tools/ci_lokalnie.py`` na małym kodzie, a pozostałe atrapę ``.venv/bin/python``.
+``tools/ci_lokalnie.py`` na małym kodzie, a pozostałe atrapę ``.venv/bin/python``. W CI moduł biegnie w jednej
+z części ``pytest (Python 3.14, Linux, K/2)``.
 """
 
 from __future__ import annotations

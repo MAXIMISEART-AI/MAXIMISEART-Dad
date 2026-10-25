@@ -1,4 +1,4 @@
-"""Skille projektu leżą tylko w ``.agents/skills/<skill>/SKILL.md`` (AGENTS.md: skille projektu).
+"""Skille projektu leżą tylko w ``.agents/skills/<skill>/SKILL.md`` (``docs/agents/skille.md``).
 
 Kopia w ``.claude/skills/`` albo ``.cursor/skills/`` rozjeżdża się z oryginałem, a harness jednego narzędzia widzi
 inną wersję skilla niż drugi. Test patrzy na pliki śledzone i nieśledzone, a w ``.claude/`` i ``.cursor/`` także na

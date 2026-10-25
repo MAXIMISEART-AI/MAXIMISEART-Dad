@@ -1,7 +1,7 @@
 """``tools/skille_dla_zmiany.py`` wskazuje skille ``verify-*`` dla zmiany z ``pilnuje:`` w ich ``SKILL.md``.
 
-Testy zachowania budują własne repozytorium z kopią narzędzia. Testy struktury sprawdzają skille i ``AGENTS.md``
-tego checkoutu: routing skilli żyje we frontmatterach, a ``AGENTS.md`` tylko odsyła do narzędzia.
+Testy zachowania budują własne repozytorium z kopią narzędzia. Testy struktury sprawdzają skille, ``AGENTS.md`` i
+``docs/agents/skille.md`` tego checkoutu: routing skilli żyje we frontmatterach, a te pliki tylko odsyłają do narzędzia.
 """
 
 from __future__ import annotations
@@ -330,6 +330,12 @@ def _mandates(tool: ModuleType, text: str, commands: set[tuple[str, ...]]) -> li
 
 
 def test_skill_nie_kaze_uruchamiac_przed_pushem_tego_co_liczy_ci(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Akapit ze zdaniem „before handing/pushing…” albo „przed pushem” nie wymienia polecenia, które liczy CI.
+
+    Polecenie liczy się także w bloku kodu pod akapitem, z ``--run-dir``/``--root`` albo bez części argumentów.
+    Granica: nakaz innymi słowami („after every change”, „always run”, „it must end with”) łapie tylko przegląd.
+    """
+
     tool = _load_tool(monkeypatch)
     commands = _ci_commands(tool)
 
@@ -342,6 +348,8 @@ def test_skill_nie_kaze_uruchamiac_przed_pushem_tego_co_liczy_ci(monkeypatch: py
 
 
 def test_skill_z_poleceniami_w_ci_mowi_co_liczy_ci_a_co_zostaje_lokalnie(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Granica: czy sekcja trafnie nazywa osąd, który zostaje lokalnie, łapie tylko przegląd."""
+
     tool = _load_tool(monkeypatch)
     skills = [md for md in sorted(SKILLS.glob("verify-*/SKILL.md")) if tool.ci_runs(md.parent)]
 
@@ -352,7 +360,10 @@ def test_skill_z_poleceniami_w_ci_mowi_co_liczy_ci_a_co_zostaje_lokalnie(monkeyp
 
 
 def test_agents_md_nie_wymienia_skilli_verify() -> None:
-    agents = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
+    """``AGENTS.md`` i pliki ``docs/agents/``, do których odsyła przed pushem, nie wymieniają skilli ``verify-*``."""
+
+    documents = (ROOT / "AGENTS.md", ROOT / "docs" / "agents" / "pr-i-ci.md", ROOT / "docs" / "agents" / "skille.md")
+    agents = "\n".join(path.read_text(encoding="utf-8") for path in documents)
 
     named = [md.parent.name for md in sorted(SKILLS.glob("verify-*/SKILL.md")) if md.parent.name in agents]
 
