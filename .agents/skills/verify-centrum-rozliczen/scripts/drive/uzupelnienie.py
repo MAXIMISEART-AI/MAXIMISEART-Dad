@@ -169,6 +169,9 @@ def drive_result_card(run: Run, page: Page) -> None:
     run.step(FEATURE, "uzupelnienie-wynik-na-zywo")
     _live_result_card(run, page, filling, collective_file)
 
+    run.step(FEATURE, "uzupelnienie-wynik-po-przebiegu")
+    _settled_result_card(run, page, filling, collective_file)
+
     run.step(FEATURE, "uzupelnienie-wynik-po-starcie")
     kontrola_ilosci._close(run, page)
     kontrola_ilosci._start(run, "uzupelnienie-start-po-zamknieciu")
@@ -239,6 +242,38 @@ def _live_result_card(run: Run, page: Page, filling: Locator, collective_file: P
         collective_file.write_bytes(original)
     expect(section).to_contain_text("0 z 2", timeout=LIVE_TIMEOUT_MS)
     run.check(True, "with the file back as it was the card goes back to 0 z 2 by itself")
+
+
+# Dad comes back to Centrum from Excel or Eksplorator: the card reads the Plik zbiorczy again.
+RETURN_TO_TAB = "() => window.dispatchEvent(new Event('focus'))"
+
+
+def _settled_result_card(run: Run, page: Page, filling: Locator, collective_file: Path) -> None:
+    """After Przebieg rozliczeń the result card is a preview like the summary: „bez ilości”, no hint about saving."""
+
+    hint = filling.get_by_text("Nie widzisz zmian?")
+    expect(hint).to_have_count(1)
+    worker_settlements = collective_file.with_name(f"Rozliczenie pracowników {LAST_COMPLETE}")
+    worker_settlements.mkdir()
+    try:
+        run.check(
+            True,
+            "harness: the Folder rozliczeń pracowników a Przebieg rozliczeń creates exists, removed after this step",
+        )
+        page.evaluate(RETURN_TO_TAB)
+        section = filling.get_by_role("region", name=KIND_TITLES["without_rule"], exact=True)
+        expect(section.get_by_role("listitem")).to_have_text(["18 bez ilości", "20 bez ilości"])
+        answer = _ready(run, "uzupelnienie-wynik-po-przebiegu")
+        run.check(answer["settled"] is True, "after Przebieg the server's answer is settled")
+        _check_screen(run, filling, answer, "on the result card after Przebieg")
+        expect(hint).to_have_count(0)
+        run.check(True, "after Przebieg the result card has no hint about saving in Excel")
+        run.capture(page, "236-uzupelnienie-wynik-po-przebiegu")
+    finally:
+        worker_settlements.rmdir()
+    page.evaluate(RETURN_TO_TAB)
+    expect(hint).to_have_count(1)
+    run.check(True, "without the Folder rozliczeń pracowników the hint is back on the card")
 
 
 def _drive_entries(run: Run, page: Page) -> None:
