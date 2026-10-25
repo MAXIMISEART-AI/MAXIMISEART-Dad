@@ -10,7 +10,8 @@ import type { Resource } from "@/lib/use-resource"
 
 /**
  * Najważniejsze liczby na stronie głównej: ostatni przygotowany okres (wskazany przez serwer w Tablicy
- * okresów), ostatnie Uruchomienie procesu i wyniki z ostatnich tygodni (z plików metryk).
+ * okresów), ostatnie Uruchomienie procesu i wyniki z ostatnich tygodni (z plików metryk). Nieudany odczyt metryk
+ * ma Komunikat i „Spróbuj ponownie” strony nad Tablicą, więc tu zostaje tylko krótka notka.
  */
 export function PeriodStats({
   periods,
@@ -34,7 +35,7 @@ export function PeriodStats({
     const pending: Pick<Stat, "value" | "note"> =
       metrics.state === "loading"
         ? { value: <Skeleton className="h-8 w-24" />, note: <Skeleton className="h-4 w-36" /> }
-        : { value: "–", note: metrics.message }
+        : { value: "–", note: "nie udało się odczytać" }
 
     return (
       <StatStrip

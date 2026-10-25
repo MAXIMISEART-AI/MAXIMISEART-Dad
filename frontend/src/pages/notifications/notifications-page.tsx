@@ -13,9 +13,9 @@ import {
 } from "lucide-react"
 
 import type { Notification } from "@/api/centrum"
+import { LoadFailure } from "@/components/load-failure"
 import { PageHeader } from "@/components/page-header"
 import { ToolUpdateButton, ToolUpdateStatus } from "@/components/tool-update"
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Card } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useContentEntrance } from "@/lib/content-entrance"
@@ -69,7 +69,7 @@ const STATES: Record<CaseState, { text: Record<Case["kind"], string>; icon: Luci
  * Centrum proponuje aktualizację, stoi w osobnej karcie nad listą; po aktualizacji wraca do listy jako historia.
  */
 export function NotificationsPage() {
-  const { notifications, markRead } = useNotifications()
+  const { notifications, markRead, reload } = useNotifications()
   const entrance = useContentEntrance(notifications.state === "loading")
   const data = notifications.state === "ready" ? notifications.data : null
   const unread = React.useMemo(() => data?.items.filter((item) => item.unread).map((item) => item.id) ?? [], [data])
@@ -99,10 +99,7 @@ export function NotificationsPage() {
       <PageHeader title="Powiadomienia" />
       {notifications.state === "loading" ? <NotificationsSkeleton /> : null}
       {notifications.state === "failed" ? (
-        <Alert variant="destructive" className="wejscie">
-          <AlertTitle>Nie udało się odczytać Powiadomień</AlertTitle>
-          <AlertDescription>{notifications.message}</AlertDescription>
-        </Alert>
+        <LoadFailure what="Powiadomień" message={notifications.message} reload={reload} />
       ) : null}
       {pinned === undefined ? null : (
         <Card className={cn(entrance, "gap-0 p-0")} role="region" aria-label={title(pinned)}>
