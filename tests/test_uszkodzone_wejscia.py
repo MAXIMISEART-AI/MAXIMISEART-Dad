@@ -38,12 +38,12 @@ from rozliczenia.centrum.shutdown import Shutdown
 from tests.fixtures.centrum import CENTRUM, FakeGitHub, FakeOneDrive, FakePlatform, MetricsPaths, finished_view
 from tests.fixtures.centrum_processes import Engines
 from tests.fixtures.preparation import PERIOD, write_collective_template, write_internal_template, write_register
-from tests.fixtures.settlement import write_quantity_source, write_template
+from tests.fixtures.settlement import CellValue, write_quantity_source, write_template
 
 TODAY = date(2026, 9, 16)
 SETTLEMENT_PERIOD = "01_07_09_2026"
 # Wiersze danych Pliku zbiorczego Przebiegu rozliczeń: znane URZĄDZENIA, nieznane (wiersz bez reguły) i prewencja.
-HEALTHY_COLLECTIVE_ROWS = (
+HEALTHY_COLLECTIVE_ROWS: tuple[dict[str, CellValue], ...] = (
     {"D": "nokia zte", "G": datetime(2026, 9, 2, 10, 0), "N": 1},
     {"D": "przeniesienie", "G": datetime(2026, 9, 3, 10, 0), "H": "dariusz.fikcyjny2", "N": 2},
     {"D": "prewencja", "G": datetime(2026, 9, 4, 10, 0), "N": 3},
