@@ -24,6 +24,7 @@ checker's thread, and the key is always there and accepted.
 from __future__ import annotations
 
 import argparse
+import json
 import pathlib
 import shutil
 import sys
@@ -162,7 +163,7 @@ class Scheduler:
             "kill": bounds.kills,
         }
         self.trace: list[str] = []
-        self.faults: set[tuple[str, str]] = set()
+        self.faults: list[tuple[str, str]] = []
 
     def say(self, line: str) -> None:
         self.trace.append(line)
@@ -176,7 +177,7 @@ class Scheduler:
         chosen = allowed[index]
         if chosen in self.left:
             self.left[chosen] -= 1
-            self.faults.add((chosen, what.split("(")[0]))
+            self.faults.append((chosen, what.split("(")[0]))
         return chosen
 
     def _killed(self, chosen: Choice, what: str) -> None:
@@ -210,16 +211,25 @@ class Scheduler:
             self.say(f"{what}: OSError")
         return chosen == "oserror"
 
-    def restart(self) -> bool:
-        chosen = (
-            self._pick(("next", "restart"), "przejście")
-            if self.left["kill"]
-            else "next"
-        )
+    def between_passes(self, woken: bool) -> Literal["next", "restart", "stuck"]:
+        """After a pass that left files: the ``RETRY_S`` wake the code armed runs the next pass, or Centrum restarts.
+
+        Without an armed wake and without a restart left, nothing runs the queue again in this work of Centrum.
+        """
+
+        offered: list[Choice] = []
+        if woken:
+            offered.append("next")
+        if self.left["kill"]:
+            offered.append("restart")
+        if not offered:
+            return "stuck"
+        chosen = offered[0] if len(offered) == 1 else self._pick(offered, "przejście")
         if chosen == "restart":
             self.left["kill"] -= 1
-            self.faults.add(("restart", "przejście"))
-        return chosen == "restart"
+            self.faults.append(("restart", "przejście"))
+            return "restart"
+        return "next"
 
 
 def _part_name(text: str) -> str:
@@ -294,8 +304,8 @@ SCOPES = {
     ),
 }
 
-Faults = frozenset[tuple[str, str]]
-"""What went wrong in a schedule: (``unreachable``/``lost``/``oserror``/``kill``/``restart``, the step it hit)."""
+Faults = Sequence[tuple[str, str]]
+"""What went wrong in a schedule, in order: (``unreachable``/``lost``/``oserror``/``kill``/``restart``, the step)."""
 
 
 @dataclass(frozen=True)
@@ -319,10 +329,21 @@ def _after_opened_issue(faults: Faults) -> bool:
 
 
 def _connection_broke_after_issue(faults: Faults) -> bool:
-    """The connection broke after the Skrzynka opened the issue (``_after_opened_issue``), or the process died
-    between the Skrzynka and the marker. Not a restart after a file error: the marker is there to prevent that."""
+    """The connection broke after the Skrzynka opened the issue (``_after_opened_issue``), or the process died after
+    the Skrzynka took the wysyłka and before a delivery marker was on disk: at a ``comment``, at the marker, or at
+    the removal after the marker failed. Not a restart after a failed removal of a file with its marker, and not a
+    process killed before the Skrzynka got anything: the marker is there to prevent a second issue then."""
 
-    return _after_opened_issue(faults) or any(kind == "kill" for kind, _ in faults)
+    marker_failed = False
+    for kind, step in faults:
+        if (kind, step) == ("oserror", "zapis znacznika dostarczenia"):
+            marker_failed = True
+        if kind == "kill" and (
+            step in ("comment", "zapis znacznika dostarczenia")
+            or (step == "usunięcie pliku kolejki" and marker_failed)
+        ):
+            return True
+    return _after_opened_issue(faults)
 
 
 # Each must break in its scope after its faults, or the check ends with ZNALEZISKO ZNIKNĘŁO.
@@ -373,11 +394,16 @@ class _Log(CentrumLog):
 
 
 class _Clock:
+    """Time stands still; ``after`` arms the wake that the checker fires between passes, as the timer would."""
+
+    def __init__(self) -> None:
+        self.armed: list[Callable[[], None]] = []
+
     def __call__(self) -> float:
         return 0.0
 
     def after(self, seconds: float, wake: Callable[[], None]) -> None:
-        """The checker runs the next pass itself."""
+        self.armed.append(wake)
 
 
 @contextmanager
@@ -416,6 +442,13 @@ class Violation:
     detail: str
     trace: tuple[str, ...]
     kind: Kind
+
+
+def _marked(path: Path) -> bool:
+    """The file has its delivery marker: every part delivered (``_queue_text``), it only waits to be removed."""
+
+    entry = json.loads(path.read_text(encoding="utf-8"))
+    return bool(entry.get("delivered_parts") == len(entry["parts"]))
 
 
 def _check(
@@ -462,12 +495,12 @@ def _check(
                     f"wysyłka {post.run_id} ma {len(mine)} issue: {sorted(n for n, i in box.issues.items() if i in mine)}",
                 )
             )
-    left = sorted(path.name for path in queue.glob("*.json"))
-    if left:
+    waiting = [path.name for path in queue.glob("*.json") if not _marked(path)]
+    if waiting:
         broken.append(
             (
                 "KOLEJKA_PUSTA",
-                f"po ustaniu awarii w kolejce zostaje {len(left)} plik(ów)",
+                f"w kolejce czeka {len(waiting)} plik(ów) bez znacznika dostarczenia, a nic jej nie budzi",
             )
         )
     if failures:
@@ -484,11 +517,15 @@ def _state(
     scheduler: Scheduler,
     passes: int,
     failures: list[str],
+    clock: _Clock,
 ) -> object:
     """What decides every future of a pass boundary and how its breaks are judged: the Skrzynka, the queue files,
     the files ``_remove`` could not delete, the faults so far and those left, the passes left and the exceptions.
+    The faults so far count as a set plus the verdict of each ``Excuse`` on them: an excuse that holds keeps holding,
+    and the only order it reads (a failed marker before a kill at the removal) is in the set as the failed marker.
 
-    Left out on purpose, because they do not change what is sent: ``_stopped_on`` (log lines), ``_first_comments``
+    Also whether a ``RETRY_S`` wake is armed, and ``_stopped_on`` and ``_retry_armed``, which decide in ``_drain``
+    whether the next one is. Left out on purpose, because they do not change what is sent: ``_first_comments``
     (``delivered``, ``wait_delivered``), ``_rejected`` (no ``Rejected`` here) and the key verdict of ``KeyedBox``
     (the key is always accepted, and ``Unreachable`` does not change it).
     """
@@ -505,8 +542,15 @@ def _state(
         tuple(sorted(files[name] for name in outbox._undeleted if name in files)),
         tuple(sorted(scheduler.left.items())),
         frozenset(scheduler.faults),
+        tuple(
+            excuse.because(scheduler.faults)
+            for excuse in (*KNOWN_FINDINGS, *ACCEPTED_RISKS)
+        ),
         passes,
         tuple(failures),
+        bool(clock.armed),
+        outbox._stopped_on,
+        outbox._retry_armed,
     )
 
 
@@ -528,13 +572,15 @@ def execute(
     for label, title, body in scope.issues:
         box.issues[len(box.issues) + 1] = _Issue(label, title, body)
     failures: list[str] = []
+    clock = _Clock()
 
     def started() -> Outbox:
+        clock.armed.clear()  # a timer dies with its process
         outbox = Outbox(
             queue,
-            KeyedBox(box, lambda: KEY, clock=_Clock()),
+            KeyedBox(box, lambda: KEY, clock=clock),
             _Log(work / "centrum.log", failures),
-            clock=_Clock(),
+            clock=clock,
         )
         outbox.send_in_background = lambda: None  # type: ignore[method-assign]
         return outbox
@@ -553,7 +599,7 @@ def execute(
     )
     with _intercepted(scheduler, queue):
         while any(queue.glob("*.json")) and passes:
-            state = _state(box, queue, outbox, scheduler, passes, failures)
+            state = _state(box, queue, outbox, scheduler, passes, failures, clock)
             if state in visited and len(scheduler.taken) >= len(prefix):
                 return scheduler, []
             visited.add(state)
@@ -566,14 +612,21 @@ def execute(
                 outbox.resume()
                 continue
             if any(queue.glob("*.json")):
-                if scheduler.restart():
+                then = scheduler.between_passes(bool(clock.armed))
+                if then == "restart":
                     scheduler.say("Centrum startuje znów (resume): przejście kolejki")
                     outbox = started()
                     outbox.resume()
+                elif then == "next":
+                    scheduler.say("po RETRY_S budzik: następne przejście kolejki")
+                    clock.armed.pop(0)()
                 else:
-                    scheduler.say("po RETRY_S: następne przejście kolejki")
+                    scheduler.say(
+                        "nic nie budzi kolejki do następnego startu Centrum ani nowej wysyłki"
+                    )
+                    break
     trace = tuple(scheduler.trace)
-    faults = frozenset(scheduler.faults)
+    faults = tuple(scheduler.faults)
     return scheduler, [
         Violation(rule, detail, trace, _kind(name, rule, faults))
         for rule, detail in _check(scope, box, queue, failures)

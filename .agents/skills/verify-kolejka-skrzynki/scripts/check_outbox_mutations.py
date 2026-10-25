@@ -123,6 +123,32 @@ MUTATIONS = (
         "plik, którego nie dało się usunąć, idzie po restarcie drugi raz i zakłada drugie issue Uwagi taty",
         NEW,
     ),
+    Mutation(
+        "bez budzenia po RETRY_S",
+        (
+            Edit(
+                VERIFIED,
+                "                    if self._stopped_on is not None and not self._retry_armed:\n",
+                "                    if False:\n",
+            ),
+        ),
+        (EXPLORER, "--scope", "znane-issue"),
+        "po zerwanej sieci wysyłka czeka do restartu Centrum albo nowej wysyłki",
+        NEW,
+    ),
+    Mutation(
+        "usunięcie pliku przed znacznikiem dostarczenia",
+        (
+            Edit(
+                VERIFIED,
+                "            with suppress(OSError):  # bez znacznika chroni już tylko _undeleted, do końca tej pracy Centrum\n                replace_atomically(path, _queue_text(post, delivered_parts=len(post.parts)))\n            self._remove(path)\n",
+                "            self._remove(path)\n            with suppress(OSError):  # bez znacznika chroni już tylko _undeleted, do końca tej pracy Centrum\n                replace_atomically(path, _queue_text(post, delivered_parts=len(post.parts)))\n",
+            ),
+        ),
+        (EXPLORER, "--scope", "nowe-issue"),
+        "proces zamknięty przy usuwaniu wysłanej Uwagi taty wysyła ją po restarcie drugi raz",
+        NEW,
+    ),
 )
 
 

@@ -31,9 +31,12 @@ also stays with you.
 - **JEDNO_ISSUE**: one problem has one open Zgłoszenie, one period has one issue
   okresu, and one Uwaga taty opens one issue. Harm: Maks gets the same problem
   in several issues, and the Powiadomienie follows only one of them.
-- **KOLEJKA_PUSTA**: once failures stop, the queue folder
-  (`config/zgloszenia/kolejka/`) is empty within a few passes. Harm: a wysyłka
-  waits forever, or until a restart, after the network came back.
+- **KOLEJKA_PUSTA**: once failures stop, no file without its delivery marker
+  is left in the queue folder (`config/zgloszenia/kolejka/`): the `RETRY_S`
+  wake that `_drain` arms runs the queue again until it is sent. Harm: a
+  wysyłka waits until Centrum restarts or something new is sent, after the
+  network came back. A delivered file whose removal failed may wait for the
+  next start: it has its marker and is never sent again.
 - **BEZ_WYJATKU**: no pass of the queue ends in an exception that `_drain` logs
   as `nieoczekiwany-wyjatek` „wysyłka do Skrzynki Zgłoszeń”.
 
@@ -48,7 +51,8 @@ step of this code that the checker can fail, lose or kill:
 | a box write | `KeyedBox.open_issue` and `comment`, called by `_deliver_new_issue`, `_deliver_report`, `_deliver_to_period`, `_comment_all` |
 | the delivery marker | `Outbox._send_all`: `replace_atomically(path, _queue_text(post, delivered_parts=len(post.parts)))` in `suppress(OSError)` |
 | the removal of a queue file | `Outbox._remove` (`path.unlink`, `_undeleted`) |
-| a pass of the queue | `Outbox._drain` (`_claimed`, `_send_all`, `_released`), as the `RETRY_S` wake runs it |
+| a pass of the queue | `Outbox._drain` (`_claimed`, `_send_all`, `_released`) |
+| the `RETRY_S` wake | `Outbox._drain`: `self._clock.after(RETRY_S, self._woken)` when `_stopped_on` is set and no wake is armed; the checker fires an armed wake between passes, and a restart drops it with its process |
 | a restart of Centrum | a new `Outbox` and `KeyedBox` on the same folder, then `Outbox.resume` |
 
 Covered files: `src/rozliczenia/centrum/outbox.py`,
@@ -82,7 +86,7 @@ mutations pass there.
 
 On Windows use `py -3` instead of `.venv/bin/python`. In a worktree, create its
 `.venv` first (`python3 tools/setup_worktree.py`). It needs nothing beyond the
-repo's Python and takes about 30 s. `--scope NAME` runs one scope, and
+repo's Python and takes about 50 s. `--scope NAME` runs one scope, and
 `--strict` counts known findings and accepted risks as violations too.
 
 The last line is the verdict:
@@ -109,7 +113,8 @@ the checker picks one option:
 - the marker or the removal: it works, raises `OSError` (Windows, antivirus or
   OneDrive holding the file), or the process dies before it;
 - between two passes, when files are left: the `RETRY_S` wake runs the next
-  pass, or Centrum restarts.
+  pass, if the code armed one, or Centrum restarts. With neither, the schedule
+  ends there, and the rules judge what is left.
 
 Bounds in every scope: at most 2 network failures, 1 lost answer, 1 file error
 and 1 killed or restarted Centrum. After the failures run out the queue gets
@@ -134,7 +139,8 @@ stops, nothing is sent, and `KeyedBox` keeps a refusal for `REFUSED_KEPT_S`),
 content the Skrzynka rejects (`Rejected`: the file waits for the next start,
 and the same content would be rejected again), Maks closing or deleting an
 issue (`Gone`, `closed="reuse"`), a part posted twice (after a lost comment
-answer or a restart, accepted as at least once and not a rule here), two queues on one folder (`_claimed`), a
+answer or a restart, accepted as at least once and not a rule here), a
+delivered file with its marker that waits for the next start, two queues on one folder (`_claimed`), a
 process killed in the middle of `replace_atomically` (it leaves a `.tmp` that
 `resume` removes), `prepare` holding a wysyłka back, the threads of
 `send_in_background`, `wait_delivered` and `on_delivered` (Sprawy taty), and
@@ -177,14 +183,16 @@ with `ZNALEZISKO ZNIKNĘŁO`: delete the entry there and here.
    a comment fails, and the next pass opens a second issue with the whole Uwaga.
    ADR 0015 accepts it: „Wysyłka jest co najmniej raz: zerwane połączenie po
    utworzeniu issue może dać drugie issue”. The docstring of `outbox.py` accepts
-   the same after a process killed between the Skrzynka and the marker. A
-   `NewIssue` has no line to find its issue by.
+   the same after a process killed after the Skrzynka took the wysyłka and
+   before its marker was on disk. A `NewIssue` has no line to find its issue by.
 
    The risk excuses JEDNO_ISSUE only after those faults
-   (`_connection_broke_after_issue`). A second issue without them is a new
-   violation. That is how the check holds the delivery marker to its promise:
-   a file that `_remove` could not delete must not be sent again after a
-   restart.
+   (`_connection_broke_after_issue`): a lost answer to `open_issue`, any fault
+   at a `comment`, or a process killed at a `comment`, at the marker, or at the
+   removal after the marker failed. A second issue after any other schedule is a
+   new violation. That is how the check holds the delivery marker to its
+   promise: a file whose marker is on disk is never sent again, also when
+   `_remove` could not delete it, or the process died while removing it.
 
 An accepted risk lives in `ACCEPTED_RISKS` in `explore_outbox.py` with the
 decision it rests on and the faults after which it is accepted.
@@ -225,9 +233,11 @@ with `MUTACJE OK`. Each of these gives `KOLEJKA: NOWE NARUSZENIE`:
 - a network failure that skips the file instead of stopping the pass;
 - a Zgłoszenie that never posts its comments, with the network working;
 - an Uwaga taty that opens two issues;
-- no delivery marker.
+- no delivery marker;
+- no `RETRY_S` wake after a pass that stopped;
+- the queue file removed before its marker is written.
 
-The last three break the same rule as a known finding or an accepted risk, in a
-schedule those do not excuse. A mutation reported as `NIEAKTUALNA` no longer
+The Zgłoszenie, Uwaga, marker and removal mutations break the same rule as a
+known finding or an accepted risk, in a schedule those do not excuse. A mutation reported as `NIEAKTUALNA` no longer
 matches `outbox.py`: rewrite its `anchor` and `replacement` against the new code
 so that it breaks the same rule again.
