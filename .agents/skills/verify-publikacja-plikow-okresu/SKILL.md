@@ -42,8 +42,9 @@ py -3 .agents\skills\verify-publikacja-plikow-okresu\scripts\explore_publication
 
 On macOS or Linux use `.venv/bin/python` instead of `py -3`. It takes about 3 s, needs
 nothing beyond the repo's Python, and runs in CI as
-`tests/test_publikacja_plikow_okresu.py`. In a worktree the script checks the
-worktree's own `src`.
+`tests/test_publikacja_plikow_okresu.py` and before this skill's mutations (the
+`ci:` key). Run it locally only to reproduce a red CI step, or one scope while
+you work on it. In a worktree the script checks the worktree's own `src`.
 
 The last line is the verdict:
 
@@ -141,7 +142,9 @@ is the code that made the call. Then sort it into one of three cases:
 
 ## After changing the checker or an intended change to the publication code
 
-Prove the check can still fail. This applies the broken variants to a temporary
+CI proves the check can still fail: Mutation checks runs the script below whenever
+a change touches this skill. Run it locally only to reproduce a red Mutation checks
+step or after you rewrite a mutation. It applies the broken variants to a temporary
 copy of the checkout (`tools/mutacje.py`), never to the checkout:
 
 ```powershell

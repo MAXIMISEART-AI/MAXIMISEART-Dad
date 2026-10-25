@@ -24,6 +24,10 @@ Run from the repository root (Windows: `py -3`; macOS/Linux: `.venv/bin/python`)
 py -3 .agents\skills\verify-centrum-rozliczen\scripts\run_centrum_verification.py
 ```
 
+CI runs `all` (the `ci:` key) in Mutation checks on Windows whenever a change touches this
+skill. Locally drive only the feature you work on, as a background command, or reproduce a red
+Mutation checks step.
+
 `--feature ustawienia`, `--feature tablica-okresow`, `--feature uklad-folderow-taty`, `--feature konfiguracja`, `--feature aktualizacja`,
 `--feature metryki`, `--feature blad-odczytu`, `--feature przygotowanie-pliku-zbiorczego`, `--feature uzupelnienie`,
 `--feature przebieg-rozliczen`, `--feature kontrola-ilosci`, `--feature diagnoza`, `--feature aktualnosc-i-onedrive`, `--feature zgloszenie`, `--feature uwaga-taty`, `--feature logi-uruchomienia`, `--feature karta-z-logow`, `--feature powiadomienia`, `--feature pomiar-u-taty`, or `--feature start-i-zamykanie` drives one
@@ -202,7 +206,8 @@ Then confirm the evidence directory still exists.
   scratch directory) and evidence hygiene check.
 - `scripts/check_centrum_mutations.py`: shows the drive fails on broken
   variants of Centrum, each running one feature on its own copy of the checkout;
-  it ends with `MUTACJE OK`, and CI runs it through `tools/mutacje_skilli.py`.
+  it ends with `MUTACJE OK`, and CI runs it through `tools/mutacje_skilli.py`, so run it
+  locally only to reproduce a red Mutation checks step.
 - `tools/quiet_machine.py --status`: what holds the machine now (a
   measurement, other verification runs, test runs or benchmarks).
 

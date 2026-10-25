@@ -63,8 +63,9 @@ py -3 .agents\skills\verify-rozliczenia\scripts\run_verification.py --variant pr
 both period files, including the Rejestr Hiperłącze of every written `NUMER ZL.` cell.
 Its route and counts are in `features/prepare-collective-file.md`.
 
-When `config/` holds the real Wzorce, also run the local variant after changes
-to formatting or template handling in Przygotowanie pliku zbiorczego:
+When `config/` holds the real Wzorce, also run the local variant on the Mac, as a
+background command, after changes to formatting or template handling in
+Przygotowanie pliku zbiorczego:
 
 ```powershell
 py -3 .agents\skills\verify-rozliczenia\scripts\run_verification.py --variant preparation-real-templates
@@ -105,7 +106,8 @@ rozliczenia pracownika; like `preparation-real-templates` it is local only,
 takes `--templates-dir`, and prints `VERIFY SKIP` without them. Route and
 counts are in `features/prepare-and-settle.md`.
 
-Before handing work over, run every CI variant in one command, as CI does:
+CI runs every CI variant in one command in its E2E step on Windows (Python 3.11 and
+3.14), so run it locally only to reproduce a red E2E step:
 
 ```powershell
 py -3 .agents\skills\verify-rozliczenia\scripts\run_verification.py --variant all
@@ -205,8 +207,9 @@ and it appears nowhere else in the result.
 ## Reguły ilości
 
 After a change to `src/rozliczenia/quantity_rules.py` or to its conformance
-test `tests/test_ilosci_uslug.py`, prove that the test still catches a single
-broken rule:
+test `tests/test_ilosci_uslug.py`, CI proves in Mutation checks that the test
+still catches a single broken rule. Run it locally only to reproduce a red
+Mutation checks step or after you rewrite a mutation:
 
 ```powershell
 py -3 .agents\skills\verify-rozliczenia\scripts\check_quantity_rules_mutations.py

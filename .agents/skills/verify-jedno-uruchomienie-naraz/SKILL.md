@@ -77,8 +77,9 @@ py -3 .agents\skills\verify-jedno-uruchomienie-naraz\scripts\explore_runs.py
 ```
 
 On macOS or Linux use `.venv/bin/python` instead of `py -3`. It takes about 5 s on a
-Mac and runs in CI as `tests/test_jedno_uruchomienie_naraz.py`. In a worktree the
-script checks the worktree's own `src`.
+Mac and runs in CI as `tests/test_jedno_uruchomienie_naraz.py` and, whole, before this skill's
+mutations (the `ci:` key). Run it locally only to reproduce a red CI step, or one
+`--scope` while you work on it. In a worktree the script checks the worktree's own `src`.
 
 | Last line | Exit | Meaning |
 | --- | --- | --- |
@@ -165,7 +166,9 @@ requests, `wątek Uruchomienie n` is the thread `RunHost.start` spawned,
 
 ## After changing the checker or an intended change to the covered code
 
-Prove the check can still fail. This applies broken variants to a temporary copy
+CI proves the check can still fail: Mutation checks runs the script below whenever a
+change touches this skill. Run it locally only to reproduce a red Mutation checks step
+or after you rewrite a mutation. It applies broken variants to a temporary copy
 of `src`, never to the checkout, each in the one scope that catches it (about
 45 s on a Mac):
 

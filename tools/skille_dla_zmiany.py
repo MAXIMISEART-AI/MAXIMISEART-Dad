@@ -1,4 +1,4 @@
-"""Wypisuje skille ``verify-*``, które trzeba załadować dla zmiany od bazy (domyślnie ``origin/main``), każdy z powodem.
+"""Wypisuje skille ``verify-*``, które obowiązują dla zmiany od bazy (domyślnie ``origin/main``), każdy z powodem.
 
 Zmiana to pliki z ``git diff BAZA...HEAD`` oraz pliki niezacommitowane i nieśledzone. Skill deklaruje we
 frontmatterze ``SKILL.md`` klucz ``pilnuje:``, listę globów ścieżek względem korzenia repozytorium (``*`` obejmuje
@@ -8,9 +8,12 @@ wykonują skrypty skilla: ich importem (przechodnio) albo skryptem ``.py``, któ
 jego importami. Tych plików ``pilnuje`` nie musi wymieniać. Skill bez klucza albo z kluczem, którego nie da się
 odczytać, obowiązuje zawsze.
 
-Każdy skill, który obowiązuje, dostaje linię ``<skill>: <plik> (<glob>), …``. Ostatnia linia to
-``SKILLE VERIFY: <skille po przecinku>`` albo ``SKILLE VERIFY: brak``. Gdy git nie wyznaczy zmiany (np. nie ma
-bazy), ostatnia linia to ``SKILLE VERIFY: nieznane (<powód>)``, a kod wyjścia 1.
+Każdy skill, który obowiązuje, dostaje linię ``<skill>: <plik> (<glob>), …``. Skill z kluczem ``ci:`` liczy zadanie
+CI Mutation checks (``tools/mutacje_skilli.py``), więc trafia do linii ``LICZY CI: <skille po przecinku>``, a nie do
+listy skilli, które agent uruchamia sam. Ostatnia linia to ``SKILLE VERIFY: <skille po przecinku>`` albo
+``SKILLE VERIFY: brak``: skille bez ``ci:`` (Excel na Macu, Windows przez GitHub) i skille, których ``ci:`` nie da się
+odczytać. Gdy git nie wyznaczy zmiany (np. nie ma bazy), ostatnia linia to ``SKILLE VERIFY: nieznane (<powód>)``, a
+kod wyjścia 1.
 
     .venv/bin/python tools/skille_dla_zmiany.py            # macOS i Linux
     py -3 tools/skille_dla_zmiany.py origin/main           # Windows
@@ -25,10 +28,11 @@ from fnmatch import fnmatchcase
 from pathlib import Path
 import subprocess
 
-from mutacje_skilli import PATTERN, ROOT, SKILLS, closure, guarded
+from mutacje_skilli import PATTERN, ROOT, SKILLS, ci_command, closure, guarded
 from szybko import references
 
 VERDICT = "SKILLE VERIFY"
+IN_CI = "LICZY CI"
 SHOWN = 3
 
 
@@ -88,6 +92,13 @@ def _reasons(skill_md: Path, files: Iterable[str]) -> list[str]:
     return found
 
 
+def _in_ci(skill_md: Path) -> bool:
+    try:
+        return ci_command(skill_md) is not None
+    except ValueError:
+        return False
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("baza", nargs="?", default="origin/main", help="Commit albo gałąź, od której liczy się zmiana.")
@@ -98,13 +109,16 @@ def main(argv: list[str] | None = None) -> int:
         detail = (error.stderr.decode("utf-8", "replace").strip().splitlines() or [f"kod {error.returncode}"])[0]
         print(f"{VERDICT}: nieznane (git {error.cmd[1]}: {detail})")
         return 1
-    chosen = []
+    chosen: list[str] = []
+    in_ci: list[str] = []
     for skill_md in sorted(SKILLS.glob("verify-*/SKILL.md")):
         found = _reasons(skill_md, files)
         if found:
-            chosen.append(skill_md.parent.name)
+            (in_ci if _in_ci(skill_md) else chosen).append(skill_md.parent.name)
             more = f" i {len(found) - SHOWN} innych" if len(found) > SHOWN else ""
             print(f"{skill_md.parent.name}: {', '.join(found[:SHOWN])}{more}")
+    if in_ci:
+        print(f"{IN_CI}: {', '.join(in_ci)}")
     print(f"{VERDICT}: {', '.join(chosen) or 'brak'}")
     return 0
 

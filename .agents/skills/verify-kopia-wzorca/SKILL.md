@@ -96,7 +96,9 @@ On macOS or Linux use `.venv/bin/python` instead of `py -3`. It needs the repo's
 dependencies (`hypothesis` is in `requirements.txt` and the `dev` extra), takes about
 85 s on a Mac M4 Max when it passes and runs in CI as `tests/test_kopia_wzorca.py`. Most of that
 is the openpyxl reference, which copies the font and fill of every written cell. A failing run
-spends up to a minute more shrinking the counterexample (`SHRINK_SECONDS`). In a worktree,
+spends up to a minute more shrinking the counterexample (`SHRINK_SECONDS`). Mutation checks also
+runs it before this skill's mutations (the `ci:` key), so run it locally only to reproduce a red CI
+step. In a worktree,
 create its own `.venv` first (`tools/setup_worktree.py`); the script refuses to run against another checkout's
 `src`.
 
@@ -220,8 +222,9 @@ Never loosen a rule or drop a value or Wzorzec to make a real counterexample dis
 
 ## After changing the checker or an intended change to the copy
 
-Prove the check can still fail. This applies broken variants to a temporary copy of the checkout
-(`tools/mutacje.py`), never to the checkout:
+CI proves the check can still fail: Mutation checks runs the script below whenever a change touches
+this skill. Run it locally only to reproduce a red Mutation checks step or after you rewrite a mutation.
+It applies broken variants to a temporary copy of the checkout (`tools/mutacje.py`), never to the checkout:
 
 ```powershell
 py -3 .agents\skills\verify-kopia-wzorca\scripts\check_copy_mutations.py

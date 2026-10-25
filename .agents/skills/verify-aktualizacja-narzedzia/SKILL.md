@@ -164,6 +164,8 @@ no longer describes.
 ```
 
 On Windows use `py -3 .agents\skills\verify-aktualizacja-narzedzia\scripts\sprawdz_aktualizacje.py`.
+CI runs it (the `ci:` key) in Mutation checks whenever a change touches this skill, so run
+it locally only while you bring the model in line or to reproduce a red Mutation checks step.
 In a worktree, create its `.venv` first (`python3 tools/setup_worktree.py`).
 No system Java is needed. The first run downloads pinned `jdk4py==25.0.2.1`
 (a Java runtime packaged for pip, about 50 MB) and `tla2tools.jar` v1.7.4

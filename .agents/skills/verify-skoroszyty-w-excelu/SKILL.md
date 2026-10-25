@@ -237,8 +237,9 @@ rm -rf ~/Library/Containers/com.microsoft.Excel/Data/maximiseart-weryfikacja/<ru
 .venv/bin/python .agents/skills/verify-rozliczenia/scripts/cleanup.py --root <run dir>/runs/<run>
 ```
 
-The sweep and the quit are guarded by mutations; it must end with `MUTACJE OK`
-(a few seconds; CI runs it in the `mutations` job):
+The sweep and the quit are guarded by mutations that CI runs in Mutation checks;
+run them locally only to reproduce a red Mutation checks step (a few seconds, it
+ends with `MUTACJE OK`):
 
 ```bash
 .venv/bin/python .agents/skills/verify-skoroszyty-w-excelu/scripts/check_excel_cleanup_mutations.py

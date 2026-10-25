@@ -13,8 +13,8 @@ Werdykty to komentarze i recenzje PR kont z prawem zapisu (``OWNER``, ``MEMBER``
 utworzenia; nieopublikowana recenzja (``PENDING``) się nie liczy. Zgoda to komentarz albo recenzja, której pierwsza
 niepusta linia to dokładnie ``WERDYKT: PASS <SHA>``, gdzie ``<SHA>`` to HEAD PR małymi literami (pełny albo co
 najmniej 7 pierwszych znaków); dalsze linie to znaleziska i ich nie czyta. Pisze ją niezależny recenzent, nie autor
-zmiany: ``PASS`` mówi, że przegląd nie znalazł problemów, a skille ``verify-*`` z ``tools/skille_dla_zmiany.py``
-przeszły na tym SHA. Ścisła jest tylko zgoda. Linię czyta po normalizacji NFKC i zamianie na odstęp wszystkiego, co
+zmiany: ``PASS`` mówi, że przegląd nie znalazł problemów, a skille ``verify-*`` z linii ``SKILLE VERIFY``
+``tools/skille_dla_zmiany.py`` przeszły na tym SHA (skille z linii ``LICZY CI`` liczy CI). Ścisła jest tylko zgoda. Linię czyta po normalizacji NFKC i zamianie na odstęp wszystkiego, co
 nie jest literą ani cyfrą (markdown, emoji, cytat, interpunkcja, BOM, znaki zerowej szerokości). Słowo sprzeciwu to
 słowo zaczynające się od ``fail`` (``FAIL``, ``FAILED``, ``FAILURE``) albo para „nie pass”, bez względu na wielkość
 liter. Sprzeciwem jest recenzja w stanie ``CHANGES_REQUESTED`` i każdy inny werdykt, którego pierwsza niepusta linia

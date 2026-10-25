@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import importlib.util
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import sys
@@ -203,6 +204,25 @@ def test_wiele_plikow_jednego_skilla_skraca_powod(tmp_path: Path) -> None:
     ]
 
 
+def test_skill_liczony_w_ci_trafia_do_linii_liczy_ci_a_nie_do_skilli_dla_agenta(tmp_path: Path) -> None:
+    base = _repo(
+        tmp_path,
+        {
+            **REPO,
+            ".agents/skills/verify-a/SKILL.md": "---\nname: verify-a\npilnuje:\n  - src/a/*\nci: tools/narzedzie.py --wszystko\n---\n",
+            ".agents/skills/verify-mac/SKILL.md": "---\nname: verify-mac\npilnuje:\n  - src/a/*\n---\n",
+            ".agents/skills/verify-zly/SKILL.md": "---\nname: verify-zly\npilnuje:\n  - src/a/*\nci: docs/b.md\n---\n",
+        },
+    )
+    _append(tmp_path, "src/a/b/gleboki.py")
+
+    result = _run(tmp_path, base)
+
+    assert _skills(result) == ["verify-mac", "verify-zly"]
+    assert result.stdout.splitlines()[-2] == "LICZY CI: verify-a"
+    assert "verify-a: src/a/b/gleboki.py (src/a/*)" in result.stdout.splitlines()
+
+
 def test_baza_ktorej_nie_ma_daje_nieznane_skille_i_kod_bledu(tmp_path: Path) -> None:
     _repo(tmp_path)
 
@@ -257,6 +277,61 @@ def test_workflow_skilla_windows_biegnie_dla_tych_samych_sciezek_co_jego_pilnuje
         "pull_request": expected,
         "push": expected,
     }, "paths workflow skilla Windows to jego pilnuje: i folder skilla: dopisz ścieżkę w obu miejscach"
+
+# Zdanie, które każe uruchomić coś przed oddaniem pracy albo pushem.
+BEFORE_PUSH = re.compile(r"before (handing|you hand|pushing|you push|opening|you open)|przed (pushem|oddaniem)", re.IGNORECASE)
+SKILL_COMMAND = re.compile(r"\.agents/skills/[\w-]+/scripts/([\w/]+\.py)((?:[ \t]+[^\s`\"']+)*)")
+
+
+def _ci_commands(tool: ModuleType) -> set[tuple[str, ...]]:
+    """Polecenia skilli, które liczy CI: ``ci:``, skrypty mutacji i polecenia skilli w krokach ``ci.yml``.
+
+    Polecenie to nazwa skryptu i jego argumenty; skrypt mutacji bez argumentów obejmuje każde swoje wywołanie.
+    """
+
+    commands = {(Path(command[0]).name, *command[1:]) for md in SKILLS.glob("*/SKILL.md") if (command := tool.ci_command(md))}
+    commands |= {(script.name,) for script in SKILLS.glob(f"*/scripts/{tool.PATTERN}")}
+    workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+    commands |= {(Path(script).name, *arguments.split()) for script, arguments in SKILL_COMMAND.findall(workflow)}
+    return commands
+
+
+def _paragraphs(text: str) -> list[str]:
+    """Akapity prozy, każdy z blokiem kodu, który stoi zaraz pod nim."""
+
+    found: list[str] = []
+    for chunk in re.split(r"\n\s*\n", text):
+        if chunk.lstrip().startswith("```") and found:
+            found[-1] += "\n" + chunk
+        else:
+            found.append(chunk)
+    return found
+
+
+def _mandates(text: str, commands: set[tuple[str, ...]]) -> list[str]:
+    """Akapity, które każą przed pushem uruchomić lokalnie polecenie liczone przez CI."""
+
+    found = []
+    for paragraph in _paragraphs(text):
+        if not BEFORE_PUSH.search(paragraph):
+            continue
+        named = {(Path(script).name, *arguments.split()) for script, arguments in SKILL_COMMAND.findall(paragraph.replace("\\", "/"))}
+        # Wywołanie bez części argumentów polecenia CI to zwykle jego domyślny przebieg (``all``), więc też się liczy.
+        if any(command[: len(ci)] == ci or ci[: len(command)] == command for command in named for ci in commands):
+            found.append(paragraph.splitlines()[0])
+    return found
+
+
+def test_skill_nie_kaze_uruchamiac_przed_pushem_tego_co_liczy_ci(monkeypatch: pytest.MonkeyPatch) -> None:
+    commands = _ci_commands(_load_tool(monkeypatch))
+
+    found = {md.parent.name: _mandates(md.read_text(encoding="utf-8"), commands) for md in sorted(SKILLS.glob("*/SKILL.md"))}
+
+    assert {("run_verification.py", "--variant", "all"), ("run_centrum_verification.py", "--feature", "all")} <= commands
+    assert {skill: lines for skill, lines in found.items() if lines} == {}, (
+        "polecenie, które liczy CI, skill uruchamia lokalnie tylko do odtworzenia czerwonego kroku CI albo przy pracy nad jedną funkcją"
+    )
+
 
 def test_agents_md_nie_wymienia_skilli_verify() -> None:
     agents = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
