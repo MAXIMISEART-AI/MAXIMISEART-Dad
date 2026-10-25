@@ -18,7 +18,7 @@ razy; ta odpowiedź może mieć do 10 minut, więc nowe Wydanie pojawia się naj
 odpowiedź i tak zapisuje stan. Brak sieci albo odmowa przechodzą po cichu, bez Komunikatu, z ostatnią znaną
 odpowiedzią. Przeczytane Powiadomienia (ich ``id``) leżą w ``config/powiadomienia.json`` poza Gitem i przetrwają
 restart Centrum. Gdy ten plik albo plik Spraw taty jest niedostępny, każdy odczyt Powiadomień próbuje zapisać je
-znowu.
+znowu, a dopóki się nie da, Powiadomienia mają Komunikat, który nazywa te pliki.
 """
 
 from __future__ import annotations
@@ -40,6 +40,7 @@ from rozliczenia.centrum.keyed_box import KeyedBox
 from rozliczenia.centrum.report_box import Closure
 from rozliczenia.centrum.atomic_file import StateFile
 from rozliczenia.centrum.clock import Clock
+from rozliczenia.centrum.notification_messages import unavailable
 from rozliczenia.centrum.release_notes import parse
 from rozliczenia.centrum.tool_freshness import PublishedRelease, ReleaseSource, ToolFreshness, offers_update
 from rozliczenia.centrum.tool_update import Release
@@ -198,13 +199,20 @@ class Notifications:
             self._log.unexpected_failure(failure, where="stan spraw w Powiadomieniach")
 
     def _notifications(self) -> contract.Notifications:
+        """Powiadomienia z Komunikatem, gdy plik stanu Spraw taty albo przeczytanych czeka na zapis."""
+
+        waiting = [file.path for file in self._files if file.unavailable]
         cases = self._cases.all()
         items: list[contract.DadNoteNotification | contract.ReportNotification | contract.ReleaseNotification] = [
             *(notification for notification in map(self._case, cases) if notification is not None),
             *self._new_versions(cases),
         ]
         items.sort(key=lambda item: item.at, reverse=True)
-        return contract.Notifications(unread=sum(item.unread for item in items), items=items)
+        return contract.Notifications(
+            unread=sum(item.unread for item in items),
+            items=items,
+            message=contract.Message.of(unavailable(waiting)) if waiting else None,
+        )
 
     def _new_versions(self, cases: list[Case]) -> list[contract.ReleaseNotification]:
         """Opublikowane Wydania nie wyższe od najnowszego na `main`; przycisk ma tylko najnowsze.
