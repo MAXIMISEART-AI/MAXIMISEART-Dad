@@ -177,6 +177,35 @@ jobs:
         # The pre-push hook test runs the real ruff and mypy from tools/ci_lokalnie.py.
         run: uv pip install --system --python "${{ steps.python.outputs.python-path }}" -e ".[dev]"
 
+      - name: '[pomiar] Install the profiling plugin'
+        shell: python
+        env:
+          PROFIL_DIR: ${{ runner.temp }}/profil
+          PROFIL_MATRIX: ${{ toJSON(matrix) }}
+        run: |
+          import json, os, pathlib, subprocess, sys, sysconfig, time
+          pathlib.Path(sysconfig.get_paths()["purelib"], "profil_ci.py").write_text('import json\nimport os\nimport time\n\nimport pytest\n\n_START = time.time()\n_WORKER = os.environ.get("PYTEST_XDIST_WORKER", "kontroler")\n_meta = {"worker": _WORKER, "pid": os.getpid(), "import": _START}\n_items = {}\n\n\ndef pytest_configure(config):\n    _meta["configure"] = time.time()\n\n\ndef pytest_collection_finish(session):\n    _meta["collected"] = time.time()\n    _meta["n_items"] = len(session.items)\n\n\n@pytest.hookimpl(hookwrapper=True)\ndef pytest_runtest_protocol(item, nextitem):\n    cpu = time.process_time()\n    start = time.time()\n    yield\n    row = _items.setdefault(item.nodeid, {})\n    row.update(t0=start, t1=time.time(), cpu=time.process_time() - cpu)\n\n\ndef pytest_runtest_logreport(report):\n    if _WORKER == "kontroler" and getattr(report, "node", None) is not None:\n        return\n    row = _items.setdefault(report.nodeid, {})\n    row[report.when] = [round(report.duration, 4), report.outcome]\n\n\ndef pytest_sessionfinish(session):\n    _meta["finish"] = time.time()\n    _meta["cpu_total"] = time.process_time()\n    folder = os.environ["PROFIL_DIR"]\n    os.makedirs(folder, exist_ok=True)\n    with open(os.path.join(folder, f"profil-{_WORKER}.json"), "w", encoding="utf-8") as out:\n        json.dump({"meta": _meta, "items": _items}, out)\n', encoding="utf-8")
+          folder = pathlib.Path(os.environ["PROFIL_DIR"])
+          folder.mkdir(parents=True, exist_ok=True)
+          spawn = []
+          for _ in range(10):
+              start = time.perf_counter()
+              subprocess.run([sys.executable, "-c", "pass"], check=True)
+              spawn.append(time.perf_counter() - start)
+          git = []
+          for _ in range(10):
+              start = time.perf_counter()
+              subprocess.run(["git", "--version"], check=True, capture_output=True)
+              git.append(time.perf_counter() - start)
+          meta = {"matrix": json.loads(os.environ["PROFIL_MATRIX"]), "cpu_count": os.cpu_count(), "python_spawn_s": spawn, "git_spawn_s": git}
+          try:
+              import psutil
+              meta["psutil_physical"] = psutil.cpu_count(logical=False)
+          except ImportError:
+              meta["psutil_physical"] = None
+          (folder / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
+          print(meta)
+
       - name: Run tests
         if: ${{ runner.os == 'Windows' }}
         run: |
@@ -184,11 +213,52 @@ jobs:
           if ($LASTEXITCODE -ne 0) {
             throw "Splitting the test files failed (exit code $LASTEXITCODE)"
           }
-          py -3 -m pytest -n auto $files
+          $env:PROFIL_DIR = "$env:RUNNER_TEMP\profil"
+          $files | Out-File "$env:PROFIL_DIR\files.txt" -Encoding utf8
+          $start = Get-Date
+          py -3 -m pytest -n auto -p profil_ci --durations=0 --junitxml="$env:PROFIL_DIR\junit.xml" $files
+          $code = $LASTEXITCODE
+          "wall_s=$(((Get-Date) - $start).TotalSeconds)" | Out-File "$env:PROFIL_DIR\wall.txt" -Encoding utf8
+          exit $code
+
+      - name: '[pomiar] Collection time and imports'
+        if: ${{ !cancelled() && runner.os == 'Windows' }}
+        run: |
+          $files = py -3 tools/czesci_pytest.py ${{ matrix.part }}
+          $start = Get-Date
+          py -3 -X importtime -m pytest --collect-only -q $files 2> "$env:RUNNER_TEMP\profil\importtime.txt" | Out-File "$env:RUNNER_TEMP\profil\collect.txt" -Encoding utf8
+          "collect_s=$(((Get-Date) - $start).TotalSeconds)" | Out-File "$env:RUNNER_TEMP\profil\collect_wall.txt" -Encoding utf8
 
       - name: Run tests (Linux)
         if: ${{ runner.os == 'Linux' }}
-        run: python -m pytest -n auto $(python tools/czesci_pytest.py --linux ${{ matrix.part }})
+        env:
+          PROFIL_DIR: ${{ runner.temp }}/profil
+        run: |
+          python tools/czesci_pytest.py --linux ${{ matrix.part }} > "$PROFIL_DIR/files.txt"
+          start=$(date +%s.%N)
+          set +e
+          python -m pytest -n auto -p profil_ci --durations=0 --junitxml="$PROFIL_DIR/junit.xml" $(cat "$PROFIL_DIR/files.txt")
+          code=$?
+          echo "wall_s=$(python -c "import sys; print(float(sys.argv[2]) - float(sys.argv[1]))" "$start" "$(date +%s.%N)")" > "$PROFIL_DIR/wall.txt"
+          exit $code
+
+      - name: '[pomiar] Collection time and imports (Linux)'
+        if: ${{ !cancelled() && runner.os == 'Linux' }}
+        env:
+          PROFIL_DIR: ${{ runner.temp }}/profil
+        run: |
+          start=$(date +%s.%N)
+          python -X importtime -m pytest --collect-only -q $(cat "$PROFIL_DIR/files.txt") 2> "$PROFIL_DIR/importtime.txt" > "$PROFIL_DIR/collect.txt" || true
+          echo "collect_s=$(python -c "import sys; print(float(sys.argv[2]) - float(sys.argv[1]))" "$start" "$(date +%s.%N)")" > "$PROFIL_DIR/collect_wall.txt"
+
+      - name: '[pomiar] Upload the profile'
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: profil-${{ matrix.os }}-py${{ matrix.python-version }}-${{ strategy.job-index }}
+          path: ${{ runner.temp }}/profil/
+          retention-days: 7
+          if-no-files-found: error
 
       - name: E2E (verify-rozliczenia --variant all)
         id: e2e
