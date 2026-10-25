@@ -107,7 +107,7 @@ def test_rejestr_open_in_excel_stops_and_leaves_lock_file(tmp_path: Path) -> Non
     [
         ("read_bytes", PermissionError(errno.EACCES, "The process cannot access the file because it is being used by another process")),
         ("read_bytes", OSError(errno.EIO, "The cloud file provider is not running")),
-        ("is_file", PermissionError(errno.EACCES, "Permission denied")),
+        ("stat", PermissionError(errno.EACCES, "Permission denied")),
     ],
     ids=["zablokowany-przez-inny-program", "onedrive-bez-sieci", "folder-bez-dostepu"],
 )
@@ -127,10 +127,10 @@ def test_plik_niedostepny_do_odczytu_nie_jest_nazwany_uszkodzonym(
     original = getattr(Path, failing)
     unavailable_path = getattr(fixture, unavailable)
 
-    def blocked(path: Path) -> object:
+    def blocked(path: Path, **options: object) -> object:
         if path == unavailable_path:
             raise error
-        return original(path)
+        return original(path, **options)
 
     monkeypatch.setattr(Path, failing, blocked)
 

@@ -41,6 +41,7 @@ from drive import (
     uklad_folderow_taty,
     ustawienia,
     uwaga_taty,
+    uzupelnienie,
     wydajnosc,
     zgloszenie,
 )
@@ -52,8 +53,8 @@ from skrypt_skilla import Parser
 
 # aktualizacja moves the run's tool clone right after Konfiguracja shows it. Przygotowanie pliku zbiorczego
 # appends to the metrics files that Metryki counts, so it runs after Metryki; blad-odczytu runs between them, before
-# the week's first Uruchomienie; Przebieg rozliczeń continues Dad's
-# path from its Plik zbiorczy, and kontrola-ilosci sends its Kontrola ilości after two restarts of Centrum; Diagnoza stops Uruchomienia of an empty Folder okresu after Dad's week, and aktualnosc-i-onedrive diagnoses one more such stop with the
+# the week's first Uruchomienie; uzupelnienie shows what Dad fills in its Plik zbiorczy and restores the file, and
+# Przebieg rozliczeń continues Dad's path from that Plik zbiorczy, and kontrola-ilosci sends its Kontrola ilości after two restarts of Centrum; Diagnoza stops Uruchomienia of an empty Folder okresu after Dad's week, and aktualnosc-i-onedrive diagnoses one more such stop with the
 # scripted GitHub and OneDrive; zgloszenie sends one such stop to the file skrzynka Zgłoszeń, and
 # uwaga-taty needs the skrzynka queue that kontrola-ilosci emptied; logi-uruchomienia matches every Uruchomienie
 # of the week with its file of Logi; powiadomienia closes an Uwaga taty and that Zgłoszenie there; pomiar-u-taty
@@ -68,6 +69,7 @@ FEATURES = (
     "metryki",
     "blad-odczytu",
     "przygotowanie-pliku-zbiorczego",
+    "uzupelnienie",
     "przebieg-rozliczen",
     "kontrola-ilosci",
     "diagnoza",
@@ -105,6 +107,7 @@ def main(argv: list[str] | None = None) -> int:
         "metryki": metryki.drive_metrics,
         "blad-odczytu": blad_odczytu.drive_load_failures,
         "przygotowanie-pliku-zbiorczego": przygotowanie_pliku_zbiorczego.drive_preparation,
+        "uzupelnienie": uzupelnienie.drive_filling,
         "przebieg-rozliczen": przebieg_rozliczen.drive_settlement,
         "kontrola-ilosci": kontrola_ilosci.drive_quantity_check,
         "diagnoza": diagnoza.drive_diagnosis,

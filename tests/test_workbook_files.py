@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 import shutil
+import sys
 from copy import copy
 from dataclasses import replace
 import xml.etree.ElementTree as ET
@@ -234,6 +235,37 @@ def test_wzorzec_rozliczenia_pracownika_bez_rozszerzenia_skoroszytu(tmp_path: Pa
         TemplateFile.worker_settlement(path).check()
 
     assert raised.value.problem is problem
+
+
+@pytest.mark.parametrize("opening", OPENINGS)
+def test_folder_albo_plik_zamiast_skoroszytu_to_brak_pliku_przy_kazdym_otwarciu(tmp_path: Path, opening: str) -> None:
+    (tmp_path / "Folder.xlsx").mkdir()
+    (tmp_path / "plik").write_bytes(b"")
+
+    for path in (tmp_path / "Folder.xlsx", tmp_path / "plik" / "Skoroszyt.xlsx"):
+        with pytest.raises(WorkbookError) as raised:
+            OPENINGS[opening](path)
+        assert raised.value.problem is Problem.MISSING, path.name
+
+
+# Te otwarcia sprawdzają po sobie, że w folderze skoroszytu nie został plik, a w folderze bez dostępu nie da się tego sprawdzić.
+CHECK_FOLDER_AFTER = frozenset({"plik-okresu-z-wzorca", "rozliczenie-pracownika"})
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="chmod w Windows nie odbiera prawa odczytu")
+@pytest.mark.parametrize("opening", sorted(OPENINGS.keys() - CHECK_FOLDER_AFTER))
+def test_skoroszyt_w_folderze_bez_dostepu_jest_niedostepny_przy_kazdym_otwarciu(tmp_path: Path, opening: str) -> None:
+    folder = tmp_path / "bez dostępu"
+    folder.mkdir()
+    path = styled_template(folder / "Skoroszyt.xlsx")
+    folder.chmod(0)
+    try:
+        with pytest.raises(WorkbookError) as raised:
+            OPENINGS[opening](path)
+    finally:
+        folder.chmod(0o755)
+
+    assert raised.value.problem is Problem.INACCESSIBLE
 
 
 @pytest.mark.parametrize("opening", OPENINGS)

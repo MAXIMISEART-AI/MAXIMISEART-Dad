@@ -3,6 +3,7 @@ import { cn } from "cn"
 import {
   CircleAlertIcon,
   CircleStopIcon,
+  InfoIcon,
   MapPinIcon,
   OctagonXIcon,
   StethoscopeIcon,
@@ -13,13 +14,16 @@ import {
 import type { Message } from "@/api/centrum"
 import { Alert, AlertAction, AlertDescription, AlertTitle } from "@/components/ui/alert"
 
-/** Rodzaj banera Komunikatu: `stop` to błąd, `to_fix` Zatrzymanie, które tata poprawia sam, `declined` jego odmowa. */
-export type MessageKind = "stop" | "to_fix" | "declined" | "warning" | "diagnosis"
+/**
+ * Rodzaj banera Komunikatu: `stop` to błąd, `to_fix` Zatrzymanie, które tata poprawia sam, `declined` jego odmowa,
+ * a `notice` Komunikat o pliku poza Uruchomieniem.
+ */
+export type MessageKind = "stop" | "to_fix" | "declined" | "warning" | "diagnosis" | "notice"
 
 type Look = { label: string; icon: React.ReactNode; variant: "default" | "destructive"; className?: string }
 
-// Czerwień tylko przy błędzie. Zatrzymanie do poprawy jest żółte, ale innym znakiem niż ostrzeżenie, a odmowa taty
-// i wyjaśnienie Diagnozy są spokojne.
+// Czerwień tylko przy błędzie. Zatrzymanie do poprawy jest żółte, ale innym znakiem niż ostrzeżenie, a odmowa taty,
+// wyjaśnienie Diagnozy i Komunikat o pliku poza Uruchomieniem są spokojne.
 const LOOKS: Record<MessageKind, Look> = {
   stop: { label: "Zatrzymanie", icon: <OctagonXIcon />, variant: "destructive" },
   to_fix: {
@@ -39,6 +43,7 @@ const LOOKS: Record<MessageKind, Look> = {
     icon: <StethoscopeIcon className="text-muted-foreground!" />,
     variant: "default",
   },
+  notice: { label: "Komunikat", icon: <InfoIcon className="text-muted-foreground!" />, variant: "default" },
 }
 
 /**
