@@ -44,33 +44,40 @@ class GoodRead(Generic[T]):
 
 
 @dataclass(frozen=True)
+class Attempt:
+    """Próba odczytu pliku: jego znacznik zapisu i chwila zegara Centrum (sekundy), obie sprzed odczytu."""
+
+    version: str | None
+    started: float
+
+
+@dataclass(frozen=True)
 class Failing(Generic[T]):
     """Nieudany odczyt: ``kept`` to ostatni dobry do pokazania zamiast porażki, ``None``: pora na Komunikat.
 
-    ``first``: pierwsza próba serii nieudanych, jedyna, która trafia do dziennika.
+    ``new_cause``: przyczyny tej porażki nie ma w dzienniku od ostatniego dobrego odczytu, więc ma tam trafić.
     """
 
     kept: GoodRead[T] | None
-    first: bool
+    new_cause: bool
 
 
 @dataclass(frozen=True)
 class _Series:
-    """Seria nieudanych prób odczytu od ``since`` do ostatniej próby ``last`` (sekundy zegara Centrum).
+    """Seria nieudanych prób odczytu pliku, w sekundach zegara Centrum.
 
-    Seria trwa, dopóki strona ponawia odczyt. Przerwa dłuższa niż ``RETRY_GAP_S`` kończy serię, która jeszcze
-    pokazywała ostatni dobry odczyt: nikt nie widział, czy plik w tym czasie wrócił. Seria z Komunikatem trwa aż do
-    dobrego odczytu, bo po Komunikacie strona sama przestaje czytać, dopóki znacznik zapisu się nie zmieni.
+    ``since``: początek pierwszej próby serii; ``ended``: koniec ostatniej; ``version``: znacznik zapisu sprzed ostatniej;
+    ``message``: seria oddała już Komunikat; ``causes``: przyczyny w dzienniku od ostatniego dobrego odczytu.
     """
 
     since: float
-    last: float
+    ended: float
+    version: str | None
+    message: bool
+    causes: frozenset[str]
 
-    def shows_message(self, at: float) -> bool:
-        return at - self.since >= SHOWN_FAILING_AFTER_S
-
-    def continues_at(self, now: float) -> bool:
-        return now - self.last <= RETRY_GAP_S or self.shows_message(self.last)
+    def continues(self, attempt: Attempt) -> bool:
+        return self.message or attempt.started - self.ended <= RETRY_GAP_S or attempt.version == self.version
 
 
 @dataclass
@@ -80,30 +87,61 @@ class _File(Generic[T]):
 
 
 class LastGoodReads(Generic[T]):
-    """Ostatni dobry odczyt każdego pliku na czas serii nieudanych prób, mierzonej zegarem ``clock`` w sekundach."""
+    """Ostatni dobry odczyt każdego pliku i seria nieudanych prób po nim, na zegarze ``clock`` w sekundach.
+
+    Przejścia (porażka bez serii zaczyna nową):
+
+    ======================  ==================================================  ==================================
+    zdarzenie               warunek                                             seria po nim
+    ======================  ==================================================  ==================================
+    dobry odczyt            zawsze                                              brak; to jest ostatni dobry odczyt
+    porażka                 seria oddała już Komunikat                          ta sama: po Komunikacie strona
+                                                                                czyta tylko po zmianie znacznika
+    porażka                 od końca ostatniej porażki do początku tej próby    ta sama: strona ponawia co 3 s
+                            najwyżej ``RETRY_GAP_S``
+    porażka                 znacznik zapisu taki sam jak przy ostatniej         ta sama: plik nie mógł wrócić
+    porażka                 inaczej (cisza i zapis pliku, którego nikt nie      nowa, z przyczynami z dziennika
+                            czytał: ukryta karta)                               poprzedniej
+    ======================  ==================================================  ==================================
+
+    Strona dostaje ostatni dobry odczyt, dopóki seria nie oddała Komunikatu i od jej początku minęło mniej niż
+    ``SHOWN_FAILING_AFTER_S``; potem Komunikat. Do dziennika trafia przyczyna, której tam nie ma od ostatniego dobrego
+    odczytu, więc trwała porażka oglądana zrywami to jeden wpis.
+    """
 
     def __init__(self, *, clock: Callable[[], float]) -> None:
         self._clock = clock
         self._lock = threading.Lock()
         self._files: dict[Path, _File[T]] = {}
 
-    def succeeded(self, path: Path, value: T, version: str | None) -> GoodRead[T]:
-        """Dobry odczyt ``path`` w wersji ``version`` (znacznik sprzed odczytu) kończy serię nieudanych prób."""
+    def attempt(self, path: Path) -> Attempt:
+        """Początek próby odczytu ``path``: jego znacznik zapisu i chwila, od której liczy się przerwa w próbach."""
+
+        return Attempt(saved_version(path), self._clock())
+
+    def succeeded(self, path: Path, value: T, attempt: Attempt) -> GoodRead[T]:
+        """Dobry odczyt ``path`` z próby ``attempt`` kończy serię nieudanych prób."""
 
         with self._lock:
             file = self._files.setdefault(path, _File())
-            file.last = GoodRead(value, version, datetime.now(timezone.utc))
+            file.last = GoodRead(value, attempt.version, datetime.now(timezone.utc))
             file.failing = None
             return file.last
 
-    def failed(self, path: Path) -> Failing[T]:
-        """Nieudany odczyt ``path``: ostatni dobry przez ``SHOWN_FAILING_AFTER_S`` od pierwszej porażki serii."""
+    def failed(self, path: Path, attempt: Attempt, cause: str) -> Failing[T]:
+        """Nieudana próba ``attempt`` odczytu ``path`` z przyczyną ``cause`` (kod Komunikatu) według przejść klasy."""
 
         with self._lock:
             file = self._files.setdefault(path, _File())
             now = self._clock()
-            ongoing = file.failing if file.failing is not None and file.failing.continues_at(now) else None
-            file.failing = _Series(since=now if ongoing is None else ongoing.since, last=now)
-            if file.last is not None and not file.failing.shows_message(now):
-                return Failing(replace(file.last, retrying=True), ongoing is None)
-            return Failing(None, ongoing is None)
+            before = file.failing
+            if before is not None and before.continues(attempt):
+                series = replace(before, ended=now, version=attempt.version)
+            else:
+                causes = before.causes if before is not None else frozenset()
+                series = _Series(attempt.started, now, attempt.version, message=False, causes=causes)
+            kept = None
+            if file.last is not None and now - series.since < SHOWN_FAILING_AFTER_S:
+                kept = replace(file.last, retrying=True)
+            file.failing = replace(series, message=kept is None, causes=series.causes | {cause})
+            return Failing(kept, cause not in series.causes)

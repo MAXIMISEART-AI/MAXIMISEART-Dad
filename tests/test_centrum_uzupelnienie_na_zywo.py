@@ -7,6 +7,7 @@ zegar Centrum testu, nigdy uśpienie.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -16,7 +17,8 @@ from openpyxl import load_workbook
 from openpyxl.worksheet.worksheet import Worksheet
 
 from rozliczenia import workbook_files
-from tests.fixtures.centrum_processes import PreparingCentrum, preparing_centrum, run_to_end
+from tests.fixtures.centrum import FakeClock, FakeOneDrive
+from tests.fixtures.centrum_processes import PreparingCentrum, Surroundings, preparing_centrum, run_to_end
 from tests.fixtures.preparation import PERIOD, register_order
 
 TUE = datetime(2026, 9, 8, 10, 0)
@@ -28,11 +30,11 @@ LOG_EVENT = "uzupelnienie-odczyt-nieudany"
 POLL_S = 3
 
 
-def _prepared(tmp_path: Path) -> PreparingCentrum:
+def _prepared(tmp_path: Path, *, surroundings: Surroundings | None = None) -> PreparingCentrum:
     # Wiersz 18 z URZĄDZENIAMI, których Reguły ilości nie znają (bez reguły); ostatnie zlecenie w poniedziałek,
     # więc okres jest pełny i Przygotowanie nie czeka na Decyzję taty.
     rows = [{**register_order(1, TUE), "URZĄDZENIA": "przeniesienie"}, {**register_order(2, MON), "URZĄDZENIA": ""}]
-    centrum = preparing_centrum(tmp_path, list(rows))
+    centrum = preparing_centrum(tmp_path, list(rows), surroundings=surroundings)
     assert run_to_end(centrum, dry_run=False)["result"]["result"] == "WYMAGA_SPRAWDZENIA"
     return centrum
 
@@ -65,6 +67,25 @@ def _polled(centrum: PreparingCentrum, seconds: int) -> dict[str, Any]:
         centrum.surroundings.clock.advance(minutes=POLL_S / 60)
         view = _get(centrum, VIEW)
     return view
+
+
+def _hidden_for(centrum: PreparingCentrum, seconds: float) -> None:
+    """Karta ukryta (albo Excel zasłania przeglądarkę): strona przez ``seconds`` sekund nie pyta serwera."""
+
+    centrum.surroundings.clock.advance(minutes=seconds / 60)
+
+
+@dataclass
+class _SlowOneDrive(FakeOneDrive):
+    """OneDrive, który przez ``seconds`` sekund zegara Centrum próbuje pobrać plik tylko w chmurze, zanim odczyt padnie."""
+
+    clock: FakeClock | None = None
+    seconds: float = 0
+
+    def attributes(self, path: Path) -> int:
+        if self.clock is not None and path in self.online_only:
+            self.clock.advance(minutes=self.seconds / 60)
+        return super().attributes(path)
 
 
 def _log_lines(centrum: PreparingCentrum) -> list[str]:
@@ -178,7 +199,9 @@ def test_blokada_excela_bez_odpowiedzi_systemu_jest_nieznana(tmp_path: Path, mon
     assert "przyczyna=USZKODZONY_PLIK_ZBIORCZY excel=nieznany typ=BadZipFile" in line
 
 
-def test_porazka_po_przerwie_w_odpytywaniu_zaczyna_nowa_serie(tmp_path: Path) -> None:
+def test_porazka_po_przerwie_i_zapisie_zaczyna_nowa_serie_bez_drugiego_wpisu_tej_samej_przyczyny(
+    tmp_path: Path,
+) -> None:
     # Tata chowa kartę (albo Excel zasłania przeglądarkę) w trakcie zapisu Excela; plik wraca, ale nikt go nie czyta.
     centrum = _prepared(tmp_path)
     path = centrum.fixture.collective_file_path
@@ -187,13 +210,112 @@ def test_porazka_po_przerwie_w_odpytywaniu_zaczyna_nowa_serie(tmp_path: Path) ->
     path.write_bytes(b"Excel zapisuje")
     _get(centrum, VIEW)
     path.write_bytes(original)
-    centrum.surroundings.clock.advance(minutes=30)
+    _hidden_for(centrum, 30 * 60)
 
     path.write_bytes(b"Excel zapisuje znowu")
     after_return = _get(centrum, VIEW)
 
     assert after_return == {**good, "read": {**good["read"], "retrying": True}}
-    assert len(_log_lines(centrum)) == 2
+    assert len(_log_lines(centrum)) == 1
+
+
+def test_inna_przyczyna_po_przerwie_trafia_do_dziennika(tmp_path: Path) -> None:
+    # Obie przyczyny bez typu błędu (``typ=-``): dziennik rozróżnia je po kodzie Komunikatu.
+    centrum = _prepared(tmp_path)
+    path = centrum.fixture.collective_file_path
+    _get(centrum, VIEW)
+    original = path.read_bytes()
+    path.unlink()
+    _get(centrum, VIEW)
+    _hidden_for(centrum, 24 * 3600)
+
+    path.write_bytes(original)
+    workbook = load_workbook(path)
+    sheet = workbook.active
+    assert isinstance(sheet, Worksheet)
+    [header] = (cell for cell in sheet[17] if cell.value == "URZĄDZENIA")
+    header.value = None
+    workbook.save(path)
+    _get(centrum, VIEW)
+
+    assert [line.split(" przyczyna=")[1].split()[0] for line in _log_lines(centrum)] == [
+        "BRAK_PLIKU_ZBIORCZEGO", "BRAK_NAGLOWKA_PLIKU_ZBIORCZEGO",
+    ]
+
+
+@pytest.mark.parametrize(("silence", "message"), [(15, True), (16, False)])
+def test_cisza_dluzsza_niz_kilka_odstepow_po_zmianie_pliku_zaczyna_nowa_minute(
+    tmp_path: Path, silence: int, message: bool
+) -> None:
+    # Pierwsza porażka w 0 s, druga po ciszy i zapisie, potem strona ponawia co 3 s przez 48 s: ponad minutę od
+    # pierwszej porażki, a mniej niż minutę od drugiej.
+    centrum = _prepared(tmp_path)
+    path = centrum.fixture.collective_file_path
+    _get(centrum, VIEW)
+    path.write_bytes(b"Excel zapisuje")
+    _get(centrum, VIEW)
+    _hidden_for(centrum, silence)
+    path.write_bytes(b"Excel zapisuje znowu")
+    _get(centrum, VIEW)
+
+    after_minute = _polled(centrum, 48)
+
+    assert (after_minute["state"] == "problem") is message
+
+
+def test_trwala_porazka_ogladana_zrywami_daje_komunikat_po_minucie(tmp_path: Path) -> None:
+    # Tata patrzy na stronę 30 s, potem 2 min pisze w Excelu, który zasłania przeglądarkę; plik się nie zmienia.
+    centrum = _prepared(tmp_path)
+    path = centrum.fixture.collective_file_path
+    _get(centrum, VIEW)
+    path.write_bytes(b"zepsuty na stale")
+    states = [_get(centrum, VIEW)["state"]]
+    # Autozapis zapisuje dalej zepsuty plik raz, gdy tata jeszcze patrzy: później znacznik już się nie zmienia.
+    centrum.surroundings.clock.advance(minutes=POLL_S / 60)
+    path.write_bytes(b"zepsuty na stale po Autozapisie")
+    _get(centrum, VIEW)
+    for _ in range(3):
+        states.append(_polled(centrum, 30)["state"])
+        _hidden_for(centrum, 120)
+
+    assert states == ["ready", "ready", "problem", "problem"]
+    assert len(_log_lines(centrum)) == 1
+
+
+def test_bez_dobrego_odczytu_zapisy_zepsutego_pliku_to_jedna_seria(tmp_path: Path) -> None:
+    # Bez dobrego odczytu strona od razu pokazuje Komunikat i czyta plik znów dopiero po zapisie taty.
+    centrum = _prepared(tmp_path)
+    path = centrum.fixture.collective_file_path
+    path.write_bytes(b"zepsuty od startu Centrum")
+    states = [_get(centrum, VIEW)["state"]]
+    for save in range(3):
+        _hidden_for(centrum, 60)
+        path.write_bytes(b"dalej zepsuty" + bytes([save]))
+        states.append(_get(centrum, VIEW)["state"])
+
+    assert states == ["problem"] * 4
+    assert len(_log_lines(centrum)) == 1
+
+
+def test_wolny_nieudany_odczyt_daje_komunikat_po_minucie_i_jeden_wpis(tmp_path: Path) -> None:
+    # OneDrive przez 13 s pobiera plik tylko w chmurze i nie zdąży, a synchronizacja zmienia jego znacznik między
+    # próbami; strona ponawia 3 s po każdej odpowiedzi.
+    onedrive = _SlowOneDrive(seconds=13)
+    centrum = _prepared(tmp_path, surroundings=Surroundings(onedrive=onedrive))
+    path = centrum.fixture.collective_file_path
+    _get(centrum, VIEW)
+    onedrive.clock = centrum.surroundings.clock
+    onedrive.online_only.add(path)
+
+    states = []
+    for sync in range(4):
+        path.write_bytes(bytes(sync))
+        states.append(_get(centrum, VIEW)["state"])
+        centrum.surroundings.clock.advance(minutes=POLL_S / 60)
+
+    # Próby zaczynają się w 0, 16, 32 i 48 s; czwarta kończy się w 61 s, minutę po początku pierwszej.
+    assert states == ["ready", "ready", "ready", "problem"]
+    assert len(_log_lines(centrum)) == 1
 
 
 def test_trwaly_problem_po_komunikacie_zostaje_jedna_seria(tmp_path: Path) -> None:

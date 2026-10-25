@@ -40,9 +40,17 @@ godzinami, z Plikiem zbiorczym otwartym w Excelu, więc strona, która wymaga za
   minutę oddaje ostatni dobry odczyt z jego godziną, a dopiero potem Komunikat. Ten odczyt jest jedynym, co Centrum
   pamięta: tylko w pamięci procesu, po każdym dobrym odczycie, i pokazuje go tylko podczas serii nieudanych prób,
   więc zmienia tylko to, co strona pokazuje podczas porażki. Po ponownym starcie Centrum go nie ma, a źródłem stanu
-  dalej jest plik. Seria nieudanych prób to jeden wpis w dzienniku. Kończy ją dobry odczyt, a serię bez Komunikatu
-  także cisza dłuższa niż kilka odstępów odpytywania (ukryta karta), bo nikt nie widział, czy plik w tym czasie
-  wrócił. Seria z Komunikatem trwa do dobrego odczytu, bo po Komunikacie strona nie ponawia odczytu sama.
+  dalej jest plik. Przejścia serii nieudanych prób opisuje tabela w `LastGoodReads` (`live_file.py`). Kończy ją
+  dobry odczyt. Serię, która jeszcze nie oddała Komunikatu, kończy też cisza dłuższa niż kilka odstępów
+  odpytywania (ukryta karta, także zasłonięta przez zmaksymalizowany Excel), ale tylko wtedy, gdy znacznik zapisu
+  zmienił się od ostatniej porażki. Bez zmiany znacznika plik nie mógł wrócić, więc trwała porażka oglądana
+  zrywami daje Komunikat po około minucie, jak mówi historia 24. Przerwę mierzy się od końca ostatniej porażki
+  do początku następnej próby, więc wolny nieudany odczyt (OneDrive pobiera plik) nie przerywa serii. Seria
+  z Komunikatem, także oddanym od razu z braku dobrego odczytu, trwa do dobrego odczytu, bo po Komunikacie strona
+  nie ponawia odczytu sama. Do dziennika trafia przyczyna (kod Komunikatu), której tam nie ma od ostatniego
+  dobrego odczytu. Znany przypadek: po Komunikacie i naprawie pliku, której nikt nie czytał, chwilowa porażka
+  przy następnej wizycie od razu daje Komunikat bez nowego wpisu. Znika on przy następnej zmianie znacznika,
+  zwykle po sekundach.
 
 ## Odrzucone warianty
 

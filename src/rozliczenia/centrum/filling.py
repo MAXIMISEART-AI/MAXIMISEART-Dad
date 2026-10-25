@@ -45,19 +45,19 @@ def filling_router(
     )
     def quantities(token: str) -> contract.QuantitiesToFill:
         path = collective_file_of(token)
-        version = saved_version(path)
+        attempt = reads.attempt(path)
         found = _attempt(path, cloud_files)
         if not isinstance(found, _Unreadable):
-            return _ready(reads.succeeded(path, found, version))
-        failing = reads.failed(path)
-        if failing.first:
+            return _ready(reads.succeeded(path, found, attempt))
+        failing = reads.failed(path, attempt, cause=found.message.code)
+        if failing.new_cause:
             log.fill_unreadable(
                 period=token, cause=found.message.code, excel_lock=_excel_lock(path), failure=found.type
             )
         if failing.kept is not None:
             return _ready(failing.kept)
         return contract.QuantitiesToFillProblem(
-            state="problem", message=contract.Message.of(found.message), version=version
+            state="problem", message=contract.Message.of(found.message), version=attempt.version
         )
 
     @router.get(
