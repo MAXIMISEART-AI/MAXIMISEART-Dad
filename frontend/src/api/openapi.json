@@ -691,6 +691,63 @@
         }
       }
     },
+    "/api/runs/{run_id}/card": {
+      "get": {
+        "tags": [
+          "uruchomienia"
+        ],
+        "summary": "Card",
+        "operationId": "getRunCard",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Run Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/RunRestored"
+                    },
+                    {
+                      "$ref": "#/components/schemas/RunCardMissing"
+                    }
+                  ],
+                  "discriminator": {
+                    "propertyName": "state",
+                    "mapping": {
+                      "restored": "#/components/schemas/RunRestored",
+                      "missing": "#/components/schemas/RunCardMissing"
+                    }
+                  },
+                  "title": "Response Getruncard"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/runs/{run_id}/decision": {
       "post": {
         "tags": [
@@ -1323,6 +1380,7 @@
               "decideRun",
               "diagnoseRun",
               "reportRun",
+              "getRunCard",
               "getNotifications",
               "markNotificationsRead",
               "getMetrics",
@@ -1986,6 +2044,107 @@
         ],
         "title": "Health",
         "description": "Tożsamość działającego Centrum.\n\n``commit`` to skrócony commit narzędzia, z którego Centrum wystartowało, jak na Konfiguracji (``None`` poza\nklonem Gita); po nim launcher i opiekun ponownego startu rozpoznają wersję działającego Centrum, a karta\npokazuje go w „Zaktualizowano”. ``instance`` to losowy identyfikator tego startu Centrum: po ponownym starcie\njest inny, także gdy commit się nie zmienił."
+      },
+      "LoggedOutcome": {
+        "properties": {
+          "result": {
+            "type": "string",
+            "enum": [
+              "OK",
+              "WYMAGA_SPRAWDZENIA",
+              "BLAD_KRYTYCZNY"
+            ],
+            "title": "Result"
+          },
+          "headline": {
+            "type": "string",
+            "title": "Headline"
+          },
+          "ending": {
+            "type": "string",
+            "enum": [
+              "finished",
+              "stop",
+              "declined",
+              "unexpected",
+              "after_engine"
+            ],
+            "title": "Ending"
+          },
+          "next_action": {
+            "type": "string",
+            "enum": [
+              "run",
+              "rerun",
+              "open_collective_file",
+              "open_worker_settlements_folder"
+            ],
+            "title": "Next Action"
+          },
+          "stop_kind": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "for_tata",
+                  "for_maks",
+                  "repeated",
+                  "declined"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stop Kind"
+          },
+          "stops": {
+            "items": {
+              "$ref": "#/components/schemas/Message"
+            },
+            "type": "array",
+            "title": "Stops"
+          },
+          "warnings": {
+            "items": {
+              "$ref": "#/components/schemas/Message"
+            },
+            "type": "array",
+            "title": "Warnings"
+          },
+          "technical_notes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Technical Notes"
+          },
+          "summary": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RunSummary"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "result",
+          "headline",
+          "ending",
+          "next_action",
+          "stop_kind",
+          "stops",
+          "warnings",
+          "technical_notes",
+          "summary"
+        ],
+        "title": "LoggedOutcome",
+        "description": "Wynik Uruchomienia procesu taki, jak niosą go Logi Uruchomienia: to, co karta pokazuje także po zamknięciu Centrum.\n\nZatrzymania i ostrzeżenia w trzech częściach, uwagi techniczne i podsumowanie. ``ending`` mówi, jak się\nskończyło: ``finished``, własne zatrzymanie procesu (``stop``), Zatrzymanie po odmowie w Decyzji taty\n(``declined``), nieoczekiwany błąd (``unexpected``) albo błąd po zakończeniu silnika (``after_engine``).\n``next_action`` to akcja, którą Centrum proponuje po wyniku, a ``headline`` to tytuł banera wyniku; oba\nwylicza z wyniku jedna reguła (``runs.verdict``). ``stop_kind`` to Rodzaj Zatrzymania (``None`` bez\nZatrzymania)."
       },
       "Message": {
         "properties": {
@@ -3154,6 +3313,22 @@
         "title": "RunAwaitingDecision",
         "description": "Uruchomienie czeka na decyzję taty; czas czekania nie wlicza się do czasu ani do metryk."
       },
+      "RunCardMissing": {
+        "properties": {
+          "state": {
+            "type": "string",
+            "const": "missing",
+            "title": "State"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "state"
+        ],
+        "title": "RunCardMissing",
+        "description": "Karty tego Uruchomienia nie ma: nie wystartowało z Centrum, nie ma jego Logów albo nie da się ich odczytać."
+      },
       "RunEvent": {
         "properties": {
           "sequence": {
@@ -3234,15 +3409,41 @@
             "type": "string",
             "const": "idle",
             "title": "State"
+          },
+          "previous": {
+            "anyOf": [
+              {
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/RunRestored"
+                  },
+                  {
+                    "$ref": "#/components/schemas/RunInterrupted"
+                  }
+                ],
+                "discriminator": {
+                  "propertyName": "state",
+                  "mapping": {
+                    "interrupted": "#/components/schemas/RunInterrupted",
+                    "restored": "#/components/schemas/RunRestored"
+                  }
+                }
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Previous"
           }
         },
         "additionalProperties": false,
         "type": "object",
         "required": [
-          "state"
+          "state",
+          "previous"
         ],
         "title": "RunIdle",
-        "description": "Od startu serwera nie było żadnego Uruchomienia procesu."
+        "description": "W tej pracy Centrum nie było jeszcze Uruchomienia procesu.\n\n``previous`` to ostatnie Uruchomienie przed tym startem Centrum; ``None``: nie było żadnego albo jego plików nie\nda się odczytać."
       },
       "RunInfo": {
         "properties": {
@@ -3287,6 +3488,36 @@
         ],
         "title": "RunInfo",
         "description": "Uruchomienie procesu; ``confirms_readiness`` deklaruje proces: „Uruchom” potwierdza Gotowość."
+      },
+      "RunInterrupted": {
+        "properties": {
+          "state": {
+            "type": "string",
+            "const": "interrupted",
+            "title": "State"
+          },
+          "run": {
+            "$ref": "#/components/schemas/RunInfo"
+          },
+          "started_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Started At"
+          },
+          "advice": {
+            "$ref": "#/components/schemas/Message"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "state",
+          "run",
+          "started_at",
+          "advice"
+        ],
+        "title": "RunInterrupted",
+        "description": "Urwane Uruchomienie: Centrum zamknęło się w jego trakcie, więc zna tylko jego start.\n\nNie ma wyniku, Logów Uruchomienia ani rekordu metryk. ``advice`` mówi w trzech częściach, co się stało i co\nzrobić, osobno dla podglądu (nic nie zapisał) i zapisu."
       },
       "RunOutcome": {
         "properties": {
@@ -3341,6 +3572,37 @@
             ],
             "title": "Stop Kind"
           },
+          "stops": {
+            "items": {
+              "$ref": "#/components/schemas/Message"
+            },
+            "type": "array",
+            "title": "Stops"
+          },
+          "warnings": {
+            "items": {
+              "$ref": "#/components/schemas/Message"
+            },
+            "type": "array",
+            "title": "Warnings"
+          },
+          "technical_notes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Technical Notes"
+          },
+          "summary": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RunSummary"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "diagnosis": {
             "anyOf": [
               {
@@ -3389,37 +3651,6 @@
             ],
             "title": "Report"
           },
-          "stops": {
-            "items": {
-              "$ref": "#/components/schemas/Message"
-            },
-            "type": "array",
-            "title": "Stops"
-          },
-          "warnings": {
-            "items": {
-              "$ref": "#/components/schemas/Message"
-            },
-            "type": "array",
-            "title": "Warnings"
-          },
-          "technical_notes": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array",
-            "title": "Technical Notes"
-          },
-          "summary": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/RunSummary"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
           "files_unchanged": {
             "type": "boolean",
             "title": "Files Unchanged"
@@ -3448,17 +3679,17 @@
           "ending",
           "next_action",
           "stop_kind",
-          "diagnosis",
-          "report",
           "stops",
           "warnings",
           "technical_notes",
           "summary",
+          "diagnosis",
+          "report",
           "files_unchanged",
           "opens"
         ],
         "title": "RunOutcome",
-        "description": "Wynik Uruchomienia procesu: zatrzymania i ostrzeżenia w trzech częściach, uwagi techniczne i podsumowanie.\n\n``ending`` mówi, jak się skończyło: ``finished``, własne zatrzymanie procesu (``stop``), Zatrzymanie po\nodmowie w Decyzji taty (``declined``), nieoczekiwany błąd (``unexpected``) albo błąd po zakończeniu\nsilnika (``after_engine``). ``next_action`` to akcja, którą Centrum proponuje po wyniku, a ``headline``\nto tytuł banera wyniku. ``stop_kind`` to rodzaj\nZatrzymania (``None`` bez Zatrzymania), ``diagnosis`` to Diagnoza, którą z niego Centrum proponuje\n(``None``: bez Zatrzymania i przy Zatrzymaniu „dla taty”), a ``report`` stan Zgłoszenia do Maksa tego\nproblemu (``None``, gdy Centrum nie proponuje Diagnozy). ``files_unchanged``: Uruchomienie nie zmieniło\nplików taty (podgląd bez zapisu albo koniec przed Zapisywaniem), więc karta może to tacie powiedzieć.\n``opens`` to plik taty, w którym jest poprawka Zatrzymania, a karta proponuje go otworzyć (``None``: żaden)."
+        "description": "Wynik bieżącego Uruchomienia tej pracy Centrum: ``LoggedOutcome`` i to, czego Logi Uruchomienia nie niosą.\n\n``diagnosis`` to Diagnoza, którą Centrum z niego proponuje (``None``: bez Zatrzymania i przy Zatrzymaniu „dla\ntaty”), a ``report`` stan Zgłoszenia do Maksa tego problemu (``None``, gdy Centrum nie proponuje Diagnozy).\n``files_unchanged``: Uruchomienie nie zmieniło plików taty (podgląd bez zapisu albo koniec przed\nZapisywaniem), więc karta może to tacie powiedzieć. ``opens`` to plik taty, w którym jest poprawka\nZatrzymania, a karta proponuje go otworzyć (``None``: żaden)."
       },
       "RunRequest": {
         "properties": {
@@ -3488,6 +3719,44 @@
         ],
         "title": "RunRequest",
         "description": "Start Uruchomienia procesu; pliki wejściowe wylicza serwer z ustawień i okresu."
+      },
+      "RunRestored": {
+        "properties": {
+          "state": {
+            "type": "string",
+            "const": "restored",
+            "title": "State"
+          },
+          "run": {
+            "$ref": "#/components/schemas/RunInfo"
+          },
+          "started_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Started At"
+          },
+          "phases": {
+            "items": {
+              "$ref": "#/components/schemas/PhaseProgress"
+            },
+            "type": "array",
+            "title": "Phases"
+          },
+          "result": {
+            "$ref": "#/components/schemas/LoggedOutcome"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "state",
+          "run",
+          "started_at",
+          "phases",
+          "result"
+        ],
+        "title": "RunRestored",
+        "description": "Karta zakończonego Uruchomienia z jego Logów Uruchomienia: nic, czego w nich nie ma.\n\n``run`` ma tytuł procesu i ``confirms_readiness`` z deklaracji procesu, jak przy starcie, a ``started_at`` to\nstart z Logów, ten sam co data wiersza Historii. Diagnozy i Zgłoszenia nie ma: żyją tylko przy Zatrzymaniu\nbieżącego Uruchomienia tej pracy Centrum."
       },
       "RunRunning": {
         "properties": {

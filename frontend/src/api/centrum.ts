@@ -6,12 +6,14 @@ import type {
   GetCurrentRunResponse,
   GetNotificationsResponse,
   GetPeriodBoardResponse,
+  GetRunCardResponse,
   GetToolUpdateResponse,
   NotificationsRead,
   OpenRequest,
   WorkerSettlementRequest,
   PeriodRow,
   RunEvent,
+  RunOutcome,
   RunRequest,
   SendDadNoteResponse,
   Settings,
@@ -32,6 +34,7 @@ import {
   zGetMetricsResponse,
   zGetNotificationsResponse,
   zGetPeriodBoardResponse,
+  zGetRunCardResponse,
   zGetRunSetupResponse,
   zGetSettingsResponse,
   zGetToolUpdateResponse,
@@ -58,6 +61,7 @@ export type {
   Diagnosis,
   DiagnosisCheck,
   Figure,
+  LoggedOutcome,
   Message,
   Metrics,
   Percentiles,
@@ -75,8 +79,10 @@ export type {
   ResultCounts,
   RunEvent,
   RunInfo,
+  RunInterrupted,
   RunOutcome,
   RunRequest,
+  RunRestored,
   RunSummary,
   Settings,
   TemplateProblem,
@@ -111,6 +117,15 @@ export type DadNoteState = SendDadNoteResponse
 
 /** Widok bieżącego Uruchomienia procesu; jego `state` to stany UI (unia z kontraktu). */
 export type RunView = GetCurrentRunResponse
+
+/** Ostatnie Uruchomienie sprzed startu Centrum: karta z Logów albo Urwane Uruchomienie (unia z kontraktu). */
+export type PastRun = NonNullable<Extract<RunView, { state: "idle" }>["previous"]>
+
+/** Karta Uruchomienia z wiersza Historii albo jej brak (unia z kontraktu). */
+export type RunCard = GetRunCardResponse
+
+/** Akcja, którą Centrum proponuje po wyniku Uruchomienia. */
+export type NextAction = RunOutcome["next_action"]
 
 function send(
   method: "POST" | "PUT",
@@ -268,6 +283,11 @@ export function watchRunEvents(
     document.removeEventListener("visibilitychange", followVisibility)
     source?.close()
   }
+}
+
+/** Karta Uruchomienia `runId` z jego Logów Uruchomienia (wiersz Historii); `missing`, gdy karty nie ma. */
+export function getRunCard(runId: string) {
+  return call(zGetRunCardResponse, "getRunCard", `/api/runs/${encodeURIComponent(runId)}/card`)
 }
 
 /** Historia Uruchomień procesu z obu plików metryk, z P50/P95 i rozkładem wyników; serwer czyta pliki przy każdym odczycie. */

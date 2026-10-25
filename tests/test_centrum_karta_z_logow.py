@@ -1,0 +1,178 @@
+"""Karta Uruchomienia z Logów Uruchomienia (#427) przez HTTP API Centrum, jak ją widzi przeglądarka.
+
+Ponowny start to nowa aplikacja Centrum na tych samych katalogach (``restart()``), jak po zamknięciu Centrum i
+kliknięciu skrótu na pulpicie taty.
+"""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+import shutil
+from typing import Any
+
+import pytest
+
+from tests.fixtures.centrum import finished_view, without_times
+from tests.fixtures.centrum_processes import (
+    HeldRegister,
+    PreparingCentrum,
+    SettlingCentrum,
+    Surroundings,
+    preparing_centrum,
+    run_to_end,
+    settling_centrum,
+    stopped_for_maks,
+)
+from tests.fixtures.potomne import wait_for
+from tests.fixtures.preparation import PERIOD
+from tests.fixtures.run_cards import first_view, restored
+
+INTERRUPTED = "Centrum rozliczeń zamknęło się w trakcie tego Uruchomienia, więc nie ma jego wyniku."
+PREVIEW_ADVICE = "Podgląd niczego nie zapisał. Uruchom go ponownie."
+WRITE_ADVICE = "Uruchom ponownie. Pliki okresu, które zdążyły powstać, Centrum zostawi i powie, co z nimi zrobić."
+
+
+def log_paths(centrum: PreparingCentrum | SettlingCentrum) -> list[Path]:
+    return sorted((centrum.log_path.parent / "uruchomienia").glob("*.json"))
+
+
+def logged(centrum: PreparingCentrum | SettlingCentrum) -> list[dict[str, Any]]:
+    return [json.loads(path.read_text(encoding="utf-8")) for path in log_paths(centrum)]
+
+
+def test_karta_po_starcie_idzie_za_plikiem_logow_bez_ustawien_metryk_i_folderu_okresu(tmp_path: Path) -> None:
+    centrum = settling_centrum(tmp_path, include_unmapped=True)
+    live = run_to_end(centrum, dry_run=True)
+    [path] = log_paths(centrum)
+    record = json.loads(path.read_text(encoding="utf-8"))
+    record["messages"][0]["what"] = "Ostrzeżenie zmienione w pliku Logów."
+    record["summary"]["figures"][0]["value"] = 999
+    path.write_text(json.dumps(record), encoding="utf-8")
+    shutil.rmtree(tmp_path / "config")
+    centrum.metrics_path.unlink()
+    shutil.rmtree(centrum.period_directory)
+
+    centrum.restart()
+
+    expected = restored(live, record["started_at"])
+    expected["result"]["warnings"][0]["what"] = "Ostrzeżenie zmienione w pliku Logów."
+    expected["result"]["summary"]["figures"][0]["value"] = 999
+    assert centrum.client.get("/api/runs/current").json()["previous"] == expected
+
+
+@pytest.mark.parametrize(("dry_run", "action"), [(True, PREVIEW_ADVICE), (False, WRITE_ADVICE)], ids=["podglad", "zapis"])
+def test_uruchomienie_przerwane_zamknieciem_centrum_jest_nazwane_po_starcie(
+    tmp_path: Path, dry_run: bool, action: str
+) -> None:
+    held = HeldRegister()
+    centrum = preparing_centrum(tmp_path, surroundings=Surroundings(readers=held.readers()))
+    running = centrum.start(dry_run=dry_run).json()
+    assert wait_for(held.reading.is_set)
+    closed = centrum.client
+
+    centrum.restart()
+
+    current = centrum.client.get("/api/runs/current").json()
+    nothing_left = (logged(centrum), centrum.metrics_path.exists())
+    held.released.set()
+    finished_view(closed)
+    [record] = logged(centrum)
+    assert nothing_left == ([], False), "bez Logów i rekordu metryk"
+    assert current == {
+        "state": "idle",
+        "previous": {
+            "state": "interrupted",
+            "run": running["run"],
+            "started_at": record["started_at"],
+            "advice": {"what": INTERRUPTED, "where": f"Przygotowanie pliku zbiorczego, okres {PERIOD}", "action": action},
+        },
+    }
+    assert first_view(centrum.client) == current
+
+
+def test_karta_po_starcie_to_ostatni_start_takze_po_przerwanym(tmp_path: Path) -> None:
+    held = HeldRegister()
+    centrum = preparing_centrum(tmp_path, surroundings=Surroundings(readers=held.readers()))
+    centrum.start(dry_run=True)
+    assert wait_for(held.reading.is_set)
+    closed = centrum.client
+    centrum.restart()
+    held.released.set()
+    finished_view(closed)
+
+    live = run_to_end(centrum, dry_run=False)
+    centrum.restart()
+
+    previous = centrum.client.get("/api/runs/current").json()["previous"]
+    assert (previous["state"], previous["run"]) == ("restored", live["run"])
+
+
+def test_nieczytelne_logi_ostatniego_uruchomienia_daja_start_bez_karty(tmp_path: Path) -> None:
+    centrum = settling_centrum(tmp_path)
+    run_to_end(centrum, dry_run=True)
+    [path] = log_paths(centrum)
+    path.write_text("{", encoding="utf-8")
+
+    centrum.restart()
+
+    assert centrum.client.get("/api/runs/current").json() == {"state": "idle", "previous": None}
+
+
+def test_nieudany_zapis_startu_nie_zmienia_uruchomienia(tmp_path: Path) -> None:
+    centrum = settling_centrum(tmp_path)
+    (centrum.log_path.parent / "ostatnie-uruchomienie.json").mkdir(parents=True)
+
+    view = run_to_end(centrum, dry_run=False)
+
+    expected = run_to_end(settling_centrum(tmp_path / "bez-blokady"), dry_run=False)
+    assert without_times(view["result"]) == without_times(expected["result"])
+    assert 'miejsce="start Uruchomienia procesu"' in centrum.log_path.read_text(encoding="utf-8")
+    centrum.restart()
+    assert centrum.client.get("/api/runs/current").json() == {"state": "idle", "previous": None}
+
+
+def test_diagnoza_karty_z_logow_jest_odrzucona(tmp_path: Path) -> None:
+    centrum = settling_centrum(tmp_path)
+    run_id = stopped_for_maks(centrum)
+
+    centrum.restart()
+
+    response = centrum.client.post(f"/api/runs/{run_id}/diagnosis")
+    assert (response.status_code, response.json()) == (404, {"message": "Nie ma takiego Uruchomienia procesu."})
+
+
+def history_cards(centrum: SettlingCentrum) -> dict[str, Any]:
+    """Karta każdego wiersza Historii z identyfikatorem Uruchomienia, tak jak otwiera ją przeglądarka."""
+
+    runs = centrum.client.get("/api/metrics").json()["runs"]
+    return {run["run_id"]: centrum.client.get(f"/api/runs/{run['run_id']}/card").json() for run in runs}
+
+
+def test_wiersz_historii_otwiera_karte_swojego_uruchomienia_takze_po_ponownym_starcie(tmp_path: Path) -> None:
+    centrum = settling_centrum(tmp_path)
+    preview = run_to_end(centrum, dry_run=True)
+    saved = run_to_end(centrum, dry_run=False)
+    started = {record["run_id"]: record["started_at"] for record in logged(centrum)}
+
+    before = history_cards(centrum)
+    centrum.restart()
+    after = history_cards(centrum)
+
+    expected = {live["run"]["id"]: restored(live, started[live["run"]["id"]]) for live in (preview, saved)}
+    assert before == after == expected
+
+
+def test_uruchomienie_bez_logow_nie_ma_karty(tmp_path: Path) -> None:
+    centrum = settling_centrum(tmp_path)
+    run_id = run_to_end(centrum, dry_run=True)["run"]["id"]
+    asked = ["0123456789abcdef0123456789abcdef", f"settlement-{run_id}", run_id.upper(), f"{run_id}.json", "*"]
+
+    answers = [centrum.client.get(f"/api/runs/{asked_id}/card") for asked_id in asked]
+    [path] = log_paths(centrum)
+    path.write_text("{", encoding="utf-8")
+    broken = centrum.client.get(f"/api/runs/{run_id}/card")
+
+    missing = (200, {"state": "missing"})
+    assert [(answer.status_code, answer.json()) for answer in answers] == [missing] * len(asked)
+    assert (broken.status_code, broken.json()) == missing
