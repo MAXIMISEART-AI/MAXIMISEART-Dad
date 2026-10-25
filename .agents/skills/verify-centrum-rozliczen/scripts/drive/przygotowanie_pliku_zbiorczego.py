@@ -12,22 +12,27 @@ from drive.common import (
     LAST_COMPLETE,
     ROW_MARKER,
     Run,
+    active_run_signs,
     current_run,
     ensure_files_set,
     error_toasts,
     figure,
     finished_result,
     history_rows,
+    last_opened_is,
+    period_choice,
     period_files,
     period_row,
     sent_requests,
     settle,
+    start_card_warns_while_open,
 )
 
 # An older period with no successful DRY-RUN in the fixture's metrics; its confirmation keeps the no-preview warning.
 NOT_PREVIEWED = "08_14_09_2026"
 PREPARATION = "przygotowanie-pliku-zbiorczego"
 INCOMPLETE_PERIOD_WHAT = "Ostatnie zlecenie okresu jest z soboty 10.10.2026"
+FILES_UNCHANGED = "Nic nie zapisano, Twoje pliki są bez zmian."
 # Ilości usług warnings of the fixture's Plik zbiorczy rows (create_centrum_fixture.DEVICES): "Co się stało" and "Gdzie".
 COLLECTIVE_FILE = f"Rozliczenie {LAST_COMPLETE} - zbiorcze.xlsx"
 QUANTITY_WARNINGS = (
@@ -88,7 +93,7 @@ def drive_preparation(run: Run, page: Page) -> None:
     page.get_by_role("button", name=f"Przygotuj plik zbiorczy, okres {LAST_COMPLETE}", exact=True).click()
     expect(page.get_by_text("Nowe Uruchomienie procesu", exact=True)).to_be_visible()
     run.check(page.url.endswith("#/uruchomienia"), "the row's next step opens Uruchomienia")
-    expect(page.get_by_role("combobox", name="Okres")).to_contain_text(f"{LAST_COMPLETE} · ostatni pełny")
+    expect(page.get_by_role("combobox", name="Okres")).to_contain_text(period_choice(LAST_COMPLETE, "ostatni pełny"))
     expect(page.get_by_role("group", name="Rejestr zleceń")).to_contain_text(register_name)
     expect(page.get_by_text("Zapisz i zamknij Rejestr zleceń w Excelu", exact=True)).to_be_visible()
     setup = run.api("/api/runs/setup", "przygotowanie-wybor-okresu")["processes"]
@@ -98,6 +103,17 @@ def drive_preparation(run: Run, page: Page) -> None:
         "the server preselects the last complete period and nothing is missing",
     )
     run.capture(page, "30-przygotowanie-nowe-uruchomienie")
+
+    run.step(feature, "przygotowanie-rejestr-otwarty-w-excelu")
+    start_card_warns_while_open(
+        run,
+        page,
+        process="preparation",
+        workbook=Path(run.fixture["order_register"]),
+        warning="Rejestr zleceń jest otwarty w Excelu. Zapisz go i zamknij.",
+        name="przygotowanie-rejestr",
+        shots=("3c-przygotowanie-rejestr-otwarty-w-excelu", "3d-przygotowanie-rejestr-zamkniety"),
+    )
 
     run.step(feature, "przygotowanie-podglad")
     page.goto(run.url)
@@ -119,7 +135,10 @@ def drive_preparation(run: Run, page: Page) -> None:
     )
     expect(live.get_by_role("listitem", name="sob 10.10.2026: 1", exact=True)).to_be_visible()
     expect(live.get_by_label("Ostrzeżenie").filter(has_text=INCOMPLETE_PERIOD_WHAT)).to_be_visible()
-    expect(live).to_contain_text(f"Rozliczenie {LAST_COMPLETE} - zbiorcze.xlsx")
+    period_file_list = live.get_by_role("list", name="Pliki okresu")
+    expect(period_file_list).to_contain_text(f"Rozliczenie {LAST_COMPLETE} - zbiorcze.xlsx")
+    expect(period_file_list.get_by_role("button")).to_have_count(0)
+    run.check(True, "after the preview the period file names are plain text: the files do not exist yet")
     _quantity_warnings_shown(run, page, result, "the preview")
     run.check(not period_folder.exists(), "the DRY-RUN created neither files nor the Folder okresu")
     records = _preparation_records(run, "przygotowanie-metryki-podglad")
@@ -136,13 +155,13 @@ def drive_preparation(run: Run, page: Page) -> None:
     no_preview = confirm.get_by_text("Nie było podglądu bez zapisu", exact=True)
     page.reload()
     page.get_by_role("button", name="Nowe Uruchomienie procesu").click()
-    expect(page.get_by_role("combobox", name="Okres")).to_contain_text(f"{LAST_COMPLETE} · ostatni pełny")
+    expect(page.get_by_role("combobox", name="Okres")).to_contain_text(period_choice(LAST_COMPLETE, "ostatni pełny"))
     page.get_by_role("button", name="Uruchom", exact=True).click()
     expect(confirm).to_be_visible()
     expect(no_preview).to_have_count(0)
     confirm.get_by_role("button", name="Anuluj").click()
     page.get_by_role("combobox", name="Okres").click()
-    page.get_by_role("option", name=f"{NOT_PREVIEWED} · Brak plików okresu", exact=True).click()
+    page.get_by_role("option", name=period_choice(NOT_PREVIEWED, "Brak plików okresu"), exact=True).click()
     page.get_by_role("button", name="Uruchom", exact=True).click()
     expect(no_preview).to_be_visible()
     setup = run.api("/api/runs/setup", "przygotowanie-podglad-po-odswiezeniu")["processes"]
@@ -209,20 +228,53 @@ def drive_preparation(run: Run, page: Page) -> None:
     run.check(True, "the decision survives a reload of the tab")
     run.capture(page, "33-przygotowanie-decyzja")
 
+    run.step(feature, "przygotowanie-znak-decyzji")
+    menu_sign, header_link = active_run_signs(page, "Czeka na decyzję")
+    page.goto(run.url + "#/okresy")
+    expect(page.get_by_role("heading", name="Okresy", level=1)).to_be_visible()
+    expect(decision).to_have_count(0)
+    expect(menu_sign).to_be_visible()
+    expect(header_link).to_be_visible()
+    run.check(True, "on Okresy, where the decision dialog does not open, the header says „Czeka na decyzję”")
+    run.capture(page, "149-przygotowanie-znak-decyzji")
+    header_link.click()
+    expect(decision).to_be_visible()
+    # The open dialog hides the rest of the page from the accessibility tree, so the header is read as text.
+    expect(page.locator("header").get_by_text("Czeka na decyzję")).to_have_count(0)
+    run.check(
+        page.url.endswith("#/uruchomienia"), "the header link leads to Uruchomienia, where the decision waits; there it is gone"
+    )
+
     run.step(feature, "przygotowanie-przerwij")
     decision.get_by_role("button", name="Przerwij bez zapisu").click()
-    stop = page.get_by_label("Zatrzymanie")
+    stop = page.get_by_label("Zatrzymanie po odmowie", exact=True)
+    expect(stop).to_contain_text("Przerwano")
+    expect(stop).to_contain_text(FILES_UNCHANGED)
     expect(stop).to_contain_text("Przerwano z powodu niepełnego okresu")
     expect(stop).to_contain_text("Jeśli okres jest pełny, przy decyzji wybierz „Kontynuuj”.")
+    run.check(
+        "text-destructive" not in (stop.get_attribute("class") or ""),
+        "the refusal in Dad's decision is calm, not a red error",
+    )
     result = finished_result(run, "przygotowanie-przerwij")
     stops = result["stops"]
     assert isinstance(stops, list)
     run.check(
-        result["ending"] == "stop" and result["headline"] == "Zatrzymano" and len(stops) == 1,
-        "the refusal is a stop with the three-part message",
+        (result["ending"], result["stop_kind"], result["headline"], result["diagnosis"]) == ("declined", "declined", "Przerwano", None)
+        and (result["files_unchanged"], result["opens"]) == (True, "order_register")
+        and len(stops) == 1,
+        "the refusal is a declined stop with the three-part message, no Diagnoza and the Rejestr zleceń to open",
     )
     run.check(not period_folder.exists(), "Przerwij bez zapisu wrote nothing")
     run.capture(page, "34-przygotowanie-zatrzymanie")
+    opened_before = len(run.lines("opened.jsonl"))
+    with sent_requests(page, "POST", "/api/settings/register/open") as sent:
+        stop.get_by_role("button", name="Otwórz Rejestr zleceń", exact=True).click()
+        settle(page, sent)
+    run.check(
+        len(sent) == 1 and run.lines("opened.jsonl")[opened_before:] == [{"path": run.fixture["order_register"]}],
+        "Otwórz Rejestr zleceń opens the Rejestr zleceń from Dad's settings",
+    )
 
     run.step(feature, "przygotowanie-podwojne-klikniecie")
     with sent_requests(page, "POST", "/api/runs") as sent:
@@ -251,13 +303,14 @@ def drive_preparation(run: Run, page: Page) -> None:
     expect(decision).to_have_count(0)
     expect(page.get_by_label("Wynik")).to_contain_text("Plik zbiorczy przygotowany · wymaga sprawdzenia")
     run.check(True, "with the stream back, the dialog closes on the result")
+    internal_settlement, collective_file = period_files(run)
     opened_before = len(run.lines("opened.jsonl"))
     with sent_requests(page, "POST", f"/api/periods/{LAST_COMPLETE}/open") as sent:
-        page.get_by_label("Wynik").get_by_role("button", name="Folder okresu").dblclick()
+        page.get_by_label("Wynik").get_by_role("button", name="Otwórz Plik zbiorczy", exact=True).dblclick()
         settle(page, sent)
     run.check(
-        len(sent) == 1 and run.lines("opened.jsonl")[opened_before:] == [{"path": str(period_folder)}],
-        f"a double click on the result's Folder okresu opens it once ({len(sent)} requests)",
+        len(sent) == 1 and run.lines("opened.jsonl")[opened_before:] == [{"path": str(collective_file)}],
+        f"a double click on the result's main action Otwórz Plik zbiorczy opens the Plik zbiorczy once ({len(sent)} requests)",
     )
 
     run.step(feature, "przygotowanie-kontynuuj")
@@ -286,6 +339,21 @@ def drive_preparation(run: Run, page: Page) -> None:
     )
     run.capture(page, "35-przygotowanie-zapisane")
 
+    run.step(feature, "przygotowanie-otwieranie")
+    # The tab drops a repeat of the same file for 1.5 s after the server's answer (REPEAT_IGNORED_MS in
+    # open-period-path.ts); the Plik zbiorczy was opened by the double click above.
+    page.wait_for_timeout(1_600)
+    period_file_list = page.get_by_role("list", name="Pliki okresu")
+    opened_before = len(run.lines("opened.jsonl"))
+    for path in (internal_settlement, collective_file):
+        period_file_list.get_by_role("button", name=path.name, exact=True).click()
+        run.wait_for(last_opened_is(run, path), f"the period file name opens {path.name}")
+    run.check(
+        run.lines("opened.jsonl")[opened_before:] == [{"path": str(internal_settlement)}, {"path": str(collective_file)}],
+        "each period file name in the result opens its own file, one per click",
+    )
+    run.capture(page, "3b-przygotowanie-otwieranie", full_page=False)
+
     run.step(feature, "przygotowanie-status-okresu")
     page.goto(run.url)
     expect(period_row(page, LAST_COMPLETE)).to_contain_text("Plik zbiorczy przygotowany")
@@ -299,8 +367,14 @@ def drive_preparation(run: Run, page: Page) -> None:
     page.get_by_role("button", name="Nowe Uruchomienie procesu").click()
     page.get_by_role("button", name="Uruchom", exact=True).click()
     page.get_by_role("alertdialog", name="Uruchomić z zapisem?").get_by_role("button", name="Uruchom", exact=True).click()
-    expect(page.get_by_label("Zatrzymanie")).to_contain_text("Plik tego okresu już istnieje, więc nie został nadpisany.")
-    finished_result(run, "przygotowanie-nienadpisywanie")
+    expect(page.get_by_label("Zatrzymanie do poprawy", exact=True)).to_contain_text(
+        "Plik tego okresu już istnieje, więc nie został nadpisany."
+    )
+    result = finished_result(run, "przygotowanie-nienadpisywanie")
+    run.check(
+        (result["stop_kind"], result["headline"], result["opens"]) == ("for_tata", "Do poprawy", None),
+        "Nienadpisywanie is a stop Dad fixes himself, with no file of his to open",
+    )
     run.check([path.read_bytes() for path in period_files(run)] == before, "Nienadpisywanie: both files are unchanged")
     run.capture(page, "37-przygotowanie-nienadpisywanie")
 

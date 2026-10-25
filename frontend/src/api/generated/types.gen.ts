@@ -13,7 +13,7 @@ export type ApiTiming = {
     /**
      * Operation
      */
-    operation: 'getHealth' | 'getSettings' | 'chooseRegister' | 'choosePeriodsDirectory' | 'changeTheme' | 'getPeriodBoard' | 'openPeriodPath' | 'getRunSetup' | 'startRun' | 'decideRun' | 'diagnoseRun' | 'reportRun' | 'getNotifications' | 'markNotificationsRead' | 'getMetrics' | 'getConfiguration' | 'startToolUpdate' | 'getToolUpdate' | 'reportToolUpdate' | 'getDadNoteRuns' | 'draftDadNote' | 'sendDadNote' | 'closeCentrum';
+    operation: 'getHealth' | 'getSettings' | 'chooseRegister' | 'openRegister' | 'choosePeriodsDirectory' | 'changeTheme' | 'getPeriodBoard' | 'openPeriodPath' | 'openWorkerSettlement' | 'getRunSetup' | 'startRun' | 'decideRun' | 'diagnoseRun' | 'reportRun' | 'getNotifications' | 'markNotificationsRead' | 'getMetrics' | 'getConfiguration' | 'startToolUpdate' | 'getToolUpdate' | 'reportToolUpdate' | 'getDadNoteRuns' | 'draftDadNote' | 'sendDadNote' | 'closeCentrum';
     /**
      * Browser Ms
      */
@@ -631,6 +631,10 @@ export type PeriodChoice = {
      * Collective File
      */
     collective_file: string | null;
+    /**
+     * Open In Excel
+     */
+    open_in_excel: Array<string>;
 };
 
 /**
@@ -1271,12 +1275,15 @@ export type RunInfo = {
  *
  * Wynik Uruchomienia procesu: zatrzymania i ostrzeżenia w trzech częściach, uwagi techniczne i podsumowanie.
  *
- * ``ending`` mówi, jak się skończyło: ``finished``, własne zatrzymanie procesu (``stop``), nieoczekiwany
- * błąd (``unexpected``) albo błąd po zakończeniu silnika (``after_engine``). ``next_action`` to akcja,
- * którą Centrum proponuje po wyniku, a ``headline`` to tytuł banera wyniku. ``stop_kind`` to rodzaj
+ * ``ending`` mówi, jak się skończyło: ``finished``, własne zatrzymanie procesu (``stop``), Zatrzymanie po
+ * odmowie w Decyzji taty (``declined``), nieoczekiwany błąd (``unexpected``) albo błąd po zakończeniu
+ * silnika (``after_engine``). ``next_action`` to akcja, którą Centrum proponuje po wyniku, a ``headline``
+ * to tytuł banera wyniku. ``stop_kind`` to rodzaj
  * Zatrzymania (``None`` bez Zatrzymania), ``diagnosis`` to Diagnoza, którą z niego Centrum proponuje
  * (``None``: bez Zatrzymania i przy Zatrzymaniu „dla taty”), a ``report`` stan Zgłoszenia do Maksa tego
- * problemu (``None``, gdy Centrum nie proponuje Diagnozy).
+ * problemu (``None``, gdy Centrum nie proponuje Diagnozy). ``files_unchanged``: Uruchomienie nie zmieniło
+ * plików taty (podgląd bez zapisu albo koniec przed Zapisywaniem), więc karta może to tacie powiedzieć.
+ * ``opens`` to plik taty, w którym jest poprawka Zatrzymania, a karta proponuje go otworzyć (``None``: żaden).
  */
 export type RunOutcome = {
     /**
@@ -1290,15 +1297,15 @@ export type RunOutcome = {
     /**
      * Ending
      */
-    ending: 'finished' | 'stop' | 'unexpected' | 'after_engine';
+    ending: 'finished' | 'stop' | 'declined' | 'unexpected' | 'after_engine';
     /**
      * Next Action
      */
-    next_action: 'run' | 'rerun' | 'open_period_folder';
+    next_action: 'run' | 'rerun' | 'open_collective_file' | 'open_worker_settlements_folder';
     /**
      * Stop Kind
      */
-    stop_kind: 'for_tata' | 'for_maks' | 'repeated' | null;
+    stop_kind: 'for_tata' | 'for_maks' | 'repeated' | 'declined' | null;
     /**
      * Diagnosis
      */
@@ -1328,6 +1335,14 @@ export type RunOutcome = {
      */
     technical_notes: Array<string>;
     summary: RunSummary | null;
+    /**
+     * Files Unchanged
+     */
+    files_unchanged: boolean;
+    /**
+     * Opens
+     */
+    opens: 'order_register' | 'collective_file' | null;
 };
 
 /**
@@ -1381,8 +1396,8 @@ export type RunSetup = {
  *
  * Podsumowanie albo plan (DRY-RUN) procesu tak, jak pokazuje je karta Uruchomienia, bez danych klientów.
  *
- * Liczby wyniku, potem szczegóły: kafelki liczb (np. Zlecenia na dzień), pliki okresu i plan plików
- * (``None``, gdy proces go nie ma).
+ * Liczby wyniku, potem szczegóły: kafelki liczb (np. Zlecenia na dzień), pliki okresu i Rozliczenia
+ * pracowników: plan po podglądzie, zapisane po uruchomieniu (``None``, gdy proces ich nie tworzy).
  */
 export type RunSummary = {
     /**
@@ -1395,9 +1410,9 @@ export type RunSummary = {
      */
     files: Array<PeriodFile>;
     /**
-     * File Plan
+     * Worker Settlements
      */
-    file_plan: Array<WorkerFile> | null;
+    worker_settlements: Array<WorkerSettlement> | null;
 };
 
 /**
@@ -1666,19 +1681,39 @@ export type ViewTiming = {
 };
 
 /**
- * WorkerFile
+ * WorkerSettlement
  *
- * Wiersz planu plików: nazwa pliku Szablonu pracownika i liczba Wierszy danych (0 = pusty skoroszyt).
+ * Rozliczenie pracownika jednego Wykonawcy: nazwa pliku, liczba jego zleceń w okresie i czy szablon jest pusty.
  */
-export type WorkerFile = {
+export type WorkerSettlement = {
+    /**
+     * Worker
+     */
+    worker: string;
     /**
      * File
      */
     file: string;
     /**
-     * Rows
+     * Orders
      */
-    rows: number;
+    orders: number;
+    /**
+     * Empty
+     */
+    empty: boolean;
+};
+
+/**
+ * WorkerSettlementRequest
+ *
+ * Którego Wykonawcy Rozliczenie pracownika otworzyć; ścieżkę wylicza serwer z Folderu okresu.
+ */
+export type WorkerSettlementRequest = {
+    /**
+     * Worker
+     */
+    worker: string;
 };
 
 /**
@@ -1976,6 +2011,44 @@ export type OpenPeriodPathResponses = {
 
 export type OpenPeriodPathResponse = OpenPeriodPathResponses[keyof OpenPeriodPathResponses];
 
+export type OpenWorkerSettlementData = {
+    body: WorkerSettlementRequest;
+    path: {
+        /**
+         * Token
+         */
+        token: string;
+    };
+    query?: never;
+    url: '/api/periods/{token}/worker-settlements/open';
+};
+
+export type OpenWorkerSettlementErrors = {
+    /**
+     * Not Found
+     */
+    404: Problem;
+    /**
+     * Conflict
+     */
+    409: Problem;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type OpenWorkerSettlementError = OpenWorkerSettlementErrors[keyof OpenWorkerSettlementErrors];
+
+export type OpenWorkerSettlementResponses = {
+    /**
+     * Successful Response
+     */
+    200: Opened;
+};
+
+export type OpenWorkerSettlementResponse = OpenWorkerSettlementResponses[keyof OpenWorkerSettlementResponses];
+
 export type StartRunData = {
     body: RunRequest;
     path?: never;
@@ -2258,6 +2331,35 @@ export type ChooseRegisterResponses = {
 };
 
 export type ChooseRegisterResponse = ChooseRegisterResponses[keyof ChooseRegisterResponses];
+
+export type OpenRegisterData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/settings/register/open';
+};
+
+export type OpenRegisterErrors = {
+    /**
+     * Not Found
+     */
+    404: Problem;
+    /**
+     * Conflict
+     */
+    409: Problem;
+};
+
+export type OpenRegisterError = OpenRegisterErrors[keyof OpenRegisterErrors];
+
+export type OpenRegisterResponses = {
+    /**
+     * Successful Response
+     */
+    200: Opened;
+};
+
+export type OpenRegisterResponse = OpenRegisterResponses[keyof OpenRegisterResponses];
 
 export type ChangeThemeData = {
     body: ThemeChange;

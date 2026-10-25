@@ -23,6 +23,7 @@ from pathlib import Path
 import shutil
 import socket
 import subprocess
+import sys
 import threading
 
 from rozliczenia.centrum.tool_freshness import GitHubReleases, PublishedRelease
@@ -65,6 +66,35 @@ def git(directory: Path, *args: str) -> str:
     )
     assert result.returncode == 0, f"git {' '.join(args)}: {result.stderr}{result.stdout}"
     return result.stdout.strip()
+
+
+def git_command(directory: Path, script: Path) -> Path:
+    """Polecenie ``git`` w ``directory``, które uruchamia skrypt Pythona ``script`` z argumentami Gita."""
+
+    if sys.platform == "win32":
+        git = directory / "git.cmd"
+        git.write_text(f'@"{sys.executable}" "{script}" %*\n', encoding="utf-8")
+    else:
+        git = directory / "git"
+        git.write_text(f"#!{sys.executable}\nexec(open({str(script)!r}, encoding='utf-8').read())\n", encoding="utf-8")
+        git.chmod(0o755)
+    return git
+
+
+def git_failing_on(tmp_path: Path, *words: str) -> Path:
+    """Prawdziwy Git, w którym polecenie ze wszystkimi ``words`` kończy się błędem i niczego nie zmienia."""
+
+    real = shutil.which("git")
+    assert real is not None
+    script = tmp_path / "git_z_bledem.py"
+    script.write_text(
+        "import subprocess, sys\n"
+        f"if all(word in sys.argv for word in {list(words)!r}):\n"
+        "    sys.exit(128)\n"
+        f"sys.exit(subprocess.call([{real!r}, *sys.argv[1:]]))\n",
+        encoding="utf-8",
+    )
+    return git_command(tmp_path, script)
 
 
 def _succeeds(directory: Path, *args: str) -> bool:

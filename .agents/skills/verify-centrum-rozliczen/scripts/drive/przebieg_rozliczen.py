@@ -14,20 +14,23 @@ from drive.common import (
     LAST_COMPLETE,
     ROW_MARKER,
     Run,
+    active_run_signs,
     current_run,
     figure,
     finished_result,
     history_rows,
     last_opened_is,
+    period_choice,
     period_files,
     period_row,
+    start_card_warns_while_open,
 )
 from drive.przygotowanie_pliku_zbiorczego import drive_preparation
 
 SETTLEMENT = "przebieg-rozliczen"
 WORKER_SETTLEMENTS = f"Rozliczenie pracowników {LAST_COMPLETE}"
 # serve_centrum.py waits this long before each Szablon pracownika while the pacing file exists.
-TEMPLATE_PACING_MS = 1500
+TEMPLATE_PACING_MS = 2500
 WORKER_COLUMN, QUANTITY_COLUMN, FIRST_DATA_ROW = 8, 14, 18  # H (WYKONAWCA), N (first quantity), row 18
 
 
@@ -75,6 +78,12 @@ def drive_settlement(run: Run, page: Page) -> None:
     worker_settlements = period_folder / WORKER_SETTLEMENTS
     workers = run.fixture["workers"]
     files = [f"Rozliczenie {LAST_COMPLETE} - {worker}.xlsx" for worker in workers]
+    orders = run.fixture["settlement"]["rows_per_worker"]
+    expected_settlements = [
+        {"worker": worker, "file": file, "orders": count, "empty": count == 0}
+        for worker, file, count in zip(workers, files, orders, strict=True)
+    ]
+    [empty_worker] = [worker for worker, count in zip(workers, orders, strict=True) if count == 0]
     needs_check = run.fixture["settlement"]["needs_check"]
     if not collective_file.is_file():
         # Dad's path starts with Przygotowanie pliku zbiorczego; alone, this feature drives it first.
@@ -84,7 +93,7 @@ def drive_settlement(run: Run, page: Page) -> None:
     run.step(feature, "przebieg-gotowosc")
     filled = _fill_readiness(collective_file)
     run.check(
-        filled == len(workers) and not collective_file.with_name(f"~${collective_file.name}").exists(),
+        filled == len(workers) - 1 and not collective_file.with_name(f"~${collective_file.name}").exists(),
         "Gotowość (Excel simulated by the harness): quantities typed into every Wiersz danych, saved and closed",
     )
 
@@ -93,7 +102,7 @@ def drive_settlement(run: Run, page: Page) -> None:
     page.get_by_role("button", name=f"Utwórz rozliczenia pracowników, okres {LAST_COMPLETE}", exact=True).click()
     expect(page.get_by_text("Nowe Uruchomienie procesu", exact=True)).to_be_visible()
     expect(page.get_by_role("radio", name="Przebieg rozliczeń")).to_be_checked()
-    expect(page.get_by_role("combobox", name="Okres")).to_contain_text(f"{LAST_COMPLETE} · ostatni pełny")
+    expect(page.get_by_role("combobox", name="Okres")).to_contain_text(period_choice(LAST_COMPLETE, "ostatni pełny"))
     expect(page.get_by_role("group", name="Plik zbiorczy")).to_contain_text(collective_file.name)
     expect(page.get_by_text("Zapisz i zamknij Plik zbiorczy w Excelu", exact=True)).to_be_visible()
     processes = run.api("/api/runs/setup", "przebieg-wybor-okresu")["processes"]
@@ -107,6 +116,17 @@ def drive_settlement(run: Run, page: Page) -> None:
     )
     run.capture(page, "40-przebieg-nowe-uruchomienie")
 
+    run.step(feature, "przebieg-plik-zbiorczy-otwarty-w-excelu")
+    start_card_warns_while_open(
+        run,
+        page,
+        process="settlement",
+        workbook=collective_file,
+        warning="Plik zbiorczy jest otwarty w Excelu. Zapisz go i zamknij.",
+        name="przebieg-plik-zbiorczy",
+        shots=("4a-przebieg-plik-zbiorczy-otwarty-w-excelu", "4b-przebieg-plik-zbiorczy-zamkniety"),
+    )
+
     run.step(feature, "przebieg-podglad")
     page.goto(run.url)
     next_step = page.get_by_role("region", name="Następny krok")
@@ -118,14 +138,17 @@ def drive_settlement(run: Run, page: Page) -> None:
     summary = result["summary"]
     assert isinstance(summary, dict)
     run.check(
-        result["result"] == "OK"
-        and [file["file"] for file in summary["file_plan"]] == files
-        and [file["rows"] for file in summary["file_plan"]] == run.fixture["settlement"]["rows_per_worker"],
-        "the DRY-RUN plans one Rozliczenie pracownika per Wykonawca with its number of rows",
+        result["result"] == "OK" and summary["worker_settlements"] == expected_settlements,
+        "the DRY-RUN plans one Rozliczenie pracownika per Wykonawca with his orders, the one without orders empty",
     )
     plan = live.get_by_role("table", name="Plan plików")
     expect(plan.get_by_role("row")).to_have_count(len(files))
-    expect(plan.get_by_role("row").filter(has_text=files[0])).to_contain_text("1 wiersz")
+    expect(plan.get_by_role("row").first.get_by_role("cell")).to_have_text([workers[0], files[0], "1 zlecenie"])
+    expect(plan.get_by_role("row").last.get_by_role("cell")).to_have_text(
+        [empty_worker, files[-1], "pusty 0 zleceń w tym tygodniu"]
+    )
+    expect(plan.get_by_role("button")).to_have_count(0)
+    run.check(True, "the plan names each Wykonawca, his file and orders, marks the empty one, and opens nothing")
     run.check(not worker_settlements.exists(), "the DRY-RUN created no Folder rozliczeń pracowników")
     records = _settlement_records(run, "przebieg-metryki-podglad")
     run.check(
@@ -177,6 +200,22 @@ def drive_settlement(run: Run, page: Page) -> None:
             "closing Centrum is refused while the Przebieg rozliczeń runs",
         )
         run.capture(page, "43-przebieg-na-zywo", live=True)
+
+        run.step(feature, "przebieg-znak-uruchomienia")
+        menu_sign, header_link = active_run_signs(page, "Trwa Uruchomienie")
+        page.get_by_role("link", name="Okresy", exact=True).click()
+        expect(page.get_by_role("heading", name="Okresy", level=1)).to_be_visible()
+        expect(menu_sign).to_be_visible()
+        expect(header_link).to_be_visible()
+        run.check(
+            current_run(run, "przebieg-znak-uruchomienia")["state"] == "running",
+            "on Okresy during the RUN the menu and the header show „Trwa Uruchomienie” (harness pacing on)",
+        )
+        run.capture(page, "155-przebieg-znak-uruchomienia", live=True)  # the sign's spinner turns while it runs
+        header_link.click()
+        expect(live).to_be_visible()
+        expect(header_link).to_have_count(0)
+        run.check(page.url.endswith("#/uruchomienia"), "the header link leads back to the live view; there it is gone")
     finally:
         pacing.unlink(missing_ok=True)
 
@@ -186,7 +225,12 @@ def drive_settlement(run: Run, page: Page) -> None:
     result = finished_result(run, "przebieg-zapisane")
     summary = result["summary"]
     assert isinstance(summary, dict)
-    run.check(result["result"] == "OK" and figure(summary, "Zapisane szablony") == len(workers), "the RUN finished OK")
+    run.check(
+        result["result"] == "OK"
+        and (figure(summary, "Zapisane szablony"), figure(summary, "Puste szablony")) == (len(workers) - 1, 1)
+        and summary["worker_settlements"] == expected_settlements,
+        "the RUN finished OK and lists every written Rozliczenie pracownika, the one without orders empty",
+    )
     run.check(
         sorted(path.name for path in worker_settlements.iterdir()) == sorted(files),
         "the Folder rozliczeń pracowników holds one Rozliczenie pracownika per Wykonawca",
@@ -209,9 +253,39 @@ def drive_settlement(run: Run, page: Page) -> None:
         and ROW_MARKER not in log,
         "the Centrum log records the Przebieg rozliczeń with safe facts only",
     )
-    outcome.get_by_role("button", name="Folder okresu").click()
-    run.wait_for(last_opened_is(run, period_folder), "Folder okresu opens in Explorer")
+    settlements = live.get_by_role("table", name="Rozliczenia pracowników")
+    expect(live.get_by_role("heading", name=f"Rozliczenia pracowników ({len(workers)})")).to_be_visible()
+    expect(settlements.get_by_role("row")).to_have_count(len(workers))
+    expect(settlements.get_by_role("row").first.get_by_role("cell")).to_have_text([workers[0], "1 zlecenie", "Otwórz"])
+    expect(settlements.get_by_role("row").last.get_by_role("cell")).to_have_text(
+        [empty_worker, "pusty 0 zleceń w tym tygodniu", "Otwórz"]
+    )
+    run.check(True, "the result lists the Rozliczenia pracowników without a click and marks the empty one pusty")
     run.capture(page, "44-przebieg-zapisane")
+
+    run.step(feature, "przebieg-otwieranie")
+    opened_before = len(run.lines("opened.jsonl"))
+    for file in files:
+        settlements.get_by_role("button", name=f"Otwórz {file}", exact=True).click()
+        run.wait_for(last_opened_is(run, worker_settlements / file), f"Otwórz opens {file}")
+    outcome.get_by_role("button", name="Otwórz folder rozliczeń pracowników", exact=True).click()
+    run.wait_for(last_opened_is(run, worker_settlements), "the main action opens the Folder rozliczeń pracowników")
+    run.check(
+        run.lines("opened.jsonl")[opened_before:]
+        == [{"path": str(worker_settlements / file)} for file in files] + [{"path": str(worker_settlements)}],
+        "each Otwórz opens exactly its Wykonawca's Rozliczenie pracownika, the main action the folder, one per click",
+    )
+    refused = _post(
+        run,
+        f"/api/periods/{LAST_COMPLETE}/worker-settlements/open",
+        {"worker": f"../{empty_worker}"},
+        "przebieg-otwieranie-spoza-folderu",
+    )
+    run.check(
+        refused == 404 and len(run.lines("opened.jsonl")) == opened_before + len(files) + 1,
+        "a Wykonawca name leading out of the Folder rozliczeń pracowników is refused and opens nothing",
+    )
+    run.capture(page, "49-przebieg-otwieranie", full_page=False)
 
     run.step(feature, "przebieg-odczyt-po-uruchomieniu")
     # Same tab, no reload: the history and the period choice Centrum showed before the RUN are read again.
@@ -244,7 +318,7 @@ def drive_settlement(run: Run, page: Page) -> None:
     [row] = [row for row in board if row["token"] == LAST_COMPLETE]
     run.check(
         row["status"] == "worker_settlements_ready" and row["worker_settlement_count"] == len(workers),
-        "the Status okresu is Rozliczenia pracowników gotowe with three Rozliczenia pracowników",
+        "the Status okresu is Rozliczenia pracowników gotowe with a Rozliczenie pracownika per Wykonawca",
     )
     run.capture(page, "45-przebieg-status-okresu")
 

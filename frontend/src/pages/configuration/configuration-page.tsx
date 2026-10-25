@@ -9,8 +9,8 @@ import {
 
 import { getConfiguration, type Configuration, type TemplateProblem } from "@/api/centrum"
 import { PageHeader } from "@/components/page-header"
+import { LoadFailure } from "@/components/load-failure"
 import { ThreePartMessage, type MessageKind } from "@/components/three-part-message"
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Item, ItemActions, ItemContent, ItemMedia, ItemTitle } from "@/components/ui/item"
@@ -38,10 +38,7 @@ export function ConfigurationPage() {
       />
       {configuration.state === "loading" ? <ConfigurationSkeleton /> : null}
       {configuration.state === "failed" ? (
-        <Alert variant="destructive" className="wejscie">
-          <AlertTitle>Nie udało się odczytać konfiguracji</AlertTitle>
-          <AlertDescription>{configuration.message}</AlertDescription>
-        </Alert>
+        <LoadFailure what="konfiguracji" message={configuration.message} reload={reload} />
       ) : null}
       {configuration.state === "ready" ? (
         <div className={cn(entrance, "grid grid-cols-1 items-start gap-6 @4xl/main:grid-cols-2")}>

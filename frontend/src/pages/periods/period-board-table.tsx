@@ -1,4 +1,4 @@
-import type * as React from "react"
+import * as React from "react"
 import { FileSpreadsheetIcon, FileTextIcon, FolderOpenIcon, UsersIcon } from "lucide-react"
 
 import type { OpenTarget, PeriodRow } from "@/api/centrum"
@@ -96,7 +96,7 @@ function PeriodBoardRow({ period, onStale }: { period: PeriodRow; onStale: () =>
 }
 
 function PeriodFiles({ period, onStale }: { period: PeriodRow; onStale: () => void }) {
-  const open = (target: OpenTarget) => openAndConfirm(period.token, target, onStale)
+  const open = (target: OpenTarget) => openAndConfirm(period.token, { target }, onStale)
 
   return (
     <div className="flex items-center gap-0.5">
@@ -133,6 +133,11 @@ function PeriodFiles({ period, onStale }: { period: PeriodRow; onStale: () => vo
   )
 }
 
+/**
+ * Przycisk pliku albo folderu okresu. Brakujący plik niczego nie otwiera, ale przycisk zostaje w zasięgu myszy,
+ * klawiatury i palca (`aria-disabled` zamiast `disabled`), żeby podpowiedź „jeszcze nie ma” dało się zobaczyć:
+ * kliknięcie albo stuknięcie w niego pokazuje ją jak najechanie.
+ */
 function FileButton({
   label,
   token,
@@ -148,18 +153,28 @@ function FileButton({
   count?: number
   onOpen: () => void
 }) {
+  const [hinted, setHinted] = React.useState(false)
   const description = count === undefined ? label : `${label}: ${count}`
 
   return (
-    <Tooltip>
+    <Tooltip
+      open={hinted}
+      onOpenChange={(open, details) => {
+        // Kliknięcie w brakujący plik nie chowa podpowiedzi: to ona jest odpowiedzią na nie.
+        if (open || exists || details.reason !== "trigger-press") {
+          setHinted(open)
+        }
+      }}
+    >
       <TooltipTrigger
         render={
           <Button
             variant="ghost"
             size={count === undefined ? "icon-sm" : "sm"}
-            disabled={!exists}
+            aria-disabled={!exists}
             aria-label={`${description}, okres ${token}`}
-            onClick={onOpen}
+            className="aria-disabled:cursor-default aria-disabled:opacity-50 aria-disabled:hover:bg-transparent aria-disabled:active:scale-100"
+            onClick={exists ? onOpen : () => setHinted(true)}
           />
         }
       >

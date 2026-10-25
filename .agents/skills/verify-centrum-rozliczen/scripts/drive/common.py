@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
+from datetime import date, timedelta
 from fnmatch import fnmatchcase
 import json
 from pathlib import Path
@@ -29,6 +30,8 @@ ROW_MARKER = "CENTRUM-SYN-ROW"
 # Dad double-clicks out of habit and double-taps the touch screen: the second click comes within milliseconds,
 # so a repeated request is sent well within this, and an answer reaches the screen (a refusal as a toast) too.
 REPEAT_SETTLE_MS = 300
+# Dad's return to Centrum's window: the pages read the server again (`useResource`).
+FOCUS = "window.dispatchEvent(new Event('focus'))"
 
 
 class DriveFailure(Exception):
@@ -134,6 +137,19 @@ def ensure_files_set(run: Run, page: Page) -> None:
         run.wait_for(lambda: run.remembered("rejestr_zlecen") == run.fixture["order_register"], "Rejestr zleceń set")
 
 
+def period_choice(token: str, status: str) -> str:
+    """A period in the combobox ``Okres`` as Dad reads it: ``wt 06.10 – pon 12.10 · ostatni pełny · 06_12_10_2026``.
+
+    The days come from the token itself (the Monday's day, month and year; the Tuesday six days earlier), not from
+    the server's answer, so a wrong date on screen fails the drive.
+    """
+
+    _, monday_day, month, year = token.split("_")
+    monday = date(int(year), int(month), int(monday_day))
+    tuesday = monday - timedelta(days=6)
+    return f"wt {tuesday:%d.%m} – pon {monday:%d.%m} · {status} · {token}"
+
+
 def period_row(page: Page, token: str) -> Locator:
     return page.get_by_role("table", name="Tablica okresów").get_by_role("row").filter(has_text=token)
 
@@ -184,10 +200,67 @@ def figure(shown: object, label: str) -> int:
     return value
 
 
+def active_run_signs(page: Page, label: str) -> tuple[Locator, Locator]:
+    """The sign of the current Uruchomienie beside `Uruchomienia` in the menu and the header's link to it."""
+
+    menu = page.get_by_role("list", name="Sekcje Centrum rozliczeń")
+    header = page.locator("header").first
+    return menu.get_by_role("img", name=label, exact=True), header.get_by_role("link", name=label, exact=True)
+
+
 def stop_banner(page: Page) -> Locator:
     """The three-part stop banner of the Uruchomienie procesu shown on Uruchomienia."""
 
     return page.get_by_role("region", name="Podgląd na żywo").get_by_label("Zatrzymanie")
+
+
+def start_card_warns_while_open(
+    run: Run, page: Page, *, process: str, workbook: Path, warning: str, name: str, shots: tuple[str, str]
+) -> None:
+    """The start card warns while ``workbook`` is open in Excel and stops warning when Dad closes it.
+
+    The card shows the server's ``open_in_excel`` for the chosen period (``LAST_COMPLETE``), turns off „Uruchom”,
+    and keeps „Podgląd bez zapisu”. Excel is not driven: the harness adds and removes its lock file ``~$<name>``,
+    then fires ``focus`` as Dad's return to the window does.
+    """
+
+    lock = workbook.with_name(f"~${workbook.name}")
+    warned = page.get_by_role("alert").filter(has_text=warning)
+    start = page.get_by_role("button", name="Uruchom", exact=True)
+    preview = page.get_by_role("button", name="Podgląd bez zapisu", exact=True)
+
+    def shown(answer: str) -> list[object]:
+        processes = run.api("/api/runs/setup", answer)["processes"]
+        assert isinstance(processes, list)
+        [setup] = [setup for setup in processes if setup["process"] == process]
+        [choice] = [choice for choice in setup["periods"] if choice["token"] == LAST_COMPLETE]
+        found = choice["open_in_excel"]
+        assert isinstance(found, list)
+        return found
+
+    lock.touch()
+    print(f"  harness: Excel opens {workbook.name}, so its lock file is next to it; Dad returns to Centrum", flush=True)
+    try:
+        page.evaluate(FOCUS)
+        expect(warned).to_have_text(warning)
+        expect(start).to_be_disabled()
+        expect(preview).to_be_enabled()
+        run.check(
+            shown(f"{name}-otwarty-w-excelu") == [warning],
+            f"the start card names {workbook.name} open in Excel; Uruchom is off and Podgląd bez zapisu stays on",
+        )
+        run.capture(page, shots[0])
+    finally:
+        lock.unlink(missing_ok=True)
+    print(f"  harness: Excel closes {workbook.name}, so its lock file is gone; Dad returns to Centrum", flush=True)
+    page.evaluate(FOCUS)
+    expect(warned).to_have_count(0)
+    expect(start).to_be_enabled()
+    run.check(
+        shown(f"{name}-zamkniety") == [],
+        f"after {workbook.name} is closed the warning is gone without a reload and Uruchom is on again",
+    )
+    run.capture(page, shots[1])
 
 
 def diagnosis_answer(run: Run, run_id: str, name: str) -> dict[str, object]:

@@ -2,6 +2,7 @@ import { cn } from "cn"
 import { EyeIcon } from "lucide-react"
 
 import type { PinnableRun } from "@/api/centrum"
+import { LoadFailure } from "@/components/load-failure"
 import { RunResultBadge } from "@/components/run-result-badge"
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -27,11 +28,13 @@ const LIST_HEIGHT = "max-h-63 min-h-14"
  */
 export function DadNoteRuns({
   runs,
+  reload,
   openedFrom,
   checked,
   onCheck,
 }: {
   runs: Resource<ReadonlyArray<PinnableRun>>
+  reload: () => Promise<void>
   openedFrom: string | null
   checked: string | null
   onCheck: (runId: string) => void
@@ -52,7 +55,7 @@ export function DadNoteRuns({
         </div>
       )
     case "failed":
-      return <p className="wejscie mt-1 text-sm text-muted-foreground">{runs.message}</p>
+      return <LoadFailure what="Uruchomień" message={runs.message} reload={reload} className="wejscie mt-1" />
     case "ready": {
       const missing = openedFrom !== null && !runs.data.some((run) => run.run_id === openedFrom)
 

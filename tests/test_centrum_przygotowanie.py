@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 import itertools
 import json
 from pathlib import Path
+import sys
 import time
 from typing import Any, NoReturn
 
@@ -50,7 +51,7 @@ SUMMARY: dict[str, Any] = {
         {"name": INTERNAL_SETTLEMENT_NAME, "kind": "internal_settlement"},
         {"name": COLLECTIVE_FILE_NAME, "kind": "collective_file"},
     ],
-    "file_plan": None,
+    "worker_settlements": None,
 }
 # Domyślny syntetyczny Rejestr ma w URZĄDZENIA tylko urządzenia nieznane Regułom ilości.
 QUANTITY_WARNINGS_WHERE = [
@@ -92,7 +93,7 @@ def test_uruchom_publikuje_oba_pliki_okresu_i_zmienia_status_okresu(tmp_path: Pa
     result = finished_view(centrum.client)["result"]
     board = centrum.client.get("/api/periods").json()
 
-    assert (result["result"], result["next_action"]) == ("WYMAGA_SPRAWDZENIA", "open_period_folder")
+    assert (result["result"], result["next_action"]) == ("WYMAGA_SPRAWDZENIA", "open_collective_file")
     assert result["headline"] == "Plik zbiorczy przygotowany · wymaga sprawdzenia"
     assert result["summary"] == SUMMARY
     assert [warning["where"] for warning in result["warnings"]] == QUANTITY_WARNINGS_WHERE
@@ -178,8 +179,14 @@ def test_przerwij_bez_zapisu_zatrzymuje_z_trzema_czesciami_dla_centrum(tmp_path:
     decide(centrum, view, "abort")
     result = finished_view(centrum.client)["result"]
 
-    assert (result["result"], result["ending"], result["next_action"]) == ("BLAD_KRYTYCZNY", "stop", "rerun")
-    assert result["headline"] == "Zatrzymano"
+    assert (result["result"], result["ending"], result["next_action"]) == ("BLAD_KRYTYCZNY", "declined", "rerun")
+    assert (result["headline"], result["stop_kind"], result["diagnosis"], result["report"]) == (
+        "Przerwano",
+        "declined",
+        None,
+        None,
+    )
+    assert (result["files_unchanged"], result["opens"]) == (True, "order_register")
     assert result["stops"] == [
         {
             "what": "Przerwano z powodu niepełnego okresu, zgodnie z odpowiedzią. Nie utworzono żadnego pliku.",
@@ -193,6 +200,7 @@ def test_przerwij_bez_zapisu_zatrzymuje_z_trzema_czesciami_dla_centrum(tmp_path:
     assert list(centrum.fixture.periods_directory.iterdir()) == []
     [record] = centrum.metric_records()
     assert (record["result"], record["phase_durations_ms"]["Zapisywanie"]) == ("BLAD_KRYTYCZNY", 0)
+    assert record["stop"] == {"kind": "for_tata", "code": "PRZERWANO_NIEPELNY_OKRES"}
 
 
 def test_czas_czekania_na_decyzje_nie_wlicza_sie_do_czasu_ani_metryk(tmp_path: Path) -> None:
@@ -315,7 +323,7 @@ def test_nienadpisywanie_zatrzymuje_bez_zmiany_istniejacego_pliku_okresu(tmp_pat
     result = view["result"]
 
     assert (result["result"], result["ending"], result["next_action"]) == ("BLAD_KRYTYCZNY", "stop", "rerun")
-    assert result["headline"] == "Zatrzymano"
+    assert (result["headline"], result["files_unchanged"], result["opens"]) == ("Do poprawy", True, None)
     [stop] = result["stops"]
     assert stop["what"].startswith("Plik tego okresu już istnieje, więc nie został nadpisany.")
     assert stop["where"] == f"folder INEA\\{PERIOD}, plik {COLLECTIVE_FILE_NAME}"
@@ -358,7 +366,7 @@ def test_niepokazane_podsumowanie_po_zapisie_mowi_zeby_nie_uruchamiac_ponownie(t
     centrum.start(dry_run=False)
     result = finished_view(centrum.client)["result"]
 
-    assert (result["ending"], result["next_action"], result["summary"]) == ("after_engine", "open_period_folder", None)
+    assert (result["ending"], result["next_action"], result["summary"]) == ("after_engine", "open_collective_file", None)
     assert result["stops"] == [
         {
             "what": "Pliki okresu powstały, ale nie udało się pokazać podsumowania.",
@@ -467,6 +475,54 @@ def test_awaria_adaptera_po_rdzeniu_trafia_do_dziennika_bez_tekstu_wyjatku(
     assert "SYN-" not in log
     [record] = centrum.metric_records()
     assert (record["mode"], record["result"]) == ("DRY-RUN", "OK")
+
+
+def test_karta_startu_mowi_ktore_pliki_przygotowania_sa_otwarte_w_excelu_az_do_ich_zamkniecia(tmp_path: Path) -> None:
+    centrum = preparing_centrum(tmp_path)
+    fixture = centrum.fixture
+    worker_template = tmp_path / "config" / "Wzorzec rozliczenia pracownika.xlsx"
+    workbooks = (fixture.register_path, fixture.internal_template_path, fixture.collective_template_path, worker_template)
+    locks = [path.with_name(f"~${path.name}") for path in workbooks]
+
+    def open_in_excel() -> set[tuple[str, ...]]:
+        setup, _settlement = centrum.client.get("/api/runs/setup").json()["processes"]
+        return {tuple(choice["open_in_excel"]) for choice in setup["periods"]}
+
+    for lock in locks:
+        lock.touch()
+    opened = open_in_excel()
+    for lock in locks:
+        lock.unlink()
+
+    assert opened == {
+        (
+            "Rejestr zleceń jest otwarty w Excelu. Zapisz go i zamknij.",
+            "Wzorzec rozliczenia wewnętrznego jest otwarty w Excelu. Zamknij go bez zapisywania zmian.",
+            "Wzorzec pliku zbiorczego jest otwarty w Excelu. Zamknij go bez zapisywania zmian.",
+        )
+    }
+    assert open_in_excel() == {()}
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="chmod w Windows zmienia tylko atrybut „tylko do odczytu”")
+def test_rejestr_zlecen_w_folderze_bez_dostepu_nie_psuje_karty_startu(tmp_path: Path) -> None:
+    centrum = bare_centrum(tmp_path, today=TODAY)
+    folder = tmp_path / "OneDrive"
+    folder.mkdir()
+    register = folder / "ZLECENIA INTERMAX OD 08_11_2021.xlsx"
+    register.touch()
+    register.with_name(f"~${register.name}").touch()
+    centrum.platform.chosen_files.append(register)
+    centrum.client.post("/api/settings/register/choose")
+    folder.chmod(0)
+    try:
+        answer = centrum.client.get("/api/runs/setup")
+    finally:
+        folder.chmod(0o755)
+
+    assert answer.status_code == 200
+    setup, _settlement = answer.json()["processes"]
+    assert {tuple(choice["open_in_excel"]) for choice in setup["periods"]} == {()}
 
 
 def test_bez_wskazanego_rejestru_zlecen_uruchomienie_jest_odrzucone(tmp_path: Path) -> None:

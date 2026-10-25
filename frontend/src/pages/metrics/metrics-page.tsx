@@ -5,9 +5,9 @@ import { ChartColumnIcon, GaugeIcon, ListChecksIcon, TimerIcon } from "lucide-re
 import { getMetrics, type Metrics, type Process } from "@/api/centrum"
 import { PageHeader } from "@/components/page-header"
 import { otherResults } from "@/components/run-result-badge"
+import { LoadFailure } from "@/components/load-failure"
 import { SegmentedFilter } from "@/components/segmented-filter"
 import { StatStrip } from "@/components/stat-strip"
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Card, CardContent, CardHeader } from "@/components/ui/card"
 import {
   Empty,
@@ -26,7 +26,7 @@ import { RunHistoryCard } from "@/pages/metrics/run-history-card"
 import { StageTimesCard } from "@/pages/metrics/stage-times-card"
 
 export function MetricsPage() {
-  const { resource: metrics } = useResource(getMetrics)
+  const { resource: metrics, reload } = useResource(getMetrics)
   const [process, setProcess] = React.useState<Process>("preparation")
   const [mode, setMode] = React.useState<Mode>("RUN")
   const hasRuns = metrics.state === "ready" && metrics.data.runs.length > 0
@@ -44,12 +44,7 @@ export function MetricsPage() {
     <>
       <PageHeader title="Metryki" action={filters} />
       {metrics.state === "loading" ? <MetricsSkeleton /> : null}
-      {metrics.state === "failed" ? (
-        <Alert variant="destructive" className="wejscie">
-          <AlertTitle>Nie udało się odczytać metryk</AlertTitle>
-          <AlertDescription>{metrics.message}</AlertDescription>
-        </Alert>
-      ) : null}
+      {metrics.state === "failed" ? <LoadFailure what="metryk" message={metrics.message} reload={reload} /> : null}
       {metrics.state === "ready" && !hasRuns ? <NoMetrics /> : null}
       {metrics.state === "ready" && hasRuns ? (
         <MetricsContent metrics={metrics.data} process={process} mode={mode} className={entrance} />
