@@ -15,9 +15,53 @@ Każdy okres ma jeden token.
 ## Rejestr zleceń
 
 Skoroszyt `ZLECENIA INTERMAX OD 08_11_2021.xlsx`, do którego tata eksportuje
-zlecenia z aplikacji firmowej. Jest jedynym źródłem prawdy o zleceniach
-wszystkich okresów. Po eksporcie zawiera między zleceniami całkowicie puste
-wiersze. Procesy go czytają, ale nigdy nie zmieniają.
+zlecenia z aplikacji firmowej. Tata nazywa go też INTERMAX; obie nazwy znaczą
+to samo. Jest jedynym źródłem prawdy o zleceniach
+wszystkich okresów. Zawiera między zleceniami całkowicie puste wiersze.
+Procesy go czytają; zmienia go tylko Uporządkowanie INTERMAX, i to tylko
+Surowe zlecenia.
+
+## Surowe zlecenia
+
+Zlecenia jednego dnia, które tata albo jego pracownik wkleił z aplikacji
+firmowej na dół Rejestru zleceń, pod uporządkowane już dni, a których
+Uporządkowanie INTERMAX jeszcze nie uporządkowało. Mają wygląd z aplikacji, a
+pierwszy wiersz wklejenia jest zawsze przesunięty o dwie kolumny w lewo. W
+`CZYNNOŚCI` mają tylko nazwę operatora, a w `URZĄDZENIA` rodzaj zlecenia
+(instalacja, usterka); resztę dopisują ręcznie tata i pracownicy po
+Uporządkowaniu INTERMAX.
+_Avoid_: eksport, nowe dane
+
+## Uporządkowanie INTERMAX
+
+Proces, który tata uruchamia w Centrum rozliczeń po wklejeniu Surowych
+zleceń dnia. Przesuwa pierwszy wiersz na miejsce, dzieli zlecenia na segmenty
+Wykonawców w kolejności alfabetycznej, oddzielone jednym pustym wierszem, w
+segmencie układa je od najwcześniejszej godziny do najpóźniejszej i nadaje im
+wygląd reszty Rejestru zleceń bez pogrubienia oraz Kolory operatora. Dzień
+stawia jeden pusty wiersz pod żółtym wierszem, którym tata oddziela dni, a bez
+niego 10 pustych wierszy pod ostatnim uporządkowanym zleceniem. Zmienia tylko
+Surowe zlecenia, a dnia, który już jest uporządkowany, nie porządkuje drugi
+raz: zlecenia dopisane później wpisuje się ręcznie. Nie należy do żadnego
+okresu: po nim tata i pracownicy uzupełniają dzień ręcznie, a okres trafia
+potem do Przygotowania pliku zbiorczego.
+_Avoid_: formatowanie, import
+
+## Kopia INTERMAX
+
+Stan Rejestru zleceń sprzed Uporządkowania INTERMAX albo sprzed przywrócenia
+kopii, nazwany datą i godziną, z której pochodzi. Leży na komputerze taty
+poza OneDrive; tata przywraca ją z Centrum rozliczeń.
+_Avoid_: backup, wersja
+
+## Kolor operatora
+
+Wypełnienie `CZYNNOŚCI` i `NUMER UMOWY`, które Uporządkowanie INTERMAX nadaje
+po nazwie operatora w `CZYNNOŚCI`: T-Mobile zielony, Orange pomarańczowy,
+Netia ciemniejszy niebieski, każdy inny operator jasny niebieski, INEA i
+zlecenie bez operatora bez wypełnienia. Przy usterce i usterce hurt różowe są
+tylko `URZĄDZENIA`. W Rejestrze zleceń jest Wyróżnieniem jak każde inne; inne
+kolory w Rejestrze to ręczne zaznaczenia taty.
 
 ## Zlecenie skuteczne
 
@@ -44,21 +88,25 @@ przyzwyczajony.
 
 Wspólny skoroszyt bazowy, z którego powstaje Rozliczenie wewnętrzne nowego
 okresu. Jest jedynym źródłem szerokości kolumn Rozliczenia wewnętrznego, nie
-poprzedni okres. Nie zawiera zleceń i pozostaje niezmieniony.
+poprzedni okres. Plik okresu otwiera się tak jak jego Wzorzec: w lewym
+górnym rogu arkusza, w powiększeniu 75%. Nie zawiera zleceń i pozostaje niezmieniony.
 
 ## Wzorzec pliku zbiorczego
 
 Wspólny skoroszyt bazowy, z którego powstaje Plik zbiorczy nowego okresu.
 Zachowuje stawki, sumy, formuły i formatowanie. Jest jedynym źródłem szerokości
-kolumn Pliku zbiorczego, nie poprzedni okres. Nie zawiera zleceń i pozostaje
-niezmieniony.
+kolumn Pliku zbiorczego, nie poprzedni okres; stawki ma własne, inne niż
+Wzorzec rozliczenia pracownika. Plik okresu otwiera się tak jak jego Wzorzec: w lewym
+górnym rogu arkusza, w powiększeniu 75%. Nie zawiera zleceń i
+pozostaje niezmieniony.
 
 ## Wzorzec rozliczenia pracownika
 
 Wspólny skoroszyt bazowy bez nazwy wykonawcy, z którego powstają Szablony
 pracowników. Ma ten sam układ kolumn co Plik zbiorczy, ale własne stawki
 pracownika. Jest jedynym źródłem szerokości kolumn Rozliczeń pracowników, nie
-poprzedni okres; ma te same szerokości co Wzorzec pliku zbiorczego. U taty to
+poprzedni okres; ma te same szerokości co Wzorzec pliku zbiorczego. Plik okresu otwiera się tak jak jego Wzorzec: w lewym
+górnym rogu arkusza, w powiększeniu 75%. U taty to
 pusty plik `Rozliczenie {okres} -.xlsx` w Folderze rozliczeń pracowników. Nie
 jest rozliczeniem konkretnej osoby i pozostaje niezmieniony.
 _Avoid_: Placeholder
@@ -67,8 +115,8 @@ _Avoid_: Placeholder
 
 Proces poprzedzający Przebieg rozliczeń: z Rejestru zleceń tworzy Rozliczenie
 wewnętrzne okresu, a z jego zleceń skutecznych Plik zbiorczy z Ilościami usług
-wyznaczonymi przez Reguły ilości. Oba pliki
-powstają razem albo żaden. Jedyny wyjątek: jeśli po nieudanym zapisie nie da
+wyznaczonymi przez Reguły ilości. Nie zaczyna, gdy okres ma Surowe zlecenia.
+Oba pliki powstają razem albo żaden. Jedyny wyjątek: jeśli po nieudanym zapisie nie da
 się usunąć pliku, który już trafił do Folderu okresu, Zatrzymanie wskazuje ten
 plik. Uruchamiany osobno od Przebiegu rozliczeń.
 
