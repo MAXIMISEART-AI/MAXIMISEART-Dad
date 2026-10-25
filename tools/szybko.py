@@ -22,10 +22,11 @@ wszystkie testy. Test, który już przeszedł na tych samych plikach, nie biegni
 leży w katalogu gita worktree. Krok pytest bierze ``WORKERS`` workerów, chyba że ustawiono
 ``PYTEST_XDIST_AUTO_NUM_WORKERS``.
 
-Z wybranych testów biegną zawsze pliki w odległości 1 od zmiany w grafie zależności (``plan``), a dalsze po
-odległości i czasie z tabeli CI (``TIMES``) rosnąco, dopóki mieszczą się w budżecie ``BUDGET_S``. Resztę liczy
-pełny pytest w CI, a szybko wypisuje ją przed wynikiem jako „zostawione CI”, więc ``SZYBKO OK`` znaczy, że przeszły
-uruchomione testy.
+Z wybranych testów biegną zawsze pliki w odległości najwyżej 1 od zmiany w grafie zależności (``plan``), czyli
+zmienione albo zależne wprost od zmienionego pliku, a dalsze po odległości i czasie z tabeli CI (``TIMES``) rosnąco,
+dopóki mieszczą się w budżecie ``BUDGET_S``. Odległość liczy się od zmiany bez plików ``FULL``, więc sama zmiana
+konfiguracji uruchamia najpierw najtańsze testy. Resztę liczy pełny pytest w CI, a szybko wypisuje ją przed wynikiem
+jako „zostawione CI”, więc ``SZYBKO OK`` znaczy, że przeszły uruchomione testy.
 
 Testy ``STRUCTURE`` (reguły z tabeli w ``AGENTS.md`` i testy całego repozytorium) biegną przy każdej zmianie, a gdy
 ``--baza`` poszła dalej niż HEAD, także na mergu z nią (to drzewo sprawdza CI PR-u; numer ADR zajęty równolegle
@@ -33,7 +34,8 @@ pada dopiero tam). Na mergu biegną tylko one, bez mypy i testów dotkniętych z
 Szybko nie pobiera ``origin``, więc merge jest z bazą z ostatniego ``git fetch``. Nie uruchamia zadań CI
 ``mutations`` (skrypty mutacji skilli), ``Frontend``, E2E ani Timing guard.
 
-Kończy się ``SZYBKO OK`` albo ``SZYBKO FAIL | <kroki>``.
+Kończy się ``SZYBKO OK`` albo ``SZYBKO FAIL | <kroki>``, z dopiskiem `` | pytest przerwany``, gdy szybko przerwał
+krok pytest.
 
     .venv/bin/python tools/szybko.py
     .venv/bin/python tools/szybko.py --baza feat/galaz-rodzica
@@ -435,7 +437,8 @@ def select(root: Path, changed: frozenset[str]) -> Selection:
     dependencies = Dependencies.of(root, files)
     tests = {path for path in files if _is_test(path) and (root / path).is_file()}
     full = sorted(changed & set(FULL))
-    distances = dependencies.distances_from(changed)
+    # Plik z ``FULL`` dotyczy każdego testu, a drogę w grafie mają do niego tylko testy, które wymieniają jego nazwę.
+    distances = dependencies.distances_from(changed - set(FULL))
     if not full:
         tests &= distances.keys()
     fingerprints = {test: _fingerprint(root, dependencies.inputs_of(test)) for test in sorted(tests)}
@@ -593,9 +596,9 @@ def _environment(root: Path) -> dict[str, str]:
     return {"PYTEST_XDIST_AUTO_NUM_WORKERS": WORKERS, **environment(root), "PYTHON": sys.executable}
 
 
-def _run_all(steps: list[ci_lokalnie.Step], interruptible: ci_lokalnie.Step | None = None) -> list[str]:
-    """Kroki naraz. Gdy padnie krok inny niż ``interruptible``, ``interruptible`` jest przerywany: wynik i tak jest
-    FAIL, a na koniec długiego kroku pytest nie trzeba czekać."""
+def _run_all(steps: list[ci_lokalnie.Step], interruptible: ci_lokalnie.Step | None = None) -> tuple[list[str], list[str]]:
+    """Kroki naraz; zwraca nazwy kroków, które padły, i przerwanych. Gdy padnie krok inny niż ``interruptible``,
+    ``interruptible`` jest przerywany: wynik i tak jest FAIL, a na koniec długiego kroku pytest nie trzeba czekać."""
 
     stop, failure = threading.Event(), threading.Event()
 
@@ -611,12 +614,13 @@ def _run_all(steps: list[ci_lokalnie.Step], interruptible: ci_lokalnie.Step | No
             failure.set()
         return done.returncode == 0, done.stdout + done.stderr, time.monotonic() - started
 
-    failed = []
+    failed, interrupted = [], []
     pool = ThreadPoolExecutor(max_workers=len(steps))
     try:
         for step, (passed, output, elapsed) in zip(steps, pool.map(run, steps), strict=True):
             if passed is None:
                 print(f"PRZERWANY {step.name} ({elapsed:.0f} s): padł inny krok, więc jego testy nie są sprawdzone", flush=True)
+                interrupted.append(step.name)
                 continue
             print(f"{'OK  ' if passed else 'FAIL'} {step.name} ({elapsed:.0f} s)", flush=True)
             if not passed:
@@ -629,7 +633,7 @@ def _run_all(steps: list[ci_lokalnie.Step], interruptible: ci_lokalnie.Step | No
         raise
     finally:
         pool.shutdown(cancel_futures=True)
-    return failed
+    return failed, interrupted
 
 
 def _describe(selection: Selection, chosen: Plan, changed: frozenset[str], base: str) -> str:
@@ -666,12 +670,13 @@ def main(argv: list[str] | None = None) -> int:
         if merge := _merge_with(args.baza):
             copy = copies.enter_context(potomne.commit_copy(ROOT, merge))
             steps.append(_pytest(copy, f"testy struktury po mergu z {args.baza}", STRUCTURE))
-        failed = _run_all(steps, next(step for step in steps if step.name == "pytest"))
+        failed, interrupted = _run_all(steps, next(step for step in steps if step.name == "pytest"))
     memory.remember(selection, junit, chosen.run)
     junit.unlink(missing_ok=True)
     if chosen.deferred:
         print(_deferred(chosen, len(selection.fingerprints)))
-    print(f"SZYBKO FAIL | {', '.join(failed)}" if failed else "SZYBKO OK")
+    stopped = "".join(f" | {name} przerwany" for name in interrupted)
+    print(f"SZYBKO FAIL | {', '.join(failed)}{stopped}" if failed else "SZYBKO OK")
     return 1 if failed else 0
 
 

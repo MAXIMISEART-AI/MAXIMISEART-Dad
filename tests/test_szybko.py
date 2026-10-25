@@ -135,6 +135,13 @@ def _szybko(
     )
 
 
+def _verdict(answered: subprocess.CompletedProcess[str]) -> str:
+    """Ostatnia linia bez dopisku o przerwanym kroku pytest: czy skończył się przed porażką innego kroku, zależy od
+    czasu, a przerwanie sprawdza ``test_blad_ruff_przerywa_krok_pytest_zamiast_czekac_na_jego_koniec``."""
+
+    return answered.stdout.splitlines()[-1].removesuffix(" | pytest przerwany")
+
+
 def _write(repo: Path, name: str, text: str) -> None:
     (repo / name).parent.mkdir(parents=True, exist_ok=True)
     (repo / name).write_text(text, encoding="utf-8")
@@ -160,12 +167,14 @@ def test_blad_ruff_przerywa_krok_pytest_zamiast_czekac_na_jego_koniec(tmp_path: 
     _write(repo, "tests/test_wolny.py", "import time\n\nfrom pakiet.a import wartosc\n\n\ndef test_wolny() -> None:\n    time.sleep(30)\n    assert wartosc() == 1\n")
     commit(repo, "wolny test")
     git(repo, "update-ref", "refs/remotes/origin/main", "HEAD")
-    _write(repo, "src/pakiet/a.py", "import os\n\n\ndef wartosc() -> int:\n    return 1\n")
+    # Mypy nie jest przerywany, więc jego błąd widać w tym samym przebiegu co błąd ruff.
+    _write(repo, "src/pakiet/a.py", "import os\n\n\ndef wartosc() -> int:\n    return '1'\n")
 
     answered = _szybko(repo)
 
     assert re.search(r"^PRZERWANY pytest \(\d+ s\): padł inny krok, więc jego testy nie są sprawdzone$", answered.stdout, re.MULTILINE)
-    assert (answered.returncode, answered.stdout.splitlines()[-1]) == (1, "SZYBKO FAIL | ruff"), answered.stdout
+    last = answered.stdout.splitlines()[-1]
+    assert (answered.returncode, last) == (1, "SZYBKO FAIL | ruff, mypy, mypy (Windows) | pytest przerwany"), answered.stdout
 
 
 def test_zmiana_bez_bledu_konczy_sie_ok_choc_niedotkniety_test_pada(tmp_path: Path) -> None:
@@ -276,20 +285,29 @@ def test_zmiana_konfiguracji_albo_conftest_uruchamia_pelny_zestaw(tmp_path: Path
     assert answered.returncode == 1
 
 
-def test_zmiana_konfiguracji_zostawia_ci_testy_ponad_budzet_i_mowi_ktore(tmp_path: Path) -> None:
+def test_zmiana_konfiguracji_zostawia_ci_testy_ponad_budzet_i_mowi_ktore_w_kazdym_przebiegu(tmp_path: Path) -> None:
     repo = _repo(tmp_path)
-    times = {test: 0.1 for test in BASE_FILES if szybko._is_test(test)} | {"tests/test_zawsze_pada.py": 9000.0}
+    # Każdy z trzech drogich plików pada, gdy biegnie. ``test_konfiguracja`` wymienia ``pyproject.toml``, więc ma do
+    # zmiany drogę w grafie, a z ``test_uszkodzone_wejscia`` biegnie jego test struktury i trafia do tego samego junit.
+    _write(repo, "tests/test_konfiguracja.py", "from pathlib import Path\n\n\ndef test_konfiguracja() -> None:\n    assert Path('pyproject.toml').name == 'inna.toml'\n")
+    with (repo / "tests" / "test_uszkodzone_wejscia.py").open("a", encoding="utf-8") as stub:
+        stub.write("\n\ndef test_reszta_pliku() -> None:\n    raise AssertionError('biegnie tylko w CI')\n")
+    expensive = ("tests/test_konfiguracja.py", "tests/test_uszkodzone_wejscia.py", "tests/test_zawsze_pada.py")
+    times = {test: 0.1 for test in BASE_FILES if szybko._is_test(test)} | dict.fromkeys(expensive, 9000.0)
     _write(repo, str(szybko.TIMES), json.dumps(times))
-    commit(repo, "tabela czasów")
+    commit(repo, "drogie testy")
     git(repo, "update-ref", "refs/remotes/origin/main", "HEAD")
     with (repo / "pyproject.toml").open("a", encoding="utf-8") as file:
         file.write("\n")
 
-    answered = _szybko(repo)
+    first, again = _szybko(repo), _szybko(repo)
 
-    lines = answered.stdout.splitlines()
-    assert re.fullmatch(r"zostawione CI: 1 z \d+ plików testów \(~9000 s w CI\): test_zawsze_pada\.py", lines[-2]), answered.stdout
-    assert (answered.returncode, lines[-1]) == (0, "SZYBKO OK"), answered.stdout
+    deferred = r"zostawione CI: 3 z \d+ plików testów \(~27000 s w CI\): test_konfiguracja\.py, test_uszkodzone_wejscia\.py, test_zawsze_pada\.py"
+    for answered in (first, again):
+        lines = answered.stdout.splitlines()
+        assert re.fullmatch(deferred, lines[-2]), answered.stdout
+        assert (answered.returncode, lines[-1]) == (0, "SZYBKO OK"), answered.stdout
+    assert "zielone na tych samych plikach 0;" in first.stdout, first.stdout
 
 
 # Zmieniony ``src/a.py`` i ``docs/dane.md``: ``test_dane`` czyta ``docs/dane.md``, a ``src/czyta.py`` czyta go dla
@@ -394,7 +412,7 @@ def test_testy_struktury_biegna_tez_na_mergu_z_baza_ktora_poszla_dalej(tmp_path:
 
     answered = _szybko(repo)
 
-    last = answered.stdout.splitlines()[-1]
+    last = _verdict(answered)
     assert (answered.returncode, last) == (1, "SZYBKO FAIL | testy struktury po mergu z origin/main"), answered.stdout
 
 
@@ -410,7 +428,7 @@ def test_proces_testu_struktury_na_mergu_importuje_kod_z_mergu(tmp_path: Path) -
 
     answered = _szybko(repo)
 
-    last = answered.stdout.splitlines()[-1]
+    last = _verdict(answered)
     assert (answered.returncode, last) == (1, "SZYBKO FAIL | testy struktury po mergu z origin/main"), answered.stdout
 
 
@@ -437,7 +455,7 @@ def test_blad_typu_tylko_na_windows_wywraca_szybkie_sprawdzenie(tmp_path: Path) 
 
     # Na Windows zwykły krok mypy też sprawdza Windows, więc pada razem z krokiem dla Windows.
     expected = "SZYBKO FAIL | mypy, mypy (Windows)" if sys.platform == "win32" else "SZYBKO FAIL | mypy (Windows)"
-    assert (answered.returncode, answered.stdout.splitlines()[-1]) == (1, expected), answered.stdout
+    assert (answered.returncode, _verdict(answered)) == (1, expected), answered.stdout
 
 
 ONLY_NEWER_PYTHON = (
@@ -462,7 +480,7 @@ def test_modul_ktory_nie_importuje_sie_najstarszym_pythonem_wywraca_szybkie_spra
     answered = _szybko(repo)
 
     assert "pakiet.ilosci: ValueError: mutable default" in answered.stdout
-    last = answered.stdout.splitlines()[-1]
+    last = _verdict(answered)
     assert (answered.returncode, last) == (1, "SZYBKO FAIL | import src pod Pythonem 3.11"), answered.stdout
 
 
@@ -485,7 +503,7 @@ def test_bez_uv_krok_najstarszego_pythona_pada_z_droga_naprawy(tmp_path: Path) -
 
     oldest = f"3.{sys.version_info[1] - 1}"
     assert f"brak uv, więc szybko nie sprawdzi Pythona {oldest}: zainstaluj uv albo .venv z {oldest}" in answered.stdout
-    last = answered.stdout.splitlines()[-1]
+    last = _verdict(answered)
     assert (answered.returncode, last) == (1, f"SZYBKO FAIL | import src pod Pythonem {oldest}"), answered.stdout
 
 
@@ -525,7 +543,7 @@ def test_uv_pyta_siec_tylko_bez_cache_a_modul_ktory_sie_nie_importuje_wywraca_kr
 
     assert log.read_text(encoding="utf-8").split() == calls
     assert "pakiet.stary: ImportError: tylko na nowszym Pythonie" in answered.stdout
-    last = answered.stdout.splitlines()[-1]
+    last = _verdict(answered)
     assert (answered.returncode, last) == (1, f"SZYBKO FAIL | import src pod Pythonem 3.{sys.version_info[1] - 1}"), answered.stdout
 
 
@@ -538,7 +556,7 @@ def test_requires_python_bez_najstarszej_wersji_wywraca_szybkie_sprawdzenie(tmp_
     answered = _szybko(repo)
 
     assert "requires-python '~=3.11' nie ma postaci >=X.Y" in answered.stdout
-    last = answered.stdout.splitlines()[-1]
+    last = _verdict(answered)
     assert (answered.returncode, last) == (1, "SZYBKO FAIL | import src pod najstarszym Pythonem"), answered.stdout
 
 
