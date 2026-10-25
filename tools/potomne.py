@@ -15,7 +15,8 @@ potomków (POSIX: własna sesja, Windows: Job Object). Drzewo nie przeżywa:
 Strażnik to ten plik uruchomiony ``python -I`` we własnej sesji. Po EOF na stdin, czyli po końcu
 narzędzia, zabija zgłoszone drzewa i usuwa zgłoszone kopie. Narzędzie uruchomione przez inne narzędzie
 ma własnego strażnika, więc śmierć zewnętrznego kończy kolejne poziomy po kolei. Gdy strażnik nie żyje,
-``commit_copy``, a na POSIX także ``run``, rzucają ``OSError``, zamiast działać bez tej gwarancji.
+``commit_copy``, a na POSIX także ``run``, rzucają ``OSError``, zamiast działać bez tej gwarancji. Na Windows
+``run`` rzuca ``OSError`` (także w miejsce ``TimeoutExpired`` i ``Stopped``), gdy drzewo żyje jeszcze ``_KILL_S`` po zabiciu.
 
 Granice: na POSIX potomek, który sam założył sesję albo grupę procesów (``setsid``, ``setpgid``), jest poza
 drzewem i przeżywa; ``run`` czeka na resztę wyjścia najwyżej ``_DRAIN_S``. Na Windows narzędzie zabite razem z cudzym Job Object
@@ -80,7 +81,8 @@ def run(
 
     Czeka na koniec polecenia, nie na zamknięcie jego wyjścia, i po nim zabija potomków, którzy je przeżyli.
     ``echo`` drukuje wyjście na bieżąco; stderr trafia wtedy do stdout. stdin to DEVNULL, tekst UTF-8 z
-    ``errors="replace"``. Po ``timeout`` rzuca ``subprocess.TimeoutExpired``, po ``stop`` ``Stopped``.
+    ``errors="replace"``. Po ``timeout`` rzuca ``subprocess.TimeoutExpired``, po ``stop`` ``Stopped``, a na Windows
+    ``OSError`` (także w ich miejsce), gdy drzewo żyje jeszcze ``_KILL_S`` po zabiciu.
     """
 
     arguments = list(command)
