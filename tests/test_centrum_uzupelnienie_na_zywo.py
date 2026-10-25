@@ -10,6 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+import shutil
 from typing import Any
 
 import pytest
@@ -334,3 +335,30 @@ def test_trwaly_problem_po_komunikacie_zostaje_jedna_seria(tmp_path: Path) -> No
 
     assert after_save["state"] == "problem"
     assert len(_log_lines(centrum)) == 1
+
+
+def test_po_uruchomieniu_ktore_zmienilo_pliki_okresu_nieudany_odczyt_nie_pokazuje_pliku_sprzed_niego(
+    tmp_path: Path,
+) -> None:
+    centrum = _prepared(tmp_path)
+    path = centrum.fixture.collective_file_path
+    _get(centrum, VIEW)
+    # Tata usuwa Folder okresu i przygotowuje Plik zbiorczy od nowa; zaraz po zapisie OneDrive go jeszcze trzyma.
+    shutil.rmtree(path.parent)
+    assert run_to_end(centrum, dry_run=False)["result"]["result"] == "WYMAGA_SPRAWDZENIA"
+    path.write_bytes(b"OneDrive synchronizuje")
+
+    view = _get(centrum, VIEW)
+
+    assert view["state"] == "problem"
+    assert view["message"]["what"] == "Plik zbiorczy jest uszkodzony albo nie jest skoroszytem Excela."
+
+
+def test_podglad_bez_zapisu_zostawia_ostatni_dobry_odczyt(tmp_path: Path) -> None:
+    centrum = _prepared(tmp_path)
+    path = centrum.fixture.collective_file_path
+    good = _get(centrum, VIEW)
+    run_to_end(centrum, dry_run=True)
+    path.write_bytes(b"Excel zapisuje")
+
+    assert _get(centrum, VIEW) == {**good, "read": {**good["read"], "retrying": True}}

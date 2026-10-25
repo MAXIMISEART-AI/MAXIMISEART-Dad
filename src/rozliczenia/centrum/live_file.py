@@ -4,7 +4,8 @@ Przeglądarka co kilka sekund pyta o znacznik zapisu (``saved_version``), który
 skoroszytu, a pełny widok pobiera dopiero po jego zmianie. Gdy odczyt się nie uda (synchronizacja OneDrive, zapis
 Excela), ``LastGoodReads`` oddaje przez ``SHOWN_FAILING_AFTER_S`` ostatni dobry odczyt pliku z jego godziną, a dopiero
 potem porażkę, którą strona pokazuje jako Komunikat. Ostatni dobry odczyt jest tylko w pamięci procesu Centrum i
-zmienia tylko to, co strona pokazuje podczas porażki: źródłem stanu dalej jest zapisany Plik zbiorczy.
+zmienia tylko to, co strona pokazuje podczas porażki: źródłem stanu dalej jest zapisany Plik zbiorczy. Po podmianie
+pliku (``forget``) odczyt starego pliku nie zastępuje porażki nowego.
 """
 
 from __future__ import annotations
@@ -127,6 +128,12 @@ class LastGoodReads(Generic[T]):
             file.last = GoodRead(value, attempt.version, datetime.now(timezone.utc))
             file.failing = None
             return file.last
+
+    def forget(self, path: Path) -> None:
+        """Plik ``path`` podmieniony: bez jego ostatniego dobrego odczytu i serii, więc porażka to od razu Komunikat."""
+
+        with self._lock:
+            self._files.pop(path, None)
 
     def failed(self, path: Path, attempt: Attempt, cause: str) -> Failing[T]:
         """Nieudana próba ``attempt`` odczytu ``path`` z przyczyną ``cause`` (kod Komunikatu) według przejść klasy."""

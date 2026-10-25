@@ -172,6 +172,9 @@ def drive_result_card(run: Run, page: Page) -> None:
     run.step(FEATURE, "uzupelnienie-wynik-po-przebiegu")
     _settled_result_card(run, page, filling, collective_file)
 
+    run.step(FEATURE, "uzupelnienie-wynik-bez-odpowiedzi")
+    _unanswered_result_card(run, page, filling)
+
     run.step(FEATURE, "uzupelnienie-wynik-po-starcie")
     kontrola_ilosci._close(run, page)
     kontrola_ilosci._start(run, "uzupelnienie-start-po-zamknieciu")
@@ -274,6 +277,26 @@ def _settled_result_card(run: Run, page: Page, filling: Locator, collective_file
     page.evaluate(RETURN_TO_TAB)
     expect(hint).to_have_count(1)
     run.check(True, "without the Folder rozliczeń pracowników the hint is back on the card")
+
+
+def _unanswered_result_card(run: Run, page: Page, filling: Locator) -> None:
+    """The server gives no answer about the Plik zbiorczy: the card says so instead of going blank, then recovers."""
+
+    page.route(f"**{API}", lambda route: route.abort())
+    try:
+        run.check(True, "harness: the card's reads of the Plik zbiorczy get no answer from the server")
+        page.evaluate(RETURN_TO_TAB)
+        failure = filling.get_by_role("alert")
+        expect(failure).to_contain_text("Nie udało się odczytać Pliku zbiorczego")
+        expect(failure.get_by_role("button", name="Spróbuj ponownie")).to_be_visible()
+        run.check(True, "without an answer the result card says it could not read the Plik zbiorczy, never blank")
+        run.capture(page, "237-uzupelnienie-wynik-bez-odpowiedzi")
+    finally:
+        page.unroute(f"**{API}")
+    section = filling.get_by_role("region", name=KIND_TITLES["without_rule"], exact=True)
+    expect(section).to_contain_text("0 z 2", timeout=LIVE_TIMEOUT_MS)
+    expect(filling.get_by_role("alert")).to_have_count(0)
+    run.check(True, "once the server answers again the card shows the summary by itself")
 
 
 def _drive_entries(run: Run, page: Page) -> None:
