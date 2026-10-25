@@ -9,6 +9,7 @@ Komunikat, który nazywa Plik zbiorczy, i wpis w dzienniku Centrum z przyczyną,
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 import os
 from pathlib import Path
 
@@ -20,7 +21,7 @@ from rozliczenia.centrum.cloud_files import CloudFiles
 from rozliczenia.centrum.log import CentrumLog
 from rozliczenia.centrum.period_board import located_period_folder, requested_period
 from rozliczenia.collective_file import NumberedOrders
-from rozliczenia.order_facts import N_AP, MissingHeaders
+from rozliczenia.order_facts import MissingHeaders
 from rozliczenia.quantities_to_fill import FillKind, KindToFill, QuantitiesToFill, quantities_to_fill
 from rozliczenia.settings import SettingsStore
 from rozliczenia.workbook_files import WorkbookError, is_open_in_excel
@@ -89,11 +90,11 @@ def _ready(found: QuantitiesToFill) -> contract.QuantitiesToFillReady:
     )
 
 
-def _table(listed: KindToFill, price_list: tuple[str, ...]) -> contract.KindTableReady:
+def _table(listed: KindToFill, price_list: Mapping[str, str]) -> contract.KindTableReady:
     return contract.KindTableReady(
         state="ready",
         kind=listed.kind,
-        columns=[contract.PriceListItem(column=column, name=name) for column, name in zip(N_AP, price_list, strict=True)],
+        columns=[contract.PriceListItem(column=column, name=name) for column, name in price_list.items()],
         rows=[
             contract.KindTableRow(
                 row=row.number,

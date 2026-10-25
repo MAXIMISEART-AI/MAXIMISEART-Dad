@@ -69,7 +69,7 @@ COLUMNS: tuple[Column, ...] = (
     WORKER,
     Column("NUMER UMOWY", "NUMER UMOWY/ZLECENIA ORANGE", ("NUMER UMOWY/ZLECENIA ORANGE",)),
     SUCCESSFUL,
-    COMPLETED,
+    Column("CZYNNOŚCI ZREALIZOWANE", "CZYNNOŚCI ZREALIZOWANE"),
 )
 TARGET_HEADERS: tuple[str, ...] = tuple(column.target_header for column in COLUMNS)
 """Nagłówki docelowe obu plików okresu, pod którymi stają komórki wiersza Rejestru."""

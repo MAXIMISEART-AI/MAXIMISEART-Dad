@@ -344,8 +344,9 @@ class DataRows:
 
     header: Mapping[str, int]
     rows: list[DataRow]
-    price_list: tuple[str, ...]
-    """Tekst N17:AP17 po kolei: nazwy pozycji cennika, które Przygotowanie kopiuje z Wzorca; pusta komórka to ``""``."""
+    price_list: Mapping[str, str]
+    """Litera kolumny N:AP → tekst jej komórki w wierszu 17: nazwa pozycji cennika, którą Przygotowanie kopiuje z Wzorca;
+    pusta komórka to ``""``."""
 
 
 def read_data_rows(path: Path, *, despite_excel_lock: bool = False) -> DataRows:
@@ -408,7 +409,10 @@ def read_data_rows(path: Path, *, despite_excel_lock: bool = False) -> DataRows:
                 )
     finally:
         workbook.close()
-    names = tuple("" if is_blank(name) else " ".join(str(name).split()) for name in price_list)
+    names = {
+        get_column_letter(column): "" if is_blank(name) else " ".join(str(name).split())
+        for column, name in enumerate(price_list, start=QUANTITY_COLUMNS[0])
+    }
     return DataRows(header_columns(header), rows, names)
 
 

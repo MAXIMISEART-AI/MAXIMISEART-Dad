@@ -51,8 +51,8 @@ def read_data_rows(path: Path) -> CollectiveRows:
 class NumberedOrders:
     rows: tuple[NumberedOrder, ...]
     """Każdy Wiersz danych w kolejności z pliku."""
-    price_list: tuple[str, ...]
-    """Nazwy pozycji cennika N:AP z wiersza 17."""
+    price_list: Mapping[str, str]
+    """Litera kolumny N:AP → nazwa pozycji cennika z wiersza 17."""
 
 
 def read_numbered_orders(path: Path) -> NumberedOrders | MissingHeaders:
