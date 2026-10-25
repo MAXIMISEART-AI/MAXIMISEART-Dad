@@ -10,7 +10,7 @@ import urllib.request
 from openpyxl import load_workbook
 from openpyxl.utils import column_index_from_string
 from openpyxl.worksheet.worksheet import Worksheet
-from playwright.sync_api import Page, expect
+from playwright.sync_api import Locator, Page, expect
 
 from create_centrum_fixture import PRICE_LIST
 from drive.common import LAST_COMPLETE, ROW_MARKER, Run, last_opened_is, period_files, period_row
@@ -479,8 +479,27 @@ def _drive(run: Run, page: Page, collective_file: Path, lock: Path) -> None:
     _drive_after_settlement(run, page, collective_file)
 
 
+def _row_colour(page: Page, state: str) -> str:
+    """Background of the row number of the kind page's row in ``state``."""
+
+    table = page.get_by_role("table", name="Wiersze Pliku zbiorczego", exact=True)
+    colour = table.locator(f"tr[data-state='{state}'] th").evaluate("th => getComputedStyle(th).backgroundColor")
+    assert isinstance(colour, str)
+    return colour
+
+
+def _on_screen(label: Locator) -> bool:
+    """The words take real room on the screen: a screen-reader-only text is one pixel wide."""
+
+    box = label.bounding_box()
+    return box is not None and box["width"] >= 20 and box["height"] >= 6
+
+
 def _drive_after_settlement(run: Run, page: Page, collective_file: Path) -> None:
     run.step(FEATURE, "uzupelnienie-po-przebiegu")
+    page.goto(f"{run.url.rstrip('/')}/{SUMMARY}/without_rule")
+    expect(page.get_by_role("rowheader", name="20 do uzupełnienia", exact=True)).to_be_visible()
+    yellow = _row_colour(page, "to_fill")
     worker_settlements = collective_file.with_name(f"Rozliczenie pracowników {LAST_COMPLETE}")
     worker_settlements.mkdir()
     try:
@@ -500,6 +519,14 @@ def _drive_after_settlement(run: Run, page: Page, collective_file: Path) -> None
             "after Przebieg the summary says so, Dad's row 18 stays done and rows 19 and 20 are without quantity",
         )
         _check_screen(run, page, answer, "after Przebieg")
+        chips = [
+            page.get_by_role("list", name=f"Numery wierszy: {KIND_TITLES[kind]}").get_by_role("listitem").filter(has_text=f"{row} bez ilości")
+            for kind, row in (("without_rule", 20), ("from_description", 19))
+        ]
+        run.check(
+            all(_on_screen(chip.get_by_text("bez ilości", exact=True)) for chip in chips),
+            "rows 19 and 20 read „bez ilości” on the screen next to their number, not only for a screen reader",
+        )
         expect(page.get_by_role("button", name="Gotowe, rozlicz pracowników", exact=True)).to_have_count(0)
         expect(page.get_by_role("button", name="Otwórz Plik zbiorczy", exact=True)).to_be_visible()
         run.check(True, "after Przebieg the summary is a preview: no Gotowe, Otwórz Plik zbiorczy stays")
@@ -511,13 +538,14 @@ def _drive_after_settlement(run: Run, page: Page, collective_file: Path) -> None
         expect(page.get_by_role("status").filter(has_text="Przebieg rozliczeń się odbył")).to_be_visible()
         expect(page.get_by_role("main")).to_contain_text("Szare zostały bez ilości.")
         kind = _kind_answer(run, "without_rule", "uzupelnienie-po-przebiegu-tabela-without_rule")
-        grey, green = (
-            table.locator(f"tr[data-state='{state}'] th").evaluate("th => getComputedStyle(th).backgroundColor")
-            for state in ("without_quantity", "done")
+        grey, green = _row_colour(page, "without_quantity"), _row_colour(page, "done")
+        run.check(
+            kind["settled"] is True and grey not in (yellow, green),
+            f"row 20 is no longer yellow ({yellow} before Przebieg) but grey ({grey}), and not green like row 18",
         )
         run.check(
-            kind["settled"] is True and grey != green,
-            "the kind page marks row 20 without quantity in its own colour, row 18 stays done",
+            _on_screen(table.get_by_role("rowheader", name="20 bez ilości").get_by_text("bez ilości", exact=True)),
+            "row 20 reads „bez ilości” on the screen under its number",
         )
         _capture(run, page, "227-uzupelnienie-po-przebiegu-bez-reguly", kind)
         switched = _light_theme(page)
