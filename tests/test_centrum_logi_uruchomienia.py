@@ -34,14 +34,14 @@ from tests.fixtures.centrum_processes import (
 )
 from tests.fixtures.preparation import PERIOD, incomplete_period_rows
 from tests.fixtures.run_cards import first_view, restored
-from tests.fixtures.settlement import MARKED, SOURCE_NAME, write_quantity_source
+from tests.fixtures.settlement import MARKED, SOURCE_NAME, CellValue, write_quantity_source
 from tests.fixtures.tool_clone import ToolRepository, git_command, git_failing_on, tool_repository
 
 AnyCentrum = PreparingCentrum | SettlingCentrum
 KEYS = {
     "schema_version", "run_id", "process", "mode", "period", "started_at", "ended_at", "duration_ms", "tool",
     "result", "ending", "stop_kind", "issue_count", "messages", "technical_notes", "summary", "phases", "templates",
-    "environment", "trace", "diagnosis",
+    "inea_only_cleared", "environment", "trace", "diagnosis",
 }
 
 
@@ -346,6 +346,44 @@ def test_logi_maja_etapy_i_przetworzenia_szablonow_pracownika_z_wynikiem_wiersza
     assert isinstance(record["duration_ms"], int)
     assert record["started_at"] <= record["ended_at"]
     assert re.fullmatch(rf"\d{{8}}T\d{{6}}Z-settlement-{view['run']['id']}\.json", path.name)
+
+
+def test_logi_przebiegu_rozliczen_maja_liczbe_ilosci_tylko_dla_inea_w_kazdej_kolumnie_w_obu_trybach(
+    tmp_path: Path,
+) -> None:
+    centrum = settling_centrum(tmp_path)
+    rows: list[dict[str, CellValue]] = [
+        {"D": "gniazdo", "AP": 1},
+        {"D": "technicolor arion", "AK": 2},
+        {"D": "Technicolor globo", "AK": 1},
+        {"D": "globo", "AK": 1, "AP": 1},
+    ]
+    write_quantity_source(centrum.collective_file, rows)
+
+    views = [run_to_end(centrum, dry_run=dry_run) for dry_run in (True, False)]
+
+    assert [view["result"]["result"] for view in views] == ["OK", "OK"]
+    assert [record["inea_only_cleared"] for record in records(centrum)] == [{"AP": 1, "AK": 2}] * 2
+
+
+def test_logi_przygotowania_nie_maja_liczby_ilosci_tylko_dla_inea(tmp_path: Path) -> None:
+    centrum, _ = _preparation(tmp_path, dry_run=True)
+
+    [record] = records(centrum)
+    assert record["inea_only_cleared"] is None
+
+
+def test_karta_wraca_z_logow_sprzed_liczby_ilosci_tylko_dla_inea(tmp_path: Path) -> None:
+    centrum, live = _settlement(tmp_path, dry_run=False)
+    [path] = log_files(centrum)
+    record = json.loads(path.read_text(encoding="utf-8"))
+    del record["inea_only_cleared"]
+    path.write_text(json.dumps(record, ensure_ascii=False), encoding="utf-8")
+
+    centrum.restart()
+
+    current = centrum.client.get("/api/runs/current").json()
+    assert current == {"state": "idle", "previous": restored(live, record["started_at"])}
 
 
 def test_logi_po_bledzie_samego_adaptera_maja_czas_liczbe_problemow_i_przetworzenia_szablonow_z_rdzenia(
