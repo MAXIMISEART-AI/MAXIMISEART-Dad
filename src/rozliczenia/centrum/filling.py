@@ -96,7 +96,10 @@ def filling_router(
         Komunikat i wpis w dzienniku daje strona Uzupełnienia, a sam Przebieg rozliczeń nazywa plik.
         """
 
-        return _without_quantity(collective_file_of(token))
+        periods_directory = store.load().periods_directory
+        if periods_directory is None or not periods_directory.is_dir():
+            raise contract.Refusal(409, "Najpierw wskaż folder okresów.")
+        return _without_quantity(located_period_folder(periods_directory, requested_period(token)).collective_file)
 
     return router
 
