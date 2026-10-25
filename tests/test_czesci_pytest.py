@@ -119,10 +119,13 @@ def test_macierz_kazdego_zadania_z_czesciami_obejmuje_dokladnie_czesci_od_1_do_n
     for name, job in jobs.items():
         steps = " ".join(step.get("run", "") for step in job["steps"])
         count_in_steps = ",".join(sorted(set(re.findall(r"matrix\.part }}/(\d+)", steps))))
+        matrix = job["strategy"]["matrix"]
+        # Klucze spoza osi (flaga z `include`, np. `e2e`) nie tworzą osobnej grupy części.
+        axes = sorted(set(matrix) - {"include", "exclude", "part"})
         groups: dict[tuple[tuple[str, Any], ...], list[str]] = {}
-        for combination in combinations(job["strategy"]["matrix"]):
-            part = str(combination.pop("part"))
-            groups.setdefault(tuple(sorted(combination.items())), []).append(part if "/" in part else f"{part}/{count_in_steps}")
+        for combination in combinations(matrix):
+            part = str(combination["part"])
+            groups.setdefault(tuple((key, combination.get(key)) for key in axes), []).append(part if "/" in part else f"{part}/{count_in_steps}")
         for group, found in groups.items():
             count = found[0].partition("/")[2]
             expected = [f"{number}/{count}" for number in range(1, int(count) + 1)] if count.isdigit() else []

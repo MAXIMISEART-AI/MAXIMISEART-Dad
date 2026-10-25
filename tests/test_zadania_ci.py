@@ -10,9 +10,13 @@ from __future__ import annotations
 from collections import Counter
 import json
 import os
+import re
 import subprocess
 import sys
+from typing import Any
+
 import pytest
+import yaml
 
 from tests.fixtures.ci_workflow import combinations, jobs
 
@@ -25,6 +29,16 @@ STARTS = {
     "${{ github.event_name == 'pull_request' }}": {"pull_request"},
 }
 REQUIRED = "required"
+# Kroki części pytest, które biegną tylko w kombinacji macierzy z flagą, i kombinacje Windows (wersja Pythona, część), które ją mają.
+FLAGS = {
+    "e2e": {("3.11", "1/2"), ("3.14", "1/2")},
+    "timing": {("3.14", "2/2")},
+}
+FLAGGED_COMMANDS = {
+    "e2e": ("verify-rozliczenia/scripts/run_verification.py",),
+    "timing": ("tools/syntetyczne_wzorce.py", "tools/benchmark_przebiegu.py"),
+}
+INDEPENDENT = "${{ !cancelled() && steps.deps.outcome == 'success' }}"
 
 
 def _jobs_of_run(event: str) -> list[str]:
@@ -85,3 +99,67 @@ def test_run_liczy_kazda_kombinacje_macierzy_i_tylko_zadania_tego_zdarzenia() ->
     only_pull_request = Counter(_jobs_of_run("pull_request")) - Counter(_jobs_of_run("push"))
 
     assert only_pull_request == Counter({"change-mutations": 3})
+
+
+def test_flagi_e2e_i_timing_wypadaja_na_zamierzonych_czesciach_windows_bez_dodatkowych_zadan() -> None:
+    matrix = jobs()["pytest"]["strategy"]["matrix"]
+    without_flags = {**matrix, "include": [entry for entry in matrix["include"] if not FLAGS.keys() & entry.keys()]}
+    found = {
+        flag: [(c["os"], c["python-version"], c["part"]) for c in combinations(matrix) if c.get(flag) is True]
+        for flag in FLAGS
+    }
+
+    assert found == {flag: sorted(("windows-latest", *where) for where in FLAGS[flag]) for flag in FLAGS}
+    assert len(combinations(matrix)) == len(combinations(without_flags))
+
+
+def _gated_steps(steps: list[dict[str, Any]], flag: str) -> list[dict[str, Any]]:
+    """Kroki, które biegną tylko z flagą: warunek na fladze albo na sukcesie takiego kroku."""
+
+    gated: list[dict[str, Any]] = []
+    for step in steps:
+        condition = step.get("if", "")
+        after = set(re.findall(r"steps\.([\w-]+)\.outcome == 'success'", condition))
+        if f"matrix.{flag}" in condition or after & {gate.get("id") for gate in gated}:
+            gated.append(step)
+    return gated
+
+
+def test_kroki_e2e_i_timing_biegna_tylko_z_flaga_takze_po_czerwonym_pytest_i_z_limitem_czasu() -> None:
+    steps = jobs()["pytest"]["steps"]
+    wrong = {}
+    for flag, commands in FLAGGED_COMMANDS.items():
+        gated = _gated_steps(steps, flag)
+        running = [step["name"] for step in steps if any(command in step.get("run", "") for command in commands)]
+        wrong[flag] = {
+            "bez flagi": [name for name in running if name not in [step["name"] for step in gated]],
+            "bez !cancelled()": [step["name"] for step in gated if not step["if"].startswith("${{ !cancelled() && ")],
+            "bez limitu czasu": [step["name"] for step in gated if "timeout-minutes" not in step],
+        }
+        assert running, f"{flag}: żaden krok nie uruchamia {commands}"
+
+    assert wrong == dict.fromkeys(FLAGS, {"bez flagi": [], "bez !cancelled()": [], "bez limitu czasu": []})
+
+
+def test_kazdy_krok_wskazany_w_wyrazeniu_jest_wczesniej_w_tym_samym_zadaniu() -> None:
+    unknown = {}
+    for name, job in jobs().items():
+        earlier: set[str] = set()
+        for step in job["steps"]:
+            referenced = set(re.findall(r"steps\.([\w-]+)\.", yaml.safe_dump(step)))
+            if referenced - earlier:
+                unknown[f"{name}: {step.get('name', step.get('uses'))}"] = sorted(referenced - earlier)
+            earlier.add(step.get("id", ""))
+
+    assert unknown == {}
+
+
+def test_w_szybkich_porazka_jednego_sprawdzenia_nie_ukrywa_pozostalych() -> None:
+    steps = jobs()["szybkie"]["steps"]
+    deps = next(index for index, step in enumerate(steps) if step.get("id") == "deps")
+    checks = [step.get("if") for step in steps[deps + 1 :]]
+    python_checks = [step["run"].split()[2] for step in steps[deps + 1 :] if step.get("if") == INDEPENDENT]
+
+    assert checks[checks.index(INDEPENDENT) :] == [INDEPENDENT] * 3
+    assert python_checks == ["ruff", "mypy", "mypy"]
+    assert set(checks[: checks.index(INDEPENDENT)]) == {None}

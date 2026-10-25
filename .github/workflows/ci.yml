@@ -37,16 +37,8 @@ jobs:
           enable-cache: false
 
       - name: Install development dependencies (pinned FastAPI and Pydantic shape the contract)
+        id: deps
         run: uv pip install --system --python "${{ steps.python.outputs.python-path }}" -e ".[dev]"
-
-      - name: Lint Python code
-        run: python -m ruff check
-
-      - name: Typecheck Python code (Windows)
-        run: python -m mypy --platform win32
-
-      - name: Typecheck Python code (Linux)
-        run: python -m mypy --platform linux
 
       # Centrum rozliczeń: the committed build and contract must match their sources (tata has no Node).
       - uses: actions/setup-node@v6
@@ -99,6 +91,20 @@ jobs:
             exit 1
           fi
 
+      # Each Python check runs even when an earlier step failed, so one red check does not hide the others.
+      # They come after the Frontend steps, which run as one chain, as the Frontend job did.
+      - name: Lint Python code
+        if: ${{ !cancelled() && steps.deps.outcome == 'success' }}
+        run: python -m ruff check
+
+      - name: Typecheck Python code (Windows)
+        if: ${{ !cancelled() && steps.deps.outcome == 'success' }}
+        run: python -m mypy --platform win32
+
+      - name: Typecheck Python code (Linux)
+        if: ${{ !cancelled() && steps.deps.outcome == 'success' }}
+        run: python -m mypy --platform linux
+
   pytest:
     # Tata has Windows, so both Pythons run there, each in two parts of similar CI time from
     # tools/czesci_pytest.py. Linux runs all files once, in two parts, for the tests Windows skips (POSIX
@@ -115,6 +121,19 @@ jobs:
         python-version: ['3.11', '3.14']
         part: ['1/2', '2/2']
         include:
+          # E2E and the timing guard run where the flag is: an entry that matches no combination adds a job instead.
+          - os: windows-latest
+            python-version: '3.11'
+            part: '1/2'
+            e2e: true
+          - os: windows-latest
+            python-version: '3.14'
+            part: '1/2'
+            e2e: true
+          - os: windows-latest
+            python-version: '3.14'
+            part: '2/2'
+            timing: true
           - os: ubuntu-latest
             python-version: '3.14'
             part: '1/2'
@@ -173,7 +192,8 @@ jobs:
 
       - name: E2E (verify-rozliczenia --variant all)
         id: e2e
-        if: ${{ !cancelled() && runner.os == 'Windows' && matrix.part == '1/2' }}
+        if: ${{ !cancelled() && matrix.e2e }}
+        timeout-minutes: 15
         shell: pwsh
         run: |
           py -3 .agents/skills/verify-rozliczenia/scripts/run_verification.py --variant all
@@ -195,7 +215,8 @@ jobs:
       # Wzorcach kształtu Wzorców taty (tools/syntetyczne_wzorce.py), bo prawdziwych nie ma w repozytorium.
       - name: 'Timing guard: generate synthetic Wzorce'
         id: timing-templates
-        if: ${{ !cancelled() && runner.os == 'Windows' && matrix.python-version == '3.14' && matrix.part == '2/2' }}
+        if: ${{ !cancelled() && matrix.timing }}
+        timeout-minutes: 10
         shell: pwsh
         run: |
           python tools/syntetyczne_wzorce.py "$env:RUNNER_TEMP\syntetyczne-wzorce"
@@ -206,6 +227,8 @@ jobs:
       - name: 'Timing guard: measure Przebieg rozliczeń (typowy tydzień)'
         id: timing-measure
         if: ${{ !cancelled() && steps.timing-templates.outcome == 'success' }}
+        # The longest Timing guard job took 13 min (CI 20.10–25.10), its median 1 min.
+        timeout-minutes: 30
         shell: pwsh
         run: |
           $templates = "$env:RUNNER_TEMP\syntetyczne-wzorce"
@@ -220,6 +243,7 @@ jobs:
       - name: 'Timing guard: report timings and enforce the budget'
         id: timing-guard
         if: ${{ !cancelled() && steps.timing-measure.outcome == 'success' }}
+        timeout-minutes: 10
         shell: pwsh
         env:
           # Budżet mediany czasu ściany typowego tygodnia na runnerze; krok pada tylko powyżej niego.
