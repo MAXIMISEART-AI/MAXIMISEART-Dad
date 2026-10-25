@@ -74,7 +74,7 @@ export function FillingPage() {
 
 function OpenCollectiveFile({ token }: { token: string }) {
   return (
-    <Button size="lg" onClick={() => openAndConfirm(token, "collective_file", () => undefined)}>
+    <Button size="lg" onClick={() => openAndConfirm(token, { target: "collective_file" })}>
       <FileSpreadsheetIcon data-icon="inline-start" />
       Otwórz Plik zbiorczy
     </Button>
