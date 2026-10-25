@@ -15,17 +15,21 @@ from collections import Counter
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 import json
+import os
 from pathlib import Path
 import statistics
 from typing import Any
 from urllib.parse import urlsplit
 
+from openpyxl import Workbook, load_workbook
+from openpyxl.utils import column_index_from_string
+from openpyxl.worksheet.worksheet import Worksheet
 from playwright.sync_api import Browser, BrowserContext, CDPSession, Page, Request, expect
 
 from drive import DEFAULT_REPEATS
-from drive.common import DAD_TIME_ZONE, PAGES, DriveFailure, Run
+from drive.common import DAD_TIME_ZONE, LAST_COMPLETE, PAGES, DriveFailure, Run
 
 SKILL_ROOT = Path(__file__).resolve().parents[2]
 BASELINE = SKILL_ROOT / "wydajnosc-baseline.json"
@@ -40,6 +44,19 @@ SETTLE_MS = 400  # transitions of 150–200 ms finish and late requests arrive
 SKELETON_FREE_LAP = 2
 # Used when the baseline file is missing, so the first measurement can produce one.
 DEFAULT_MARGIN = {"wzgledny": 0.15, "minimalny_ms": 20, "bundle_wzgledny": 0.02}
+# Uzupełnienie na żywo (#419) on a Plik zbiorczy of Dad's size: about 430 Zlecenia skuteczne a week (September
+# 2026: 852 rows in two weeks). Every 40th row has devices the Reguły ilości do not know (a row without rule).
+LIVE_PAGE = f"uzupelnienie/{LAST_COMPLETE}"
+LIVE_TITLE = "Uzupełnienie pliku zbiorczego"
+LIVE_ROWS = 430
+LIVE_CHECKS = 3
+VERSION_PATH = f"/api/periods/{LAST_COMPLETE}/collective-file-version"
+VIEW_PATH = f"/api/periods/{LAST_COMPLETE}/quantities-to-fill"
+COLLECTIVE_HEADERS = (
+    "MIASTO", "ADRES", "UMOWA", "URZĄDZENIA", "CZYNNOŚCI", "NUMER ZL.", "DATA", "WYKONAWCA",
+    "NUMER UMOWY/ZLECENIA ORANGE", "SKUTECZNE", "CZYNNOŚCI ZREALIZOWANE",
+)
+LIVE_DEVICES = ("nokia zte", "zte", "nokia", "nokia zte stb")
 TRACE_CATEGORIES = [
     "devtools.timeline",
     "disabled-by-default-devtools.timeline",
@@ -308,6 +325,97 @@ def _interactions(browsing: Browsing, measured: Measured) -> None:
         interaction("menu-boczne/rozwin", toggle.click)
 
 
+def _write_live_file(path: Path) -> None:
+    """A synthetic Plik zbiorczy of Dad's size in his layout (header in row 17, data from row 18)."""
+
+    workbook = Workbook()
+    sheet = workbook.active
+    assert isinstance(sheet, Worksheet)
+    for column, header in enumerate(COLLECTIVE_HEADERS, start=1):
+        sheet.cell(17, column).value = header
+    tuesday = datetime(2026, 10, 6, 8, 0)
+    for index in range(LIVE_ROWS):
+        devices = "router x9" if index % 40 == 0 else "prewencja" if index % 45 == 7 else LIVE_DEVICES[index % 4]
+        values: tuple[str | datetime, ...] = (
+            "Miasto", f"ul. Syntetyczna {index}", f"u UM-SYN-{index:04d}", devices, "instalacja usługi",
+            f"ZL-{index:05d}", tuesday + timedelta(minutes=23 * index), f"Wykonawca Testowy {chr(65 + index % 14)}",
+            f"OR-{index:05d}", "TAK", "zainstalowano router i dekoder, sprawdzono sygnał, klient poinformowany",
+        )
+        for column, value in enumerate(values, start=1):
+            sheet.cell(18 + index, column).value = value
+        sheet.cell(18 + index, column_index_from_string("N")).value = 45
+        sheet.cell(18 + index, column_index_from_string("V")).value = 1
+    _save_whole(workbook, path)
+
+
+def _toggle_live_value(path: Path) -> None:
+    """Dad types a quantity into the first row without rule, or clears it, and Excel saves the whole file."""
+
+    workbook = load_workbook(path)
+    sheet = workbook.active
+    assert isinstance(sheet, Worksheet)
+    cell = sheet["O18"]
+    cell.value = None if cell.value else 1
+    _save_whole(workbook, path)
+
+
+def _save_whole(workbook: Workbook, path: Path) -> None:
+    # Like Excel: a whole new file replaces the old one, so a check never sees half of it.
+    partial = path.with_name(f"zapis-{path.name}")
+    workbook.save(partial)
+    workbook.close()
+    os.replace(partial, path)
+
+
+def _live_filling(browsing: Browsing, measured: Measured, collective_file: Path) -> None:
+    """The summary of Uzupełnienie open while Dad works in Excel: checks of an unchanged file, then one change.
+
+    ``pytanie-o-zapis``: one check of the saved version (request start to answer); ``zmiana-pliku``: from the
+    answer of the check that saw Dad's save to the new counter on screen, which is the full read and the render.
+    """
+
+    with browsing.context() as (context, requests):
+        page, cdp = browsing.page(context)
+        page.goto(f"{browsing.url}#/{LIVE_PAGE}", wait_until="commit")
+        ready(page, LIVE_TITLE)
+        page.wait_for_timeout(SETTLE_MS)
+        mark, before = len(requests), script_ms(cdp)
+        for _ in range(LIVE_CHECKS):
+            with page.expect_response(lambda response: urlsplit(response.url).path == VERSION_PATH, timeout=10_000):
+                pass
+        page.wait_for_timeout(SETTLE_MS)
+        checks: list[float] = page.evaluate(
+            """([path]) => performance.getEntriesByType("resource")
+              .filter((r) => new URL(r.name).pathname === path).map((r) => r.responseEnd - r.startTime)""",
+            [VERSION_PATH],
+        )
+        measured.add(
+            "uzupelnienie/pytanie-o-zapis", browsing.cpu, statistics.median(checks[-LIVE_CHECKS:]), requests[mark:],
+            skrypt_ms=(script_ms(cdp) - before) / LIVE_CHECKS,
+        )
+
+        counter = page.get_by_role("region", name="Wiersze bez reguły", exact=True)
+        shown = counter.inner_text()
+        mark = len(requests)
+        _toggle_live_value(collective_file)
+        expect(counter).not_to_have_text(shown, timeout=10_000)
+        on_screen = page.evaluate("() => window.__wydajnosc.lastMutation")
+        page.wait_for_timeout(SETTLE_MS)
+        seen = page.evaluate(
+            """([check, view]) => {
+              const api = performance.getEntriesByType("resource");
+              const read = api.filter((r) => new URL(r.name).pathname === view).at(-1);
+              const saw = api.filter((r) => new URL(r.name).pathname === check && r.responseEnd <= read.startTime).at(-1);
+              return { saw: saw.responseEnd, read_ms: read.responseEnd - read.startTime };
+            }""",
+            [VERSION_PATH, VIEW_PATH],
+        )
+        measured.add(
+            "uzupelnienie/zmiana-pliku", browsing.cpu, float(on_screen) - float(seen["saw"]), requests[mark:],
+            odczyt_ms=float(seen["read_ms"]),
+        )
+
+
 def _trace(browsing: Browsing, page_id: str, path: Path) -> dict[str, Any]:
     """A DevTools trace of one cold start; the main thread's time per event kind."""
 
@@ -341,7 +449,7 @@ def _trace(browsing: Browsing, page_id: str, path: Path) -> dict[str, Any]:
     }
 
 
-def measure(browser: Browser, url: str, repeats: int, evidence: Path) -> Measured:
+def measure(browser: Browser, url: str, repeats: int, evidence: Path, collective_file: Path) -> Measured:
     measured = Measured()
     for cpu in PROFILES:
         browsing = Browsing(browser, url, cpu)
@@ -349,6 +457,7 @@ def measure(browser: Browser, url: str, repeats: int, evidence: Path) -> Measure
             _cold_starts(browsing, measured)
             _menu_laps(browsing, measured)
             _interactions(browsing, measured)
+            _live_filling(browsing, measured, collective_file)
         _reopened_tabs(browsing, measured, repeats)
         for page_id in TRACED:
             path = evidence / f"slad-{page_id}-{cpu}x.json"
@@ -357,7 +466,9 @@ def measure(browser: Browser, url: str, repeats: int, evidence: Path) -> Measure
     return measured
 
 
-def remeasure(browser: Browser, url: str, repeats: int, over: list[tuple[str, int]]) -> Measured:
+def remeasure(
+    browser: Browser, url: str, repeats: int, over: list[tuple[str, int]], collective_file: Path
+) -> Measured:
     """Measures again the routines that produced the scenarios over budget, in their profile only."""
 
     again = Measured()
@@ -373,6 +484,8 @@ def remeasure(browser: Browser, url: str, repeats: int, over: list[tuple[str, in
                 _cold_starts(browsing, again, (page_id,))
             elif kind == "menu":
                 _menu_laps(browsing, again)
+            elif kind == "na-zywo":
+                _live_filling(browsing, again, collective_file)
             else:
                 _interactions(browsing, again)
     print(f"  measured again: {', '.join(f'{routine} {cpu}×' for cpu, routine in routines)}", flush=True)
@@ -380,12 +493,13 @@ def remeasure(browser: Browser, url: str, repeats: int, over: list[tuple[str, in
 
 
 def _routine(scenario: str) -> str:
-    """The routine that measures ``scenario``: one page's cold start or reopened tab, the menu laps, or the interactions."""
+    """The routine that measures ``scenario``: one page's cold start or reopened tab, the menu laps, the live
+    Uzupełnienie, or the interactions."""
 
     first, _, rest = scenario.partition("/")
     if rest in ("zimny-start", "ponowne-otwarcie"):
         return f"{rest}:{first}"
-    return "menu" if first == "menu" else "interakcje"
+    return {"menu": "menu", "uzupelnienie": "na-zywo"}.get(first, "interakcje")
 
 
 def budget(baseline_ms: float, margin: dict[str, float]) -> float:
@@ -584,17 +698,25 @@ def drive_performance(run: Run, page: Page, *, baseline_path: Path = BASELINE, r
     run.step(feature, "wydajnosc-rok-pracy")
     _prepare_year_of_work(run, page)
 
+    run.step(feature, "wydajnosc-na-zywo")
+    [collective_file] = Path(run.fixture["year_of_work"]["periods_directory"]).rglob(
+        f"Rozliczenie {LAST_COMPLETE} - zbiorcze.xlsx"
+    )
+    _write_live_file(collective_file)
+    answer = run.api(VIEW_PATH, "wydajnosc-uzupelnienie")
+    run.check(answer["state"] == "ready", f"the year's {LAST_COMPLETE} has a Plik zbiorczy of {LIVE_ROWS} rows")
+
     run.step(feature, "wydajnosc-pomiar")
     browser = page.context.browser
     assert browser is not None
-    measured = measure(browser, run.url, repeats, out)
+    measured = measure(browser, run.url, repeats, out, collective_file)
 
     run.step(feature, "wydajnosc-porownanie")
     baseline: dict[str, Any] = (
         json.loads(baseline_path.read_text(encoding="utf-8")) if baseline_path.exists() else {}
     )
     over = over_budget(measured, baseline)
-    again = remeasure(browser, run.url, repeats, over) if over else None
+    again = remeasure(browser, run.url, repeats, over, collective_file) if over else None
     report = compare(measured, baseline, again)
     report["baseline"] = str(baseline_path)
     report["powtorzenia"] = repeats

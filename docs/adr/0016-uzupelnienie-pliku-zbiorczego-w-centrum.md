@@ -35,6 +35,12 @@ godzinami, z Plikiem zbiorczym otwartym w Excelu, więc strona, która wymaga za
   po wpisie taty. Test Maksa na laptopie taty się nie udał, a to, czy Windows daje czytać plik, który trzyma
   Excel, sprawdzi dopiero pierwsze wdrożenie przez wpis `uzupelnienie-odczyt-nieudany` w dzienniku. Gdy
   założenie nie działa, zabezpieczeniem jest wskazówka „Nie widzisz zmian? Zapisz w Excelu (Ctrl+S)”.
+- **Na żywo (#419).** Widoczna strona co 3 s pyta o znacznik zapisu Pliku zbiorczego (czas zmiany i rozmiar z
+  `stat`, bez otwierania skoroszytu) i czyta widok dopiero po jego zmianie. Gdy odczyt się nie uda, Centrum przez
+  minutę oddaje ostatni dobry odczyt z jego godziną, a dopiero potem Komunikat. Ten odczyt jest jedynym, co Centrum
+  pamięta: tylko w pamięci procesu, tylko na czas serii nieudanych prób, i zmienia tylko to, co strona pokazuje
+  podczas porażki. Po ponownym starcie Centrum go nie ma, a źródłem stanu dalej jest plik. Seria nieudanych prób
+  to jeden wpis w dzienniku.
 
 ## Odrzucone warianty
 
