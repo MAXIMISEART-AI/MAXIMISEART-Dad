@@ -14,21 +14,22 @@ Każdy okres ma jeden token.
 
 ## Rejestr zleceń
 
-Skoroszyt `ZLECENIA INTERMAX OD 08_11_2021.xlsx`, do którego tata eksportuje
-zlecenia z aplikacji firmowej. Tata nazywa go też INTERMAX; obie nazwy znaczą
-to samo. Jest jedynym źródłem prawdy o zleceniach
-wszystkich okresów. Zawiera między zleceniami całkowicie puste wiersze.
-Procesy go czytają; zmienia go tylko Uporządkowanie INTERMAX, i to tylko
-Surowe zlecenia.
+Skoroszyt `ZLECENIA INTERMAX OD 08_11_2021.xlsx`, do którego tata wkleja
+zlecenia skopiowane z aplikacji firmowej. Tata nazywa go też INTERMAX; obie
+nazwy znaczą to samo. Jest jedynym źródłem prawdy o zleceniach wszystkich
+okresów. Zawiera między zleceniami całkowicie puste wiersze. Procesy go
+czytają. Uporządkowanie INTERMAX zmienia w nim tylko Surowe zlecenia i widok
+po otwarciu, a przywrócenie Kopii INTERMAX zastępuje go w całości tą kopią.
 
 ## Surowe zlecenia
 
-Zlecenia jednego dnia, które tata albo jego pracownik wkleił z aplikacji
-firmowej na dół Rejestru zleceń, pod uporządkowane już dni, a których
-Uporządkowanie INTERMAX jeszcze nie uporządkowało. Mają wygląd z aplikacji, a
-pierwszy wiersz wklejenia jest zawsze przesunięty o dwie kolumny w lewo. W
-`CZYNNOŚCI` mają tylko nazwę operatora, a w `URZĄDZENIA` rodzaj zlecenia
-(instalacja, usterka); resztę dopisują ręcznie tata i pracownicy po
+Zlecenia, które tata albo jego pracownik wkleił z aplikacji firmowej na dół
+Rejestru zleceń, pod uporządkowane już dni, a których Uporządkowanie INTERMAX
+jeszcze nie uporządkowało. Jedno wklejenie to zlecenia jednego dnia. Mają
+wygląd z aplikacji. Pierwszy wiersz wklejenia przychodzi przesunięty o dwie
+kolumny w lewo, ale zlecenia są Surowe także wtedy, gdy ktoś przesunął go już
+ręcznie. W `CZYNNOŚCI` mają tylko nazwę operatora, a w `URZĄDZENIA` rodzaj
+zlecenia (instalacja, usterka); resztę dopisują ręcznie tata i pracownicy po
 Uporządkowaniu INTERMAX.
 _Avoid_: eksport, nowe dane
 
@@ -40,28 +41,31 @@ Wykonawców w kolejności alfabetycznej, oddzielone jednym pustym wierszem, w
 segmencie układa je od najwcześniejszej godziny do najpóźniejszej i nadaje im
 wygląd reszty Rejestru zleceń bez pogrubienia oraz Kolory operatora. Dzień
 stawia jeden pusty wiersz pod żółtym wierszem, którym tata oddziela dni, a bez
-niego 10 pustych wierszy pod ostatnim uporządkowanym zleceniem. Zmienia tylko
-Surowe zlecenia, a dnia, który już jest uporządkowany, nie porządkuje drugi
-raz: zlecenia dopisane później wpisuje się ręcznie. Nie należy do żadnego
-okresu: po nim tata i pracownicy uzupełniają dzień ręcznie, a okres trafia
-potem do Przygotowania pliku zbiorczego.
+niego 10 pustych wierszy pod ostatnim uporządkowanym zleceniem. Po nim
+Rejestr otwiera się na dzisiejszym dniu z kalendarza. Zmienia tylko Surowe
+zlecenia i widok po otwarciu. Dnia, który już jest uporządkowany, nie
+porządkuje drugi raz; zlecenia dopisane później do takiego dnia wpisuje się
+ręcznie. Nie należy do żadnego okresu. Po nim tata i pracownicy uzupełniają
+dzień ręcznie, a dopiero potem okres trafia do Przygotowania pliku zbiorczego.
 _Avoid_: formatowanie, import
 
 ## Kopia INTERMAX
 
-Stan Rejestru zleceń sprzed Uporządkowania INTERMAX albo sprzed przywrócenia
-kopii, nazwany datą i godziną, z której pochodzi. Leży na komputerze taty
-poza OneDrive; tata przywraca ją z Centrum rozliczeń.
+Stan Rejestru zleceń zapisany przed Uporządkowaniem INTERMAX albo przed
+przywróceniem innej Kopii INTERMAX, nazwany datą i godziną, z której pochodzi.
+Leży na komputerze taty poza OneDrive. Tata przywraca ją z Centrum rozliczeń;
+zmiany późniejsze od niej wtedy znikają.
 _Avoid_: backup, wersja
 
 ## Kolor operatora
 
-Wypełnienie `CZYNNOŚCI` i `NUMER UMOWY`, które Uporządkowanie INTERMAX nadaje
-po nazwie operatora w `CZYNNOŚCI`: T-Mobile zielony, Orange pomarańczowy,
-Netia ciemniejszy niebieski, każdy inny operator jasny niebieski, INEA i
-zlecenie bez operatora bez wypełnienia. Przy usterce i usterce hurt różowe są
-tylko `URZĄDZENIA`. W Rejestrze zleceń jest Wyróżnieniem jak każde inne; inne
-kolory w Rejestrze to ręczne zaznaczenia taty.
+Wypełnienie, które Uporządkowanie INTERMAX nadaje zleceniu po nazwie operatora
+w `CZYNNOŚCI`. `CZYNNOŚCI` i `NUMER UMOWY` dostają: T-Mobile zielony, Orange
+pomarańczowy, każdy inny operator jasny niebieski, a Netia ciemniejszy
+niebieski w `CZYNNOŚCI` i jasny niebieski w `NUMER UMOWY`. INEA i zlecenie bez
+operatora zostają bez wypełnienia. Usterka i usterka hurt mają zamiast tego
+różowe `URZĄDZENIA`. W Rejestrze zleceń jest Wyróżnieniem jak każde inne;
+inne kolory w Rejestrze to ręczne zaznaczenia taty i jego pracowników.
 
 ## Zlecenie skuteczne
 
@@ -88,16 +92,16 @@ przyzwyczajony.
 
 Wspólny skoroszyt bazowy, z którego powstaje Rozliczenie wewnętrzne nowego
 okresu. Jest jedynym źródłem szerokości kolumn Rozliczenia wewnętrznego, nie
-poprzedni okres. Plik okresu otwiera się tak jak jego Wzorzec: w lewym
-górnym rogu arkusza, w powiększeniu 75%. Nie zawiera zleceń i pozostaje niezmieniony.
+poprzedni okres. Plik okresu otwiera się tak jak jego Wzorzec: w lewym górnym
+rogu arkusza, w powiększeniu 75%. Nie zawiera zleceń i pozostaje niezmieniony.
 
 ## Wzorzec pliku zbiorczego
 
 Wspólny skoroszyt bazowy, z którego powstaje Plik zbiorczy nowego okresu.
 Zachowuje stawki, sumy, formuły i formatowanie. Jest jedynym źródłem szerokości
 kolumn Pliku zbiorczego, nie poprzedni okres; stawki ma własne, inne niż
-Wzorzec rozliczenia pracownika. Plik okresu otwiera się tak jak jego Wzorzec: w lewym
-górnym rogu arkusza, w powiększeniu 75%. Nie zawiera zleceń i
+Wzorzec rozliczenia pracownika. Plik okresu otwiera się tak jak jego Wzorzec:
+w lewym górnym rogu arkusza, w powiększeniu 75%. Nie zawiera zleceń i
 pozostaje niezmieniony.
 
 ## Wzorzec rozliczenia pracownika
@@ -105,10 +109,10 @@ pozostaje niezmieniony.
 Wspólny skoroszyt bazowy bez nazwy wykonawcy, z którego powstają Szablony
 pracowników. Ma ten sam układ kolumn co Plik zbiorczy, ale własne stawki
 pracownika. Jest jedynym źródłem szerokości kolumn Rozliczeń pracowników, nie
-poprzedni okres; ma te same szerokości co Wzorzec pliku zbiorczego. Plik okresu otwiera się tak jak jego Wzorzec: w lewym
-górnym rogu arkusza, w powiększeniu 75%. U taty to
-pusty plik `Rozliczenie {okres} -.xlsx` w Folderze rozliczeń pracowników. Nie
-jest rozliczeniem konkretnej osoby i pozostaje niezmieniony.
+poprzedni okres; ma te same szerokości co Wzorzec pliku zbiorczego. Plik okresu
+otwiera się tak jak jego Wzorzec: w lewym górnym rogu arkusza, w powiększeniu
+75%. U taty to pusty plik `Rozliczenie {okres} -.xlsx` w Folderze rozliczeń
+pracowników. Nie jest rozliczeniem konkretnej osoby i pozostaje niezmieniony.
 _Avoid_: Placeholder
 
 ## Przygotowanie pliku zbiorczego
@@ -116,8 +120,8 @@ _Avoid_: Placeholder
 Proces poprzedzający Przebieg rozliczeń: z Rejestru zleceń tworzy Rozliczenie
 wewnętrzne okresu, a z jego zleceń skutecznych Plik zbiorczy z Ilościami usług
 wyznaczonymi przez Reguły ilości. Nie zaczyna, gdy okres ma Surowe zlecenia.
-Oba pliki powstają razem albo żaden. Jedyny wyjątek: jeśli po nieudanym zapisie nie da
-się usunąć pliku, który już trafił do Folderu okresu, Zatrzymanie wskazuje ten
+Oba pliki powstają razem albo żaden. Jedyny wyjątek: jeśli po nieudanym
+zapisie nie da się usunąć pliku, który już trafił do Folderu okresu, Zatrzymanie wskazuje ten
 plik. Uruchamiany osobno od Przebiegu rozliczeń.
 
 ## Plik zbiorczy
@@ -257,7 +261,8 @@ _Avoid_: uzupełnienie Excela, poprawki
 
 ## Wyróżnienie
 
-Wygląd komórki, którym tata zaznacza zlecenie: kolor wypełnienia, kolor
+Wygląd komórki, którym tata, jego pracownik albo Uporządkowanie INTERMAX
+(Kolor operatora) zaznacza zlecenie: kolor wypełnienia, kolor
 czcionki, pogrubienie i kursywa. Przechodzi razem z wartością z Rejestru zleceń
 do plików okresu, a z Pliku zbiorczego do Rozliczeń pracowników. Wyróżnienia
 zastępują wygląd komórki wzorca w całości: komórka bez Wyróżnień daje komórkę
@@ -302,9 +307,9 @@ a następnie ich uzupełnienie danymi z Pliku zbiorczego.
 
 ## Uruchomienie procesu
 
-Jedno uruchomienie Przebiegu rozliczeń albo Przygotowania pliku zbiorczego z
-Centrum rozliczeń albo ze Skryptu dla maszyn, od gotowych plików i okresu do
-wyniku końcowego. Decyzja taty należy do Uruchomienia procesu bez względu na
+Jedno uruchomienie Przebiegu rozliczeń, Przygotowania pliku zbiorczego albo
+Uporządkowania INTERMAX z Centrum rozliczeń albo ze Skryptu dla maszyn, od
+gotowych plików (i okresu, gdy proces go ma) do wyniku końcowego. Decyzja taty należy do Uruchomienia procesu bez względu na
 to, skąd wystartowało.
 Kończy się sukcesem, wynikiem wymagającym sprawdzenia albo Zatrzymaniem z
 bezpiecznym Komunikatem zrozumiałym dla taty, nigdy z treścią błędu
@@ -323,15 +328,16 @@ czekania na Decyzję taty nie wlicza się do `Czas uruchomienia` ani do metryk.
 ## Centrum rozliczeń
 
 Lokalna aplikacja w przeglądarce na komputerze taty, z której uruchamia
-Przygotowanie pliku zbiorczego i Przebieg rozliczeń oraz widzi Status okresu
-każdego okresu i historię Uruchomień procesu. Jest jedynym wejściem taty do
+Uporządkowanie INTERMAX, Przygotowanie pliku zbiorczego i Przebieg rozliczeń,
+przywraca Kopię INTERMAX oraz widzi Status okresu każdego okresu i historię
+Uruchomień procesu. Jest jedynym wejściem taty do
 tych procesów, nie osobnym procesem.
 _Avoid_: dashboard, panel, centrum dowodzenia
 
 ## Skrypt dla maszyn
 
 Jedyne wejście do procesów spoza Centrum rozliczeń, dla testów, pomiarów czasu
-i osoby utrzymującej narzędzie. Przyjmuje pliki i okres parametrami, z nikim
+i osoby utrzymującej narzędzie. Przyjmuje parametrami pliki i okres, gdy proces go ma, z nikim
 nie rozmawia i oddaje wynik w kształcie karty Uruchomienia. Jego Uruchomienia
 procesu mają w historii Centrum odznakę `.cmd`, tę samą co stare Uruchomienia
 z dawnych launcherów.
@@ -339,9 +345,9 @@ _Avoid_: CLI, launcher
 
 ## Zdarzenie przebiegu
 
-Bezpieczny fakt opisujący zmianę lub wynik jednego uruchomienia Przebiegu
-rozliczeń albo Przygotowania pliku zbiorczego, na przykład rozpoczęcie etapu,
-zakończenie etapu albo przerwanie etapu. Oba procesy przechodzą te same etapy:
+Bezpieczny fakt opisujący zmianę lub wynik jednego Uruchomienia procesu, na
+przykład rozpoczęcie etapu, zakończenie etapu albo przerwanie etapu. Wszystkie
+trzy procesy przechodzą te same etapy:
 Sprawdzanie, Odczyt danych, Planowanie i Zapisywanie. Tylko Przebieg rozliczeń
 zgłasza też rozpoczęcie i zakończenie przetwarzania Szablonu pracownika.
 Zdarzenie nie zawiera adresów klientów, numerów zleceń ani treści wierszy.
@@ -417,7 +423,8 @@ wynik, Komunikaty, podsumowanie, przebieg etapów i Szablonów pracownika oraz
 wersja narzędzia. Mówią wprost, czy był to podgląd, w którym nic nie
 zapisano, czy Uruchomienie z zapisem. Zostają na komputerze taty także po
 zamknięciu Centrum i trafiają same do Skrzynki Zgłoszeń, gdzie wszystkie
-Uruchomienia jednego okresu są w jednym miejscu. Nie zawierają adresów,
+Uruchomienia jednego okresu są w jednym miejscu; Uporządkowanie INTERMAX
+należy tam do okresu uporządkowanego dnia. Nie zawierają adresów,
 numerów zleceń ani numerów umów. Tata ich nie wysyła ani nie ogląda, ale z
 nich wraca karta Uruchomienia po starcie Centrum i w Historii.
 _Avoid_: Zgłoszenie (to Zatrzymanie z Diagnozą), dziennik Centrum, raport
@@ -517,5 +524,5 @@ _Avoid_: restart, reboot
 ## Nienadpisywanie
 
 Jeśli folder lub pliki docelowe nowego okresu już istnieją, proces zatrzymuje
-się bez ich nadpisywania. Wzorce i Rejestr zleceń również pozostają
-niezmienione.
+się bez ich nadpisywania. Wzorce również pozostają niezmienione, a Rejestr
+zleceń zmieniają tylko Uporządkowanie INTERMAX i przywrócenie Kopii INTERMAX.
