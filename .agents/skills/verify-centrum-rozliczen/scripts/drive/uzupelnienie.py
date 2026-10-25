@@ -245,8 +245,11 @@ def _drive_kind(run: Run, page: Page, kind: str, shot: str) -> dict[str, object]
     return answer
 
 
-def _live_kind_cell(run: Run, page: Page, collective_file: Path) -> None:
-    """Dad types the missing quantity of row 20 while its kind's table is open, then deletes it again."""
+def _live_kind_cell(run: Run, page: Page, collective_file: Path, table_answer: dict[str, object]) -> None:
+    """Dad types the missing quantity of row 20 while its kind's table is open, then deletes it again.
+
+    ``table_answer`` is the kind's earlier answer: the row texts it hides in the ARIA snapshot have not changed.
+    """
 
     row = EXPECTED_ROWS["without_rule"][1]
     page.get_by_role("region", name=KIND_TITLES["without_rule"], exact=True).get_by_role("link").click()
@@ -261,7 +264,7 @@ def _live_kind_cell(run: Run, page: Page, collective_file: Path) -> None:
         page.evaluate("() => window.__bez_przeladowania === true"),
         f"harness typed 1 into {DAD_COLUMN}{row}: the row turns done with Dad's green value without a click or reload",
     )
-    run.capture(page, "227-uzupelnienie-tabela-na-zywo")
+    _capture(run, page, "227-uzupelnienie-tabela-na-zywo", table_answer)
     _write_dad_value(collective_file, row, None)
     expect(line).to_have_attribute("data-state", "to_fill", timeout=LIVE_TIMEOUT_MS)
     run.check(True, f"harness deleted {DAD_COLUMN}{row} again: the row is to fill again by itself")
@@ -417,7 +420,7 @@ def _drive(run: Run, page: Page, collective_file: Path, lock: Path) -> None:
     _drive_kind(run, page, "from_description", "226-uzupelnienie-z-opisu")
 
     run.step(FEATURE, "uzupelnienie-tabela-na-zywo")
-    _live_kind_cell(run, page, collective_file)
+    _live_kind_cell(run, page, collective_file, without_rule)
 
     run.step(FEATURE, "uzupelnienie-blokada-excela")
     lock.write_bytes(b"\x00" * 165)
