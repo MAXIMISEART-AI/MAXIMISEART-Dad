@@ -1,11 +1,12 @@
-"""Lokalnie te same sprawdzenia co zadania CI ruff, mypy, pytest, mutations, change-mutations i frontend.
+"""Lokalnie te same sprawdzenia co CI: zadania ruff, mypy i frontend (w CI jedno zadanie ``szybkie``), pytest,
+mutations i change-mutations.
 
 Uruchamia każdy krok po kolei Pythonem, który uruchomił skrypt (w worktree: jego ``.venv``,
 patrz ``tools/setup_worktree.py``), i drukuje wynik kroku jedną linią; wyjście pokazuje tylko
 przy porażce. Kończy się ``CI LOKALNIE OK`` (z ``--tylko``: ``CI LOKALNIE OK | tylko <zadania>``)
 albo ``CI LOKALNIE FAIL | <kroki>``; przebieg wszystkich zadań drukuje przedtem nakładania z pracą
-w toku (``tools/praca_w_toku.py --nakladania``). Zadania E2E i Timing guard mają swoje narzędzia
-(``--kroki-ci`` je wymienia), bo trwają kilka minut.
+w toku (``tools/praca_w_toku.py --nakladania``). Kroki E2E i Timing guard z części pytest na Windows mają
+swoje narzędzia (``--kroki-ci`` je wymienia), bo trwają kilka minut.
 
 Ciężkie zadania (``change-mutations``, ``mutations``), także w przebiegu wszystkich zadań, liczy CI na GitHubie:
 poza CI biegną tylko z ``--odtwarzam <id albo URL runu>``, w którym padły na tej gałęzi (``tools/ciezkie_ci.py``).
@@ -42,10 +43,14 @@ import potomne
 ROOT = Path(__file__).resolve().parents[1]
 # Wygenerowany kontrakt i zbudowany frontend muszą zgadzać się ze źródłami (u taty nie ma Node).
 GENERATED = ("frontend/src/api", "src/rozliczenia/centrum/static")
-JOBS_ELSEWHERE = {
-    "e2e": "skill verify-rozliczenia: .agents/skills/verify-rozliczenia/scripts/run_verification.py --variant all",
-    "timing": "tools/benchmark_przebiegu.py measure --scenario typowy-tydzien",
-    "required": "zbiorczy status pozostałych zadań, nic do odtworzenia",
+# Zadanie w ci.yml, w którym biegną kroki zadania narzędzia, gdy nazywa się inaczej.
+CI_JOB = {"ruff": "szybkie", "mypy": "szybkie", "frontend": "szybkie"}
+JOBS_ELSEWHERE = {"required": "zbiorczy status pozostałych zadań, nic do odtworzenia"}
+# Fragment polecenia `run:` w odtwarzanym zadaniu CI, którego narzędzie nie odtwarza, i co je zastępuje.
+COMMANDS_ELSEWHERE = {
+    "verify-rozliczenia/scripts/run_verification.py --variant all": "E2E: skill verify-rozliczenia",
+    "tools/syntetyczne_wzorce.py": "Timing guard: tools/benchmark_przebiegu.py measure --scenario typowy-tydzien",
+    "tools/benchmark_przebiegu.py": "Timing guard: tools/benchmark_przebiegu.py measure --scenario typowy-tydzien",
 }
 OUTPUT_ON_FAILURE = 40
 EVERY_COMMIT_JOBS = ("ruff", "mypy", "pytest")
@@ -69,10 +74,11 @@ def _steps(root: Path) -> list[Step]:
     python, npm, frontend = sys.executable, _npm(), root / "frontend"
     return [
         Step("ruff", "ruff", "-m ruff check", (python, "-m", "ruff", "check"), root),
-        Step("mypy", "mypy", "-m mypy", (python, "-m", "mypy"), root),
-        # Zadanie mypy w CI biegnie na Windows, gdzie gałęzie tylko dla innych systemów nie mają ich API.
+        # Gałęzie innych systemów niż Windows sprawdza mypy systemu, na którym biegnie; CI biegnie na Linuksie.
+        Step("mypy", "mypy", "-m mypy --platform linux", (python, "-m", "mypy"), root),
+        # Gałęzie tylko dla Windows używają API, którego inne systemy nie mają.
         # Własny cache, bo zmiana --platform unieważnia wspólny i oba kroki sprawdzałyby za każdym razem całość.
-        Step("mypy (Windows)", "mypy", "-m mypy", (python, "-m", "mypy", "--platform", "win32", "--cache-dir", ".mypy_cache/win32"), root),
+        Step("mypy (Windows)", "mypy", "-m mypy --platform win32", (python, "-m", "mypy", "--platform", "win32", "--cache-dir", ".mypy_cache/win32"), root),
         Step("pytest", "pytest", "-m pytest -n auto", (python, "-m", "pytest", "-q", "-n", "auto"), root),
         Step("mutacje skilli", "mutations", "tools/mutacje_skilli.py", (python, "tools/mutacje_skilli.py"), root),
         Step("mutacje zmiany", "change-mutations", "tools/mutacje_zmiany.py", (python, "tools/mutacje_zmiany.py"), root),
@@ -182,7 +188,9 @@ def main(argv: list[str] | None = None) -> int:
     steps = _steps(ROOT)
     known = {step.job for step in steps}
     if args.kroki_ci:
-        print(json.dumps({"lokalnie": sorted(known), "gdzie_indziej": JOBS_ELSEWHERE, "fragmenty": [s.ci for s in steps]}))
+        reproduced = sorted({CI_JOB.get(job, job) for job in known})
+        elsewhere = {"zadania": JOBS_ELSEWHERE, "polecenia": COMMANDS_ELSEWHERE}
+        print(json.dumps({"lokalnie": reproduced, "gdzie_indziej": elsewhere, "fragmenty": [s.ci for s in steps]}))
         return 0
     jobs = set(args.tylko.split(",")) if args.tylko else set(EVERY_COMMIT_JOBS if args.kazdy_commit else known)
     if unknown := jobs - known:

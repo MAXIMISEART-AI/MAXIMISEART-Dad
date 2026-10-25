@@ -13,7 +13,8 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Skeleton } from "@/components/ui/skeleton"
 import { href } from "@/lib/address"
 import { useContentEntrance } from "@/lib/content-entrance"
-import { useResource } from "@/lib/use-resource"
+import { useLiveFile } from "@/lib/use-live-file"
+import { SaveHint } from "@/pages/filling/save-hint"
 
 // Wygląd wiersza po jego stanie z serwera; tło przypiętych komórek jest kryjące, bo pod nimi przewijają się ilości.
 const ROWS: Record<RowState, { tint: string; label: string }> = {
@@ -105,7 +106,7 @@ export function KindPage({
 }
 
 function KindContent({ token, kind, heading, hint }: { token: string; kind: FillKind; heading: string; hint: string }) {
-  const { resource } = useResource(tableOf(token, kind))
+  const { resource } = useLiveFile(token, tableOf(token, kind))
   const entrance = useContentEntrance(resource.state === "loading")
 
   switch (resource.state) {
@@ -145,7 +146,7 @@ function KindContent({ token, kind, heading, hint }: { token: string; kind: Fill
             )}
           </div>
           {table.rows.length === 0 ? null : <QuantitiesTable columns={table.columns} rows={table.rows} />}
-          <p className="px-1 text-sm text-muted-foreground">Nie widzisz zmian? Zapisz w Excelu (Ctrl+S).</p>
+          <SaveHint read={table.read} />
         </div>
       )
     }

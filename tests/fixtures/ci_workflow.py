@@ -1,0 +1,33 @@
+"""Zadania ``.github/workflows/ci.yml`` tak, jak GitHub Actions rozwija ich macierz."""
+
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Any
+
+import yaml
+
+WORKFLOW = Path(__file__).resolve().parents[2] / ".github" / "workflows" / "ci.yml"
+
+
+def jobs() -> dict[str, dict[str, Any]]:
+    loaded: dict[str, dict[str, Any]] = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+    return loaded
+
+
+def combinations(matrix: dict[str, Any]) -> list[dict[str, Any]]:
+    """Kombinacje macierzy GitHub Actions: iloczyn list, bez ``exclude``, z ``include``."""
+
+    axes = {key: values for key, values in matrix.items() if key not in ("include", "exclude")}
+    chosen: list[dict[str, Any]] = [{}]
+    for key, values in axes.items():
+        chosen = [{**combination, key: value} for combination in chosen for value in values]
+    for excluded in matrix.get("exclude", []):
+        chosen = [c for c in chosen if any(c.get(key) != value for key, value in excluded.items())]
+    for extra in matrix.get("include", []):
+        matching = [c for c in chosen if all(c[key] == value for key, value in extra.items() if key in axes)]
+        for combination in matching:
+            combination.update({key: value for key, value in extra.items() if key not in axes})
+        if not matching:
+            chosen.append(dict(extra))
+    return chosen

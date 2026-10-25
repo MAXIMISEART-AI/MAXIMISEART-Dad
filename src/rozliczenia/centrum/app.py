@@ -161,7 +161,7 @@ def create_app(
     release = RememberedRelease(freshness.release, clock=clock)
     # Diagnoza: commit `main` z GitHuba i atrybuty OneDrive to granice komputera taty, podstawiane w testach.
     surroundings = Surroundings(replace(freshness, release=release.fresh), cloud_files or CloudFiles.of_system())
-    app.include_router(filling_router(store, log, surroundings.cloud_files))
+    app.include_router(filling_router(store, log, surroundings.cloud_files, clock=clock))
     # Sprawy taty: wysłane Zgłoszenia i Uwagi taty w jednym pliku stanu obok Ustawień taty (ADR 0015).
     config = settings_path.parent
     cases = DadCases(config, log)
