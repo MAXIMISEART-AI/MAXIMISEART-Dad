@@ -39,7 +39,6 @@ from rozliczenia.centrum.log import CentrumLog
 from rozliczenia.centrum.keyed_box import KeyedBox
 from rozliczenia.centrum.report_box import Closure
 from rozliczenia.centrum.atomic_file import StateFile
-from rozliczenia.centrum.clock import Clock
 from rozliczenia.centrum.notification_messages import unavailable
 from rozliczenia.centrum.release_notes import parse
 from rozliczenia.centrum.tool_freshness import PublishedRelease, ReleaseSource, ToolFreshness, offers_update
@@ -63,8 +62,8 @@ class ReadNotifications:
     niedostępny (``StateFile``): przeczytane czekają w pamięci na następne oznaczenie albo odczyt Powiadomień.
     """
 
-    def __init__(self, path: Path, log: CentrumLog, *, clock: Clock) -> None:
-        self.file = StateFile(path, log, where="stan przeczytanych Powiadomień", clock=clock)
+    def __init__(self, path: Path, log: CentrumLog, *, pause: Callable[[float], None]) -> None:
+        self.file = StateFile(path, log, where="stan przeczytanych Powiadomień", pause=pause)
         self._lock = threading.Lock()
         self._read = self._load()
 

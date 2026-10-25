@@ -28,7 +28,6 @@ from typing import Final, Literal
 
 from rozliczenia.centrum import contract
 from rozliczenia.centrum.atomic_file import StateFile
-from rozliczenia.centrum.clock import Clock
 from rozliczenia.centrum.keyed_box import KeyedBox, NoKey
 from rozliczenia.centrum.log import CentrumLog
 from rozliczenia.centrum.outbox import Post
@@ -110,8 +109,8 @@ class Case:
 class DadCases:
     """Sprawy taty z tego komputera w pliku stanu obok Ustawień taty."""
 
-    def __init__(self, config_directory: Path, log: CentrumLog, *, clock: Clock) -> None:
-        self.file = StateFile(config_directory / DAD_CASES_FILE, log, where="stan Spraw taty", clock=clock)
+    def __init__(self, config_directory: Path, log: CentrumLog, *, pause: Callable[[float], None]) -> None:
+        self.file = StateFile(config_directory / DAD_CASES_FILE, log, where="stan Spraw taty", pause=pause)
         self._lock = threading.Lock()
         self._cases = _load(config_directory)
 

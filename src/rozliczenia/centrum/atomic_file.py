@@ -8,12 +8,12 @@ którego mimo to nie da się zapisać, pamięta treść i zapisuje ją przy nast
 from __future__ import annotations
 
 import threading
+import time
 from collections.abc import Callable, Sequence
 from contextlib import suppress
 from pathlib import Path
 from typing import Final
 
-from rozliczenia.centrum.clock import SYSTEM_CLOCK, Clock
 from rozliczenia.centrum.log import CentrumLog
 
 # Przerwy przed kolejnymi próbami zamiany zablokowanego pliku: pięć prób w 0,75 s.
@@ -24,7 +24,7 @@ def replace_atomically(
     path: Path,
     text: str,
     *,
-    pause: Callable[[float], None] = SYSTEM_CLOCK.pause,
+    pause: Callable[[float], None] = time.sleep,
     pauses: Sequence[float] = RETRY_PAUSES_S,
 ) -> None:
     """Zapisuje ``text`` jako ``path`` przez plik tymczasowy w tym samym folderze.
@@ -60,11 +60,11 @@ class StateFile:
     każdy odczyt Powiadomień próbuje zapisu, więc przerwy przy dłuższej blokadzie spowalniałyby każdą stronę.
     """
 
-    def __init__(self, path: Path, log: CentrumLog, *, where: str, clock: Clock) -> None:
+    def __init__(self, path: Path, log: CentrumLog, *, where: str, pause: Callable[[float], None]) -> None:
         self.path = path
         self._log = log
         self._where = where
-        self._pause = clock.pause
+        self._pause = pause
         self._lock = threading.Lock()
         self._waiting: str | None = None
 

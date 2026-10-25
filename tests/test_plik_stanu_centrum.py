@@ -5,12 +5,10 @@ from __future__ import annotations
 import os
 from pathlib import Path
 import sys
-import time
 
 import pytest
 
 from rozliczenia.centrum.atomic_file import StateFile, replace_atomically
-from rozliczenia.centrum.clock import SYSTEM_CLOCK
 from rozliczenia.centrum.log import CentrumLog
 
 from tests.fixtures.clock import ManualClock
@@ -102,18 +100,10 @@ def test_na_windows_plik_otwarty_innym_uchwytem_zapisuje_sie_po_jego_zamknieciu(
     assert clock.seconds == PAUSES[0]
 
 
-def test_przerwa_zegara_centrum_u_taty_naprawde_czeka() -> None:
-    started = time.perf_counter()
-
-    SYSTEM_CLOCK.pause(0.02)
-
-    assert time.perf_counter() - started >= 0.02
-
-
 def state_file(tmp_path: Path) -> tuple[StateFile, Path]:
     log_path = tmp_path / "logs" / "centrum-rozliczen.log"
     path = tmp_path / "config" / NAME
-    return StateFile(path, CentrumLog(log_path), where=WHERE, clock=ManualClock()), log_path
+    return StateFile(path, CentrumLog(log_path), where=WHERE, pause=ManualClock().pause), log_path
 
 
 def failures_in_log(log_path: Path) -> int:
@@ -172,7 +162,7 @@ def test_przy_trwajacej_niedostepnosci_kolejne_proby_zapisu_nie_czekaja(
 ) -> None:
     clock = ManualClock()
     log = CentrumLog(tmp_path / "logs" / "centrum-rozliczen.log")
-    file = StateFile(tmp_path / "config" / NAME, log, where=WHERE, clock=clock)
+    file = StateFile(tmp_path / "config" / NAME, log, where=WHERE, pause=clock.pause)
     locked = lock_file(monkeypatch, NAME)
 
     file.write("pierwsza")

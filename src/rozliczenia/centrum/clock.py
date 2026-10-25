@@ -1,8 +1,7 @@
-"""Zegar Centrum rozliczeń: czas monotoniczny w sekundach, budzik i przerwa na tym samym zegarze.
+"""Zegar Centrum rozliczeń: czas monotoniczny w sekundach i budzik na tym samym zegarze.
 
-Jedyne źródło czasu dla pamięci odpowiedzi (``RememberedRelease``, ``KeyedBox``), rytmu Powiadomień, ponawiania
-kolejki Skrzynki i przerw między próbami zapisu pliku stanu. U taty ``SYSTEM_CLOCK``; testy podstawiają zegar, który
-przesuwają same i który budzi w ich wątku.
+Jedyne źródło czasu dla pamięci odpowiedzi (``RememberedRelease``, ``KeyedBox``), rytmu Powiadomień i ponawiania
+kolejki Skrzynki. U taty ``SYSTEM_CLOCK``; testy podstawiają zegar, który przesuwają same i który budzi w ich wątku.
 """
 
 from __future__ import annotations
@@ -22,10 +21,6 @@ class Clock(Protocol):
         """Woła ``wake`` raz w innym wątku, gdy na tym zegarze minie ``seconds``; bez odwołania."""
         ...
 
-    def pause(self, seconds: float) -> None:
-        """Wstrzymuje bieżący wątek, aż na tym zegarze minie ``seconds``."""
-        ...
-
 
 class SystemClock:
     """``time.monotonic`` i budzik z ``threading.Timer`` jako wątek demona: zamknięcie Centrum na niego nie czeka."""
@@ -38,9 +33,6 @@ class SystemClock:
         timer.daemon = True
         timer.name = "budzik"
         timer.start()
-
-    def pause(self, seconds: float) -> None:
-        time.sleep(seconds)
 
 
 SYSTEM_CLOCK: Final = SystemClock()
