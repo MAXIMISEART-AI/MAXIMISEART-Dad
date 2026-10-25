@@ -56,10 +56,11 @@ export function forgetLastReads() {
  * Odczyt z serwera z ponowieniem na żądanie i po powrocie do karty: Status okresu wylicza serwer
  * z plików przy każdym odczycie, więc po zmianach w Eksploratorze wystarczy wrócić do karty.
  * Strona, na której tata już był, od razu pokazuje ostatnie dane i czyta od nowa w tle.
+ * Z `fresh` pierwszy widok czeka na odczyt zamiast pokazać ostatnie dane, bo mogą być sprzed zmiany plików.
  * Liczy się tylko najnowszy odczyt. `load` musi być stabilne (funkcja z `@/api/centrum`).
  */
-export function useResource<T>(load: Load<T>) {
-  const [resource, setResource] = React.useState<Resource<T>>(() => lastData(load))
+export function useResource<T>(load: Load<T>, { fresh = false }: { fresh?: boolean } = {}) {
+  const [resource, setResource] = React.useState<Resource<T>>(() => (fresh ? { state: "loading" } : lastData(load)))
   const latest = React.useRef(0)
 
   const show = React.useCallback(

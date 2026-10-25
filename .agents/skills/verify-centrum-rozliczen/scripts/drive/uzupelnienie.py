@@ -13,6 +13,7 @@ from openpyxl.worksheet.worksheet import Worksheet
 from playwright.sync_api import Locator, Page, expect
 
 from create_centrum_fixture import PRICE_LIST
+from drive import kontrola_ilosci
 from drive.common import LAST_COMPLETE, ROW_MARKER, Run, last_opened_is, period_files, period_row
 from drive.przygotowanie_pliku_zbiorczego import drive_preparation
 
@@ -81,8 +82,24 @@ def _check_screen(run: Run, page: Page | Locator, answer: dict[str, object], whe
     run.check(True, f"{where}: counters, row numbers with their done state, and column counters match the server")
 
 
+# Every text the result card's summary shows from now on, so a short-lived old copy cannot slip between two checks.
+WATCH_RESULT_SUMMARY = """() => {
+  window.__resultSummaries = []
+  const seen = () => {
+    const summary = document.querySelector('[aria-label="Uzupełnienie pliku zbiorczego"]')
+    if (summary !== null) window.__resultSummaries.push(summary.textContent)
+  }
+  window.__resultSummaryObserver = new MutationObserver(seen)
+  window.__resultSummaryObserver.observe(document.body, { subtree: true, childList: true, characterData: true })
+}"""
+SHOWN_RESULT_SUMMARIES = "() => { window.__resultSummaryObserver.disconnect(); return window.__resultSummaries }"
+
+
 def drive_result_card(run: Run, page: Page) -> None:
-    """Entry from Przygotowanie: the written Plik zbiorczy's result card shows the summary and leads to it."""
+    """Entry from Przygotowanie: the written Plik zbiorczy's result card shows the summary and leads to it.
+
+    Then the card after a restart of Centrum, from Logi: the last Uruchomienie is this written Przygotowanie only here.
+    """
 
     run.step(FEATURE, "uzupelnienie-wynik")
     card = page.get_by_role("region", name="Podgląd na żywo")
@@ -98,9 +115,38 @@ def drive_result_card(run: Run, page: Page) -> None:
     filling.get_by_role("button", name="Uzupełnij", exact=True).click()
     expect(page).to_have_url(f"{run.url.rstrip('/')}/{SUMMARY}")
     _check_screen(run, page, answer, "on the summary opened from the result card")
-    page.go_back()
-    expect(card.get_by_role("region", name="Uzupełnienie pliku zbiorczego", exact=True)).to_be_visible()
+
+    run.step(FEATURE, "uzupelnienie-wynik-bez-starej-kopii")
+    collective_file = period_files(run)[1]
+    original = collective_file.read_bytes()
+    try:
+        _write_dad_value(collective_file, EXPECTED_ROWS["without_rule"][0])
+        page.evaluate(WATCH_RESULT_SUMMARY)
+        page.go_back()
+        expect(filling).to_contain_text("1 z 2")
+        changed = _ready(run, "uzupelnienie-wynik-po-wpisie")
+        _check_screen(run, filling, changed, "on the result card after Dad's value")
+        shown = page.evaluate(SHOWN_RESULT_SUMMARIES)
+        assert isinstance(shown, list)
+        run.check(
+            not any("0 z 2" in text for text in shown),
+            "back on the result card the summary waits for its read instead of the summary page's older copy",
+        )
+    finally:
+        collective_file.write_bytes(original)
     run.check(True, "Uzupełnij on the result card opens the same summary, and Wstecz returns to the result")
+
+    run.step(FEATURE, "uzupelnienie-wynik-po-starcie")
+    kontrola_ilosci._close(run, page)
+    kontrola_ilosci._start(run, "uzupelnienie-start-po-zamknieciu")
+    page.goto(run.url + "#/uruchomienia")
+    page.reload()
+    restored = page.get_by_role("region", name="Ostatnie Uruchomienie")
+    expect(restored.get_by_label("Wynik")).to_contain_text("Plik zbiorczy przygotowany · wymaga sprawdzenia")
+    summary = restored.get_by_role("region", name="Uzupełnienie pliku zbiorczego", exact=True)
+    expect(summary.get_by_role("heading", name="Do uzupełnienia w Excelu")).to_be_visible()
+    _check_screen(run, summary, _ready(run, "uzupelnienie-wynik-po-starcie"), "on the card from Logi after a restart")
+    run.capture(page, "232-uzupelnienie-wynik-po-starcie")
 
 
 def _drive_entries(run: Run, page: Page) -> None:

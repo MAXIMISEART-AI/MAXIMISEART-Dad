@@ -9,7 +9,8 @@ import { FillingSkeleton, FillingSummary, quantitiesOf } from "@/pages/filling/f
 
 /** Na karcie wyniku Przygotowania: to samo podsumowanie Uzupełnienia co jego strona, z tego samego odczytu. */
 export function FillingOnResult({ token }: { token: string }) {
-  const { resource } = useResource(quantitiesOf(token))
+  // Karta powstaje, gdy Uruchomienie zmieniło pliki okresu, więc kopia sprzed niego byłaby nieaktualna.
+  const { resource } = useResource(quantitiesOf(token), { fresh: true })
   const entrance = useContentEntrance(resource.state === "loading")
 
   return (
