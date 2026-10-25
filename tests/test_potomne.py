@@ -132,6 +132,55 @@ if sys.platform == "win32":
 
         assert (len(started), left) == (1, [])
 
+    _NO_PROCESS = 0xFFFFFFFC  # PID, którego system nie ma, więc OpenProcess go nie otwiera
+    _SURVIVORS = re.compile(r"potomne: po zabiciu po [\d.]+ s żyją procesy (.*)")
+
+    @pytest.mark.parametrize(
+        ("outlives", "reported"),
+        [(False, None), (True, r"python\S*\.exe \(WAIT_TIMEOUT\)")],
+        ids=["pid-czlonka-dostal-proces-spoza-zadania", "czlonek-zyje-po-terminie"],
+    )
+    def test_zabijanie_czeka_tylko_na_procesy_zadania_a_po_terminie_nie_wywraca_wyniku(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], outlives: bool, reported: str | None
+    ) -> None:
+        members, calls = potomne._Tree._members, []
+
+        def reused_once(tree: Any) -> list[int]:
+            calls.append(tree)
+            return [*members(tree), *([os.getpid()] if len(calls) == 1 else [])]
+
+        monkeypatch.setattr(potomne, "_KILL_S", 1.0)
+        monkeypatch.setattr(potomne._Tree, "_members", reused_once)
+        if outlives:
+            monkeypatch.setattr(potomne._Tree, "_in_job", lambda tree, handle: True)
+
+        done = potomne.run([sys.executable, "-c", "print('gotowe')"], cwd=tmp_path)
+
+        named = _SURVIVORS.findall(capsys.readouterr().err)
+        assert done.stdout == "gotowe\n"
+        if reported is None:
+            assert named == []
+        else:
+            assert len(named) == 1 and re.fullmatch(rf"{os.getpid()} {reported}", named[0]), named
+
+    def test_czlonek_bez_uchwytu_nie_kreci_petla_zabijania_az_do_terminu(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        members, calls = potomne._Tree._members, []
+
+        def with_unopenable(tree: Any) -> list[int]:
+            calls.append(tree)
+            return [*members(tree), _NO_PROCESS]
+
+        monkeypatch.setattr(potomne, "_KILL_S", 1.0)
+        monkeypatch.setattr(potomne._Tree, "_members", with_unopenable)
+
+        done = potomne.run([sys.executable, "-c", "print('gotowe')"], cwd=tmp_path)
+
+        assert done.stdout == "gotowe\n"
+        assert _SURVIVORS.findall(capsys.readouterr().err) == [f"{_NO_PROCESS} ?"]
+        assert len(calls) <= 2 * potomne._KILL_S / potomne._POLL_S
+
 
 def test_stop_konczy_trwajace_polecenie_a_nowe_nie_biegnie(tmp_path: Path) -> None:
     beats, marker = tmp_path / "wnuk-zyje", tmp_path / "nowe-polecenie"
