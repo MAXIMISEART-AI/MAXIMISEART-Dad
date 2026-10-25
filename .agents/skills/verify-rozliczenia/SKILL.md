@@ -234,7 +234,8 @@ surcharge (its amount, the 17:00 threshold, its days, only for a usterka),
 S not as the sum O+P+Q+AG, single components, a known name (`usterka hurt`,
 `wizja`) becoming unknown, pieces from `CZYNNOŚCI`, T from the first word of
 `UMOWA`, `prewencja` without quantities, O from `akt int` in `CZYNNOŚCI`
-only for `nokia` without a router, in any letter case and outside S, spelling
+only for `nokia` without a router (also with a TV device), once per order,
+in any letter case and outside S, spelling
 variants (`XG`, spaces around `*` and before `szt`), and rows without a rule. The check first runs
 unbroken, so a red baseline fails the script instead of counting as detection.
 It takes about 6 s on a Mac. CI runs it in the `mutations` job. A mutation

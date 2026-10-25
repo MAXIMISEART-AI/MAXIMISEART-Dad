@@ -108,9 +108,21 @@ MUTATIONS = (
     ),
     _mutation(
         "akt int liczy się do S",
-        "                quantities.update(component.without_router[1])\n",
-        "                quantities.update({**component.without_router[1], _Q.S: quantities[_Q.S] + 1})\n",
+        "                quantities.update(added)\n",
+        "                quantities.update({**added, _Q.S: quantities[_Q.S] + 1})\n",
         "samo nokia z akt int dostaje Dostarczenie CPE",
+    ),
+    _mutation(
+        "akt int na każdą sztukę nokia",
+        "        for phrase, added in once.items():\n",
+        "        for phrase, added in [component.without_router for component, _ in components if component.without_router]:\n",
+        "nokia nokia z akt int daje O=2",
+    ),
+    _mutation(
+        "akt int przy routerze z urządzeniem TV",
+        "    if not count_of[_Kind.ROUTER]:\n",
+        "    if not count_of[_Kind.ROUTER] or count_of[_Kind.TV]:\n",
+        "nokia, gateway fut z akt int daje O=2",
     ),
     _mutation(
         "sztuki z krotności zamiast z CZYNNOŚCI",

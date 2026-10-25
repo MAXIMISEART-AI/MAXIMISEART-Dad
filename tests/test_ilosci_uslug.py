@@ -103,15 +103,20 @@ PIECES: list[tuple[str, str, int]] = [
     ("wizja", "instalacja", 1),
     ("Instalacja  Ręczna", "2 SZT.", 2),
 ]
-# Samo nokia (bez routera) z „akt int” w CZYNNOŚCI: O = 1 obok Z, bez zmiany S; przy routerze O tylko z routera.
+# Samo nokia (bez routera) z „akt int” w CZYNNOŚCI: O = 1 raz na zlecenie obok Z, bez zmiany S; przy routerze O tylko
+# z routera, także z urządzeniem TV.
 ACTIVATION: list[tuple[str, str, dict[str, int]]] = [
     ("nokia", "akt int", {"O": 1, "Z": 1}),
+    ("2*nokia", "akt int", {"O": 1, "Z": 2}),
+    ("nokia nokia", "akt int", {"O": 1, "Z": 2}),
+    ("nokia, nokia", "akt int", {"O": 1, "Z": 2}),
     ("nokia", "instalacja, AKT  Int  , modem", {"O": 1, "Z": 1}),
     ("nokia", "instalacja", {"Z": 1}),
     ("nokia", "akt tv", {"Z": 1}),
     ("nokia fut", "Akt Int", {"O": 1, "Z": 1, "Q": 1, "S": 1}),
     ("nokia zte", "akt int", {"O": 1, "S": 1, "Z": 1}),
     ("nokia, gateway", "akt int", {"O": 1, "S": 1, "Z": 1}),
+    ("nokia, gateway fut", "akt int", {"O": 1, "P": 1, "S": 2, "Z": 1}),
 ]
 # Dodatek 45 zł (N = 45) za usterkę pon–pt od 17:00 albo w sobotę, z godziny w DATA. Okres 08–14.09.2026 zaczyna się
 # we wtorek; w niedzielę firma nie pracuje.

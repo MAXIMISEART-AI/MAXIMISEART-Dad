@@ -142,8 +142,8 @@ class _Component:
     with_extender: Mapping[QuantityColumn, int] = field(default_factory=dict)
     """Ilości na sztukę dodawane, gdy w zleceniu jest też wzmacniacz wifi."""
     without_router: tuple[str, Mapping[QuantityColumn, int]] | None = None
-    """Fraza ``CZYNNOŚCI`` (małe litery, pojedyncze spacje) i ilości dodawane raz, gdy zlecenie bez routera ma ją w
-    ``CZYNNOŚCI``; nie liczą się do S."""
+    """Fraza ``CZYNNOŚCI`` (małe litery, pojedyncze spacje) i ilości dodawane raz na zlecenie, bez względu na liczbę
+    sztuk składnika, gdy zlecenie bez routera ma tę frazę w ``CZYNNOŚCI`` jako fragment tekstu; nie liczą się do S."""
 
 
 _Q = QuantityColumn
@@ -272,9 +272,10 @@ def _device_quantities(components: list[tuple[_Component, int]], activities: str
     quantities[_Q.S] = quantities[_Q.O] + quantities[_Q.P] + quantities[_Q.Q] + quantities[_Q.AG]
     if not count_of[_Kind.ROUTER]:
         phrases = " ".join(activities.casefold().split())
-        for component, _ in components:
-            if component.without_router is not None and component.without_router[0] in phrases:
-                quantities.update(component.without_router[1])
+        once = dict(component.without_router for component, _ in components if component.without_router is not None)
+        for phrase, added in once.items():
+            if phrase in phrases:
+                quantities.update(added)
     return quantities
 
 
