@@ -10,6 +10,7 @@ import type {
   GetToolUpdateResponse,
   NotificationsRead,
   OpenRequest,
+  WorkerSettlementRequest,
   PeriodRow,
   RunEvent,
   RunRequest,
@@ -38,6 +39,8 @@ import {
   zGetToolUpdateResponse,
   zMarkNotificationsReadResponse,
   zOpenPeriodPathResponse,
+  zOpenRegisterResponse,
+  zOpenWorkerSettlementResponse,
   zReportRunResponse,
   zReportToolUpdateResponse,
   zRunEvent,
@@ -63,6 +66,7 @@ export type {
   Message,
   Metrics,
   Percentiles,
+  OpenRequest,
   PeriodChoice,
   PeriodRow,
   PeriodFile,
@@ -81,7 +85,8 @@ export type {
   RunSummary,
   Settings,
   TemplateProblem,
-  WorkerFile,
+  WorkerSettlement,
+  WorkerSettlementRequest,
 } from "@/api/generated"
 
 export type PeriodBoard = GetPeriodBoardResponse
@@ -119,6 +124,7 @@ function send(
   method: "POST" | "PUT",
   body?:
     | OpenRequest
+    | WorkerSettlementRequest
     | ThemeChange
     | RunRequest
     | DecisionAnswer
@@ -141,6 +147,11 @@ export function getSettings() {
 /** Otwiera natywne okno wyboru na komputerze taty i zapamiętuje wybrany Rejestr zleceń. */
 export function chooseOrderRegister() {
   return call(zChooseRegisterResponse, "chooseRegister", "/api/settings/register/choose", send("POST"))
+}
+
+/** Otwiera w Excelu Rejestr zleceń, który tata wybrał w Ustawieniach; ścieżkę bierze serwer. */
+export function openOrderRegister() {
+  return call(zOpenRegisterResponse, "openRegister", "/api/settings/register/open", send("POST"))
 }
 
 /** Otwiera natywne okno wyboru folderu i zapamiętuje folder okresów. */
@@ -177,6 +188,16 @@ export function getQuantitiesToFill(token: string) {
     zGetQuantitiesToFillResponse,
     "getQuantitiesToFill",
     `/api/periods/${encodeURIComponent(token)}/quantities-to-fill`
+  )
+}
+
+/** Rozliczenie pracownika jednego Wykonawcy; ścieżkę wylicza serwer z Folderu okresu, przeglądarka podaje Wykonawcę. */
+export function openWorkerSettlement(token: string, worker: string) {
+  return call(
+    zOpenWorkerSettlementResponse,
+    "openWorkerSettlement",
+    `/api/periods/${encodeURIComponent(token)}/worker-settlements/open`,
+    send("POST", { worker })
   )
 }
 

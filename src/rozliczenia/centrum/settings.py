@@ -1,9 +1,13 @@
-"""Ustawienia taty w Centrum rozliczeń: odczyt, wskazanie Rejestru zleceń i folderu okresów oknem wyboru, motyw."""
+"""Ustawienia taty w Centrum rozliczeń: odczyt, wskazanie Rejestru zleceń i folderu okresów oknem wyboru, motyw.
+
+Rejestr zleceń z Ustawień taty otwiera się też z karty wyniku, gdy Zatrzymanie każe go poprawić.
+"""
 
 from __future__ import annotations
 
 from collections.abc import Callable
 from pathlib import Path
+import stat
 
 from fastapi import APIRouter
 
@@ -33,6 +37,28 @@ def settings_router(store: SettingsStore, platform: Platform) -> APIRouter:
         if chosen is None:
             return contract.Choice(settings=describe(store.load()))
         return contract.Choice(settings=_saved(store, register=chosen))
+
+    @router.post("/register/open", operation_id="openRegister", responses=contract.NOT_FOUND_OR_CONFLICT)
+    def open_register() -> contract.Opened:
+        register = store.load().register
+        if register is None:
+            raise contract.Refusal(409, "Najpierw wybierz Rejestr zleceń w Ustawieniach.")
+        try:
+            found = stat.S_ISREG(register.stat().st_mode)
+        except (FileNotFoundError, NotADirectoryError):
+            found = False
+        except OSError:
+            raise contract.Refusal(
+                409,
+                f"Rejestr zleceń {register.name} jest teraz niedostępny. Sprawdź, czy jego folder otwiera się "
+                "w Eksploratorze plików i czy OneDrive działa, potem spróbuj ponownie.",
+            ) from None
+        if not found:
+            raise contract.Refusal(
+                404, f"Nie ma Rejestru zleceń {register.name}. Wybierz właściwy plik w Ustawieniach."
+            )
+        platform.open_path(register)
+        return contract.Opened(name=register.name)
 
     @router.post("/periods-directory/choose", operation_id="choosePeriodsDirectory")
     def choose_periods_directory() -> contract.Choice:

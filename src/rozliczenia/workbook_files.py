@@ -18,6 +18,7 @@ narzędzi benchmarku w ``tools/``, żeby nie powtarzały układu.
 
 from __future__ import annotations
 
+import os
 import zipfile
 import zlib
 from collections.abc import Iterator, Mapping, Sequence
@@ -27,7 +28,6 @@ from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 from enum import Enum
 from io import BytesIO
-import os
 from pathlib import Path
 import stat
 from types import MappingProxyType
@@ -208,9 +208,12 @@ def _status(path: Path) -> os.stat_result | None:
 
 
 def is_open_in_excel(path: Path) -> bool:
-    """Rozpoznaje skoroszyt otwarty w desktopowym Excelu po pliku blokady ``~$…``; folder bez dostępu to ``OSError``."""
+    """Rozpoznaje skoroszyt otwarty w desktopowym Excelu po pliku blokady ``~$…``.
 
-    return _status(path.with_name(f"~${path.name}")) is not None
+    W folderze bez dostępu blokady nie widać; niedostępny skoroszyt zgłasza jego odczyt (``ensure_available``).
+    """
+
+    return os.path.exists(path.with_name(f"~${path.name}"))
 
 
 def ensure_available(path: Path, *, despite_excel_lock: bool = False) -> None:
