@@ -259,9 +259,10 @@ class TemplateFile:
     Powstaje dla jednego z trzech plików: ``worker_settlement`` z Wierszy danych Pliku zbiorczego (``DataRow``),
     ``collective_file`` albo ``internal_settlement`` z wierszy Rejestru zleceń (``RegisterRow``), których komórki
     stają pod nagłówkami docelowymi pliku okresu. Utworzenie nie czyta dysku. Plik powstaje kopią bajtów Wzorca,
-    gdy kopia przyjmuje kształt Wzorca i wierszy, a inaczej przez openpyxl; obie drogi dają ten sam plik. Pierwszy plik czyta bajty Wzorca
-    ponownie: Wzorzec zmieniony albo otwarty w Excelu po Sprawdzaniu działa tak, jakby był czytany dopiero
-    wtedy, a kolejne pliki powstają z tych samych bajtów. Wzorzec na dysku pozostaje niezmieniony.
+    gdy kopia przyjmuje kształt Wzorca i wierszy, a inaczej przez openpyxl; obie drogi dają ten sam plik.
+    Pierwszy plik czyta bajty Wzorca ponownie: Wzorzec zmieniony albo otwarty w Excelu po Sprawdzaniu działa tak,
+    jakby był czytany dopiero wtedy, a kolejne pliki powstają z tych samych bajtów. Wzorzec na dysku pozostaje
+    niezmieniony.
     """
 
     def __init__(self, path: Path, rules: _Rules) -> None:

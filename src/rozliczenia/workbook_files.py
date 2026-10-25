@@ -178,7 +178,8 @@ class DataRow:
     """Wiersz danych Pliku zbiorczego: komórki kolumn A:AT po kolei od A.
 
     ``number`` to numer wiersza w Pliku zbiorczym. Przebieg rozliczeń wpisuje każdą komórkę do tej samej kolumny
-    Rozliczenia pracownika.
+    Rozliczenia pracownika. Format liczby z pliku mają tylko kolumny wyglądu A:L, a dalsze komórki ogólny: odczyt
+    formatu, którego plik nie użyje, mógłby zatrzymać rozliczenie na komórce ze stylem bez definicji formatu.
     """
 
     number: int
@@ -376,7 +377,7 @@ def read_data_rows(path: Path) -> DataRows:
                             DataCell(
                                 values[column - 1],
                                 highlights.of(cell),
-                                getattr(cell, "number_format", None) or GENERAL,
+                                (getattr(cell, "number_format", None) or GENERAL) if column in LOOK_COLUMNS else GENERAL,
                                 row_links.get(column),
                             )
                             for column, cell in enumerate(row_cells, start=1)
