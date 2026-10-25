@@ -2483,6 +2483,10 @@
           "read": {
             "$ref": "#/components/schemas/CollectiveFileRead"
           },
+          "settled": {
+            "type": "boolean",
+            "title": "Settled"
+          },
           "kind": {
             "$ref": "#/components/schemas/FillKind"
           },
@@ -2506,12 +2510,13 @@
         "required": [
           "state",
           "read",
+          "settled",
           "kind",
           "columns",
           "rows"
         ],
         "title": "KindTableReady",
-        "description": "Wiersze jednego rodzaju Ilości do uzupełnienia rosnąco po numerze; ``columns`` to N:AP po kolei."
+        "description": "Wiersze jednego rodzaju Ilości do uzupełnienia rosnąco po numerze; ``columns`` to N:AP po kolei.\n\n``settled`` jak w ``QuantitiesToFillReady``."
       },
       "KindTableRow": {
         "properties": {
@@ -3629,6 +3634,10 @@
           "read": {
             "$ref": "#/components/schemas/CollectiveFileRead"
           },
+          "settled": {
+            "type": "boolean",
+            "title": "Settled"
+          },
           "kinds": {
             "items": {
               "$ref": "#/components/schemas/KindToFill"
@@ -3649,11 +3658,12 @@
         "required": [
           "state",
           "read",
+          "settled",
           "kinds",
           "description_columns"
         ],
         "title": "QuantitiesToFillReady",
-        "description": "Ilości do uzupełnienia okresu przeliczone z zapisanego Pliku zbiorczego; ``kinds`` ma każdy rodzaj z listą."
+        "description": "Ilości do uzupełnienia okresu przeliczone z zapisanego Pliku zbiorczego; ``kinds`` ma każdy rodzaj z listą.\n\n``settled``: Przebieg rozliczeń okresu się odbył (Status okresu Rozliczenia pracowników gotowe), więc strona jest\npodglądem bez „Gotowe, rozlicz pracowników”, a wiersz bez wpisu taty jest „bez ilości”."
       },
       "ReadyPath": {
         "properties": {
@@ -3924,7 +3934,8 @@
         "type": "string",
         "enum": [
           "to_fill",
-          "done"
+          "done",
+          "without_quantity"
         ],
         "title": "RowState"
       },
@@ -3934,19 +3945,18 @@
             "type": "integer",
             "title": "Row"
           },
-          "done": {
-            "type": "boolean",
-            "title": "Done"
+          "state": {
+            "$ref": "#/components/schemas/RowState"
           }
         },
         "additionalProperties": false,
         "type": "object",
         "required": [
           "row",
-          "done"
+          "state"
         ],
         "title": "RowToFill",
-        "description": "Wiersz Pliku zbiorczego z Ilościami do uzupełnienia: numer wiersza i czy tata już coś w nim wpisał."
+        "description": "Wiersz Pliku zbiorczego z Ilościami do uzupełnienia: numer wiersza i jego stan (zrobiony, do uzupełnienia, bez ilości)."
       },
       "RunAwaitingDecision": {
         "properties": {

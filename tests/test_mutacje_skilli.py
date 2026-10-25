@@ -388,41 +388,92 @@ def test_czesci_uruchamiaja_kazdy_skrypt_dokladnie_raz(tmp_path: Path) -> None:
     assert sorted(ran) == [f".agents/skills/verify-{name}/scripts/check_{name}_mutations.py" for name in "abc"]
 
 
-def test_kazdy_nastepny_najdluzszy_skrypt_idzie_do_najlzejszej_czesci(monkeypatch: pytest.MonkeyPatch) -> None:
+def _steps(tool: ModuleType, keys: str) -> list[object]:
+    skills = ROOT / ".agents" / "skills"
+    return [
+        tool.Step(skills / key.split("/")[0], key, key, (key,), None if key.endswith("/ci") else tool.VERDICT) for key in keys.split()
+    ]
+
+
+def test_kazdy_nastepny_najdluzszy_krok_idzie_do_najlzejszej_czesci(monkeypatch: pytest.MonkeyPatch) -> None:
     tool = _load_tool(monkeypatch)
-    scripts = [ROOT / ".agents" / "skills" / f"verify-{name}" / "scripts" / f"check_{name}_mutations.py" for name in "abcd"]
+    steps = _steps(tool, "verify-a/check_a_mutations.py verify-b/check_b_mutations.py verify-c/ci verify-d/check_d_mutations.py")
 
-    chosen = tool.parts(scripts, 3, {"verify-a": 60, "verify-b": 300, "verify-c": 90, "verify-d": 60})
+    chosen = tool.parts(steps, 3, {"verify-a/check_a_mutations.py": 60, "verify-b/check_b_mutations.py": 300, "verify-c/ci": 90, "verify-d/check_d_mutations.py": 60})
 
-    assert [[script.parents[1].name for script in part] for part in chosen] == [["verify-b"], ["verify-c"], ["verify-a", "verify-d"]]
+    assert [[step.key for step in part] for part in chosen] == [
+        ["verify-b/check_b_mutations.py"],
+        ["verify-c/ci"],
+        ["verify-a/check_a_mutations.py", "verify-d/check_d_mutations.py"],
+    ]
 
 
-def test_skrypt_spoza_tabeli_czasow_wazy_mediane_tabeli(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_krok_spoza_tabeli_czasow_wazy_mediane_tabeli(monkeypatch: pytest.MonkeyPatch) -> None:
     tool = _load_tool(monkeypatch)
-    scripts = [ROOT / ".agents" / "skills" / f"verify-{name}" / "scripts" / f"check_{name}_mutations.py" for name in ("a", "b", "c", "nowy")]
+    steps = _steps(tool, "verify-a/ci verify-b/check_b_mutations.py verify-c/check_c_mutations.py verify-nowy/ci")
 
-    chosen = tool.parts(scripts, 3, {"verify-a": 100, "verify-b": 60, "verify-c": 50})
+    chosen = tool.parts(steps, 3, {"verify-a/ci": 100, "verify-b/check_b_mutations.py": 60, "verify-c/check_c_mutations.py": 50})
 
-    assert [[script.parents[1].name for script in part] for part in chosen] == [["verify-a"], ["verify-b", "verify-c"], ["verify-nowy"]]
+    assert [[step.key for step in part] for part in chosen] == [
+        ["verify-a/ci"],
+        ["verify-b/check_b_mutations.py", "verify-c/check_c_mutations.py"],
+        ["verify-nowy/ci"],
+    ]
 
 
-def test_najdluzszy_skrypt_z_tabeli_czasow_ma_czesc_dla_siebie(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_podstawa_i_mutacje_jednego_skilla_moga_biec_w_roznych_czesciach(monkeypatch: pytest.MonkeyPatch) -> None:
+    tool = _load_tool(monkeypatch)
+    steps = _steps(tool, "verify-a/check_a_mutations.py verify-a/ci verify-b/check_b_mutations.py verify-b/ci")
+
+    chosen = tool.parts(steps, 2, {"verify-a/check_a_mutations.py": 300, "verify-a/ci": 200, "verify-b/check_b_mutations.py": 100, "verify-b/ci": 10})
+
+    assert [[step.key for step in part] for part in chosen] == [
+        ["verify-a/check_a_mutations.py", "verify-b/ci"],
+        ["verify-a/ci", "verify-b/check_b_mutations.py"],
+    ]
+
+
+def test_w_czesci_podstawa_skilla_biegnie_przed_jego_mutacjami(monkeypatch: pytest.MonkeyPatch) -> None:
+    tool = _load_tool(monkeypatch)
+    steps = _steps(tool, "verify-a/check_a_mutations.py verify-a/ci verify-b/check_b_mutations.py")
+
+    chosen = tool.parts(steps, 2, {"verify-a/check_a_mutations.py": 100, "verify-a/ci": 100, "verify-b/check_b_mutations.py": 300})
+
+    assert [[step.key for step in part] for part in chosen] == [["verify-b/check_b_mutations.py"], ["verify-a/ci", "verify-a/check_a_mutations.py"]]
+
+
+def test_czesci_z_tabeli_czasow_uruchamiaja_kazdy_krok_raz_i_zadna_nie_wydluza_najdluzszego_kroku(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     times = _load_tool(monkeypatch).CI_TIMES_S
-    for skill in times:
-        _skill(tmp_path, skill, {"check_x_mutations.py": PASSING})
+    skills = {key.split("/")[0] for key in times}
+    for skill in skills:
+        command = f".agents/skills/{skill}/scripts/sprawdz.py"
+        scripts = {key.split("/")[1]: PASSING for key in times if key.startswith(f"{skill}/") and not key.endswith("/ci")}
+        baseline = f"{skill}/ci" in times
+        _skill(tmp_path, skill, {**scripts, **({"sprawdz.py": CHECKED_IN_CI.format(code=0)} if baseline else {})}, _with_ci(skill, command) if baseline else "")
 
-    parts = [_run(tmp_path, "--czesc", f"{number}/{len(times) - 1}") for number in range(1, len(times))]
+    parts = [_run(tmp_path, "--czesc", f"{number}/3") for number in (1, 2, 3)]
 
-    ran = [{line.split()[1].split("/")[2] for line in part.stdout.splitlines() if line.startswith("OK   ")} for part in parts]
-    assert {max(times, key=times.__getitem__)} in ran
-    assert sorted(skill for part in ran for skill in part) == sorted(times)
+    ran = [[line.split(" (")[0].removeprefix("OK   ") for line in part.stdout.splitlines() if line.startswith("OK   ")] for part in parts]
+    name = {key: f"PODSTAWA {key.split('/')[0]}" if key.endswith("/ci") else f".agents/skills/{key.split('/')[0]}/scripts/{key.split('/')[1]}" for key in times}
+    key = {shown: key for key, shown in name.items()}
+    assert [part.stdout.splitlines()[-1] for part in parts] == ["MUTACJE SKILLI OK"] * 3
+    assert sorted(step for part in ran for step in part) == sorted(name.values())
+    # Ścieżka krytyczna Mutation checks to najdłuższa część: najwyżej najdłuższy krok z najkrótszym.
+    assert max(sum(times[key[step]] for step in part) for part in ran) <= max(times.values()) + min(times.values()), ran
 
 
-def test_tabela_czasow_mutacji_wymienia_tylko_skille_ze_skryptem_mutacji(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_tabela_czasow_wymienia_tylko_kroki_skilli(monkeypatch: pytest.MonkeyPatch) -> None:
     tool = _load_tool(monkeypatch)
-    skills = {script.parents[1].name for script in (ROOT / ".agents" / "skills").glob(f"*/scripts/{tool.PATTERN}")}
 
-    assert set(tool.CI_TIMES_S) <= skills
+    assert set(tool.CI_TIMES_S) <= {step.key for step in tool.steps({})}
+
+
+def test_polecenie_ci_kazdego_skilla_to_skrypt_z_repozytorium(monkeypatch: pytest.MonkeyPatch) -> None:
+    tool = _load_tool(monkeypatch)
+
+    commands = {md.parent.name: tool.ci_command(md) for md in sorted((ROOT / ".agents" / "skills").glob("*/SKILL.md"))}
+
+    assert {"verify-centrum-rozliczen", "verify-aktualizacja-narzedzia"} <= {skill for skill, command in commands.items() if command}
 
 
 @pytest.mark.parametrize("part", ["0/2", "3/2", "1", "a/b"])
@@ -433,3 +484,94 @@ def test_czesc_spoza_zakresu_jest_bledem_wywolania(tmp_path: Path, part: str) ->
 
     assert result.returncode == 2
     assert "OK   " not in result.stdout
+
+
+CHECKED_IN_CI = (
+    "import sys\n"
+    "def _uzywa():\n"
+    "    from pakiet import pomocnik\n"
+    "print('sprawdzone', *sys.argv[1:])\n"
+    "sys.exit({code})\n"
+)
+
+
+def _with_ci(name: str, command: str, globs: str = "src/pakiet/rout*.py") -> str:
+    return f"---\nname: {name}\npilnuje:\n  - {globs}\nci: {command}\n---\n"
+
+
+def test_podstawa_ci_biegnie_z_argumentami_przed_mutacjami_skilla(tmp_path: Path) -> None:
+    command = ".agents/skills/verify-d/scripts/sprawdz_d.py --feature all"
+    _skill(tmp_path, "verify-d", {"check_d_mutations.py": PASSING, "sprawdz_d.py": CHECKED_IN_CI.format(code=0)}, _with_ci("verify-d", command))
+
+    result = _run(tmp_path)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    lines = result.stdout.splitlines()
+    assert lines.index(f"== PODSTAWA verify-d: {command}") < lines.index("sprawdzone --feature all") < lines.index("== .agents/skills/verify-d/scripts/check_d_mutations.py")
+    assert lines[-1] == "MUTACJE SKILLI OK"
+
+
+def test_czerwona_podstawa_ci_daje_fail_takze_w_skillu_bez_skryptu_mutacji(tmp_path: Path) -> None:
+    _skill(tmp_path, "verify-a", {"check_a_mutations.py": PASSING})
+    _skill(tmp_path, "verify-d", {"sprawdz_d.py": CHECKED_IN_CI.format(code=1)}, _with_ci("verify-d", ".agents/skills/verify-d/scripts/sprawdz_d.py"))
+
+    result = _run(tmp_path)
+
+    assert result.returncode == 1
+    assert "FAIL PODSTAWA verify-d" in result.stdout
+    assert result.stdout.splitlines()[-1] == "MUTACJE SKILLI FAIL | PODSTAWA verify-d"
+
+
+@pytest.mark.parametrize("command", ["docs/opis.md", "", ".agents/skills/verify-d/scripts/nie_ma.py"])
+def test_klucz_ci_bez_skryptu_z_repozytorium_daje_fail(tmp_path: Path, command: str) -> None:
+    _skill(tmp_path, "verify-a", {"check_a_mutations.py": PASSING})
+    _skill(tmp_path, "verify-d", {}, _with_ci("verify-d", command))
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs/opis.md").write_text("opis\n", encoding="utf-8")
+
+    result = _run(tmp_path)
+
+    assert result.returncode == 1
+    assert "FAIL PODSTAWA verify-d: ci w .agents/skills/verify-d/SKILL.md nie zaczyna się skryptem .py z repozytorium" in result.stdout
+    assert result.stdout.splitlines()[-1] == "MUTACJE SKILLI FAIL | PODSTAWA verify-d"
+
+
+@pytest.mark.parametrize(("arguments", "separately"), [("", False), (" --pelny", True)])
+def test_podstawa_ci_ktora_uruchamia_skrypt_mutacji_nie_biegnie_drugi_raz(tmp_path: Path, arguments: str, separately: bool) -> None:
+    _selection_repo(tmp_path)
+    command = ".agents/skills/verify-a/scripts/sprawdz_a.py" + arguments
+    (tmp_path / ".agents/skills/verify-a/SKILL.md").write_text(_with_ci("verify-a", command), encoding="utf-8")
+    (tmp_path / ".agents/skills/verify-a/scripts/sprawdz_a.py").write_text(CHECKED_IN_CI.format(code=0), encoding="utf-8")
+
+    result = _run(tmp_path)
+
+    assert result.stdout.splitlines()[-1] == "MUTACJE SKILLI OK", result.stdout + result.stderr
+    assert (f"== PODSTAWA verify-a: {command}" in result.stdout.splitlines()) == separately
+    assert _ran(result, "verify-a")
+
+
+@pytest.mark.parametrize(
+    ("changed", "runs"),
+    [
+        ("docs/opis.md", False),
+        ("src/pakiet/obcy.py", False),
+        ("src/pakiet/routing.py", True),
+        ("src/pakiet/pomocnik.py", True),
+        (".agents/skills/verify-d/SKILL.md", True),
+        ("requirements.txt", True),
+        ("tools/mutacje_skilli.py", True),
+    ],
+)
+def test_ze_zmianami_od_bazy_podstawa_ci_biegnie_gdy_zmiana_dotyka_skilla(tmp_path: Path, changed: str, runs: bool) -> None:
+    _selection_repo(tmp_path)
+    _skill(tmp_path, "verify-d", {"sprawdz_d.py": CHECKED_IN_CI.format(code=0)}, _with_ci("verify-d", ".agents/skills/verify-d/scripts/sprawdz_d.py"))
+    base = commit(tmp_path, "skill z podstawa")
+    with (tmp_path / changed).open("a", encoding="utf-8") as file:
+        file.write("\n")
+    commit(tmp_path, "zmiana")
+
+    result = _run(tmp_path, "--zmiany-od", base)
+
+    assert result.stdout.splitlines()[-1] == "MUTACJE SKILLI OK", result.stdout + result.stderr
+    ran, skipped = "OK   PODSTAWA verify-d" in result.stdout, "POMINIĘTY PODSTAWA verify-d" in result.stdout
+    assert (ran, skipped) == (runs, not runs), result.stdout

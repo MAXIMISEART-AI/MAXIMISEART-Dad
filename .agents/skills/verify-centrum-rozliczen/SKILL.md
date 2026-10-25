@@ -5,6 +5,7 @@ pilnuje:
   - src/rozliczenia/centrum/*
   - frontend/*
   - run_centrum.py
+ci: .agents/skills/verify-centrum-rozliczen/scripts/run_centrum_verification.py --feature all
 ---
 
 # Verify Centrum rozliczeń
@@ -14,6 +15,15 @@ frontend build from `src/rozliczenia/centrum/static/` (ADR 0004). Dad opens it
 in his browser. This skill launches the real app on a synthetic fixture, clicks
 Dad's path in headless Chromium, and checks every visible result against the
 server's answer and the files on disk.
+
+## What CI runs and what stays local
+
+CI runs `run_centrum_verification.py --feature all` (the `ci:` key) and `check_centrum_mutations.py`
+in Mutation checks on Windows whenever a change touches this skill; a red run leaves its evidence in
+the `mutation-checks-evidence-<part>` artifact. Run `all` and the mutations locally only to reproduce
+a red Mutation checks step. What stays with you: drive the feature you change, as a background
+command, and look at its screenshots after a UI change, because a passing run does not judge visual
+quality. `wydajnosc` is never part of `all` and runs only locally (`features/wydajnosc.md`).
 
 ## Launch
 
@@ -201,7 +211,8 @@ Then confirm the evidence directory still exists.
   scratch directory) and evidence hygiene check.
 - `scripts/check_centrum_mutations.py`: shows the drive fails on broken
   variants of Centrum, each running one feature on its own copy of the checkout;
-  it ends with `MUTACJE OK`, and CI runs it through `tools/mutacje_skilli.py`.
+  it ends with `MUTACJE OK`, and CI runs it through `tools/mutacje_skilli.py`, so run it
+  locally only to reproduce a red Mutation checks step.
 - `tools/quiet_machine.py --status`: what holds the machine now (a
   measurement, other verification runs, test runs or benchmarks).
 

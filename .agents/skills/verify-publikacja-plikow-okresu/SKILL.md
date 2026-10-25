@@ -3,9 +3,18 @@ name: verify-publikacja-plikow-okresu
 description: Exhaustively check that Przygotowanie pliku zbiorczego publishes Rozliczenie wewnętrzne and Plik zbiorczy together or not at all, and never overwrites another file, under every order of a second run, Dad's actions, filesystem errors, and a killed process. Use when a change touches `write_period_files`, `_publish`, `ensure_period_files_absent` in `src/rozliczenia/preparation_files.py`, or `test_publikacja_plikow_okresu` fails.
 pilnuje:
   - src/rozliczenia/preparation_files.py
+ci: .agents/skills/verify-publikacja-plikow-okresu/scripts/explore_publication.py
 ---
 
 # Verify publikacja plików okresu
+
+## What CI runs and what stays local
+
+CI runs `explore_publication.py` (the `ci:` key), `check_publication_mutations.py` and
+`tests/test_publikacja_plikow_okresu.py` whenever a change touches this skill. Run them locally only
+to reproduce a red CI step, or one scope while you work on it. What stays with you: „Does the change
+touch it?” (a change that makes Przygotowanie publish around `write_period_files` escapes the check
+altogether) and sorting a red run as „When the check fails” says.
 
 ## The promise
 
@@ -140,7 +149,9 @@ is the code that made the call. Then sort it into one of three cases:
 
 ## After changing the checker or an intended change to the publication code
 
-Prove the check can still fail. This applies the broken variants to a temporary
+CI proves the check can still fail: Mutation checks runs the script below whenever
+a change touches this skill. Run it locally only to reproduce a red Mutation checks
+step or after you rewrite a mutation. It applies the broken variants to a temporary
 copy of the checkout (`tools/mutacje.py`), never to the checkout:
 
 ```powershell
