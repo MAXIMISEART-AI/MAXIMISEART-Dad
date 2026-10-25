@@ -32,6 +32,7 @@ from tests.fixtures.intermax import (
     APP_LAST,
     BLANK_HEIGHT,
     DATE,
+    DATE_FORMAT,
     FIRST,
     HEADERS,
     LAST,
@@ -325,6 +326,9 @@ CORRUPTIONS: dict[str, Callable[[bytes, Layout], bytes]] = {
     "istniejący styl": lambda content, _layout: _part_changed(
         content, _STYLES, lambda xml: xml.replace(b'<sz val="11"', b'<sz val="12"', 1)
     ),
+    "wypełnienie poza dopisywanymi listami": lambda content, _layout: _part_changed(
+        content, _STYLES, lambda xml: xml.replace(b'patternType="gray125"', b'patternType="gray0625"', 1)
+    ),
     "lista stylów": lambda content, _layout: _part_changed(
         content, _STYLES, lambda xml: re.sub(rb"<borders\b.*?</borders>", b"", xml, flags=re.S)
     ),
@@ -568,6 +572,14 @@ def _without_workbook_properties(path: Path) -> None:
     rewrite_parts(path, lambda name, data: re.sub(rb"<workbookPr\b[^>]*/>", b"", data) if name == "xl/workbook.xml" else data)
 
 
+def test_data_wklejenia_we_wbudowanym_formacie_daty_excela_jest_data(tmp_path: Path) -> None:
+    path, layout = _register(tmp_path, Intermax(raw_date_format=DATE_FORMAT))
+
+    summary = _ordered(_run(tmp_path))
+
+    assert (summary.day.isoformat(), summary.order_count) == ("2026-10-26", len(layout.raw))
+
+
 @pytest.mark.parametrize("dates", ["1904", "bez workbookPr"])
 def test_dzien_ma_date_z_systemu_dat_intermax(tmp_path: Path, dates: str) -> None:
     path, layout = _register(tmp_path, Intermax(epoch_1904=dates == "1904"))
@@ -751,6 +763,7 @@ def test_wiersze_nowego_dnia_maja_wysokosc_i_styl_wierszy_poprzednich_dni(tmp_pa
     yellow = layout.yellow
     order_look = _row_look(path, layout.last_ordered)
     blank_look = _row_look(path, layout.last_ordered + 1) if grid else order_look
+    kept = {number: _row_xml(path, number) for number in (yellow + 1, yellow + 10)} if grid else {}
 
     _ordered(_run(tmp_path))
 
@@ -768,6 +781,7 @@ def test_wiersze_nowego_dnia_maja_wysokosc_i_styl_wierszy_poprzednich_dni(tmp_pa
         assert _thin_row(sheet, number) == (blank_height, "thin"), number
         assert _row_look(path, number) == blank_look, number
     assert order_rows(path, yellow + 10, vacated[-1]) == [None] * (vacated[-1] - yellow - 9)
+    assert {number: _row_xml(path, number) for number in kept} == kept, "pusty wiersz taty zostaje bajt w bajt"
 
 
 def test_pusty_wiersz_pod_dniem_ma_wyglad_pustego_wiersza_taty_a_nie_zoltego(tmp_path: Path) -> None:

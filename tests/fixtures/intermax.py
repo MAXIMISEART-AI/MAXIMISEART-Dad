@@ -139,6 +139,8 @@ class Intermax:
     """Starszy arkusz zleceń z samymi uporządkowanymi dniami przed arkuszem z wklejeniem."""
     epoch_1904: bool = False
     excel: bool = True
+    raw_date_format: str = APP_DATE_FORMAT
+    """Format daty Surowych zleceń: własny format aplikacji albo wbudowany format Excela."""
     """Zapis jak w Excelu (teksty wspólne, liczby bez ``t``); bez tego teksty wbudowane z openpyxl."""
 
     def write(self, path: Path) -> Layout:
@@ -181,7 +183,7 @@ class Intermax:
             for column, value in order.values().items():
                 cell = sheet.cell(number, column - shift, value)
                 if column == DATE:
-                    cell.number_format = APP_DATE_FORMAT
+                    cell.number_format = self.raw_date_format
                 if column == NUMBER:
                     cell.hyperlink = order.link
         lists = workbook.create_sheet("LISTA OD 08.11.2021.")

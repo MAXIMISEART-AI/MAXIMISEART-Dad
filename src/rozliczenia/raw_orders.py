@@ -60,7 +60,7 @@ class RowFacts:
 
     number: int
     cells: Mapping[int, CellFacts]
-    yellow: bool = False
+    yellow: bool
 
     def value(self, column: int) -> object:
         cell = self.cells.get(column)
@@ -137,7 +137,7 @@ def recognize(rows_from_bottom: Iterable[RowFacts], columns: OrderColumns) -> Ra
         return None
     raw.reverse()
     first, *rest = raw
-    shifted = _is_date(first.value(columns.date - SHIFT)) and not _is_date(first.value(columns.date))
+    shifted = not _is_date(first.value(columns.date))
     orders = [_order(first, columns, shifted), *(_order(row, columns, False) for row in rest)]
     return RawBlock(tuple(orders), yellow if yellow is not None else anchor, yellow is not None, anchor, blank)
 

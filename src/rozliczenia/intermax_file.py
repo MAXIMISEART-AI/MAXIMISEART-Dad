@@ -328,8 +328,7 @@ class Register:
         for name in names:
             if name not in (sheet.part, self._styles_part) and parts[name] != self._parts[name]:
                 raise WriteMismatch(name)
-        if not _styles_kept(self._parts[self._styles_part], parts[self._styles_part]):
-            raise WriteMismatch("style")
+        _check_styles(self._parts[self._styles_part], parts[self._styles_part])
         _check_sheet(sheet.sheet_xml, parts[sheet.part], sheet.columns, block, plan)
 
 
@@ -455,13 +454,12 @@ def _ordered_sheet(sheet: _SheetXml, columns: OrderColumns, block: RawBlock, pla
         placement = placed.get(number)
         if placement is not None:
             source = by_number[placement.order.row]
-            row_xml, right = _order_row(
-                xml[source.start : source.end], number, placement.order.shifted, columns, looks, row_looks.order
-            )
+            offset = SHIFT if placement.order.shifted else 0
+            row_xml, right = _order_row(xml[source.start : source.end], number, offset, columns, looks, row_looks.order)
             rows.append(row_xml)
             widest = max(widest, right)
         elif number in separators:
-            rows.append(_order_row(b"", number, False, columns, looks, row_looks.order)[0])
+            rows.append(_order_row(b"", number, 0, columns, looks, row_looks.order)[0])
         elif number in by_number and number not in raw:
             rows.append(xml[by_number[number].start : by_number[number].end])
         else:
@@ -471,11 +469,10 @@ def _ordered_sheet(sheet: _SheetXml, columns: OrderColumns, block: RawBlock, pla
 
 
 def _order_row(
-    row_xml: bytes, number: int, shifted: bool, columns: OrderColumns, looks: _Looks, row_look: bytes
+    row_xml: bytes, number: int, offset: int, columns: OrderColumns, looks: _Looks, row_look: bytes
 ) -> tuple[bytes, int]:
     """Wiersz zlecenia ``number`` z komórek Surowego zlecenia i wyglądem ``row_look`` oraz najdalsza kolumna z komórką."""
 
-    offset = SHIFT if shifted else 0
     written: dict[int, bytes] = {}
     for cell in _cells(row_xml):
         column = cell.column + offset
@@ -538,15 +535,16 @@ def _moved_hyperlinks(tail: bytes, block: RawBlock, plan: DayPlan) -> bytes:
     return _HYPERLINK_REF.sub(moved, tail)
 
 
-def _styles_kept(original: bytes, written: bytes) -> bool:
-    """Arkusz stylów ``written`` to ``original`` z wpisami dopisanymi tylko na końcu list."""
+def _check_styles(original: bytes, written: bytes) -> None:
+    """``WriteMismatch``, gdy arkusz stylów ``written`` to coś więcej niż ``original`` z wpisami na końcu list."""
 
     for tag in _STYLE_LISTS:
         before, after = _style_list(original, tag), _style_list(written, tag)
         if not after.group(2).startswith(before.group(2)):
-            return False
+            raise WriteMismatch(f"style: {tag.decode('ascii')}")
         written = written[: after.start()] + before.group(0) + written[after.end() :]
-    return written == original
+    if written != original:
+        raise WriteMismatch("style")
 
 
 def _check_sheet(original: _SheetXml, written: bytes, columns: OrderColumns, block: RawBlock, plan: DayPlan) -> None:
@@ -562,7 +560,7 @@ def _check_sheet(original: _SheetXml, written: bytes, columns: OrderColumns, blo
     tail, new_tail = xml[before.end :], written[data.end :]
     if _moved_hyperlinks(tail, block, plan) != new_tail:
         raise WriteMismatch("ogon arkusza")
-    rows = {row.number: row for row in data.rows if row.number > block.anchor}
+    rows = {row.number: row for row in data.rows[data.row_index(new_start) :]}
     sources = {row.number: row for row in before.rows}
     raw = {order.row for order in block.orders}
     kept = {number: xml[row.start : row.end] for number, row in sources.items() if number not in raw}
