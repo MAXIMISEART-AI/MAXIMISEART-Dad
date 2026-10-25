@@ -467,7 +467,9 @@ def with_undefined_number_format(cell: str) -> Callable[[Path], None]:
         finally:
             workbook.close()
         with zipfile.ZipFile(path) as workbook_zip:
-            count = int(re.search(rb'<cellXfs count="(\d+)"', workbook_zip.read("xl/styles.xml"))[1])
+            cell_styles = re.search(rb'<cellXfs count="(\d+)"', workbook_zip.read("xl/styles.xml"))
+        assert cell_styles is not None
+        count = int(cell_styles[1])
 
         def undefined(name: str, data: bytes) -> bytes:
             if name == "xl/styles.xml":
