@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
+import json
 from pathlib import Path
 import re
 import shutil
@@ -22,7 +23,7 @@ from rozliczenia.centrum.dad_cases import DAD_CASES_FILE
 from rozliczenia.centrum.tool_update import NEW_VERSION_FAILED, RESULT_FILE, UPDATED, ToolClone, UpdateResult, write_result
 
 from tests.fixtures.centrum import NO_RELEASE, views_until
-from tests.fixtures.centrum_processes import PreparingCentrum, Surroundings, preparing_centrum, stopped_for_maks
+from tests.fixtures.centrum_processes import PreparingCentrum, Surroundings, preparing_centrum, run_to_end, stopped_for_maks
 from tests.fixtures.preparation import PERIOD, incomplete_period_rows
 from tests.fixtures.tool_clone import (
     NEW_REQUIREMENTS,
@@ -145,6 +146,28 @@ def test_nowe_centrum_po_aktualizacji_zapisuje_wynik_od_opiekuna_w_dzienniku_i_p
     assert log_entries(centrum, "aktualizacja-koniec") == [f"wynik=ok przed={before} po={newest} biblioteki=nie"]
     assert not restart.result.exists()
     assert centrum.client.get("/api/tool-update").json() == {"state": "idle"}
+
+
+def run_logs_wydanie(centrum: PreparingCentrum) -> list[str | None]:
+    """Wydanie z Logów każdego Uruchomienia tego Centrum, po kolei."""
+
+    paths = (centrum.log_path.parent / "uruchomienia").glob("*.json")
+    logs = sorted((json.loads(path.read_text(encoding="utf-8")) for path in paths), key=lambda log: log["started_at"])
+    return [log["tool"]["wydanie"] for log in logs]
+
+
+def test_po_aktualizacji_logi_uruchomienia_podaja_wydanie_pobrane_przez_aktualizacje(tmp_path: Path) -> None:
+    centrum, repository = updating_centrum(tmp_path)
+    repository.publish({"src/narzedzie.py": "WERSJA = 2\n"}, released=False)
+    repository.release(annotated=True)
+    run_to_end(centrum, dry_run=True)
+    update_until_done(centrum)
+
+    centrum.restart()
+    run_to_end(centrum, dry_run=True)
+
+    assert run_logs_wydanie(centrum) == ["0.1.0", "0.1.1"]
+    assert repository.in_clone("tag", "--points-at", "HEAD") == ""
 
 
 def test_najnowsza_wersja_zostaje_bez_zmian(tmp_path: Path) -> None:
