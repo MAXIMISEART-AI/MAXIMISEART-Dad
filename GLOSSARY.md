@@ -25,7 +25,7 @@ po otwarciu, a przywrócenie Kopii INTERMAX zastępuje go w całości tą kopią
 
 Zlecenia, które tata albo jego pracownik wkleił z aplikacji firmowej na dół
 Rejestru zleceń, pod uporządkowane już dni, a których Uporządkowanie INTERMAX
-jeszcze nie uporządkowało. Jedno wklejenie to zlecenia jednego dnia. Mają
+jeszcze nie uporządkowało. Jedno wklejenie to zwykle zlecenia jednego dnia. Mają
 wygląd z aplikacji. Pierwszy wiersz wklejenia przychodzi przesunięty o dwie
 kolumny w lewo, ale zlecenia są Surowe także wtedy, gdy ktoś przesunął go już
 ręcznie. W `CZYNNOŚCI` mają tylko nazwę operatora, a w `URZĄDZENIA` rodzaj
@@ -36,16 +36,17 @@ _Avoid_: eksport, nowe dane
 ## Uporządkowanie INTERMAX
 
 Proces, który tata uruchamia w Centrum rozliczeń po wklejeniu Surowych
-zleceń dnia. Przesuwa pierwszy wiersz na miejsce, dzieli zlecenia na segmenty
-Wykonawców w kolejności alfabetycznej, oddzielone jednym pustym wierszem, w
-segmencie układa je od najwcześniejszej godziny do najpóźniejszej i nadaje im
-wygląd reszty Rejestru zleceń bez pogrubienia oraz Kolory operatora. Dzień
-stawia jeden pusty wiersz pod żółtym wierszem, którym tata oddziela dni, a bez
-niego 10 pustych wierszy pod ostatnim uporządkowanym zleceniem. Po nim
-Rejestr otwiera się na dzisiejszym dniu z kalendarza. Zmienia tylko Surowe
-zlecenia i widok po otwarciu. Dnia, który już jest uporządkowany, nie
+zleceń dnia. Przesuwa pierwszy wiersz na miejsce, gdy przyszedł przesunięty,
+dzieli zlecenia na segmenty Wykonawców w kolejności alfabetycznej, oddzielone
+jednym pustym wierszem, w segmencie układa je od najwcześniejszej godziny do
+najpóźniejszej i nadaje im wygląd reszty Rejestru zleceń bez pogrubienia oraz
+Kolory operatora. Dzień stawia jeden pusty wiersz pod żółtym wierszem, którym
+tata oddziela dni, a bez niego 10 pustych wierszy pod ostatnim uporządkowanym
+zleceniem. Po nim Rejestr otwiera się na dzisiejszym dniu z kalendarza, a gdy
+dziś nie ma zleceń, na ostatnim wcześniejszym dniu ze zleceniami. Zmienia tylko
+Surowe zlecenia i widok po otwarciu. Dnia, który już jest uporządkowany, nie
 porządkuje drugi raz; zlecenia dopisane później do takiego dnia wpisuje się
-ręcznie. Nie należy do żadnego okresu. Po nim tata i pracownicy uzupełniają
+ręcznie. Porządkuje dzień, nie okres. Po nim tata i pracownicy uzupełniają
 dzień ręcznie, a dopiero potem okres trafia do Przygotowania pliku zbiorczego.
 _Avoid_: formatowanie, import
 
@@ -60,12 +61,13 @@ _Avoid_: backup, wersja
 ## Kolor operatora
 
 Wypełnienie, które Uporządkowanie INTERMAX nadaje zleceniu po nazwie operatora
-w `CZYNNOŚCI`. `CZYNNOŚCI` i `NUMER UMOWY` dostają: T-Mobile zielony, Orange
-pomarańczowy, każdy inny operator jasny niebieski, a Netia ciemniejszy
-niebieski w `CZYNNOŚCI` i jasny niebieski w `NUMER UMOWY`. INEA i zlecenie bez
-operatora zostają bez wypełnienia. Usterka i usterka hurt mają zamiast tego
-różowe `URZĄDZENIA`. W Rejestrze zleceń jest Wyróżnieniem jak każde inne;
-inne kolory w Rejestrze to ręczne zaznaczenia taty i jego pracowników.
+w `CZYNNOŚCI`, a przy usterce po rodzaju zlecenia. `CZYNNOŚCI` i `NUMER UMOWY`
+dostają: T-Mobile zielony, Orange pomarańczowy, każdy inny operator jasny
+niebieski, a Netia ciemniejszy niebieski w `CZYNNOŚCI` i jasny niebieski w
+`NUMER UMOWY`. INEA i zlecenie bez operatora zostają bez wypełnienia. Usterka
+i usterka hurt mają zamiast tego różowe `URZĄDZENIA`. W Rejestrze zleceń jest
+Wyróżnieniem jak każde inne; inne kolory w Rejestrze to ręczne zaznaczenia
+taty i jego pracowników.
 
 ## Zlecenie skuteczne
 
@@ -121,8 +123,8 @@ Proces poprzedzający Przebieg rozliczeń: z Rejestru zleceń tworzy Rozliczenie
 wewnętrzne okresu, a z jego zleceń skutecznych Plik zbiorczy z Ilościami usług
 wyznaczonymi przez Reguły ilości. Nie zaczyna, gdy okres ma Surowe zlecenia.
 Oba pliki powstają razem albo żaden. Jedyny wyjątek: jeśli po nieudanym
-zapisie nie da się usunąć pliku, który już trafił do Folderu okresu, Zatrzymanie wskazuje ten
-plik. Uruchamiany osobno od Przebiegu rozliczeń.
+zapisie nie da się usunąć pliku, który już trafił do Folderu okresu,
+Zatrzymanie wskazuje ten plik. Uruchamiany osobno od Przebiegu rozliczeń.
 
 ## Plik zbiorczy
 
@@ -309,8 +311,8 @@ a następnie ich uzupełnienie danymi z Pliku zbiorczego.
 
 Jedno uruchomienie Przebiegu rozliczeń, Przygotowania pliku zbiorczego albo
 Uporządkowania INTERMAX z Centrum rozliczeń albo ze Skryptu dla maszyn, od
-gotowych plików (i okresu, gdy proces go ma) do wyniku końcowego. Decyzja taty należy do Uruchomienia procesu bez względu na
-to, skąd wystartowało.
+gotowych plików (i okresu, gdy proces go ma) do wyniku końcowego. Decyzja
+taty należy do Uruchomienia procesu bez względu na to, skąd wystartowało.
 Kończy się sukcesem, wynikiem wymagającym sprawdzenia albo Zatrzymaniem z
 bezpiecznym Komunikatem zrozumiałym dla taty, nigdy z treścią błędu
 technicznego.
@@ -337,8 +339,8 @@ _Avoid_: dashboard, panel, centrum dowodzenia
 ## Skrypt dla maszyn
 
 Jedyne wejście do procesów spoza Centrum rozliczeń, dla testów, pomiarów czasu
-i osoby utrzymującej narzędzie. Przyjmuje parametrami pliki i okres, gdy proces go ma, z nikim
-nie rozmawia i oddaje wynik w kształcie karty Uruchomienia. Jego Uruchomienia
+i osoby utrzymującej narzędzie. Przyjmuje parametrami pliki i okres, gdy
+proces go ma, z nikim nie rozmawia i oddaje wynik w kształcie karty Uruchomienia. Jego Uruchomienia
 procesu mają w historii Centrum odznakę `.cmd`, tę samą co stare Uruchomienia
 z dawnych launcherów.
 _Avoid_: CLI, launcher
@@ -423,8 +425,9 @@ wynik, Komunikaty, podsumowanie, przebieg etapów i Szablonów pracownika oraz
 wersja narzędzia. Mówią wprost, czy był to podgląd, w którym nic nie
 zapisano, czy Uruchomienie z zapisem. Zostają na komputerze taty także po
 zamknięciu Centrum i trafiają same do Skrzynki Zgłoszeń, gdzie wszystkie
-Uruchomienia jednego okresu są w jednym miejscu; Uporządkowanie INTERMAX
-należy tam do okresu uporządkowanego dnia. Nie zawierają adresów,
+Uruchomienia jednego okresu są w jednym miejscu; Uruchomienie Uporządkowania
+INTERMAX jest tam przy okresie dnia, w którym tata je uruchomił. Nie zawierają
+adresów,
 numerów zleceń ani numerów umów. Tata ich nie wysyła ani nie ogląda, ale z
 nich wraca karta Uruchomienia po starcie Centrum i w Historii.
 _Avoid_: Zgłoszenie (to Zatrzymanie z Diagnozą), dziennik Centrum, raport

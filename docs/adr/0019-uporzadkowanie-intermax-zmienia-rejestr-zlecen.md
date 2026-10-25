@@ -3,7 +3,11 @@
 ## Status
 
 Zaakceptowana (2026-10-25, grilling z Maksem i tatą, spec #462). Zmienia
-zasadę ze słownika, że procesy Rejestr zleceń tylko czytają.
+zasadę ze słownika, że procesy Rejestr zleceń tylko czytają. Dopełnia
+[ADR 0004](0004-centrum-rozliczen-adapter.md) (Kopie INTERMAX to nowe własne
+pliki narzędzia), [ADR 0015](0015-logi-uruchomienia-uwagi-taty-i-powiadomienia.md)
+i [ADR 0017](0017-karta-uruchomienia-z-logow.md) (okres Uruchomienia, które nie
+porządkuje okresu).
 
 ## Kontekst
 
@@ -19,13 +23,15 @@ od 2021 roku: około 42 tys. wierszy, cztery arkusze, około 6,5 MB, w OneDrive.
 
 - **Uporządkowanie INTERMAX to trzeci proces** z tym samym kontraktem co
   Przygotowanie pliku zbiorczego i Przebieg rozliczeń (etapy, Komunikaty,
-  Zatrzymania, Logi Uruchomienia, Skrypt dla maszyn). Nie należy do okresu, więc
-  w Centrum rozliczeń ma własną kartę.
+  Zatrzymania, Logi Uruchomienia, Skrypt dla maszyn). Porządkuje dzień, nie
+  okres, więc w Centrum rozliczeń ma własną kartę poza okresami.
 - **Zmienia tylko Surowe zlecenia i widok po otwarciu.** Surowe zlecenia to
   blok na dole arkusza zleceń z wyglądem z aplikacji. Zapis podmienia w XML
   arkusza zleceń wiersze od początku tego bloku w dół, dopisuje do arkusza
-  stylów nowe style i ustawia widok arkusza na dzisiejszy dzień z kalendarza,
-  tak jak zapis Rozliczenia pracownika w
+  stylów nowe style, ustawia widok arkusza na dzisiejszy dzień z kalendarza i
+  robi arkusz zleceń aktywnym i jedynym zaznaczonym (aktywna karta w
+  `xl/workbook.xml` i znacznik zaznaczenia karty w pozostałych arkuszach), tak
+  jak zapis Rozliczenia pracownika w
   [ADR 0008](0008-zapis-rozliczenia-pracownika-przez-podmiane-wierszy-danych.md).
   Każda inna część pliku i każdy wiersz nad blokiem, także kolumny za `UWAGI`,
   zostają bajt w bajt. Nie wczytuje i nie zapisuje całego skoroszytu w
@@ -47,14 +53,25 @@ od 2021 roku: około 42 tys. wierszy, cztery arkusze, około 6,5 MB, w OneDrive.
   taty”.
 - **Przygotowanie pliku zbiorczego nie zaczyna**, gdy okres ma Surowe
   zlecenia.
+- **Uruchomienie Uporządkowania ma okres dzisiejszej daty** z zegara,
+  ustalony przy starcie. ADR 0015 i 0017 wymagają okresu przed startem (issue
+  Logów okresu, plik ostatniego startu), a uporządkowany dzień narzędzie zna
+  dopiero po odczycie, a przy Zatrzymaniu przed nim (plik otwarty, brak
+  Surowych zleceń, kilka dni) wcale. Logi Uruchomienia trafiają więc do issue
+  okresu dzisiejszej daty, także gdy tata porządkuje zlecenia na jutro z
+  następnego okresu. Podsumowanie podaje uporządkowany dzień: to nowy wyjątek
+  od zakazu daty dziennej w Logach z ADR 0015, tego samego rodzaju co liczba
+  zleceń na każdy dzień okresu w podsumowaniu Przygotowania, bez adresu i
+  numeru zlecenia.
 
 ## Konsekwencje
 
+- Własne pliki narzędzia z ADR 0004 obejmują Kopie INTERMAX. Nie są źródłem
+  Statusu okresu, wyniku ani metryk; Centrum je wylicza z folderu Kopii i
+  przywraca tylko Kopię, którą samo wymieniło.
 - Reguła w `AGENTS.md` o modułach, które zapisują skoroszyt, i jej test
   dostają moduł zapisu INTERMAX. Odczyt idzie przez to samo jedyne miejsce
   odczytu bajtów skoroszytu co w innych procesach.
-- Logi Uruchomienia Uporządkowania trafiają do Skrzynki Zgłoszeń przy okresie
-  uporządkowanego dnia, bo proces nie ma własnego okresu.
 - Nienadpisywanie przestaje obejmować Rejestr zleceń.
 
 ## Odrzucone warianty
