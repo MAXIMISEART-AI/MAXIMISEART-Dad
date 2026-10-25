@@ -3,7 +3,7 @@
 Logi ponad limit komentarza GitHuba wymagałyby przez HTTP setek Komunikatów, więc podział sprawdza wysyłka
 zbudowana wprost z rekordu (``logi_post``): jej części to dokładnie komentarze, które kolejka dopisuje do issue.
 Podsumowanie ma tu tylko przypadki bez taniej drogi przez HTTP z fikstur Przebiegu: nazwa Przygotowania,
-powtórki kodów, powtórzone Zatrzymanie, czas w sekundach albo nieznany, brak commitu i sprawdzenia Diagnozy,
+powtórki kodów, powtórzone Zatrzymanie, Zatrzymanie po odmowie w Decyzji taty, czas w sekundach albo nieznany, brak commitu i sprawdzenia Diagnozy,
 które nie przeszły albo których nie sprawdzono. Resztę sprawdza ``test_centrum_logi_w_skrzynce.py``.
 """
 
@@ -68,6 +68,10 @@ SUMMARY_LINES: dict[str, tuple[dict[str, Any], list[str]]] = {
     "powtorka": (
         {"result": "BLAD_KRYTYCZNY", "ending": "stop", "stop_kind": "repeated", "messages": [STOP]},
         ["- Wynik: BLAD_KRYTYCZNY, powtórzone Zatrzymanie dla taty"],
+    ),
+    "odmowa-w-decyzji-taty": (
+        {"result": "BLAD_KRYTYCZNY", "ending": "declined", "stop_kind": "declined", "messages": [STOP]},
+        ["- Wynik: BLAD_KRYTYCZNY, Zatrzymanie po odmowie w Decyzji taty"],
     ),
     "czas-nieznany": (
         {"result": "BLAD_KRYTYCZNY", "ending": "unexpected", "stop_kind": "for_maks", "duration_ms": None},

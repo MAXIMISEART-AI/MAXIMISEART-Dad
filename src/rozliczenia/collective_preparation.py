@@ -24,10 +24,10 @@ from types import MappingProxyType
 
 from . import TOOL_ROOT, input_checks, preparation_files, preparation_plan
 from . import preparation_messages as messages
-from .decision import Conversation, Decision
+from .decision import Conversation, Decision, Declined
 from .domain import ProgressObserver, ProgressPhase
 from .input_checks import FILE_READERS, Readers
-from .message import Message, StopError
+from .message import Message
 from .phase_runner import PhaseRunner
 from .preparation_files import CollectiveFilePlan
 from .preparation_plan import IncompletePeriod, Plan
@@ -159,7 +159,7 @@ def prepare_collective_file(
     ``conversation`` to rozmowa z tatą od rdzenia Uruchomienia procesu. Przy
     zapisie, gdy plan ma ostrzeżenie o niepełnym okresie, Przygotowanie po
     Planowaniu, a przed Zapisywaniem pyta przez nią o Decyzję taty; odmowa to
-    ``StopError`` bez zapisu, z podpowiedzią zgody tego rozmówcy. Czas
+    ``Declined`` bez zapisu, z podpowiedzią zgody tego rozmówcy. Czas
     czekania na Decyzję nie wlicza się do czasów etapów. Bez rozmowy
     Przygotowanie o nic nie pyta. ``clock`` to zegar w sekundach, z którego
     liczone są czasy etapów. ``readers`` czytają Rejestr zleceń i wzorce w Sprawdzaniu i Odczycie danych.
@@ -208,7 +208,7 @@ def prepare_collective_file(
             with phases.paused():
                 consent = conversation.confirm(decision)
             if not consent:
-                raise StopError(messages.incomplete_period_refused(period, conversation.continue_hint))
+                raise Declined(messages.incomplete_period_refused(period, conversation.continue_hint))
 
     def save_both() -> None:
         if not dry_run:

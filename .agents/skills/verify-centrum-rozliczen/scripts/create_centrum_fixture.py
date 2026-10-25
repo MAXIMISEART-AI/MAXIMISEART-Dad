@@ -59,6 +59,8 @@ LAST_COMPLETE = "06_12_10_2026"
 NEEDS_CHECK = "29_05_10_2026"
 UNKNOWN_WORKER = "wykonawca.spoza.konfiguracji"
 WORKERS = ("Wykonawca Testowy A", "Wykonawca Testowy B", "Wykonawca Testowy C")
+# A Wykonawca of the konfiguracja wykonawców without orders: his Szablon pracownika stays empty.
+EMPTY_WORKER = "Wykonawca Testowy D"
 # A synthetic row value inside every workbook. Centrum must never read or show workbook content,
 # so this marker must never appear in evidence (centrum_self_test.py checks it).
 ROW_MARKER = "CENTRUM-SYN-ROW"
@@ -105,7 +107,7 @@ SETTLEMENT_RUNS: tuple[MetricRun, ...] = (
     ("2026-10-01T15:40:00+00:00", "RUN", "22_28_09_2026", "BLAD_KRYTYCZNY", (500, 0, 0, 0)),
     ("2026-10-01T15:46:00+00:00", "RUN", "22_28_09_2026", "OK", (500, 3400, 800, 8000)),
 )
-WORKER_IDS = ("wykonawca.a", "wykonawca.b", "wykonawca.c")
+WORKER_IDS = ("wykonawca.a", "wykonawca.b", "wykonawca.c", "wykonawca.d")
 INTERNAL_TEMPLATE = "Wzorzec rozliczenia wewnętrznego.xlsx"
 COLLECTIVE_TEMPLATE = "Wzorzec pliku zbiorczego.xlsx"
 WORKER_TEMPLATE = "Wzorzec rozliczenia pracownika.xlsx"
@@ -194,7 +196,9 @@ def _configuration(config: Path) -> dict[str, str]:
     worker_config = config / "worker_mapping.yaml"
     worker_config.write_text(
         yaml.safe_dump(
-            {"schema_version": 1, "workers": dict(zip(WORKER_IDS, WORKERS, strict=True))}, allow_unicode=True, sort_keys=False
+            {"schema_version": 1, "workers": dict(zip(WORKER_IDS, (*WORKERS, EMPTY_WORKER), strict=True))},
+            allow_unicode=True,
+            sort_keys=False,
         ),
         encoding="utf-8",
     )
@@ -529,14 +533,14 @@ def create(root: Path, variant: str | None = None) -> dict[str, object]:
         "metrics": _metrics(root),
         # Konfiguracja: the files Centrum checks, and the Wykonawcy in the order of the konfiguracja wykonawców
         "configuration": configuration,
-        "workers": list(WORKERS),
+        "workers": [*WORKERS, EMPTY_WORKER],
         # Aktualizacja narzędzia: the run's tool clone, its local "origin", both commits, and Dad's files in the clone
         "tool": _tool_clone(root),
         # Przygotowanie pliku zbiorczego of the last complete period from the Rejestr zleceń above
         "preparation": EXPECTED_PREPARATION,
-        # Przebieg rozliczeń: one Wiersz danych per Wykonawca after Przygotowanie of the last complete period,
-        # and the period whose Podgląd bez zapisu needs checking
-        "settlement": {"rows_per_worker": [1, 1, 1], "needs_check": NEEDS_CHECK},
+        # Przebieg rozliczeń: one Wiersz danych per Wykonawca with orders after Przygotowanie of the last complete
+        # period, none for the last one, and the period whose Podgląd bez zapisu needs checking
+        "settlement": {"rows_per_worker": [1, 1, 1, 0], "needs_check": NEEDS_CHECK},
         # Dad's own layout with months as billing cycles, for uklad-folderow-taty
         "dad_layout": _dad_layout(root),
         # token, Status okresu, number of Rozliczenia pracowników, last complete period

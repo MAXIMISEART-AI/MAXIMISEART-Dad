@@ -35,7 +35,8 @@ const PROCESS_ICONS: Record<Process, React.ReactNode> = {
 /**
  * Nowe Uruchomienie procesu: proces (kafelki), okres z preselekcją ostatniego pełnego okresu, pliki
  * z ustawień i jedna akcja główna „Podgląd bez zapisu”. „Uruchom” zapisuje po potwierdzeniu.
- * Przebieg rozliczeń nie ma wyboru pliku: Plik zbiorczy wynika z okresu.
+ * Przebieg rozliczeń nie ma wyboru pliku: Plik zbiorczy wynika z okresu. Plik wejściowy otwarty w Excelu
+ * wyłącza „Uruchom”; podgląd zostaje, bo przy blokadzie po awarii Excela jego Zatrzymanie mówi, co zrobić.
  */
 export function RunSetupCard({ processes }: { processes: ReadonlyArray<ProcessSetup> }) {
   const { draft, setDraft, starting, start } = useRuns()
@@ -55,6 +56,7 @@ export function RunSetupCard({ processes }: { processes: ReadonlyArray<ProcessSe
   const selection: RunDraft = { process: chosen.process, period }
   const chosenPeriod = chosen.periods.find((choice) => choice.token === period)
   const blocked = chosen.blocker !== null
+  const openInExcel = chosenPeriod?.open_in_excel ?? []
 
   const choices = chosen.periods.map((choice) => ({
     value: choice.token,
@@ -158,6 +160,16 @@ export function RunSetupCard({ processes }: { processes: ReadonlyArray<ProcessSe
               <AlertTitle>{chosen.blocker}</AlertTitle>
             </Alert>
           )}
+          {openInExcel.length === 0 ? null : (
+            <Alert className="wejscie">
+              <TriangleAlertIcon className="text-warning!" />
+              <AlertTitle className="flex flex-col gap-0.5">
+                {openInExcel.map((sentence) => (
+                  <span key={sentence}>{sentence}</span>
+                ))}
+              </AlertTitle>
+            </Alert>
+          )}
         </FieldGroup>
       </CardContent>
       <CardFooter className="gap-2">
@@ -169,7 +181,7 @@ export function RunSetupCard({ processes }: { processes: ReadonlyArray<ProcessSe
           variant="ghost"
           size="lg"
           className="ml-auto"
-          disabled={blocked || starting}
+          disabled={blocked || openInExcel.length > 0 || starting}
           onClick={() => setConfirming(true)}
         >
           Uruchom

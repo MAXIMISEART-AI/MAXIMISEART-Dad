@@ -258,7 +258,8 @@ _Avoid_: Przebieg (zarezerwowany dla Przebiegu rozliczeń)
 Pytanie, które proces zadaje tacie w trakcie Uruchomienia procesu; dziś tylko
 o niepełny okres w Przygotowaniu pliku zbiorczego. Składa ją proces i sam
 zatrzymuje się po odmowie; rozmówca tylko pyta i mówi, jak wyrazić zgodę
-(`Kontynuuj` w Centrum rozliczeń). Skrypt dla maszyn zawsze odmawia. Czas
+(`Kontynuuj` w Centrum rozliczeń). Odmowa kończy Uruchomienie procesu
+Zatrzymaniem po odmowie w Decyzji taty. Skrypt dla maszyn zawsze odmawia. Czas
 czekania na Decyzję taty nie wlicza się do `Czas uruchomienia` ani do metryk.
 
 ## Centrum rozliczeń
@@ -319,8 +320,11 @@ Kto usuwa przyczynę Zatrzymania: „dla taty”, gdy Komunikat mówi, co zrobi�
 albo „do Maksa”, gdy bezwarunkowo każe przekazać go osobie utrzymującej
 narzędzie. Nieoczekiwany wyjątek jest zawsze „do Maksa”. Powtórka zmienia
 Zatrzymanie „dla taty” w takie, przy którym Centrum proponuje Diagnozę.
-Rekord metryk zapisuje rodzaj bez Powtórki, a Historia pokazuje Zatrzymanie
-„do Maksa” jako błąd.
+Zatrzymanie po odmowie w Decyzji taty rekord metryk zapisuje jako „dla taty”,
+ale nigdy nie jest Powtórką ani nie ma Diagnozy. Rekord metryk zapisuje rodzaj
+bez Powtórki, a Historia i karta wyniku pokazują jako błąd tylko Zatrzymanie
+„do Maksa”: Zatrzymanie „dla taty” jest do poprawy, a po odmowie w Decyzji
+taty neutralne.
 
 ## Powtórka
 
