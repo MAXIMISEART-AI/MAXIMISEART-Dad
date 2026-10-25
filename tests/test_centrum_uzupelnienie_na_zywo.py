@@ -24,6 +24,8 @@ MON = datetime(2026, 9, 14, 9, 0)
 VIEW = f"/api/periods/{PERIOD}/quantities-to-fill"
 VERSION = f"/api/periods/{PERIOD}/collective-file-version"
 LOG_EVENT = "uzupelnienie-odczyt-nieudany"
+# Odstęp, co który strona ponawia nieudany odczyt (frontend/src/lib/use-live-file.ts).
+POLL_S = 3
 
 
 def _prepared(tmp_path: Path) -> PreparingCentrum:
@@ -53,6 +55,16 @@ def _type_in_excel(path: Path, cell: str, value: int) -> None:
     assert isinstance(sheet, Worksheet)
     sheet[cell] = value
     workbook.save(path)
+
+
+def _polled(centrum: PreparingCentrum, seconds: int) -> dict[str, Any]:
+    """Strona ponawia odczyt co 3 s przez ``seconds`` sekund zegara Centrum; ostatni widok."""
+
+    view: dict[str, Any] = {}
+    for _ in range(seconds // POLL_S):
+        centrum.surroundings.clock.advance(minutes=POLL_S / 60)
+        view = _get(centrum, VIEW)
+    return view
 
 
 def _log_lines(centrum: PreparingCentrum) -> list[str]:
@@ -111,10 +123,9 @@ def test_nieudany_odczyt_przez_minute_pokazuje_ostatni_dobry_stan_potem_komunika
     path.write_bytes(b"Excel zapisuje")
 
     kept = _get(centrum, VIEW)
-    centrum.surroundings.clock.advance(minutes=59 / 60)
-    still_kept = _get(centrum, VIEW)
-    centrum.surroundings.clock.advance(minutes=1 / 60)
-    shown = _get(centrum, VIEW)
+    still_kept = _polled(centrum, 57)
+    shown = _polled(centrum, POLL_S)
+    failing_version = _get(centrum, VERSION)["version"]
     path.write_bytes(original)
     back = _get(centrum, VIEW)
 
@@ -122,7 +133,9 @@ def test_nieudany_odczyt_przez_minute_pokazuje_ostatni_dobry_stan_potem_komunika
     assert still_kept == kept
     assert shown["state"] == "problem"
     assert shown["message"]["what"] == "Plik zbiorczy jest uszkodzony albo nie jest skoroszytem Excela."
-    assert shown["version"] != good["read"]["version"]
+    # Strona po Komunikacie czyta plik znów dopiero po zmianie tego znacznika.
+    assert failing_version is not None
+    assert shown["version"] == failing_version
     assert back["state"] == "ready"
     assert back["read"]["retrying"] is False
     assert back["read"]["read_at"] > good["read"]["read_at"]
@@ -135,10 +148,8 @@ def test_seria_nieudanych_odczytow_to_jeden_wpis_w_dzienniku(tmp_path: Path) -> 
     original = path.read_bytes()
     path.write_bytes(b"")
 
-    for _ in range(3):
-        _get(centrum, VIEW)
-    centrum.surroundings.clock.advance(minutes=2)
     _get(centrum, VIEW)
+    assert _polled(centrum, 120)["state"] == "problem"
     path.write_bytes(original)
     _get(centrum, VIEW)
     path.write_bytes(b"")
@@ -165,3 +176,38 @@ def test_blokada_excela_bez_odpowiedzi_systemu_jest_nieznana(tmp_path: Path, mon
     assert _get(centrum, VIEW)["state"] == "problem"
     [line] = _log_lines(centrum)
     assert "przyczyna=USZKODZONY_PLIK_ZBIORCZY excel=nieznany typ=BadZipFile" in line
+
+
+def test_porazka_po_przerwie_w_odpytywaniu_zaczyna_nowa_serie(tmp_path: Path) -> None:
+    # Tata chowa kartę (albo Excel zasłania przeglądarkę) w trakcie zapisu Excela; plik wraca, ale nikt go nie czyta.
+    centrum = _prepared(tmp_path)
+    path = centrum.fixture.collective_file_path
+    good = _get(centrum, VIEW)
+    original = path.read_bytes()
+    path.write_bytes(b"Excel zapisuje")
+    _get(centrum, VIEW)
+    path.write_bytes(original)
+    centrum.surroundings.clock.advance(minutes=30)
+
+    path.write_bytes(b"Excel zapisuje znowu")
+    after_return = _get(centrum, VIEW)
+
+    assert after_return == {**good, "read": {**good["read"], "retrying": True}}
+    assert len(_log_lines(centrum)) == 2
+
+
+def test_trwaly_problem_po_komunikacie_zostaje_jedna_seria(tmp_path: Path) -> None:
+    # Po Komunikacie strona nie ponawia odczytu, dopóki znacznik się nie zmieni; zapis taty bez naprawy to ta sama seria.
+    centrum = _prepared(tmp_path)
+    path = centrum.fixture.collective_file_path
+    _get(centrum, VIEW)
+    path.write_bytes(b"to nie jest skoroszyt")
+    _get(centrum, VIEW)
+    assert _polled(centrum, 60)["state"] == "problem"
+    centrum.surroundings.clock.advance(minutes=10)
+
+    path.write_bytes(b"to dalej nie jest skoroszyt")
+    after_save = _get(centrum, VIEW)
+
+    assert after_save["state"] == "problem"
+    assert len(_log_lines(centrum)) == 1

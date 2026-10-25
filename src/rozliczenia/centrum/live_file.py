@@ -17,6 +17,8 @@ import threading
 from typing import Final, Generic, TypeVar
 
 SHOWN_FAILING_AFTER_S: Final = 60.0
+# Strona ponawia nieudany odczyt co 3 s; dłuższa cisza znaczy, że nikt nie patrzył (ukryta karta, inna strona).
+RETRY_GAP_S: Final = 15.0
 
 T = TypeVar("T")
 
@@ -52,10 +54,29 @@ class Failing(Generic[T]):
     first: bool
 
 
+@dataclass(frozen=True)
+class _Series:
+    """Seria nieudanych prób odczytu od ``since`` do ostatniej próby ``last`` (sekundy zegara Centrum).
+
+    Seria trwa, dopóki strona ponawia odczyt. Przerwa dłuższa niż ``RETRY_GAP_S`` kończy serię, która jeszcze
+    pokazywała ostatni dobry odczyt: nikt nie widział, czy plik w tym czasie wrócił. Seria z Komunikatem trwa aż do
+    dobrego odczytu, bo po Komunikacie strona sama przestaje czytać, dopóki znacznik zapisu się nie zmieni.
+    """
+
+    since: float
+    last: float
+
+    def shows_message(self, at: float) -> bool:
+        return at - self.since >= SHOWN_FAILING_AFTER_S
+
+    def continues_at(self, now: float) -> bool:
+        return now - self.last <= RETRY_GAP_S or self.shows_message(self.last)
+
+
 @dataclass
 class _File(Generic[T]):
     last: GoodRead[T] | None = None
-    failing_since: float | None = None
+    failing: _Series | None = None
 
 
 class LastGoodReads(Generic[T]):
@@ -72,7 +93,7 @@ class LastGoodReads(Generic[T]):
         with self._lock:
             file = self._files.setdefault(path, _File())
             file.last = GoodRead(value, version, datetime.now(timezone.utc))
-            file.failing_since = None
+            file.failing = None
             return file.last
 
     def failed(self, path: Path) -> Failing[T]:
@@ -81,9 +102,8 @@ class LastGoodReads(Generic[T]):
         with self._lock:
             file = self._files.setdefault(path, _File())
             now = self._clock()
-            first = file.failing_since is None
-            if file.failing_since is None:
-                file.failing_since = now
-            if file.last is not None and now - file.failing_since < SHOWN_FAILING_AFTER_S:
-                return Failing(replace(file.last, retrying=True), first)
-            return Failing(None, first)
+            ongoing = file.failing if file.failing is not None and file.failing.continues_at(now) else None
+            file.failing = _Series(since=now if ongoing is None else ongoing.since, last=now)
+            if file.last is not None and not file.failing.shows_message(now):
+                return Failing(replace(file.last, retrying=True), ongoing is None)
+            return Failing(None, ongoing is None)

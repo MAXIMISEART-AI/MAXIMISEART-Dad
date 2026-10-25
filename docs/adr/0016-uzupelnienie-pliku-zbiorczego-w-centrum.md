@@ -38,9 +38,11 @@ godzinami, z Plikiem zbiorczym otwartym w Excelu, więc strona, która wymaga za
 - **Na żywo (#419).** Widoczna strona co 3 s pyta o znacznik zapisu Pliku zbiorczego (czas zmiany i rozmiar z
   `stat`, bez otwierania skoroszytu) i czyta widok dopiero po jego zmianie. Gdy odczyt się nie uda, Centrum przez
   minutę oddaje ostatni dobry odczyt z jego godziną, a dopiero potem Komunikat. Ten odczyt jest jedynym, co Centrum
-  pamięta: tylko w pamięci procesu, tylko na czas serii nieudanych prób, i zmienia tylko to, co strona pokazuje
-  podczas porażki. Po ponownym starcie Centrum go nie ma, a źródłem stanu dalej jest plik. Seria nieudanych prób
-  to jeden wpis w dzienniku.
+  pamięta: tylko w pamięci procesu, po każdym dobrym odczycie, i pokazuje go tylko podczas serii nieudanych prób,
+  więc zmienia tylko to, co strona pokazuje podczas porażki. Po ponownym starcie Centrum go nie ma, a źródłem stanu
+  dalej jest plik. Seria nieudanych prób to jeden wpis w dzienniku. Kończy ją dobry odczyt, a serię bez Komunikatu
+  także cisza dłuższa niż kilka odstępów odpytywania (ukryta karta), bo nikt nie widział, czy plik w tym czasie
+  wrócił. Seria z Komunikatem trwa do dobrego odczytu, bo po Komunikacie strona nie ponawia odczytu sama.
 
 ## Odrzucone warianty
 
