@@ -38,7 +38,9 @@ CONSTANTS
     AwariaBibliotek,    \* pip_install zwraca False (błąd pip, limit czasu) -> INSTALACJA_BIBLIOTEK
     AwariaOpiekuna,     \* restart_guardian.launch rzuca; stare Centrum nie zwalnia portu w PORT_TIMEOUT_S
     AwariaGita,         \* git checkout HEAD -- (set_aside), git diff (changed), git reset --keep (_roll_back): GitFailed;
-                        \* git checkout HEAD -- także po limicie czasu (_Git.run: TimeoutExpired)
+                        \* każde polecenie Gita także po limicie czasu albo z OSError z _run_tree (_Git.run:
+                        \* TimeoutExpired; OSError, gdy zadanie Windows nie powstanie albo drzewo przeżyje
+                        \* _KILL_TIMEOUT_S): git checkout HEAD --, git merge --ff-only, rev-parse HEAD w _roll_back
     AwariaKopiowania,   \* OSError z dysku (dysk, antywirus, OneDrive): shutil.copy2 pliku taty, zapis stan.json (także
                         \* terminu opiekuna), zapis pliku wyniku (write_result) albo jego usunięcie
     NieudanyStart,      \* nowa wersja nie odpowiada w START_TIMEOUT_S, choć ma swoje biblioteki
@@ -88,8 +90,8 @@ ZnaneZnaleziska == {"ok_po_dwoch_odmowach", "skrot_gasnie_przed_wynikiem"}
 
 Kroki == {"spoczynek", "pobieranie", "kopia_plikow", "checkout_head", "scalanie",
           "przywrocenie_po_odmowie", "przywrocenie_po_scaleniu", "instalacja",
-          "przywrocenie_po_limicie", "instalacja_trwa", "cofanie_usun", "cofanie_reset",
-          "cofanie_przywroc", "koniec_dziennika", "skrot_wynik", "restart", "opiekun_port",
+          "przywrocenie_po_wyjatku", "instalacja_trwa", "cofanie_usun", "cofanie_reset",
+          "cofanie_przywroc", "cofanie_przywroc_po_bledzie", "koniec_dziennika", "skrot_wynik", "restart", "opiekun_port",
           "opiekun_start", "opiekun_koniec", "opiekun_wycofanie", "opiekun_wynik",
           "opiekun_port_stara", "opiekun_start_stara", "okienko"}
 
@@ -245,7 +247,8 @@ Klik ==
 \* klon, zanim cokolwiek się pobierze. Inaczej run.fetch(self.origin) (`main` i tagi Wydań),
 \* _main_tips i newest_on_main (Wydania spoza linii czubków main pominięte), is_ancestor(after, before), potem
 \* _has_local_commits i _changed_tracked_files (te odmowy nie zmieniają klonu, tak jak porażka
-\* fetch, więc model ich nie rozróżnia). GitHub bez Wydania, Wydanie na starszym commicie i klon na
+\* fetch, więc model ich nie rozróżnia; tak samo OSError z _run_tree w każdym z tych poleceń Gita,
+\* który idzie do ToolUpdates._result jako NIEOCZEKIWANY_BLAD, zanim powstanie dziennik). GitHub bez Wydania, Wydanie na starszym commicie i klon na
 \* nowszym commicie `main` niż Wydanie kończą się jak head = "nowa": AKTUALNA, klon bez zmian.
 Pobranie ==
     /\ pc = "pobieranie"
@@ -284,9 +287,9 @@ KopiaPlikow ==
     /\ UNCHANGED <<head, plikTaty, biblioteki, nowa, centrum, klikniecia, ekran>>
 
 \* _DadFiles.set_aside: git checkout HEAD -- <plik taty>, w try. Kod wyjścia różny od 0 to _NotSetAside,
-\* po którym ToolClone.update usuwa dziennik. Limit czasu (_Git.run) rzuca TimeoutExpired: finally wgrywa
-\* kopię, a wyjątek mija oba except w ToolClone.update, więc dziennik zostaje. Ubity checkout mógł już
-\* nadpisać plik taty albo jeszcze nie.
+\* po którym ToolClone.update usuwa dziennik. Limit czasu rzuca TimeoutExpired, a _run_tree w Windows także
+\* OSError (zadanie nie powstało, _join, drzewo przeżyło zabicie): finally wgrywa kopię, a wyjątek mija oba
+\* except w ToolClone.update, więc dziennik zostaje. Ubity checkout mógł już nadpisać plik taty albo jeszcze nie.
 CheckoutHead ==
     /\ pc = "checkout_head"
     /\ \/ /\ plikTaty' = "wzor"
@@ -296,10 +299,14 @@ CheckoutHead ==
           /\ Idz("przywrocenie_po_odmowie", "_DadFiles.set_aside: git checkout HEAD -- sie nie udaje, _NotSetAside")
        \/ /\ AwariaGita
           /\ plikTaty' \in {"taty", "wzor"}
-          /\ Idz("przywrocenie_po_limicie", "_DadFiles.set_aside: git checkout HEAD -- przekracza limit czasu (TimeoutExpired)")
+          /\ Idz("przywrocenie_po_wyjatku", "_DadFiles.set_aside: git checkout HEAD -- rzuca TimeoutExpired albo OSError (_run_tree)")
     /\ UNCHANGED <<head, kopia, biblioteki, dziennik, dzierzawa, nowa, centrum, klikniecia, ekran>>
 
-\* ToolClone.update: git merge --ff-only, w bloku set_aside.
+\* ToolClone.update: git merge --ff-only, w bloku set_aside. Wyjątek z _Git.run (TimeoutExpired albo OSError
+\* z _run_tree, także zanim Git ruszy) zostawia moved = False: finally set_aside wgrywa kopię, gdy jest
+\* (PrzywroceniePoWyjatku), a wyjątek mija oba except w ToolClone.update, więc dziennik zostaje
+\* (NIEOCZEKIWANY_BLAD). Git ubity po przesunięciu klonu (np. w gc --auto po scaleniu) zostawia klon na
+\* nowym Wydaniu; scalenie przerwane w połowie model pomija (Scope).
 Scalanie ==
     /\ pc = "scalanie"
     /\ \/ /\ head' = "nowa"
@@ -311,6 +318,12 @@ Scalanie ==
           /\ IF nowaUsuwaPlikTaty
              THEN Idz("przywrocenie_po_odmowie", "ToolClone.update: git merge --ff-only odmawia (ZMIANY_NA_KOMPUTERZE)")
              ELSE PoOdmowie("ToolClone.update: git merge --ff-only odmawia (ZMIANY_NA_KOMPUTERZE)")
+       \/ /\ AwariaGita
+          /\ head' \in {"stara", "nowa"}
+          /\ plikTaty' = IF head' = "nowa" /\ nowaUsuwaPlikTaty THEN "brak" ELSE plikTaty
+          /\ IF nowaUsuwaPlikTaty
+             THEN Idz("przywrocenie_po_wyjatku", "ToolClone.update: git merge --ff-only rzuca TimeoutExpired albo OSError (_run_tree)")
+             ELSE Idz("spoczynek", "ToolClone.update: git merge --ff-only rzuca TimeoutExpired albo OSError (_run_tree); dziennik zostaje (NIEOCZEKIWANY_BLAD)")
     /\ UNCHANGED <<kopia, biblioteki, dziennik, dzierzawa, nowa, centrum, klikniecia, ekran>>
 
 \* _DadFiles.set_aside, finally, gdy klon się nie przesunął: _put_back, czyli copy2(backup / name, target).
@@ -325,13 +338,14 @@ PrzywroceniePoOdmowie ==
           /\ Idz("spoczynek", "_DadFiles.set_aside (finally): copy2 z kopii rzuca OSError (COFNIECIE_NIEUDANE, tresc taty tylko w dzienniku)")
     /\ UNCHANGED <<head, kopia, biblioteki, dziennik, dzierzawa, nowa, centrum, klikniecia, ekran>>
 
-\* _DadFiles.set_aside, finally, po limicie czasu checkout: _put_back wgrywa kopię, a TimeoutExpired idzie do
-\* ToolUpdates._result (NIEOCZEKIWANY_BLAD). OSError z _put_back staje się _NotPutBack, a ToolClone.update
-\* zwraca COFNIECIE_NIEUDANE. W obu razach dziennik zostaje, a klon się nie przesunął.
-PrzywroceniePoLimicie ==
-    /\ pc = "przywrocenie_po_limicie"
+\* _DadFiles.set_aside, finally, po wyjątku z git checkout HEAD -- albo git merge --ff-only (TimeoutExpired,
+\* OSError z _run_tree): _put_back wgrywa kopię, a wyjątek idzie do ToolUpdates._result (NIEOCZEKIWANY_BLAD).
+\* OSError z _put_back staje się _NotPutBack, a ToolClone.update (moved = False) zwraca COFNIECIE_NIEUDANE.
+\* W obu razach dziennik zostaje, a klon stoi tam, gdzie zostawił go Git.
+PrzywroceniePoWyjatku ==
+    /\ pc = "przywrocenie_po_wyjatku"
     /\ \/ /\ plikTaty' = "taty"
-          /\ Idz("spoczynek", "_DadFiles.set_aside (finally): plik taty wraca z kopii; TimeoutExpired, dziennik zostaje (NIEOCZEKIWANY_BLAD)")
+          /\ Idz("spoczynek", "_DadFiles.set_aside (finally): plik taty wraca z kopii; wyjatek Gita, dziennik zostaje (NIEOCZEKIWANY_BLAD)")
        \/ /\ AwariaKopiowania
           /\ plikTaty' = plikTaty
           /\ Idz("spoczynek", "_DadFiles.set_aside (finally): copy2 z kopii rzuca OSError (COFNIECIE_NIEUDANE), dziennik zostaje")
@@ -359,7 +373,7 @@ Instalacja ==
           /\ Idz("instalacja_trwa", "pip_install: pip instaluje biblioteki nowej wersji (do 15 minut)")
        \/ /\ AwariaGita
           /\ UNCHANGED biblioteki
-          /\ Cofaj("centrum", "_Git.changed: git diff rzuca GitFailed, update() wola _roll_back")
+          /\ Cofaj("centrum", "_Git.changed: git diff rzuca GitFailed, TimeoutExpired albo OSError, update() wola _roll_back")
     /\ UNCHANGED <<head, plikTaty, kopia, dziennik, dzierzawa, nowa, centrum, klikniecia, ekran>>
 
 InstalacjaKoniec ==
@@ -373,16 +387,36 @@ InstalacjaKoniec ==
 
 \* --- _roll_back ---------------------------------------------------------------
 
+\* _roll_back, który rzucił: dziennik zostaje. W Centrum _moved_back zwraca False i wynikiem jest
+\* COFNIECIE_NIEUDANE; opiekun (_rolled_back zwraca False) zapisuje COFNIECIE_NIEUDANE (OpiekunWynik),
+\* pokazuje okienko i kończy się; skrót kończy się okienkiem NIEOCZEKIWANY_BLAD_STARTU (wyjątek z
+\* launcher._roll_back do launcher.main, _refuse) i niczego nie startuje.
+NieudaneCofniecie(opis) ==
+    /\ Idz(IF cofa \in {"opiekun", "opiekun_bez_portu"} THEN "opiekun_wynik" ELSE "spoczynek", opis)
+    /\ widzi' = IF cofa = "skrot" THEN "okienko" ELSE widzi
+
+KtoPokazujeNieudane == CASE cofa \in {"centrum", "klik"} -> "Centrum pokazuje COFNIECIE_NIEUDANE"
+                         [] cofa = "skrot" -> "skrot konczy sie Komunikatem startu"
+                         [] OTHER -> "opiekun zapisuje COFNIECIE_NIEUDANE"
+
 \* _Journal.read i rev-parse HEAD (klon na przed albo po), potem (git.root / name).unlink()
-\* dla każdego pliku z kopii w dzienniku.
+\* dla każdego pliku z kopii w dzienniku. rev-parse HEAD, który rzuca (GitFailed, TimeoutExpired,
+\* OSError z _run_tree), kończy _roll_back przed try, więc nic się nie zmienia.
 CofanieUsun ==
     /\ pc = "cofanie_usun"
-    /\ plikTaty' = IF kopia = "taty" THEN "brak" ELSE plikTaty
-    /\ Idz("cofanie_reset", "_roll_back: plik taty znika z klonu przed reset")
-    /\ UNCHANGED <<head, kopia, biblioteki, dziennik, dzierzawa, nowa, centrum, klikniecia, ekran>>
+    /\ \/ /\ plikTaty' = IF kopia = "taty" THEN "brak" ELSE plikTaty
+          /\ Idz("cofanie_reset", "_roll_back: plik taty znika z klonu przed reset")
+          /\ widzi' = widzi
+       \/ /\ AwariaGita
+          /\ plikTaty' = plikTaty
+          /\ NieudaneCofniecie("_roll_back: rev-parse HEAD rzuca, nic sie nie zmienia; " \o KtoPokazujeNieudane)
+    /\ UNCHANGED <<head, kopia, biblioteki, dziennik, dzierzawa, nowa, centrum, klikniecia, wynik, karta>>
+
+CofanieUsunUdane == CofanieUsun /\ pc' = "cofanie_reset"
 
 \* git reset --keep --quiet before, w try. Stara wersja śledzi plik taty, więc reset
-\* zapisuje jej treść z repozytorium.
+\* zapisuje jej treść z repozytorium. Porażka (GitFailed, TimeoutExpired, OSError z _run_tree) zostawia
+\* klon, gdzie stał: na nowym commicie albo, po wyjątku w scalaniu, na starym.
 CofanieReset ==
     /\ pc = "cofanie_reset"
     /\ \/ /\ head' = "stara"
@@ -390,36 +424,25 @@ CofanieReset ==
           /\ Idz("cofanie_przywroc", "_roll_back: git reset --keep cofa klon do starego commitu")
        \/ /\ AwariaGita
           /\ UNCHANGED <<head, plikTaty>>
-          /\ Idz("cofanie_przywroc", "_roll_back: git reset --keep rzuca GitFailed, klon zostaje na nowym commicie")
+          /\ Idz("cofanie_przywroc_po_bledzie", "_roll_back: git reset --keep rzuca, klon zostaje, gdzie stal")
     /\ UNCHANGED <<kopia, biblioteki, dziennik, dzierzawa, nowa, centrum, klikniecia, ekran>>
 
-CofanieResetUdane == CofanieReset /\ head' = "stara"
+CofanieResetUdane == CofanieReset /\ pc' = "cofanie_przywroc"
 
 \* finally: _put_back, czyli shutil.copy2(backup / name, target). Biblioteki zostają (docstring tool_update.py).
 \* Po udanym resecie i kopiowaniu _roll_back usuwa dziennik (KoniecDziennika). Gdy reset się nie
-\* udał, po finally wychodzi GitFailed, a dziennik zostaje: w Centrum _moved_back zwraca False i wynikiem
-\* jest COFNIECIE_NIEUDANE; opiekun (_rolled_back zwraca False) zapisuje COFNIECIE_NIEUDANE (OpiekunWynik),
-\* pokazuje okienko i kończy się; skrót kończy się okienkiem NIEOCZEKIWANY_BLAD_STARTU (wyjątek z
-\* launcher._roll_back do launcher.main, _refuse) i niczego nie startuje.
+\* udał, po finally wychodzi jego wyjątek (NieudaneCofniecie), także gdy klon już stał na starym commicie.
 CofaniePrzywroc ==
-    /\ pc = "cofanie_przywroc"
+    /\ pc \in {"cofanie_przywroc", "cofanie_przywroc_po_bledzie"}
     /\ \/ /\ plikTaty' = IF kopia = "taty" THEN "taty" ELSE plikTaty
-          /\ Idz(CASE head = "stara" -> "koniec_dziennika"
-                   [] cofa \in {"opiekun", "opiekun_bez_portu"} -> "opiekun_wynik"
-                   [] OTHER -> "spoczynek",
-                 CASE head = "stara" -> "_roll_back (finally): plik taty wraca z kopii"
-                   [] cofa \in {"centrum", "klik"} -> "_roll_back (finally): plik taty wraca z kopii; GitFailed, Centrum pokazuje COFNIECIE_NIEUDANE"
-                   [] cofa = "skrot" -> "_roll_back (finally): plik taty wraca z kopii; GitFailed, skrot konczy sie Komunikatem startu"
-                   [] OTHER -> "_roll_back (finally): plik taty wraca z kopii; GitFailed, opiekun zapisuje COFNIECIE_NIEUDANE")
-          /\ widzi' = IF head = "nowa" /\ cofa = "skrot" THEN "okienko" ELSE widzi
+          /\ IF pc = "cofanie_przywroc"
+             THEN /\ Idz("koniec_dziennika", "_roll_back (finally): plik taty wraca z kopii")
+                  /\ widzi' = widzi
+             ELSE NieudaneCofniecie("_roll_back (finally): plik taty wraca z kopii; reset rzucil, " \o KtoPokazujeNieudane)
        \/ /\ AwariaKopiowania
           /\ kopia = "taty"
           /\ plikTaty' = plikTaty
-          /\ Idz(IF cofa \in {"opiekun", "opiekun_bez_portu"} THEN "opiekun_wynik" ELSE "spoczynek",
-                  CASE cofa \in {"centrum", "klik"} -> "_roll_back (finally): copy2 z kopii rzuca OSError (COFNIECIE_NIEUDANE, tresc taty tylko w dzienniku)"
-                    [] cofa = "skrot" -> "_roll_back (finally): copy2 z kopii rzuca OSError, skrot konczy sie Komunikatem startu"
-                    [] OTHER -> "_roll_back (finally): copy2 z kopii rzuca OSError, opiekun zapisuje COFNIECIE_NIEUDANE")
-          /\ widzi' = IF cofa = "skrot" THEN "okienko" ELSE widzi
+          /\ NieudaneCofniecie("_roll_back (finally): copy2 z kopii rzuca OSError (tresc taty tylko w dzienniku); " \o KtoPokazujeNieudane)
     /\ UNCHANGED <<head, kopia, biblioteki, dziennik, dzierzawa, nowa, centrum, klikniecia, wynik, karta>>
 
 CofaniePrzywrocUdane == CofaniePrzywroc /\ pc' = "koniec_dziennika"
@@ -649,7 +672,8 @@ Skrot ==
 DzialaOpiekun ==
     \/ pc \in {"opiekun_port", "opiekun_start", "opiekun_koniec", "opiekun_wycofanie", "opiekun_wynik",
               "opiekun_port_stara", "opiekun_start_stara"}
-    \/ /\ pc \in {"cofanie_usun", "cofanie_reset", "cofanie_przywroc", "koniec_dziennika"}
+    \/ /\ pc \in {"cofanie_usun", "cofanie_reset", "cofanie_przywroc", "cofanie_przywroc_po_bledzie",
+              "koniec_dziennika"}
        /\ cofa \in {"opiekun", "opiekun_bez_portu"}
 
 \* Tata klika skrót, gdy opiekun działa (karta pokazuje ponowny start): launcher._start
@@ -686,7 +710,7 @@ SkrotOddajePort ==
 \* Kroki kodu: Centrum, opiekun i skrót, który cofa albo oddaje port.
 Program ==
     \/ Pobranie \/ KopiaPlikow \/ CheckoutHead \/ Scalanie
-    \/ PrzywroceniePoOdmowie \/ PrzywroceniePoScaleniu \/ PrzywroceniePoLimicie \/ Instalacja \/ InstalacjaKoniec
+    \/ PrzywroceniePoOdmowie \/ PrzywroceniePoScaleniu \/ PrzywroceniePoWyjatku \/ Instalacja \/ InstalacjaKoniec
     \/ CofanieUsun \/ CofanieReset \/ CofaniePrzywroc \/ KoniecDziennika \/ SkrotWynik
     \/ Restart \/ OpiekunPort \/ OpiekunStart \/ OpiekunKoniec \/ OpiekunWycofanie \/ OpiekunWynik
     \/ OpiekunPortStara \/ OpiekunStartStara
@@ -698,12 +722,13 @@ Next == Program \/ Klik \/ Wylacz \/ DzierzawaMija \/ Skrot \/ SkrotWTrakcie
 \* Działający kod robi następny krok, tata klika, póki Centrum działa i ma kliknięcia albo dziennik
 \* jest w toku, uruchamia skrót, póki Centrum nie działa, a termin opiekuna kiedyś mija, także gdy
 \* tata w międzyczasie klika. Awarie Gita i kopiowania są przejściowe: cofanie ponawiane bez końca
-\* kiedyś się udaje (silna sprawiedliwość).
+\* kiedyś się udaje (silna sprawiedliwość), także jego rev-parse HEAD.
 Sprawiedliwosc ==
     /\ WF_vars(Program)
     /\ WF_vars(Klik)
     /\ WF_vars(Skrot)
     /\ SF_vars(DzierzawaMija)
+    /\ SF_vars(CofanieUsunUdane)
     /\ SF_vars(CofanieResetUdane)
     /\ SF_vars(CofaniePrzywrocUdane)
 

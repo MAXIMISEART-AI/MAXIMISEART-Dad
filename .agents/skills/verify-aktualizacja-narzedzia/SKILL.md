@@ -84,12 +84,12 @@ model action is one indivisible step of this code:
 | `Klik` | `tool_updates.py` `ToolUpdates.start`, `_result` (`restart_guardian.prepare`); the card shows the progress. A click while a journal is in progress does not count toward `MaxKlikniec` (see Scope). |
 | `Pobranie` | `tool_update.py` `ToolClone.update`: `_Journal.read`, and when no guardian may run (`guardian_may_run`) `_moved_back` before anything else (`cofa = "klik"`, `ROLLBACK_FAILED` when it fails); otherwise `_Git.fetch` of `main` and the Wydanie tags, `MainLine.newest()`, which is `newest_on_main` over `_main_tips`, the first-parent line of `main` (Wydania not on it are skipped; none left is `AKTUALNA`), `_Git.is_ancestor` (a clone that already contains the newest Wydanie is `AKTUALNA`), then up to `_DadFiles.leaving`, `_has_local_commits`, `_changed_tracked_files` |
 | `KopiaPlikow` | `tool_update.py` `_Journal.begin`: `JournalKept` when a journal is in progress (only with a guardian's lease, since `Pobranie` rolls back any other), else copy and `fsync` of Dad's files into `pliki-taty`, then `stan.json` (`_write`) |
-| `CheckoutHead` | `tool_update.py` `_DadFiles.set_aside` before `yield`: a non-zero exit is `_NotSetAside`; past its time limit `_Git.run` raises `TimeoutExpired` instead |
-| `Scalanie` | `tool_update.py` `ToolClone.update`, `git merge --ff-only`, and `if not moved` (`journal.end()`) when Git refuses |
+| `CheckoutHead` | `tool_update.py` `_DadFiles.set_aside` before `yield`: a non-zero exit is `_NotSetAside`; past its time limit `_Git.run` raises `TimeoutExpired` instead, and on Windows `_run_tree` can raise `OSError` (no Job Object, `_join` failed, or the tree outlived `_KILL_TIMEOUT_S`) |
+| `Scalanie` | `tool_update.py` `ToolClone.update`, `git merge --ff-only`, and `if not moved` (`journal.end()`) when Git refuses. `TimeoutExpired` or `OSError` from `_Git.run` (`_run_tree`) leaves `moved = False` and passes both `except` with the journal kept; the clone stays on `before` (Git never ran or was killed first) or on `after` (killed after the merge, e.g. in its `gc --auto`) |
 | `PrzywroceniePoOdmowie`, `PrzywroceniePoScaleniu` | `tool_update.py` `_DadFiles.set_aside` `finally` (`_put_back`; its `OSError` becomes `_NotPutBack`) and `except _NotPutBack` in `ToolClone.update`: after the merge it calls `_moved_back`, before it returns `ROLLBACK_FAILED` and keeps the journal. After a refused merge or `except _NotSetAside` (`git checkout HEAD --` failed), `journal.end()`. |
-| `PrzywroceniePoLimicie` | `tool_update.py` `_DadFiles.set_aside` `finally` after `TimeoutExpired` from `git checkout HEAD --`: `_put_back`, then the exception passes both `except` in `ToolClone.update` to `ToolUpdates._result` (`NIEOCZEKIWANY_BLAD`), and the journal stays; an `OSError` from `_put_back` is `_NotPutBack` and `ROLLBACK_FAILED`, also with the journal kept |
+| `PrzywroceniePoWyjatku` | `tool_update.py` `_DadFiles.set_aside` `finally` after `TimeoutExpired` or `OSError` from `git checkout HEAD --` or `git merge --ff-only`: `_put_back`, then the exception passes both `except` in `ToolClone.update` to `ToolUpdates._result` (`NIEOCZEKIWANY_BLAD`), and the journal stays; an `OSError` from `_put_back` is `_NotPutBack` and, with `moved = False`, `ROLLBACK_FAILED`, also with the journal kept |
 | `Instalacja`, `InstalacjaKoniec` | `tool_update.py` `ToolClone._install_libraries` (`_Git.changed`, `pip_install`), the `try`/`except Exception` around it, and the `if installed is False` branch after it (both through `_moved_back`) |
-| `CofanieUsun`, `CofanieReset`, `CofaniePrzywroc` | `tool_update.py` `_roll_back` (`_Journal.read` and `rev-parse HEAD` first), called by `ToolClone.update` through `_moved_back` or by `tool_updates.py` `ToolUpdates._moved_back` through `ToolClone.roll_back` (`cofa = "centrum"`), by `restart_guardian._rolled_back` through `ToolClone.roll_back` (`cofa = "opiekun"`, or `"opiekun_bez_portu"` when the port was never released), by `launcher._roll_back` through `ToolClone.roll_back` (`cofa = "skrot"`), or by `ToolClone.update` before fetching through `_moved_back` (`cofa = "klik"`) |
+| `CofanieUsun`, `CofanieReset`, `CofaniePrzywroc` | `tool_update.py` `_roll_back` (`_Journal.read` and `rev-parse HEAD` first; when `rev-parse` raises, nothing changes and the rollback fails; a `reset --keep` that raises fails the rollback after `finally` puts Dad's file back, also when the clone already stood on `before`), called by `ToolClone.update` through `_moved_back` or by `tool_updates.py` `ToolUpdates._moved_back` through `ToolClone.roll_back` (`cofa = "centrum"`), by `restart_guardian._rolled_back` through `ToolClone.roll_back` (`cofa = "opiekun"`, or `"opiekun_bez_portu"` when the port was never released), by `launcher._roll_back` through `ToolClone.roll_back` (`cofa = "skrot"`), or by `ToolClone.update` before fetching through `_moved_back` (`cofa = "klik"`) |
 | `KoniecDziennika` | `tool_update.py` `_Journal.end` at the end of `_roll_back` and in `ToolClone.update` after a refusal; then the guardian goes on to `OpiekunWynik`, the shortcut to `SkrotWynik`, and for `cofa = "klik"` `ToolClone.update` goes on to `rev-parse HEAD` and the fetch |
 | `SkrotWynik` | `launcher.py` `_roll_back` after `ToolClone.roll_back`: `write_result` (`NIEOCZEKIWANY_BLAD`), then `subprocess.call(restart_from_disk)` in `launcher._start`, whose Centrum reads that result. An `OSError` from the write goes to `launcher.main`: the dialog `unexpected_start_failure`, nothing starts, and the old result file stays |
 | `Restart` | `tool_updates.py` `ToolUpdates._update` (restarts only on `UPDATED`), `_restart` (`ToolClone.leased_to_guardian` around `restart_guardian.launch`: it writes the lease, and an `OSError` from that write leaves `stan.json` without it; it removes the lease when `launch` raises, and that removal can fail too), and `_moved_back` when either raises |
@@ -116,22 +116,26 @@ Covered files: `src/rozliczenia/centrum/tool_update.py`,
 `src/rozliczenia/centrum/restart_guardian.py`,
 `src/rozliczenia/centrum/launcher.py`.
 
-Sync commit: `bd7c9ff8` (2026-10-24, branch `fix/opiekun-zapis-wyniku`: a
-refused `write_result` no longer ends `restart_guardian.main`, and the guardian
-removes „ok” right after `_stop` of a new version that does not answer). The
-model gained the result file, the card and what Dad sees (`wynik`, `karta`,
-`widzi`), `OpiekunWycofanie`, `OpiekunWynik`, `SkrotWynik`,
-`PrzywroceniePoLimicie`, the lease write in `Restart`, and the promises
-`TataNieZostajeBezOdpowiedzi` and `KartaNieKlamie`. In `2a449f1..bd7c9ff8`,
-`f0521710` (#373) only changes how `ToolUpdates.current` shows `AKTUALNA`,
-which the model does not describe, and `tool_update.py` and `launcher.py` did
-not change. At this commit every row above was checked against the code.
-After it, PR #399 (the Zgłoszenie handle) changes only the Zgłoszenie of a
-failed update in `tool_updates.py`: `_failed`, `_after_restart` and
-`send_report` use `reports.ReportHandle`, `_after_restart` still reads the
-result file once and shows `_view_of(result)` or the failure, and `_update`
-waits for the box answer (`wait_for_box`) before the `failed` view, still
-before `end_update`; no row moved.
+Sync commit: `11588db1` (2026-10-25, `main` after #474). At this commit every
+row above was checked against the code. Since the previous sync commit
+`bd7c9ff8`:
+
+- `c89f75c0` and `18db7e34` (#401) run every Git command through `_run_tree`.
+  On Windows it raises `OSError` when the Job Object is not created, `_join`
+  fails, or the tree outlives `_KILL_TIMEOUT_S`. The model gained that
+  exception in `Scalanie` (then `PrzywroceniePoWyjatku`, formerly
+  `PrzywroceniePoLimicie`) and in `rev-parse HEAD` of `_roll_back`
+  (`CofanieUsun`). This sync also fixed a modeling error: a failed
+  `reset --keep` on a clone that already stood on `before` ended the journal
+  in the model, while `_roll_back` raises and keeps it. `CofanieReset` now
+  fails into `cofanie_przywroc_po_bledzie`.
+- `1097cc18` adds `release_at`, which the update does not call.
+- `19d5141f` and `3356ca70` (PR #399 and the card after a failed update)
+  change only the Zgłoszenie in `tool_updates.py`: `_after_restart` still
+  reads the result file once and shows `_view_of(result)` or the failure, and
+  `_update` waits for the box (`wait_for_box`) before the `failed` view, still
+  before `end_update`.
+- `restart_guardian.py` and `launcher.py` did not change.
 
 A change matters when it changes the order of these steps, adds or removes a
 step that touches the clone, Dad's files, the libraries, the result file or the
@@ -205,7 +209,7 @@ guardian's rollback meets every other failure too.
 | Config | Failures on | Expected |
 | --- | --- | --- |
 | `zwykle-awarie` | merge refused (`ZMIANY_NA_KOMPUTERZE`), fetch fails (`BRAK_POLACZENIA`), pip fails (`INSTALACJA_BIBLIOTEK`), guardian does not start or the port is not released | passes |
-| `git` | the above + a new version that may not start + `GitFailed` from `git checkout HEAD --`, `git diff`, `git reset --keep`, and `TimeoutExpired` from `git checkout HEAD --` | passes |
+| `git` | the above + a new version that may not start + `GitFailed` from `git checkout HEAD --`, `git diff`, `git reset --keep`, and `TimeoutExpired` or `OSError` (`_run_tree`) from `git checkout HEAD --`, `git merge --ff-only`, `git diff`, `rev-parse HEAD` and `git reset --keep` in `_roll_back` | passes |
 | `kopiowanie` | the above without git + `OSError` from `shutil.copy2` of Dad's file, a write of `stan.json` (also the lease), or a write or removal of the result file | known finding `ok_po_dwoch_odmowach` |
 | `nieudany-start` | `zwykle-awarie` + the new version does not answer in `START_TIMEOUT_S` | passes |
 | `wylaczenie` | `nieudany-start` + the computer switches off at any step | known finding `skrot_gasnie_przed_wynikiem` |
@@ -329,8 +333,8 @@ of `Postep`):
   These clicks do not count toward `MaxKlikniec`; with them counted, two
   clicks used before a failed rollback leave the journal for good.
 - Git and copy failures are transient: a rollback retried without end
-  succeeds at some point (strong fairness on `CofanieResetUdane` and
-  `CofaniePrzywrocUdane`). A disk that fails for good leaves the journal and
+  succeeds at some point (strong fairness on `CofanieUsunUdane`,
+  `CofanieResetUdane` and `CofaniePrzywrocUdane`). A disk that fails for good leaves the journal and
   a Komunikat startu at every start.
 - The computer switches off finitely many times.
 - `GUARDIAN_LEASE_S` (10 minutes) passes at some point, also while Dad keeps
@@ -354,6 +358,11 @@ Assumed, and not checked:
 - Each Git command, each `copy2` and the guardian are indivisible. A switch-off
   in the middle of `git merge` (a half-updated working tree) is not modelled;
   the shortcut's `git reset --keep` would then meet a half-updated tree.
+  Since `c89f75c0` (#401) a Git tree that outlives `_KILL_TIMEOUT_S` raises
+  `OSError` while Git may still run. The model ends the Git step there, so a
+  merge or reset that finishes later, after `_put_back` or during the next
+  click's rollback, is not modelled. That rollback most likely fails on Git's
+  `index.lock` and keeps the journal (a guess, not checked).
 - The old version starts with any libraries, because `requirements.txt` has
   only lower bounds. Pip killed between uninstalling and installing a library
   could break this, so the `wylaczenie` model is optimistic.
@@ -397,9 +406,13 @@ Assumed, and not checked:
   shortcut clicked while the guardian runs as nothing, because the guardian
   goes on and decides what Dad sees last.
 - `git checkout HEAD --` killed at its time limit may or may not have
-  rewritten Dad's file; the model allows both. `git merge --ff-only` past its
-  time limit is not modelled: like a switch-off in the middle of the merge,
-  it can leave a half-updated tree.
+  rewritten Dad's file; the model allows both. `git merge --ff-only` that
+  raises leaves the clone on `before` or `after`; a merge killed in the middle
+  of the working tree is not modelled, like a switch-off there.
+- An `OSError` from a Git command in `Pobranie` (before the journal) goes to
+  `ToolUpdates._result` as `NIEOCZEKIWANY_BLAD`, also from `fetch`, which
+  catches only `TimeoutExpired`. The clone does not change, so the model does
+  not tell it from `BRAK_POLACZENIA`.
 - A shortcut whose `listen_locally` fails only asks `running_centrum` and
   changes nothing on disk, so the model leaves it out. Its wrong Komunikaty
   are not checked: `PORT_ZAJETY` when Centrum is still starting and does not
