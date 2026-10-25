@@ -526,6 +526,91 @@
         }
       }
     },
+    "/api/periods/{token}/quantities-to-fill/{kind}": {
+      "get": {
+        "tags": [
+          "okresy"
+        ],
+        "summary": "Kind Table",
+        "operationId": "getKindTable",
+        "parameters": [
+          {
+            "name": "token",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Token"
+            }
+          },
+          {
+            "name": "kind",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/FillKind"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/KindTableReady"
+                    },
+                    {
+                      "$ref": "#/components/schemas/QuantitiesToFillProblem"
+                    }
+                  ],
+                  "discriminator": {
+                    "propertyName": "state",
+                    "mapping": {
+                      "ready": "#/components/schemas/KindTableReady",
+                      "problem": "#/components/schemas/QuantitiesToFillProblem"
+                    }
+                  },
+                  "title": "Response Getkindtable"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/periods/{token}/worker-settlements/open": {
       "post": {
         "tags": [
@@ -1452,6 +1537,7 @@
               "getPeriodBoard",
               "openPeriodPath",
               "getQuantitiesToFill",
+              "getKindTable",
               "openWorkerSettlement",
               "getRunSetup",
               "startRun",
@@ -1573,6 +1659,16 @@
         ],
         "title": "BoardReady",
         "description": "Okresy od najnowszego; ``last_prepared_period`` to najnowszy okres z Plikiem zbiorczym."
+      },
+      "CellSource": {
+        "type": "string",
+        "enum": [
+          "tool",
+          "tata",
+          "empty"
+        ],
+        "title": "CellSource",
+        "description": "Czyją wartość pokazuje komórka N:AP wiersza do uzupełnienia."
       },
       "Choice": {
         "properties": {
@@ -2151,6 +2247,116 @@
         ],
         "title": "Health",
         "description": "Tożsamość działającego Centrum.\n\n``commit`` to skrócony commit narzędzia, z którego Centrum wystartowało, jak na Konfiguracji (``None`` poza\nklonem Gita); po nim launcher i opiekun ponownego startu rozpoznają wersję działającego Centrum, a karta\npokazuje go w „Zaktualizowano”. ``instance`` to losowy identyfikator tego startu Centrum: po ponownym starcie\njest inny, także gdy commit się nie zmienił."
+      },
+      "KindTableCell": {
+        "properties": {
+          "source": {
+            "$ref": "#/components/schemas/CellSource"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "string",
+                "const": "nieliczbowa"
+              }
+            ],
+            "title": "Value"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "source",
+          "value"
+        ],
+        "title": "KindTableCell",
+        "description": "Komórka N:AP wiersza na stronie rodzaju: wartość z pliku w kolumnie narzędzia, wpis taty, który robi wiersz, albo nic (0)."
+      },
+      "KindTableReady": {
+        "properties": {
+          "state": {
+            "type": "string",
+            "const": "ready",
+            "title": "State"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/FillKind"
+          },
+          "columns": {
+            "items": {
+              "$ref": "#/components/schemas/PriceListItem"
+            },
+            "type": "array",
+            "title": "Columns"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/KindTableRow"
+            },
+            "type": "array",
+            "title": "Rows"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "state",
+          "kind",
+          "columns",
+          "rows"
+        ],
+        "title": "KindTableReady",
+        "description": "Wiersze jednego rodzaju Ilości do uzupełnienia rosnąco po numerze; ``columns`` to N:AP po kolei."
+      },
+      "KindTableRow": {
+        "properties": {
+          "row": {
+            "type": "integer",
+            "title": "Row"
+          },
+          "state": {
+            "$ref": "#/components/schemas/RowState"
+          },
+          "worker": {
+            "type": "string",
+            "title": "Worker"
+          },
+          "devices": {
+            "type": "string",
+            "title": "Devices"
+          },
+          "activities": {
+            "type": "string",
+            "title": "Activities"
+          },
+          "completed": {
+            "type": "string",
+            "title": "Completed"
+          },
+          "cells": {
+            "items": {
+              "$ref": "#/components/schemas/KindTableCell"
+            },
+            "type": "array",
+            "title": "Cells"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "row",
+          "state",
+          "worker",
+          "devices",
+          "activities",
+          "completed",
+          "cells"
+        ],
+        "title": "KindTableRow",
+        "description": "Wiersz strony rodzaju: numer wiersza Pliku zbiorczego, teksty, po których tata go rozpoznaje, i komórki N:AP.\n\nNigdy adres, numer zlecenia ani ``UMOWA`` (ADR 0016)."
       },
       "KindToFill": {
         "properties": {
@@ -2884,6 +3090,26 @@
         "title": "PinnableRun",
         "description": "Uruchomienie z Centrum, do którego tata może przypiąć Uwagę: to, co o nim mówi wiersz okna Uwagi i stopka.\n\nPola jak w ``ProcessRun``, z którego powstaje; identyfikator jest zawsze, bo bez niego nie ma czego przypiąć."
       },
+      "PriceListItem": {
+        "properties": {
+          "column": {
+            "type": "string",
+            "title": "Column"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "column",
+          "name"
+        ],
+        "title": "PriceListItem",
+        "description": "Kolumna N:AP i nazwa pozycji cennika z wiersza 17 Pliku zbiorczego."
+      },
       "Problem": {
         "properties": {
           "message": {
@@ -3470,6 +3696,14 @@
         ],
         "title": "ResultCounts",
         "description": "Wyniki Uruchomień procesu; przerwane dzielą się na ``stopped`` i ``failed``.\n\n``stopped``: Zatrzymania „dla taty” i przerwane ze starych rekordów bez rodzaju. ``failed``: Zatrzymania\n„do Maksa”, także nieoczekiwany wyjątek."
+      },
+      "RowState": {
+        "type": "string",
+        "enum": [
+          "to_fill",
+          "done"
+        ],
+        "title": "RowState"
       },
       "RowToFill": {
         "properties": {
