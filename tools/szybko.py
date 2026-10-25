@@ -108,9 +108,9 @@ PATH_TYPES = frozenset({"Path", "PurePath", "PurePosixPath", "PureWindowsPath"})
 GLOBS = frozenset({"glob", "rglob", "iterdir"})
 WORKERS = "4"
 TIMES = Path("tools", "czasy_testow_ci_linux.json")
-# Ściana kroku pytest w sekundach tabeli ``TIMES`` na workera. Mac liczy te pliki średnio ok. dwa razy szybciej niż
-# CI, więc to ok. 45 s.
-BUDGET_S = 90.0
+# Sekundy tabeli ``TIMES`` na workera. Porażki pytest w szybko z 23–24.10 łapie ten sam plan od 20 s wzwyż, bo prawie
+# wszystkie padły w odległości 0–1 albo w testach struktury, więc budżet stoi blisko tej granicy.
+BUDGET_S = 45.0
 # Importuje każdy moduł ``src/`` i wypisuje te, które padają; moduł, który się nie importuje, wywraca każdy test.
 IMPORT_ALL = """\
 import importlib, pathlib, sys
