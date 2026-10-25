@@ -349,10 +349,10 @@ Assumed, and not checked:
   could break this, so the `wylaczenie` model is optimistic.
 - Dad has one file in `config/`. His untracked files (Wzorce, Ustawienia taty,
   the Zgłoszenia key, the log, metrics, period files, and in `config/` the
-  read Powiadomienia, the Uwagi taty and the outbox addresses) are not
+  read Powiadomienia, the Sprawy taty and the outbox addresses) are not
   modelled. Git does not touch them while no Wydanie tracks their path. When
   a Wydanie tracks one, it depends on `.gitignore`. For a file that is not
-  ignored (`config/powiadomienia.json`, `config/uwagi-taty.json`,
+  ignored (`config/powiadomienia.json`, `config/sprawy-taty.json`,
   `config/skrzynka-adresy.jsonl`), `merge` refuses. Git treats an ignored file
   (`*.xlsx`, `logs/`, `config/centrum-ustawienia.yaml` and the rest of
   `.gitignore`) as expendable, so `git merge --ff-only` overwrites Dad's file

@@ -56,6 +56,8 @@ REQUIRED_SCREENSHOTS = {
         "08-tablica-po-zmianie-na-dysku.png",
         "09-tablica-podpowiedz.png",
         "17-tablica-odczyt-nieudany.png",
+        "156-tablica-brakujacy-plik.png",
+        "157-tablica-brakujacy-plik-dotyk.png",
     ),
     "uklad-folderow-taty": (
         "15-uklad-taty-tablica.png",
@@ -96,12 +98,26 @@ REQUIRED_SCREENSHOTS = {
         "28-metryki-wykres-szczegoly-ciemny.png",
         "29-metryki-wykres-szczegoly-jasny.png",
     ),
+    "blad-odczytu": (
+        "139-blad-odczytu-ustawienia.png",
+        "142-blad-odczytu-tablica.png",
+        "153-blad-odczytu-okresy-trzy-odczyty.png",
+        "154-blad-odczytu-okresy-jednym-kliknieciem.png",
+        "143-blad-odczytu-uruchomienia.png",
+        "144-blad-odczytu-historia.png",
+        "145-blad-odczytu-metryki.png",
+        "146-blad-odczytu-konfiguracja.png",
+        "141-blad-odczytu-ponowny-odczyt.png",
+        "147-blad-odczytu-powiadomienia.png",
+        "148-blad-odczytu-uwaga.png",
+    ),
     "przygotowanie-pliku-zbiorczego": (
         "30-przygotowanie-nowe-uruchomienie.png",
         "31-przygotowanie-podglad.png",
         "32-przygotowanie-potwierdzenie.png",
         "39-przygotowanie-bez-podgladu.png",
         "33-przygotowanie-decyzja.png",
+        "149-przygotowanie-znak-decyzji.png",
         "34-przygotowanie-zatrzymanie.png",
         "3a-przygotowanie-podwojne-klikniecie.png",
         "35-przygotowanie-zapisane.png",
@@ -111,21 +127,22 @@ REQUIRED_SCREENSHOTS = {
         "38-przygotowanie-historia.png",
     ),
     "uzupelnienie": (
-        "210-uzupelnienie-karta.png",
-        "211-uzupelnienie-podsumowanie.png",
-        "212-uzupelnienie-po-wpisie.png",
-        "213-uzupelnienie-blokada-excela.png",
-        "214-uzupelnienie-bez-pliku.png",
         "215-uzupelnienie-gotowe.png",
         "216-uzupelnienie-gotowe-potwierdzenie.png",
         "217-uzupelnienie-gotowe-bez-odczytu.png",
         "218-uzupelnienie-gotowe-po-podgladzie.png",
+        "220-uzupelnienie-karta.png",
+        "221-uzupelnienie-podsumowanie.png",
+        "222-uzupelnienie-po-wpisie.png",
+        "223-uzupelnienie-blokada-excela.png",
+        "224-uzupelnienie-bez-pliku.png",
     ),
     "przebieg-rozliczen": (
         "40-przebieg-nowe-uruchomienie.png",
         "41-przebieg-podglad.png",
         "42-przebieg-potwierdzenie.png",
         "43-przebieg-na-zywo.png",
+        "155-przebieg-znak-uruchomienia.png",
         "44-przebieg-zapisane.png",
         "49-przebieg-otwieranie.png",
         "45-przebieg-status-okresu.png",
@@ -190,6 +207,13 @@ REQUIRED_SCREENSHOTS = {
     "logi-uruchomienia": (
         "160-logi-podglad.png",
         "161-logi-zatrzymanie.png",
+    ),
+    "karta-z-logow": (
+        "210-karta-przed-zamknieciem.png",
+        "211-karta-po-zamknieciu.png",
+        "212-karta-przerwana.png",
+        "213-karta-z-historii.png",
+        "214-karta-bez-logow.png",
     ),
     "powiadomienia": (
         "180-powiadomienia-dzwonek.png",
@@ -318,6 +342,13 @@ def _preflight() -> None:
         raise VerificationFailure(
             "Playwright for Python is missing; run `pip install playwright` and `python -m playwright install chromium`"
         )
+    # Feature files and PR descriptions name screenshots by number alone.
+    owners: dict[str, list[str]] = {}
+    for shot in (shot for shots in REQUIRED_SCREENSHOTS.values() for shot in shots):
+        owners.setdefault(shot.split("-", 1)[0], []).append(shot)
+    shared = {number: shots for number, shots in owners.items() if len(shots) > 1}
+    if shared:
+        raise VerificationFailure(f"screenshot numbers used twice: {shared}")
 
 
 def _verify(feature: str, performance: list[str], run_dir: Path) -> Path:

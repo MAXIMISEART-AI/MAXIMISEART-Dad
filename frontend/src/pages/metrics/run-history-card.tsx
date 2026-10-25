@@ -20,6 +20,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { WriteAboutRun } from "@/components/write-to-maks"
 import { dateTime, seconds } from "@/lib/format"
 import { MODE_OPTIONS, PROCESS_OPTIONS, type Mode } from "@/pages/metrics/process-runs"
+import { RunCardButton } from "@/pages/runs/run-card-sheet"
 
 const PAGE = 10
 
@@ -80,8 +81,8 @@ export function RunHistoryCard({ runs }: { runs: ReadonlyArray<ProcessRun> }) {
                 <TableHead>Okres</TableHead>
                 <TableHead>Wynik</TableHead>
                 <SortableHead label="Czas" sortKey="total_duration_ms" sort={sort} onSort={sortBy} end />
-                <TableHead className="w-10">
-                  <span className="sr-only">Uwaga</span>
+                <TableHead className="w-20">
+                  <span className="sr-only">Karta Uruchomienia i Uwaga</span>
                 </TableHead>
               </TableRow>
             </TableHeader>
@@ -191,7 +192,10 @@ function RunRow({ run }: { run: ProcessRun }) {
       </TableCell>
       <TableCell className="text-right tabular-nums">{seconds(run.total_duration_ms)}</TableCell>
       <TableCell className="py-0">
-        {run.run_id === null ? null : <WriteAboutRun runId={run.run_id} className="text-muted-foreground" />}
+        <span className="flex justify-end">
+          <RunCardButton run={run} />
+          {run.run_id === null ? null : <WriteAboutRun runId={run.run_id} className="text-muted-foreground" />}
+        </span>
       </TableCell>
     </TableRow>
   )

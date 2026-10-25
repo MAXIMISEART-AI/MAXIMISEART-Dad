@@ -72,15 +72,20 @@ co stało się z tym, co wysłał.
   Wykonawcą, wynikiem, liczbą wierszy i czasem, środowisko (system, Python,
   nazwy i rozmiary plików procesu z flagą „tylko online” OneDrive), przy
   nieoczekiwanym wyjątku ślad wywołań jak w Zgłoszeniu i po Diagnozie jej wynik.
-  Pole Wydania jest puste, dopóki Centrum nie umie lokalnie ustalić, na którym
-  Wydaniu jest klon taty. Logi nie niosą treści wierszy: nigdy adresu, numeru
+  Wydanie to numer najwyższego Wydania, którego tag w klonie taty (z instalacji
+  albo pobrany przez Aktualizację narzędzia) wskazuje dokładnie commit, z
+  którego działa Centrum; Centrum ustala je lokalnie przy końcu każdego
+  Uruchomienia (#426). Commit po Wydaniu, brak Gita i błąd Gita zostawiają pole
+  puste. Logi nie niosą treści wierszy: nigdy adresu, numeru
   zlecenia, numeru umowy, Wykonawcy przy wierszu, daty dziennej z komórki,
   `CZYNNOŚCI ZREALIZOWANE` ani opisu technika. Komunikaty i przebieg Szablonów
   zachowują nazwę Wykonawcy, tak jak w Zgłoszeniu. Świadome wyjątki od tej
   reguły, te same co na karcie Uruchomienia i w Zgłoszeniu: Komunikat
   `ZLE_SKUTECZNE` cytuje dowolny tekst, który tata wpisał w komórce `SKUTECZNE`;
   `NIEZNANY_WYKONAWCA` z Przygotowania podaje identyfikator Wykonawcy przy
-  numerze wiersza Rejestru; podsumowanie ma liczbę zleceń na każdy dzień okresu,
+  numerze wiersza Rejestru; `BRAK_MAPOWANIA` i `NIEZNANY_WYKONAWCA` z Przebiegu
+  rozliczeń podają identyfikator Wykonawcy spoza konfiguracji wykonawców, bez
+  numeru wiersza; podsumowanie ma liczbę zleceń na każdy dzień okresu,
   a ostrzeżenie `NIEPELNY_OKRES` datę ostatniego zlecenia. Żaden z nich nie
   niesie adresu ani numeru zlecenia czy umowy, więc nie wskazuje klienta; tata
   widzi te same teksty na swojej karcie.

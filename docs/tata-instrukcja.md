@@ -425,6 +425,15 @@ do wpisania w Excelu:
 - Kolumny Y, AB, AD, AJ, AK, AL i AM: w każdym wierszu według `CZYNNOŚCI
   ZREALIZOWANE`. Strona podaje tylko, w ilu wierszach coś w nich wpisałeś.
 
+Dotknij `Wiersze bez reguły` albo `Wiersze z opisu`, a zobaczysz tabelę jak w
+Excelu, tylko z wierszami tego rodzaju. Z lewej stoją numer wiersza, `WYKONAWCA`,
+`URZĄDZENIA`, `CZYNNOŚCI` i `CZYNNOŚCI ZREALIZOWANE`, z prawej kolumny od N do
+AP, które przesuwasz w bok. Dotknij tekstu albo litery kolumny, a zobaczysz
+cały tekst albo pełną nazwę pozycji cennika. Szare są kolumny, które wypełnia narzędzie.
+Wiersz do uzupełnienia jest żółty. Komórka z Twoją ilością jest zielona, a
+wiersz z choćby jedną Twoją ilością robi się zielony. W tabeli niczego nie
+wpisujesz: ilości wpisujesz w Excelu.
+
 `0` i pusta komórka to to samo. Strona czyta zapisany Plik zbiorczy, także gdy
 masz go otwartego w Excelu, i nigdy go nie zmienia. Czyta go na nowo, gdy
 wracasz do niej z Excela. Jeśli nie widzisz swoich wpisów, zapisz plik w Excelu
@@ -513,9 +522,9 @@ okresu każdy folder, którego nazwa zaczyna się tak, jak podaje komunikat
 | „Folder rozliczeń pracowników tego okresu już istnieje” | Rozliczenia pracowników tego okresu już są; narzędzie ich nie nadpisze. Sprawdź, czy wybrano właściwy okres. Żeby utworzyć je od nowa, najpierw przenieś Folder rozliczeń pracowników poza Folder okresu. |
 | „Konfiguracja wykonawców jest niepoprawna” | Przekaż komunikat osobie utrzymującej narzędzie. |
 | „Nie można użyć Wzorca rozliczenia pracownika” | Jeśli Wzorzec jest otwarty w Excelu, zamknij go bez zapisywania i uruchom ponownie. Jeśli komunikat prosi o zmianę nazwy `placeholder.xlsx`, zrób to jak w części „Gdy pojawi się problem” niżej. W innym wypadku przekaż komunikat osobie utrzymującej narzędzie. |
-| „W Pliku zbiorczym jest WYKONAWCA, którego nie ma w konfiguracji wykonawców” | Uruchom `Podgląd bez zapisu`, żeby zobaczyć problemy. Popraw WYKONAWCĘ w kolumnie H albo poproś osobę utrzymującą narzędzie o dopisanie Wykonawcy. Zapisz, zamknij i uruchom ponownie. |
+| „spoza konfiguracji wykonawców” | Komunikat podaje każdy taki identyfikator WYKONAWCA. Uruchom `Podgląd bez zapisu`, żeby zobaczyć pozostałe problemy. Popraw WYKONAWCĘ w kolumnie H albo poproś osobę utrzymującą narzędzie o dopisanie Wykonawcy. Zapisz, zamknij i uruchom ponownie. |
 | „Nie wszystkie Wiersze danych Pliku zbiorczego mają WYKONAWCĘ” | Uruchom `Podgląd bez zapisu`: problemy pokażą numery wierszy. Wpisz w nich WYKONAWCĘ w kolumnie H, zapisz, zamknij i uruchom ponownie. |
-| „Nieznany identyfikator WYKONAWCA” | Problem z podglądu (wynik wymaga sprawdzenia). Popraw WYKONAWCĘ w kolumnie H albo poproś o dopisanie Wykonawcy do konfiguracji wykonawców. |
+| „Nieznany identyfikator WYKONAWCA” | Problem z podglądu (wynik wymaga sprawdzenia), osobny dla każdego identyfikatora, który podaje. Popraw ten identyfikator w kolumnie H albo poproś o dopisanie Wykonawcy do konfiguracji wykonawców. |
 | „ma dane, ale nie ma wykonawcy w kolumnie H” | Problem z podglądu (wynik wymaga sprawdzenia). Wpisz WYKONAWCĘ we wskazanym wierszu albo wyczyść wiersz, jeśli jest zbędny. |
 | „Nie udało się przygotować skoroszytu pracownika” | Kliknij `Uruchom ponownie`. Jeśli błąd wraca, przekaż komunikat osobie utrzymującej narzędzie. |
 | „Nie można utworzyć skoroszytów z Wzorca rozliczenia pracownika” | Kliknij `Uruchom ponownie`. Jeśli błąd wraca, przekaż komunikat osobie utrzymującej narzędzie. |

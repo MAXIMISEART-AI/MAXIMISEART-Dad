@@ -35,7 +35,7 @@ def commit(repo: Path, subject: str) -> str:
 def repository(path: Path, files: dict[str, str]) -> Path:
     """Repozytorium z ``pyproject.toml`` i narzędziami checkoutu oraz ``files``, bez commitu."""
 
-    for name in ("pyproject.toml", "tools/ci_lokalnie.py", "tools/mutacje.py", "tools/potomne.py"):
+    for name in ("pyproject.toml", "tools/ci_lokalnie.py", "tools/ciezkie_ci.py", "tools/mutacje.py", "tools/potomne.py"):
         (path / name).parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(ROOT / name, path / name)
     for name, text in files.items():

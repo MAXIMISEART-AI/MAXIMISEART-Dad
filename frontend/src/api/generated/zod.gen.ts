@@ -19,12 +19,14 @@ export const zApiTiming = z.object({
         'openPeriodPath',
         'getQuantitiesToFill',
         'getWithoutQuantity',
+        'getKindTable',
         'openWorkerSettlement',
         'getRunSetup',
         'startRun',
         'decideRun',
         'diagnoseRun',
         'reportRun',
+        'getRunCard',
         'getNotifications',
         'markNotificationsRead',
         'getMetrics',
@@ -55,6 +57,17 @@ export const zBoardMissing = z.object({
 export const zBoardNotSet = z.object({
     state: z.literal('not_set')
 });
+
+/**
+ * CellSource
+ *
+ * Czyją wartość pokazuje komórka N:AP wiersza do uzupełnienia.
+ */
+export const zCellSource = z.enum([
+    'tool',
+    'tata',
+    'empty'
+]);
 
 /**
  * ClosedStep
@@ -232,6 +245,19 @@ export const zHealth = z.object({
 });
 
 /**
+ * KindTableCell
+ *
+ * Komórka N:AP wiersza na stronie rodzaju: wartość z pliku w kolumnie narzędzia, wpis taty, który robi wiersz, albo nic (0).
+ */
+export const zKindTableCell = z.object({
+    source: zCellSource,
+    value: z.union([
+        z.int(),
+        z.literal('nieliczbowa')
+    ])
+});
+
+/**
  * Message
  *
  * Komunikat w trzech częściach (Co się stało, Gdzie, Co zrobić) bez kodu.
@@ -396,6 +422,16 @@ export const zPinnableRun = z.object({
         'BLAD_KRYTYCZNY'
     ]),
     stop_kind: z.enum(['for_tata', 'for_maks']).nullable()
+});
+
+/**
+ * PriceListItem
+ *
+ * Kolumna N:AP i nazwa pozycji cennika z wiersza 17 Pliku zbiorczego.
+ */
+export const zPriceListItem = z.object({
+    column: z.string(),
+    name: z.string()
 });
 
 /**
@@ -688,6 +724,40 @@ export const zMetrics = z.object({
 });
 
 /**
+ * RowState
+ */
+export const zRowState = z.enum(['to_fill', 'done']);
+
+/**
+ * KindTableRow
+ *
+ * Wiersz strony rodzaju: numer wiersza Pliku zbiorczego, teksty, po których tata go rozpoznaje, i komórki N:AP.
+ *
+ * Nigdy adres, numer zlecenia ani ``UMOWA`` (ADR 0016).
+ */
+export const zKindTableRow = z.object({
+    row: z.int(),
+    state: zRowState,
+    worker: z.string(),
+    devices: z.string(),
+    activities: z.string(),
+    completed: z.string(),
+    cells: z.array(zKindTableCell)
+});
+
+/**
+ * KindTableReady
+ *
+ * Wiersze jednego rodzaju Ilości do uzupełnienia rosnąco po numerze; ``columns`` to N:AP po kolei.
+ */
+export const zKindTableReady = z.object({
+    state: z.literal('ready'),
+    kind: zFillKind,
+    columns: z.array(zPriceListItem),
+    rows: z.array(zKindTableRow)
+});
+
+/**
  * RowToFill
  *
  * Wiersz Pliku zbiorczego z Ilościami do uzupełnienia: numer wiersza i czy tata już coś w nim wpisał.
@@ -720,12 +790,12 @@ export const zQuantitiesToFillReady = z.object({
 });
 
 /**
- * RunIdle
+ * RunCardMissing
  *
- * Od startu serwera nie było żadnego Uruchomienia procesu.
+ * Karty tego Uruchomienia nie ma: nie wystartowało z Centrum, nie ma jego Logów albo nie da się ich odczytać.
  */
-export const zRunIdle = z.object({
-    state: z.literal('idle')
+export const zRunCardMissing = z.object({
+    state: z.literal('missing')
 });
 
 /**
@@ -752,6 +822,21 @@ export const zRunAwaitingDecision = z.object({
     run: zRunInfo,
     progress: zProgress,
     decision: zDecision
+});
+
+/**
+ * RunInterrupted
+ *
+ * Urwane Uruchomienie: Centrum zamknęło się w jego trakcie, więc zna tylko jego start.
+ *
+ * Nie ma wyniku, Logów Uruchomienia ani rekordu metryk. ``advice`` mówi w trzech częściach, co się stało i co
+ * zrobić, osobno dla podglądu (nic nie zapisał) i zapisu.
+ */
+export const zRunInterrupted = z.object({
+    state: z.literal('interrupted'),
+    run: zRunInfo,
+    started_at: z.iso.datetime(),
+    advice: zMessage
 });
 
 /**
@@ -1048,19 +1133,59 @@ export const zRunSummary = z.object({
 });
 
 /**
+ * LoggedOutcome
+ *
+ * Wynik Uruchomienia procesu taki, jak niosą go Logi Uruchomienia: to, co karta pokazuje także po zamknięciu Centrum.
+ *
+ * Zatrzymania i ostrzeżenia w trzech częściach, uwagi techniczne i podsumowanie. ``ending`` mówi, jak się
+ * skończyło: ``finished``, własne zatrzymanie procesu (``stop``), Zatrzymanie po odmowie w Decyzji taty
+ * (``declined``), nieoczekiwany błąd (``unexpected``) albo błąd po zakończeniu silnika (``after_engine``).
+ * ``next_action`` to akcja, którą Centrum proponuje po wyniku, a ``headline`` to tytuł banera wyniku; oba
+ * wylicza z wyniku jedna reguła (``runs.verdict``). ``stop_kind`` to Rodzaj Zatrzymania (``None`` bez
+ * Zatrzymania).
+ */
+export const zLoggedOutcome = z.object({
+    result: z.enum([
+        'OK',
+        'WYMAGA_SPRAWDZENIA',
+        'BLAD_KRYTYCZNY'
+    ]),
+    headline: z.string(),
+    ending: z.enum([
+        'finished',
+        'stop',
+        'declined',
+        'unexpected',
+        'after_engine'
+    ]),
+    next_action: z.enum([
+        'run',
+        'rerun',
+        'open_collective_file',
+        'open_worker_settlements_folder'
+    ]),
+    stop_kind: z.enum([
+        'for_tata',
+        'for_maks',
+        'repeated',
+        'declined'
+    ]).nullable(),
+    stops: z.array(zMessage),
+    warnings: z.array(zMessage),
+    technical_notes: z.array(z.string()),
+    summary: zRunSummary.nullable()
+});
+
+/**
  * RunOutcome
  *
- * Wynik Uruchomienia procesu: zatrzymania i ostrzeżenia w trzech częściach, uwagi techniczne i podsumowanie.
+ * Wynik bieżącego Uruchomienia tej pracy Centrum: ``LoggedOutcome`` i to, czego Logi Uruchomienia nie niosą.
  *
- * ``ending`` mówi, jak się skończyło: ``finished``, własne zatrzymanie procesu (``stop``), Zatrzymanie po
- * odmowie w Decyzji taty (``declined``), nieoczekiwany błąd (``unexpected``) albo błąd po zakończeniu
- * silnika (``after_engine``). ``next_action`` to akcja, którą Centrum proponuje po wyniku, a ``headline``
- * to tytuł banera wyniku. ``stop_kind`` to rodzaj
- * Zatrzymania (``None`` bez Zatrzymania), ``diagnosis`` to Diagnoza, którą z niego Centrum proponuje
- * (``None``: bez Zatrzymania i przy Zatrzymaniu „dla taty”), a ``report`` stan Zgłoszenia do Maksa tego
- * problemu (``None``, gdy Centrum nie proponuje Diagnozy). ``files_unchanged``: Uruchomienie nie zmieniło
- * plików taty (podgląd bez zapisu albo koniec przed Zapisywaniem), więc karta może to tacie powiedzieć.
- * ``opens`` to plik taty, w którym jest poprawka Zatrzymania, a karta proponuje go otworzyć (``None``: żaden).
+ * ``diagnosis`` to Diagnoza, którą Centrum z niego proponuje (``None``: bez Zatrzymania i przy Zatrzymaniu „dla
+ * taty”), a ``report`` stan Zgłoszenia do Maksa tego problemu (``None``, gdy Centrum nie proponuje Diagnozy).
+ * ``files_unchanged``: Uruchomienie nie zmieniło plików taty (podgląd bez zapisu albo koniec przed
+ * Zapisywaniem), więc karta może to tacie powiedzieć. ``opens`` to plik taty, w którym jest poprawka
+ * Zatrzymania, a karta proponuje go otworzyć (``None``: żaden).
  */
 export const zRunOutcome = z.object({
     result: z.enum([
@@ -1088,6 +1213,10 @@ export const zRunOutcome = z.object({
         'repeated',
         'declined'
     ]).nullable(),
+    stops: z.array(zMessage),
+    warnings: z.array(zMessage),
+    technical_notes: z.array(z.string()),
+    summary: zRunSummary.nullable(),
     diagnosis: z.enum(['on_request', 'automatic']).nullable(),
     report: z.discriminatedUnion('state', [
         zReportReady,
@@ -1095,10 +1224,6 @@ export const zRunOutcome = z.object({
         zReportWaiting,
         zReportSaved
     ]).nullable(),
-    stops: z.array(zMessage),
-    warnings: z.array(zMessage),
-    technical_notes: z.array(z.string()),
-    summary: zRunSummary.nullable(),
     files_unchanged: z.boolean(),
     opens: z.enum(['order_register', 'collective_file']).nullable()
 });
@@ -1112,6 +1237,39 @@ export const zRunFinished = z.object({
     progress: zProgress,
     progress_stale: z.boolean(),
     result: zRunOutcome
+});
+
+/**
+ * RunRestored
+ *
+ * Karta zakończonego Uruchomienia z jego Logów Uruchomienia: nic, czego w nich nie ma.
+ *
+ * ``run`` ma tytuł procesu i ``confirms_readiness`` z deklaracji procesu, jak przy starcie, a ``started_at`` to
+ * start z Logów, ten sam co data wiersza Historii. Diagnozy i Zgłoszenia nie ma: żyją tylko przy Zatrzymaniu
+ * bieżącego Uruchomienia tej pracy Centrum.
+ */
+export const zRunRestored = z.object({
+    state: z.literal('restored'),
+    run: zRunInfo,
+    started_at: z.iso.datetime(),
+    phases: z.array(zPhaseProgress),
+    result: zLoggedOutcome
+});
+
+/**
+ * RunIdle
+ *
+ * W tej pracy Centrum nie było jeszcze Uruchomienia procesu.
+ *
+ * ``previous`` to ostatnie Uruchomienie przed tym startem Centrum; ``None``: nie było żadnego albo jego plików nie
+ * da się odczytać.
+ */
+export const zRunIdle = z.object({
+    state: z.literal('idle'),
+    previous: z.discriminatedUnion('state', [
+        zRunRestored,
+        zRunInterrupted
+    ]).nullable()
 });
 
 /**
@@ -1274,6 +1432,21 @@ export const zGetQuantitiesToFillResponse = z.discriminatedUnion('state', [
     zQuantitiesToFillProblem
 ]);
 
+export const zGetKindTablePath = z.object({
+    token: z.string(),
+    kind: zFillKind
+});
+
+/**
+ * Response Getkindtable
+ *
+ * Successful Response
+ */
+export const zGetKindTableResponse = z.discriminatedUnion('state', [
+    zKindTableReady,
+    zQuantitiesToFillProblem
+]);
+
 export const zGetWithoutQuantityPath = z.object({
     token: z.string()
 });
@@ -1334,6 +1507,20 @@ export const zStreamRunEventsResponse = zRunEvent;
  * Successful Response
  */
 export const zGetRunSetupResponse = zRunSetup;
+
+export const zGetRunCardPath = z.object({
+    run_id: z.string()
+});
+
+/**
+ * Response Getruncard
+ *
+ * Successful Response
+ */
+export const zGetRunCardResponse = z.discriminatedUnion('state', [
+    zRunRestored,
+    zRunCardMissing
+]);
 
 export const zDecideRunBody = zDecisionAnswer;
 

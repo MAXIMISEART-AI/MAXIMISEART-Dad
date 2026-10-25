@@ -7,7 +7,17 @@ from pathlib import Path
 
 from playwright.sync_api import Page, expect
 
-from drive.common import ROW_MARKER, Run, current_run, diagnosis_answer, ensure_files_set, finished_result, stop_banner
+from drive.common import (
+    ROW_MARKER,
+    Run,
+    current_run,
+    diagnosis_answer,
+    ended_run_shown,
+    ensure_files_set,
+    finished_result,
+    period_choice,
+    stop_banner,
+)
 
 FEATURE = "diagnoza"
 # A period without a Folder okresu that no feature prepares; the Rejestr zleceń has no orders in it, so no
@@ -63,11 +73,11 @@ def drive_diagnosis(run: Run, page: Page) -> None:
     lock.touch()
     page.goto(run.url + "#/uruchomienia")
     page.reload()
-    if current_run(run, "diagnoza-przed")["state"] == "finished":
+    if ended_run_shown(current_run(run, "diagnoza-przed")):
         page.get_by_role("button", name="Nowe Uruchomienie procesu").click()
     page.get_by_role("radio", name="Przygotowanie pliku zbiorczego").click()
     page.get_by_role("combobox", name="Okres").click()
-    page.get_by_role("option", name=f"{PERIOD} · Brak plików okresu", exact=True).click()
+    page.get_by_role("option", name=period_choice(PERIOD, "Brak plików okresu"), exact=True).click()
     page.get_by_role("button", name="Podgląd bez zapisu", exact=True).click()
     expect(stop_banner(page)).to_contain_text(REGISTER_OPEN)
     result = finished_result(run, "diagnoza-dla-taty")
@@ -253,7 +263,7 @@ def drive_diagnosis(run: Run, page: Page) -> None:
         page.get_by_role("button", name="Nowe Uruchomienie procesu").click()
         page.get_by_role("radio", name="Przygotowanie pliku zbiorczego").click()
         page.get_by_role("combobox", name="Okres").click()
-        page.get_by_role("option", name=f"{PERIOD} · Brak plików okresu", exact=True).click()
+        page.get_by_role("option", name=period_choice(PERIOD, "Brak plików okresu"), exact=True).click()
         page.get_by_role("button", name="Podgląd bez zapisu", exact=True).click()
         # The automatic Diagnoza runs while the fault is still there, so reading the Rejestr zleceń fails in it too.
         expect(diagnosis.get_by_label("Wyjaśnienie Diagnozy")).to_contain_text(NOT_FOUND)

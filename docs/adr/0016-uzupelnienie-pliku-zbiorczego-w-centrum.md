@@ -25,6 +25,13 @@ godzinami, z Plikiem zbiorczym otwartym w Excelu, więc strona, która wymaga za
   `URZĄDZENIA`, `CZYNNOŚCI`, `CZYNNOŚCI ZREALIZOWANE`, litery kolumn `N:AP` z nazwami pozycji cennika ze Wzorca
   oraz Ilości usług narzędzia i taty. Nigdy adresu, numeru zlecenia ani `UMOWA`. Pierwsza strona (#417) pokazuje
   z tego tylko numery wierszy, stan „zrobione” i liczniki kolumn z opisu technika.
+  Teksty i komórki dostaje tylko strona rodzaju (#418), osobnym zasobem dla jednego rodzaju, więc podsumowanie
+  ich nie niesie. Nazwy pozycji cennika są z wiersza 17 Pliku zbiorczego, który Przygotowanie kopiuje z Wzorca.
+- **Komórka pokazuje plik.** Komórka `N:AP` strony rodzaju ma wartość z Pliku zbiorczego. W kolumnie, którą
+  wyznaczają Reguły ilości, jest szara i nie robi wiersza zrobionym, a w pozostałych jest wpisem taty. Gdy tata
+  nadpisze w Excelu wartość narzędzia, strona pokazuje jego wartość, jak plik. Przeglądarka nie dostaje wyniku
+  Reguł ilości obok wartości z pliku, bo ich porównanie to Kontrola ilości, która zostaje dla Maksa.
+  Teksty wierszy nie wchodzą do `OrderFacts`, więc nie trafiają do Kontroli ilości ani do Logów Uruchomienia.
 - **Dane nie wychodzą z komputera.** Te pola nie trafiają do Logów Uruchomienia, Zgłoszenia, Uwagi taty,
   dziennika Centrum ani pomiaru widoku. Dziennik dostaje przy nieudanym odczycie tylko token okresu, kod
   Komunikatu, stan pliku blokady Excela i nazwę typu błędu.

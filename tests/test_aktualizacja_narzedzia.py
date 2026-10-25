@@ -32,6 +32,8 @@ from rozliczenia.centrum.tool_update import (
 from tests.fixtures.git_config import computer_git_config
 from tests.fixtures.potomne import beating
 from tests.fixtures.tool_clone import (
+    git_command,
+    git_failing_on,
     FIRST_VERSION,
     NEW_REQUIREMENTS,
     FakeInstaller,
@@ -707,20 +709,7 @@ def git_whose_helper_holds_its_output(tmp_path: Path, commit: str) -> Path:
         "print({'symbolic-ref': 'main', 'for-each-ref': f'v0.1.0 commit {COMMIT}'}.get(command, COMMIT))\n",
         encoding="utf-8",
     )
-    return _executable(tmp_path, script)
-
-
-def _executable(directory: Path, script: Path) -> Path:
-    """Polecenie ``git`` w ``directory``, które uruchamia skrypt Pythona ``script`` z argumentami Gita."""
-
-    if sys.platform == "win32":
-        git = directory / "git.cmd"
-        git.write_text(f'@"{sys.executable}" "{script}" %*\n', encoding="utf-8")
-    else:
-        git = directory / "git"
-        git.write_text(f"#!{sys.executable}\nexec(open({str(script)!r}, encoding='utf-8').read())\n", encoding="utf-8")
-        git.chmod(0o755)
-    return git
+    return git_command(tmp_path, script)
 
 
 def test_pomocnik_gita_trzymajacy_jego_wyjscie_nie_wstrzymuje_aktualizacji(tmp_path: Path) -> None:
@@ -880,7 +869,7 @@ def git_locking_after_merge(tmp_path: Path, locked: Path) -> Path:
         "sys.exit(code)\n",
         encoding="utf-8",
     )
-    return _executable(tmp_path, script)
+    return git_command(tmp_path, script)
 
 
 def test_gdy_plik_taty_nie_wroci_po_odmowie_przesuniecia_wynik_mowi_to_wprost_a_cofniecie_przywraca_plik_taty(
@@ -986,22 +975,6 @@ def test_wyjatek_instalatora_przy_nieudanym_cofnieciu_daje_wynik_cofniecie_nieud
     assert_back_before_click(repository, before)
 
 
-def git_failing_on(tmp_path: Path, *words: str) -> Path:
-    """Prawdziwy Git, w którym polecenie ze wszystkimi ``words`` kończy się błędem i niczego nie zmienia."""
-
-    real = shutil.which("git")
-    assert real is not None
-    script = tmp_path / "git_z_bledem.py"
-    script.write_text(
-        "import subprocess, sys\n"
-        f"if all(word in sys.argv for word in {list(words)!r}):\n"
-        "    sys.exit(128)\n"
-        f"sys.exit(subprocess.call([{real!r}, *sys.argv[1:]]))\n",
-        encoding="utf-8",
-    )
-    return _executable(tmp_path, script)
-
-
 def test_gdy_git_nie_odlozy_pliku_taty_przed_przesunieciem_klon_i_plik_taty_zostaja_bez_dziennika(
     repository: ToolRepository, tmp_path: Path
 ) -> None:
@@ -1056,7 +1029,7 @@ def git_whose_fetch_stalls(tmp_path: Path, commit: str, heartbeat: Path) -> Path
         "print('main' if command == 'symbolic-ref' else COMMIT)\n",
         encoding="utf-8",
     )
-    return _executable(tmp_path, script)
+    return git_command(tmp_path, script)
 
 
 def test_pobranie_ktore_stoi_po_limicie_czasu_konczy_sie_brakiem_polaczenia_bez_procesow_gita(

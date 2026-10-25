@@ -1,6 +1,7 @@
 import type * as React from "react"
 import { ReceiptTextIcon } from "lucide-react"
 
+import { ActiveRunMark, RUNS_PAGE } from "@/components/active-run"
 import { CloseCentrumButton } from "@/components/close-centrum"
 import {
   Sidebar,
@@ -53,6 +54,10 @@ export function AppSidebar({
                     <page.icon />
                     <span>{page.title}</span>
                   </SidebarMenuButton>
+                  {/* Obok linku, nie w nim: nazwa pozycji menu zostaje „Uruchomienia”. */}
+                  {page.id === RUNS_PAGE ? (
+                    <ActiveRunMark className="pointer-events-none absolute top-1/2 right-2 -translate-y-1/2" />
+                  ) : null}
                 </SidebarMenuItem>
               ))}
             </SidebarMenu>

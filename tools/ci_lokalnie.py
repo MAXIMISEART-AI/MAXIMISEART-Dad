@@ -7,14 +7,18 @@ albo ``CI LOKALNIE FAIL | <kroki>``; przebieg wszystkich zadań drukuje przedtem
 w toku (``tools/praca_w_toku.py --nakladania``). Zadania E2E i Timing guard mają swoje narzędzia
 (``--kroki-ci`` je wymienia), bo trwają kilka minut.
 
+Ciężkie zadania (``change-mutations``, ``mutations``), także w przebiegu wszystkich zadań, liczy CI na GitHubie:
+poza CI biegną tylko z ``--odtwarzam <id albo URL runu>``, w którym padły na tej gałęzi (``tools/ciezkie_ci.py``).
+
 ``--kazdy-commit`` sprawdza każdy commit gałęzi od bazy (domyślnie ``origin/main``) we własnym
 tymczasowym worktree, domyślnie krokami ruff, mypy i pytest, i nie dotyka checkoutu: zastępuje
 ręczne ``git rebase --exec``. Niezacommitowanych zmian nie sprawdza.
 
 Kroki i kopie commitów nie przeżywają ``ci_lokalnie``, także zabitego przez SIGKILL (``tools/potomne.py``).
 
-    py -3 tools/ci_lokalnie.py                  # Windows
-    .venv/bin/python tools/ci_lokalnie.py       # macOS i Linux
+    py -3 tools/ci_lokalnie.py --tylko pytest               # Windows
+    .venv/bin/python tools/ci_lokalnie.py --tylko pytest    # macOS i Linux
+    .venv/bin/python tools/ci_lokalnie.py --tylko change-mutations --odtwarzam <id albo URL runu>
     .venv/bin/python tools/ci_lokalnie.py --kazdy-commit
     .venv/bin/python tools/ci_lokalnie.py --tylko ruff,mypy
 """
@@ -24,12 +28,14 @@ from __future__ import annotations
 import argparse
 from dataclasses import dataclass
 import json
+import os
 from pathlib import Path
 import shutil
 import subprocess
 import sys
 import time
 
+import ciezkie_ci
 from mutacje import environment
 import potomne
 
@@ -171,6 +177,7 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Zakończ po pierwszym nieudanym kroku (brama pre-push: nieudany push odpowiada szybko).",
     )
+    ciezkie_ci.argument(parser)
     args = parser.parse_args(argv)
     steps = _steps(ROOT)
     known = {step.job for step in steps}
@@ -180,6 +187,12 @@ def main(argv: list[str] | None = None) -> int:
     jobs = set(args.tylko.split(",")) if args.tylko else set(EVERY_COMMIT_JOBS if args.kazdy_commit else known)
     if unknown := jobs - known:
         parser.error(f"nieznane zadania: {', '.join(sorted(unknown))}; znane: {', '.join(sorted(known))}")
+    if refusal := ciezkie_ci.refusal(jobs, args.odtwarzam, root=ROOT):
+        print(refusal)
+        return 2
+    if args.odtwarzam:
+        # Krok ``mutacje zmiany`` to osobny proces ze strażnikiem, a run sprawdził już ten.
+        os.environ[ciezkie_ci.REPRODUCING] = args.odtwarzam
     if args.kazdy_commit:
         return _check_every_commit(args.kazdy_commit, jobs, fail_fast=args.do_pierwszego_bledu)
     complete = jobs == known

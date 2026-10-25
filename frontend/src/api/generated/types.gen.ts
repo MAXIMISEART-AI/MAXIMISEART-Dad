@@ -13,7 +13,7 @@ export type ApiTiming = {
     /**
      * Operation
      */
-    operation: 'getHealth' | 'getSettings' | 'chooseRegister' | 'openRegister' | 'choosePeriodsDirectory' | 'changeTheme' | 'getPeriodBoard' | 'openPeriodPath' | 'getQuantitiesToFill' | 'getWithoutQuantity' | 'openWorkerSettlement' | 'getRunSetup' | 'startRun' | 'decideRun' | 'diagnoseRun' | 'reportRun' | 'getNotifications' | 'markNotificationsRead' | 'getMetrics' | 'getConfiguration' | 'startToolUpdate' | 'getToolUpdate' | 'reportToolUpdate' | 'getDadNoteRuns' | 'draftDadNote' | 'sendDadNote' | 'closeCentrum';
+    operation: 'getHealth' | 'getSettings' | 'chooseRegister' | 'openRegister' | 'choosePeriodsDirectory' | 'changeTheme' | 'getPeriodBoard' | 'openPeriodPath' | 'getQuantitiesToFill' | 'getWithoutQuantity' | 'getKindTable' | 'openWorkerSettlement' | 'getRunSetup' | 'startRun' | 'decideRun' | 'diagnoseRun' | 'reportRun' | 'getRunCard' | 'getNotifications' | 'markNotificationsRead' | 'getMetrics' | 'getConfiguration' | 'startToolUpdate' | 'getToolUpdate' | 'reportToolUpdate' | 'getDadNoteRuns' | 'draftDadNote' | 'sendDadNote' | 'closeCentrum';
     /**
      * Browser Ms
      */
@@ -67,6 +67,13 @@ export type BoardReady = {
      */
     last_prepared_period: string | null;
 };
+
+/**
+ * CellSource
+ *
+ * Czyją wartość pokazuje komórka N:AP wiersza do uzupełnienia.
+ */
+export type CellSource = 'tool' | 'tata' | 'empty';
 
 /**
  * Choice
@@ -452,6 +459,75 @@ export type Health = {
 };
 
 /**
+ * KindTableCell
+ *
+ * Komórka N:AP wiersza na stronie rodzaju: wartość z pliku w kolumnie narzędzia, wpis taty, który robi wiersz, albo nic (0).
+ */
+export type KindTableCell = {
+    source: CellSource;
+    /**
+     * Value
+     */
+    value: number | 'nieliczbowa';
+};
+
+/**
+ * KindTableReady
+ *
+ * Wiersze jednego rodzaju Ilości do uzupełnienia rosnąco po numerze; ``columns`` to N:AP po kolei.
+ */
+export type KindTableReady = {
+    /**
+     * State
+     */
+    state: 'ready';
+    kind: FillKind;
+    /**
+     * Columns
+     */
+    columns: Array<PriceListItem>;
+    /**
+     * Rows
+     */
+    rows: Array<KindTableRow>;
+};
+
+/**
+ * KindTableRow
+ *
+ * Wiersz strony rodzaju: numer wiersza Pliku zbiorczego, teksty, po których tata go rozpoznaje, i komórki N:AP.
+ *
+ * Nigdy adres, numer zlecenia ani ``UMOWA`` (ADR 0016).
+ */
+export type KindTableRow = {
+    /**
+     * Row
+     */
+    row: number;
+    state: RowState;
+    /**
+     * Worker
+     */
+    worker: string;
+    /**
+     * Devices
+     */
+    devices: string;
+    /**
+     * Activities
+     */
+    activities: string;
+    /**
+     * Completed
+     */
+    completed: string;
+    /**
+     * Cells
+     */
+    cells: Array<KindTableCell>;
+};
+
+/**
  * KindToFill
  *
  * Rodzaj Ilości do uzupełnienia z listą wierszy; ``done``: każdy wiersz zrobiony, także gdy wierszy nie ma.
@@ -466,6 +542,54 @@ export type KindToFill = {
      * Done
      */
     done: boolean;
+};
+
+/**
+ * LoggedOutcome
+ *
+ * Wynik Uruchomienia procesu taki, jak niosą go Logi Uruchomienia: to, co karta pokazuje także po zamknięciu Centrum.
+ *
+ * Zatrzymania i ostrzeżenia w trzech częściach, uwagi techniczne i podsumowanie. ``ending`` mówi, jak się
+ * skończyło: ``finished``, własne zatrzymanie procesu (``stop``), Zatrzymanie po odmowie w Decyzji taty
+ * (``declined``), nieoczekiwany błąd (``unexpected``) albo błąd po zakończeniu silnika (``after_engine``).
+ * ``next_action`` to akcja, którą Centrum proponuje po wyniku, a ``headline`` to tytuł banera wyniku; oba
+ * wylicza z wyniku jedna reguła (``runs.verdict``). ``stop_kind`` to Rodzaj Zatrzymania (``None`` bez
+ * Zatrzymania).
+ */
+export type LoggedOutcome = {
+    /**
+     * Result
+     */
+    result: 'OK' | 'WYMAGA_SPRAWDZENIA' | 'BLAD_KRYTYCZNY';
+    /**
+     * Headline
+     */
+    headline: string;
+    /**
+     * Ending
+     */
+    ending: 'finished' | 'stop' | 'declined' | 'unexpected' | 'after_engine';
+    /**
+     * Next Action
+     */
+    next_action: 'run' | 'rerun' | 'open_collective_file' | 'open_worker_settlements_folder';
+    /**
+     * Stop Kind
+     */
+    stop_kind: 'for_tata' | 'for_maks' | 'repeated' | 'declined' | null;
+    /**
+     * Stops
+     */
+    stops: Array<Message>;
+    /**
+     * Warnings
+     */
+    warnings: Array<Message>;
+    /**
+     * Technical Notes
+     */
+    technical_notes: Array<string>;
+    summary: RunSummary | null;
 };
 
 /**
@@ -839,6 +963,22 @@ export type PinnableRun = {
      * Stop Kind
      */
     stop_kind: 'for_tata' | 'for_maks' | null;
+};
+
+/**
+ * PriceListItem
+ *
+ * Kolumna N:AP i nazwa pozycji cennika z wiersza 17 Pliku zbiorczego.
+ */
+export type PriceListItem = {
+    /**
+     * Column
+     */
+    column: string;
+    /**
+     * Name
+     */
+    name: string;
 };
 
 /**
@@ -1244,6 +1384,11 @@ export type ResultCounts = {
 };
 
 /**
+ * RowState
+ */
+export type RowState = 'to_fill' | 'done';
+
+/**
  * RowToFill
  *
  * Wiersz Pliku zbiorczego z Ilościami do uzupełnienia: numer wiersza i czy tata już coś w nim wpisał.
@@ -1272,6 +1417,18 @@ export type RunAwaitingDecision = {
     run: RunInfo;
     progress: Progress;
     decision: Decision;
+};
+
+/**
+ * RunCardMissing
+ *
+ * Karty tego Uruchomienia nie ma: nie wystartowało z Centrum, nie ma jego Logów albo nie da się ich odczytać.
+ */
+export type RunCardMissing = {
+    /**
+     * State
+     */
+    state: 'missing';
 };
 
 /**
@@ -1318,13 +1475,24 @@ export type RunFinished = {
 /**
  * RunIdle
  *
- * Od startu serwera nie było żadnego Uruchomienia procesu.
+ * W tej pracy Centrum nie było jeszcze Uruchomienia procesu.
+ *
+ * ``previous`` to ostatnie Uruchomienie przed tym startem Centrum; ``None``: nie było żadnego albo jego plików nie
+ * da się odczytać.
  */
 export type RunIdle = {
     /**
      * State
      */
     state: 'idle';
+    /**
+     * Previous
+     */
+    previous: ({
+        state: 'restored';
+    } & RunRestored) | ({
+        state: 'interrupted';
+    } & RunInterrupted) | null;
 };
 
 /**
@@ -1360,19 +1528,36 @@ export type RunInfo = {
 };
 
 /**
+ * RunInterrupted
+ *
+ * Urwane Uruchomienie: Centrum zamknęło się w jego trakcie, więc zna tylko jego start.
+ *
+ * Nie ma wyniku, Logów Uruchomienia ani rekordu metryk. ``advice`` mówi w trzech częściach, co się stało i co
+ * zrobić, osobno dla podglądu (nic nie zapisał) i zapisu.
+ */
+export type RunInterrupted = {
+    /**
+     * State
+     */
+    state: 'interrupted';
+    run: RunInfo;
+    /**
+     * Started At
+     */
+    started_at: string;
+    advice: Message;
+};
+
+/**
  * RunOutcome
  *
- * Wynik Uruchomienia procesu: zatrzymania i ostrzeżenia w trzech częściach, uwagi techniczne i podsumowanie.
+ * Wynik bieżącego Uruchomienia tej pracy Centrum: ``LoggedOutcome`` i to, czego Logi Uruchomienia nie niosą.
  *
- * ``ending`` mówi, jak się skończyło: ``finished``, własne zatrzymanie procesu (``stop``), Zatrzymanie po
- * odmowie w Decyzji taty (``declined``), nieoczekiwany błąd (``unexpected``) albo błąd po zakończeniu
- * silnika (``after_engine``). ``next_action`` to akcja, którą Centrum proponuje po wyniku, a ``headline``
- * to tytuł banera wyniku. ``stop_kind`` to rodzaj
- * Zatrzymania (``None`` bez Zatrzymania), ``diagnosis`` to Diagnoza, którą z niego Centrum proponuje
- * (``None``: bez Zatrzymania i przy Zatrzymaniu „dla taty”), a ``report`` stan Zgłoszenia do Maksa tego
- * problemu (``None``, gdy Centrum nie proponuje Diagnozy). ``files_unchanged``: Uruchomienie nie zmieniło
- * plików taty (podgląd bez zapisu albo koniec przed Zapisywaniem), więc karta może to tacie powiedzieć.
- * ``opens`` to plik taty, w którym jest poprawka Zatrzymania, a karta proponuje go otworzyć (``None``: żaden).
+ * ``diagnosis`` to Diagnoza, którą Centrum z niego proponuje (``None``: bez Zatrzymania i przy Zatrzymaniu „dla
+ * taty”), a ``report`` stan Zgłoszenia do Maksa tego problemu (``None``, gdy Centrum nie proponuje Diagnozy).
+ * ``files_unchanged``: Uruchomienie nie zmieniło plików taty (podgląd bez zapisu albo koniec przed
+ * Zapisywaniem), więc karta może to tacie powiedzieć. ``opens`` to plik taty, w którym jest poprawka
+ * Zatrzymania, a karta proponuje go otworzyć (``None``: żaden).
  */
 export type RunOutcome = {
     /**
@@ -1396,6 +1581,19 @@ export type RunOutcome = {
      */
     stop_kind: 'for_tata' | 'for_maks' | 'repeated' | 'declined' | null;
     /**
+     * Stops
+     */
+    stops: Array<Message>;
+    /**
+     * Warnings
+     */
+    warnings: Array<Message>;
+    /**
+     * Technical Notes
+     */
+    technical_notes: Array<string>;
+    summary: RunSummary | null;
+    /**
      * Diagnosis
      */
     diagnosis: 'on_request' | 'automatic' | null;
@@ -1411,19 +1609,6 @@ export type RunOutcome = {
     } & ReportWaiting) | ({
         state: 'saved';
     } & ReportSaved) | null;
-    /**
-     * Stops
-     */
-    stops: Array<Message>;
-    /**
-     * Warnings
-     */
-    warnings: Array<Message>;
-    /**
-     * Technical Notes
-     */
-    technical_notes: Array<string>;
-    summary: RunSummary | null;
     /**
      * Files Unchanged
      */
@@ -1452,6 +1637,32 @@ export type RunRequest = {
      * Dry Run
      */
     dry_run: boolean;
+};
+
+/**
+ * RunRestored
+ *
+ * Karta zakończonego Uruchomienia z jego Logów Uruchomienia: nic, czego w nich nie ma.
+ *
+ * ``run`` ma tytuł procesu i ``confirms_readiness`` z deklaracji procesu, jak przy starcie, a ``started_at`` to
+ * start z Logów, ten sam co data wiersza Historii. Diagnozy i Zgłoszenia nie ma: żyją tylko przy Zatrzymaniu
+ * bieżącego Uruchomienia tej pracy Centrum.
+ */
+export type RunRestored = {
+    /**
+     * State
+     */
+    state: 'restored';
+    run: RunInfo;
+    /**
+     * Started At
+     */
+    started_at: string;
+    /**
+     * Phases
+     */
+    phases: Array<PhaseProgress>;
+    result: LoggedOutcome;
 };
 
 /**
@@ -2178,6 +2389,51 @@ export type GetQuantitiesToFillResponses = {
 
 export type GetQuantitiesToFillResponse = GetQuantitiesToFillResponses[keyof GetQuantitiesToFillResponses];
 
+export type GetKindTableData = {
+    body?: never;
+    path: {
+        /**
+         * Token
+         */
+        token: string;
+        kind: FillKind;
+    };
+    query?: never;
+    url: '/api/periods/{token}/quantities-to-fill/{kind}';
+};
+
+export type GetKindTableErrors = {
+    /**
+     * Not Found
+     */
+    404: Problem;
+    /**
+     * Conflict
+     */
+    409: Problem;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type GetKindTableError = GetKindTableErrors[keyof GetKindTableErrors];
+
+export type GetKindTableResponses = {
+    /**
+     * Response Getkindtable
+     *
+     * Successful Response
+     */
+    200: ({
+        state: 'ready';
+    } & KindTableReady) | ({
+        state: 'problem';
+    } & QuantitiesToFillProblem);
+};
+
+export type GetKindTableResponse = GetKindTableResponses[keyof GetKindTableResponses];
+
 export type GetWithoutQuantityData = {
     body?: never;
     path: {
@@ -2360,6 +2616,42 @@ export type GetRunSetupResponses = {
 };
 
 export type GetRunSetupResponse = GetRunSetupResponses[keyof GetRunSetupResponses];
+
+export type GetRunCardData = {
+    body?: never;
+    path: {
+        /**
+         * Run Id
+         */
+        run_id: string;
+    };
+    query?: never;
+    url: '/api/runs/{run_id}/card';
+};
+
+export type GetRunCardErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type GetRunCardError = GetRunCardErrors[keyof GetRunCardErrors];
+
+export type GetRunCardResponses = {
+    /**
+     * Response Getruncard
+     *
+     * Successful Response
+     */
+    200: ({
+        state: 'restored';
+    } & RunRestored) | ({
+        state: 'missing';
+    } & RunCardMissing);
+};
+
+export type GetRunCardResponse = GetRunCardResponses[keyof GetRunCardResponses];
 
 export type DecideRunData = {
     body: DecisionAnswer;

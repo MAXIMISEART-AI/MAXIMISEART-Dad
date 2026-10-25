@@ -15,10 +15,10 @@ from fastapi.testclient import TestClient
 from rozliczenia import preparation_process, settlement_process
 from rozliczenia.centrum.app import create_app
 from rozliczenia.centrum.cloud_files import CloudFiles
+from rozliczenia.centrum.dad_cases import DAD_CASES_FILE, REPORT
 from rozliczenia.centrum.log import CentrumLog
 from rozliczenia.centrum.processes import Processes
 from rozliczenia.centrum.report_box import (
-    REPORT_LABEL,
     REPOSITORY,
     CloseReason,
     Closure,
@@ -34,6 +34,7 @@ from rozliczenia.centrum.report_box import (
 )
 from rozliczenia.centrum.shutdown import Shutdown
 from rozliczenia.centrum.tool_freshness import GitHubReleases, PublishedRelease, ToolFreshness
+from rozliczenia.centrum.tool_update import Release
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -132,7 +133,7 @@ class FakeReportBox:
 
     @property
     def sent(self) -> list[FakeIssue]:
-        return self.issues_with(REPORT_LABEL)
+        return self.issues_with(REPORT.label)
 
     def issues_with(self, label: Label) -> list[FakeIssue]:
         with self._changed:
@@ -224,7 +225,7 @@ class FakeGitHub:
     ``release`` to commit najnowszego Wydania na `main`, a ``tag`` jego tag; ``release=None`` to brak sieci,
     ``NO_RELEASE`` to GitHub bez żadnego Wydania. ``published`` to lista GitHub Releases (``None``: brak sieci).
     ``asked`` liczy pytania o najnowsze Wydanie, a ``asked_published`` o listę. Commit narzędzia zawiera tylko taki
-    sam commit Wydania.
+    sam commit Wydania. ``wydanie`` to Wydanie, którego tag w klonie wskazuje commit narzędzia.
     """
 
     tool_commit: str | None = TOOL_COMMIT
@@ -234,10 +235,15 @@ class FakeGitHub:
     published: list[PublishedRelease] | None = field(default_factory=list)
     asked: int = 0
     asked_published: int = 0
+    wydanie: Release | None = None
 
     def freshness(self) -> ToolFreshness:
         return ToolFreshness(
-            local=lambda: self.tool_commit, since=lambda: self.since, release=self._release, published=self._published
+            local=lambda: self.tool_commit,
+            since=lambda: self.since,
+            release=self._release,
+            published=self._published,
+            wydanie=lambda local: self.wydanie,
         )
 
     def _release(self) -> GitHubReleases | None:
@@ -286,6 +292,17 @@ class Centrum:
     metrics: MetricsPaths
     log_path: Path
     report_box: FakeReportBox
+
+
+def dad_cases(config: Path, kind: str) -> list[dict[str, Any]]:
+    """Sprawy taty rodzaju ``kind`` (``uwaga``, ``zgloszenie``) z pliku stanu u taty; bez pliku żadnych."""
+
+    path = config / DAD_CASES_FILE
+    if not path.is_file():
+        return []
+    document = json.loads(path.read_text(encoding="utf-8"))
+    assert document["schema_version"] == 1
+    return [entry for entry in document["sprawy"] if entry["kind"] == kind]
 
 
 def centrum(tmp_path: Path, *, today: date = date(2026, 10, 19)) -> Centrum:

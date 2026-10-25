@@ -11,14 +11,15 @@ plik. Wzorzec czyta moduł skoroszytu (``workbook_files``) z jego klasyfikacją 
 from __future__ import annotations
 
 import re
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Collection, Mapping, Sequence
 from contextlib import AbstractContextManager, suppress
 from copy import copy
 from dataclasses import dataclass
 from enum import Enum
 from functools import lru_cache
 from pathlib import Path
-from typing import cast
+from types import MappingProxyType
+from typing import Never, cast
 from xml.parsers import expat
 
 from openpyxl.cell.cell import Cell, MergedCell
@@ -32,8 +33,10 @@ from openpyxl.worksheet.filters import AutoFilter
 from openpyxl.worksheet.worksheet import Worksheet
 
 from .highlights import PLAIN
+from .preparation_register import TARGET_HEADERS
+from .quantity_rules import QuantityColumn
 from .row_look import GENERAL, RowLook, wraps
-from .template_copy import InvalidValue, Package, SheetLayout, TemplateCopy, UnsupportedShape
+from .template_copy import InvalidValue, Package, Row, SheetLayout, TemplateCopy, UnsupportedShape
 from .workbook_files import (
     DATA_ROW_COLUMNS,
     FIRST_DATA_ROW,
@@ -45,13 +48,14 @@ from .workbook_files import (
     MergedCells,
     MissingHeader,
     Problem,
+    RegisterRow,
     WorkbookError,
     check_worker_header,
     classified,
-    ensure_available,
     header_columns,
     is_blank,
     open_workbook,
+    template_content,
     unreadable_as_error,
     workbook_content,
 )
@@ -60,15 +64,13 @@ from .workbook_save import WorkbookSaveError, save_from_template, write_atomical
 from .worker_config import normalize_text
 
 
-# Rozszerzenia skoroszytów, które otwiera openpyxl; inny plik jest nieczytelny jak przy otwieraniu przez openpyxl.
-_WORKBOOK_SUFFIXES = (".xlsx", ".xlsm", ".xltx", ".xltm")
 _INTERNAL_LOOK_COLUMNS = range(1, 14)  # A:M Rozliczenia wewnętrznego, z ``zwrot`` i ``UWAGI``
 
 
 @dataclass(frozen=True)
 class _Rules:
-    """Układ Wzorca jednego pliku: jego arkusz (``SheetLayout``, ten sam dla kopii i drogi przez openpyxl) i dwie
-    reguły, którymi zapis tego pliku różni się od pozostałych."""
+    """Układ Wzorca jednego pliku: jego arkusz (``SheetLayout``, ten sam dla kopii i drogi przez openpyxl) i reguły,
+    którymi zapis tego pliku różni się od pozostałych."""
 
     sheet: SheetLayout
     worker_header: bool
@@ -76,6 +78,10 @@ class _Rules:
     copy: bool
     """Plik może powstać kopią Wzorca (ADR 0008). Kopia zawsze każe Excelowi przeliczyć formuły przy otwarciu, więc
     droga przez openpyxl robi wtedy to samo; Rozliczenie wewnętrzne powstaje tylko przez openpyxl, bez tego."""
+    headers: tuple[str, ...] = ()
+    """Nagłówki docelowe pliku okresu, pod którymi stają komórki wiersza Rejestru zleceń; szukane w wierszu nagłówka
+    Wzorca bez względu na wielkość liter i spacje. Rozliczenie pracownika ich nie ma: komórka kolumny Pliku
+    zbiorczego trafia do tej samej kolumny."""
 
     @property
     def last_header_column(self) -> int | None:
@@ -108,6 +114,7 @@ _COLLECTIVE_FILE = _Rules(
     ),
     worker_header=True,
     copy=True,
+    headers=TARGET_HEADERS,
 )
 _INTERNAL_SETTLEMENT = _Rules(
     SheetLayout(
@@ -120,6 +127,7 @@ _INTERNAL_SETTLEMENT = _Rules(
     ),
     worker_header=False,
     copy=False,
+    headers=TARGET_HEADERS,
 )
 
 
@@ -248,19 +256,18 @@ class TemplatePlan:
 class TemplateFile:
     """Wzorzec jednego układu: jego Sprawdzanie, Planowanie i pliki z Wierszami danych (ADR 0008).
 
-    Powstaje dla jednego z trzech plików: ``worker_settlement``, ``collective_file`` albo ``internal_settlement``.
-    ``headers`` pliku okresu to nagłówek docelowy każdej pozycji Wiersza danych, szukany w wierszu nagłówka Wzorca
-    bez względu na wielkość liter i spacje; w Rozliczeniu pracownika pozycja ``i`` to kolumna ``i`` Wiersza danych
-    A:AT. Utworzenie nie czyta dysku. Plik powstaje kopią bajtów Wzorca, gdy kopia przyjmuje kształt Wzorca i
-    wierszy, a inaczej przez openpyxl; obie drogi dają ten sam plik. Pierwszy plik czyta bajty Wzorca
-    ponownie: Wzorzec zmieniony albo otwarty w Excelu po Sprawdzaniu działa tak, jakby był czytany dopiero
-    wtedy, a kolejne pliki powstają z tych samych bajtów. Wzorzec na dysku pozostaje niezmieniony.
+    Powstaje dla jednego z trzech plików: ``worker_settlement`` z Wierszy danych Pliku zbiorczego (``DataRow``),
+    ``collective_file`` albo ``internal_settlement`` z wierszy Rejestru zleceń (``RegisterRow``), których komórki
+    stają pod nagłówkami docelowymi pliku okresu. Utworzenie nie czyta dysku. Plik powstaje kopią bajtów Wzorca,
+    gdy kopia przyjmuje kształt Wzorca i wierszy, a inaczej przez openpyxl; obie drogi dają ten sam plik.
+    Pierwszy plik czyta bajty Wzorca ponownie: Wzorzec zmieniony albo otwarty w Excelu po Sprawdzaniu działa tak,
+    jakby był czytany dopiero wtedy, a kolejne pliki powstają z tych samych bajtów. Wzorzec na dysku pozostaje
+    niezmieniony.
     """
 
-    def __init__(self, path: Path, rules: _Rules, headers: Sequence[str]) -> None:
+    def __init__(self, path: Path, rules: _Rules) -> None:
         self.path = path
         self._rules = rules
-        self._headers = tuple(headers)
         self._content: bytes | None = None
         self._copy: TemplateCopy | None = None
         self._copy_read = False
@@ -270,31 +277,31 @@ class TemplateFile:
     def worker_settlement(cls, path: Path) -> TemplateFile:
         """Wzorzec rozliczenia pracownika: bez danych w Wierszach danych, sprawdzany też przed każdym plikiem."""
 
-        return cls(path, _WORKER_SETTLEMENT, ())
+        return cls(path, _WORKER_SETTLEMENT)
 
     @classmethod
-    def collective_file(cls, path: Path, headers: Sequence[str]) -> TemplateFile:
-        """Wzorzec pliku zbiorczego z nagłówkiem docelowym każdej pozycji Wiersza danych i Ilościami usług w N:AP."""
+    def collective_file(cls, path: Path) -> TemplateFile:
+        """Wzorzec pliku zbiorczego z nagłówkami docelowymi w A17:K17 i Ilościami usług w N:AP."""
 
-        return cls(path, _COLLECTIVE_FILE, headers)
+        return cls(path, _COLLECTIVE_FILE)
 
     @classmethod
-    def internal_settlement(cls, path: Path, headers: Sequence[str]) -> TemplateFile:
-        """Wzorzec rozliczenia wewnętrznego z nagłówkiem docelowym każdej pozycji Wiersza danych w wierszu 1."""
+    def internal_settlement(cls, path: Path) -> TemplateFile:
+        """Wzorzec rozliczenia wewnętrznego z nagłówkami docelowymi w wierszu 1."""
 
-        return cls(path, _INTERNAL_SETTLEMENT, headers)
+        return cls(path, _INTERNAL_SETTLEMENT)
 
     def check(self) -> None:
         """Sprawdzanie bez zapisu: ``WorkbookError``, gdy Wzorzec nie może posłużyć jako wzór.
 
-        Powód to brak pliku, otwarcie w Excelu, nieczytelny skoroszyt, brak nagłówka z ``headers`` albo
+        Powód to brak pliku, otwarcie w Excelu, nieczytelny skoroszyt, brak nagłówka docelowego albo
         WYKONAWCA poza H17 (zły układ z ``MissingHeader``), a we Wzorcu rozliczenia pracownika także
         wartości w Wierszach danych (``HAS_DATA``).
         """
 
         if self._rules.sheet.period_file:
             outline = _read_outline(self.path, self._rules)
-            _columns(self.path, outline.title, self._rules, outline.header, self._headers)
+            self._target_columns(outline.title, outline.header)
             if self._rules.worker_header:
                 check_worker_header(self.path, outline.title, outline.header)
             return
@@ -308,18 +315,18 @@ class TemplateFile:
             self._check_settlement_template(sheet.title, self._header(sheet), self._has_input_data(sheet))
 
     def plan(self, row_count: int) -> TemplatePlan:
-        """Planowanie ``row_count`` Wierszy danych: nagłówki z ``headers`` jak przy Sprawdzaniu, a scalenie w
+        """Planowanie ``row_count`` Wierszy danych: nagłówki docelowe jak przy Sprawdzaniu, a scalenie w
         komórkach, do których trafią, to zły układ z ``MergedCells``."""
 
         outline = _read_outline(self.path, self._rules)
-        columns = _columns(self.path, outline.title, self._rules, outline.header, self._headers)
+        columns = self._written_columns(self._target_columns(outline.title, outline.header))
         _ensure_unmerged(self.path, outline.title, outline.merged_ranges, self._rules.sheet, columns, row_count)
         first_row = self._rules.sheet.first_data_row
         return TemplatePlan(
             range(first_row, first_row + row_count), outline.zero_row_count, first_row + outline.zero_row_count
         )
 
-    def create(self, target: Path, rows: Sequence[DataRow]) -> Route:
+    def create(self, target: Path, rows: Sequence[DataRow] | Sequence[RegisterRow]) -> Route:
         """Zapisuje atomowo pod ``target`` plik z Wzorca z ``rows`` od pierwszego Wiersza danych i podaje drogę zapisu.
 
         Wpisana komórka dostaje Hiperłącze wiersza albo żadne i wartość; w kolumnach wyglądu Wygląd Wiersza
@@ -334,30 +341,26 @@ class TemplateFile:
             self._read_for_files = True
         copy = self._template_copy()
         if copy is not None:
-            columns = _columns(self.path, copy.title, self._rules, copy.header, self._headers)
+            # Nagłówki docelowe kopii są szukane w jej kolumnach danych wejściowych od A, więc zajmują je wszystkie.
+            target_columns = self._target_columns(copy.title, copy.header)
             if not self._rules.sheet.period_file:
                 self._check_settlement_template(copy.title, copy.header, copy.has_input_data)
-            placed = _placed(rows, columns)
-            if placed is not None:
-                try:
-                    package = copy.with_rows(placed)
-                except InvalidValue as exc:
-                    raise WorkbookSaveError(f"Nie można zapisać skoroszytu: {target.name}") from exc
-                except UnsupportedShape:
-                    pass
-                else:
-                    write_atomically(target, _package_writer(package, target))
-                    return Route.COPY
+            try:
+                package = copy.with_rows(_in_columns(rows, target_columns))
+            except InvalidValue as exc:
+                raise WorkbookSaveError(f"Nie można zapisać skoroszytu: {target.name}") from exc
+            except UnsupportedShape:
+                pass
+            else:
+                write_atomically(target, _package_writer(package, target))
+                return Route.COPY
         self._create_with_openpyxl(target, rows)
         return Route.OPENPYXL
 
     def _read(self) -> None:
         """Czyta bajty Wzorca; wczytany Wzorzec zostaje, jeśli plik się nie zmienił."""
 
-        ensure_available(self.path)
-        if self.path.suffix.lower() not in _WORKBOOK_SUFFIXES:
-            raise WorkbookError(self.path, Problem.UNREADABLE)
-        content = workbook_content(self.path)
+        content = template_content(self.path)
         if content != self._content:
             self._content = content
             self._copy = None
@@ -380,11 +383,12 @@ class TemplateFile:
 
         return open_workbook(self.path, self._loaded(), read_only=False)
 
-    def _create_with_openpyxl(self, target: Path, rows: Sequence[DataRow]) -> None:
+    def _create_with_openpyxl(self, target: Path, rows: Sequence[DataRow] | Sequence[RegisterRow]) -> None:
         with self._openpyxl_workbook() as workbook:
             sheet = _active_worksheet(self.path, workbook)
             header = self._header(sheet)
-            columns = _columns(self.path, sheet.title, self._rules, header, self._headers)
+            target_columns = self._target_columns(sheet.title, header)
+            columns = self._written_columns(target_columns)
             if self._rules.sheet.period_file:
                 _ensure_unmerged(
                     self.path, sheet.title, tuple(sheet.merged_cells.ranges), self._rules.sheet, columns, len(rows)
@@ -392,7 +396,7 @@ class TemplateFile:
             else:
                 self._check_settlement_template(sheet.title, header, self._has_input_data(sheet))
             try:
-                _write_rows(sheet, self._rules.sheet, rows, columns)
+                _write_rows(sheet, self._rules.sheet, _in_columns(rows, target_columns), columns)
             except IllegalCharacterError as exc:
                 raise WorkbookSaveError(f"Nie można zapisać skoroszytu: {target.name}") from exc
             if self._rules.copy:
@@ -420,28 +424,30 @@ class TemplateFile:
         if has_input_data:
             raise WorkbookError(self.path, Problem.HAS_DATA)
 
+    def _target_columns(self, sheet: str, header: Sequence[object]) -> Mapping[str, int]:
+        """Kolumna Wzorca pod każdym nagłówkiem docelowym; brak nagłówka to zły układ z ``MissingHeader``."""
+
+        found = header_columns(header)
+        columns: dict[str, int] = {}
+        for target in self._rules.headers:
+            column = found.get(normalize_text(target))
+            if column is None:
+                raise WorkbookError(self.path, Problem.LAYOUT, MissingHeader(sheet, self._rules.sheet.header_row, target))
+            columns[target] = column
+        return columns
+
+    def _written_columns(self, target_columns: Mapping[str, int]) -> Collection[int]:
+        """Kolumny, do których trafiają komórki wiersza: pod nagłówkami docelowymi, a w Rozliczeniu pracownika A:AT."""
+
+        return target_columns.values() if self._rules.headers else DATA_ROW_COLUMNS
+
     def _loaded(self) -> bytes:
         assert self._content is not None, "Wzorzec jest czytany przed użyciem"
         return self._content
 
 
-def _columns(path: Path, sheet: str, rules: _Rules, header: Sequence[object], headers: Sequence[str]) -> Sequence[int]:
-    """Kolumna Wzorca każdej pozycji Wiersza danych: pod nagłówkiem z ``headers``, a bez nich kolumny A:AT."""
-
-    if not headers:
-        return DATA_ROW_COLUMNS
-    found = header_columns(header)
-    columns: list[int] = []
-    for target in headers:
-        column = found.get(normalize_text(target))
-        if column is None:
-            raise WorkbookError(path, Problem.LAYOUT, MissingHeader(sheet, rules.sheet.header_row, target))
-        columns.append(column)
-    return columns
-
-
 def _ensure_unmerged(
-    path: Path, sheet: str, merged_ranges: Sequence[CellRange], layout: SheetLayout, columns: Sequence[int], row_count: int
+    path: Path, sheet: str, merged_ranges: Sequence[CellRange], layout: SheetLayout, columns: Collection[int], row_count: int
 ) -> None:
     """Zły układ z ``MergedCells``, gdy komórki ``row_count`` zapisanych Wierszy danych są scalone."""
 
@@ -454,36 +460,28 @@ def _ensure_unmerged(
             raise WorkbookError(path, Problem.LAYOUT, MergedCells(sheet, merged.coord))
 
 
-def _last_written_column(layout: SheetLayout, columns: Sequence[int]) -> int:
+def _last_written_column(layout: SheetLayout, columns: Collection[int]) -> int:
     return max(layout.look_columns, *columns)
 
 
-def _placed(rows: Sequence[DataRow], columns: Sequence[int]) -> Sequence[DataRow] | None:
-    """Wiersze z pozycjami w kolumnach od A, jak je wpisuje kopia; ``None``, gdy ``columns`` nie zajmują kolumn od A."""
+_NO_QUANTITIES: MappingProxyType[QuantityColumn, Never] = MappingProxyType({})
 
-    in_order = list(range(1, len(columns) + 1))
-    if list(columns) == in_order:
-        return rows
-    if sorted(columns) != in_order:
-        return None
-    order = sorted(range(len(columns)), key=columns.__getitem__)
+
+def _in_columns(rows: Sequence[DataRow] | Sequence[RegisterRow], target_columns: Mapping[str, int]) -> list[Row]:
+    """Komórka Wiersza danych Pliku zbiorczego w swojej kolumnie, a komórka wiersza Rejestru pod nagłówkiem docelowym."""
+
     return [
-        DataRow(
-            row.number,
-            tuple(row.values[index] for index in order),
-            tuple(row.highlights[index] for index in order),
-            tuple(row.number_formats[index] for index in order),
-            {columns[position - 1]: link for position, link in row.hyperlinks.items()},
-            row.quantities,
-        )
+        Row(dict(enumerate(row.cells, start=1)), _NO_QUANTITIES)
+        if isinstance(row, DataRow)
+        else Row({target_columns[header]: cell for header, cell in row.cells.items()}, row.quantities)
         for row in rows
     ]
 
 
-def _write_rows(sheet: Worksheet, layout: SheetLayout, rows: Sequence[DataRow], columns: Sequence[int]) -> None:
-    """Jedyny zapis Wierszy danych przez openpyxl: pozycja ``i`` wiersza trafia do kolumny ``columns[i-1]``.
+def _write_rows(sheet: Worksheet, layout: SheetLayout, rows: Sequence[Row], columns: Collection[int]) -> None:
+    """Jedyny zapis Wierszy danych przez openpyxl: komórka wiersza trafia do swojej kolumny z ``columns``.
 
-    Komórka kolumny wyglądu dostaje Wygląd Wiersza danych, a bez pozycji w wierszu sam wygląd i treść Wzorca; w
+    Komórka kolumny wyglądu dostaje Wygląd Wiersza danych, a bez komórki w wierszu sam wygląd i treść Wzorca; w
     pliku okresu wygląd ma każda zapisana kolumna. Dalsze komórki dostają Wyróżnienia na stylu Wzorca. Zapisany
     wiersz traci wysokość z Wzorca.
     """
@@ -491,7 +489,6 @@ def _write_rows(sheet: Worksheet, layout: SheetLayout, rows: Sequence[DataRow], 
     last_column = _last_written_column(layout, columns)
     look_columns = last_column if layout.period_file else layout.look_columns
     look = RowLook([cast(Font, sheet.cell(layout.header_row, column).font) for column in range(1, look_columns + 1)])
-    positions = {column: position for position, column in enumerate(columns, start=1)}
     for index, row in enumerate(rows):
         number = layout.first_data_row + index
         dimension = sheet.row_dimensions.get(number)  # bez tworzenia wymiaru, którego nie ma we Wzorcu
@@ -499,17 +496,16 @@ def _write_rows(sheet: Worksheet, layout: SheetLayout, rows: Sequence[DataRow], 
             dimension.ht = None
         for column in range(1, last_column + 1):
             cell = sheet.cell(number, column)
-            position = positions.get(column)
-            if position is None:
+            data = row.cells.get(column)
+            if data is None:
                 look.cell(column, PLAIN, GENERAL, wrapped=False).apply(cell)
                 continue
-            value, highlights = row.values[position - 1], row.highlights[position - 1]
-            link = row.hyperlinks.get(position)
+            value, highlights, number_format, link = data
             # Przed wartością: openpyxl wpisuje adres jako wartość pustej komórki.
             cell.hyperlink = None if link is None else link.address
             cell.value = value
             if column <= look.columns:
-                look.cell(column, highlights, row.number_formats[position - 1], wrapped=wraps(value)).apply(cell)
+                look.cell(column, highlights, number_format, wrapped=wraps(value)).apply(cell)
             else:
                 # font_over zawsze zwraca kopię, a fill_over może zwrócić wypełnienie, które dostał.
                 cell.font = highlights.font_over(cast(Font, cell.font))

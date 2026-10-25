@@ -5,7 +5,6 @@ from __future__ import annotations
 import codecs
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
-import json
 import re
 import shutil
 import threading
@@ -16,9 +15,10 @@ from typing import Any, NoReturn
 import pytest
 
 from rozliczenia.input_checks import FILE_READERS
+from rozliczenia.centrum.dad_cases import DAD_CASES_FILE
 from rozliczenia.centrum.reports import SEARCH_DEADLINE_S
 
-from tests.fixtures.centrum import TOOL_COMMIT
+from tests.fixtures.centrum import TOOL_COMMIT, dad_cases
 from tests.fixtures.centrum_processes import (
     PreparingCentrum,
     Surroundings,
@@ -372,7 +372,7 @@ def test_diagnoza_nie_czeka_na_skrzynke_a_jej_odpowiedz_o_otwartym_zgloszeniu_tr
     first = stopped_for_maks(centrum)
     diagnose(centrum, first)
     send(centrum, first)
-    (tmp_path / "config" / "zgloszenia-wyslane.json").unlink()  # Zgłoszenie wysłane spoza tego komputera
+    (tmp_path / "config" / DAD_CASES_FILE).unlink()  # Zgłoszenie wysłane spoza tego komputera
     centrum.restart()
     again = stopped_for_maks(centrum)
     box.search_hold = threading.Event()
@@ -412,7 +412,7 @@ def test_zgloszenie_zamkniete_wedlug_powiadomien_nie_czeka_juz_po_restarcie(tmp_
     preview = diagnose(centrum, again)["report"]
     assert "- Poprzednie Zgłoszenie: #1" in preview["body"].splitlines()
     assert send(centrum, again) == {"state": "sent"}
-    sent = json.loads((tmp_path / "config" / "zgloszenia-wyslane.json").read_text(encoding="utf-8"))
+    sent = dad_cases(tmp_path / "config", "zgloszenie")
     assert [(entry["number"], entry["closure"] is None) for entry in sent] == [(1, False), (2, True)]
 
 

@@ -3,7 +3,7 @@ import { FolderSearchIcon, FolderXIcon } from "lucide-react"
 
 import { getMetrics, getPeriodBoard, type Metrics, type PeriodBoard } from "@/api/centrum"
 import { PageHeader } from "@/components/page-header"
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import { LoadFailure } from "@/components/load-failure"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader } from "@/components/ui/card"
 import {
@@ -36,20 +36,35 @@ export function PeriodsPage() {
   )
 }
 
-/** Tablica okresów i metryki czytają się od razu, razem z Ustawieniami taty, a nie po kolei po nich. */
+/**
+ * Tablica okresów i metryki czytają się od razu, razem z Ustawieniami taty, a nie po kolei po nich.
+ * Każdy nieudany odczyt strony pokazuje jeden Komunikat, a jego „Spróbuj ponownie” czyta od nowa wszystkie,
+ * które się nie udały: jedno kliknięcie przywraca całą stronę.
+ */
 function PeriodsContent() {
-  const { settings } = useSettings()
-  const { resource: board, reload } = useResource(getPeriodBoard)
-  const { resource: metrics } = useResource(getMetrics)
+  const { settings, reload: reloadSettings } = useSettings()
+  const { resource: board, reload: reloadBoard } = useResource(getPeriodBoard)
+  const { resource: metrics, reload: reloadMetrics } = useResource(getMetrics)
   const entrance = useContentEntrance(settings.state === "loading")
+
+  const failures = [
+    { what: "okresów", resource: settings, reload: reloadSettings },
+    { what: "okresów", resource: board, reload: reloadBoard },
+    { what: "najważniejszych liczb", resource: metrics, reload: reloadMetrics },
+  ].flatMap(({ what, resource, reload }) =>
+    resource.state === "failed" ? [{ what, message: resource.message, reload }] : []
+  )
+
+  const [first] = failures
+  const retry = () => Promise.all(failures.map((failure) => failure.reload())).then(() => undefined)
 
   return (
     <>
+      {first === undefined ? null : <LoadFailure what={first.what} message={first.message} reload={retry} />}
       {settings.state === "loading" ? <PeriodsSkeleton /> : null}
-      {settings.state === "failed" ? <Failure message={settings.message} /> : null}
       {settings.state === "ready" ? (
         <div className={cn(entrance, "flex flex-col gap-6")}>
-          <PeriodBoardSection board={board} metrics={metrics} reload={reload} />
+          <PeriodBoardSection board={board} metrics={metrics} reload={reloadBoard} />
           <FileSettingsCard settings={settings.data} />
         </div>
       ) : null}
@@ -57,6 +72,7 @@ function PeriodsContent() {
   )
 }
 
+/** Nieudany odczyt Tablicy okresów pokazuje Komunikat strony nad nią, więc tu nie ma nic. */
 function PeriodBoardSection({
   board,
   metrics,
@@ -70,7 +86,7 @@ function PeriodBoardSection({
     case "loading":
       return <PeriodsSkeleton />
     case "failed":
-      return <Failure message={board.message} />
+      return null
     case "ready":
       return <BoardContent board={board.data} metrics={metrics} reload={reload} />
     default: {
@@ -150,15 +166,6 @@ function ChoosePeriodsDirectory() {
       {picker === "periods_directory" ? <Spinner data-icon="inline-start" /> : null}
       {picker === "periods_directory" ? "Czekam na wybór…" : "Wskaż folder okresów"}
     </Button>
-  )
-}
-
-function Failure({ message }: { message: string }) {
-  return (
-    <Alert variant="destructive" className="wejscie">
-      <AlertTitle>Nie udało się odczytać okresów</AlertTitle>
-      <AlertDescription>{message}</AlertDescription>
-    </Alert>
   )
 }
 

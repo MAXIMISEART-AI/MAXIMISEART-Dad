@@ -5,18 +5,22 @@ arkusza; jego ``WorkbookError`` przechodzi do procesu, który tłumaczy go na
 Komunikat. Moduł nie zna mapowania Wykonawców ani nazw plików okresu
 (``period_folder``). Z tego samego odczytu każdy Wiersz danych, także bez
 Wykonawcy, przechodzi przez filtr prywatności (``order_facts``) dla Kontroli ilości.
-Ten sam odczyt i filtr dają Ilości do uzupełnienia (``read_numbered_orders``), także z pliku otwartego w Excelu.
+Ten sam odczyt i filtr dają Ilości do uzupełnienia (``read_numbered_orders``), także z pliku otwartego w Excelu, a
+obok filtra teksty wiersza i nazwy pozycji cennika dla strony rodzaju, które nie wychodzą z komputera (ADR 0016).
 """
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
 from . import workbook_files
 from .order_facts import CollectiveOrders, MissingHeaders, collective_orders
-from .quantities_to_fill import NumberedOrder
+from .preparation_register import ACTIVITIES, COMPLETED, DEVICES, Column
+from .quantities_to_fill import NumberedOrder, RowTexts
 from .workbook_files import DataRow
+from .worker_config import normalize_text
 
 
 @dataclass(frozen=True)
@@ -40,17 +44,39 @@ def read_data_rows(path: Path) -> CollectiveRows:
             without_worker.append(row.number)
             continue
         rows.append(row)
-    return CollectiveRows(rows, without_worker, collective_orders(read.header, [row.values for row in read.rows]))
+    return CollectiveRows(rows, without_worker, collective_orders(read.header, read.rows))
 
 
-def read_numbered_orders(path: Path) -> tuple[NumberedOrder, ...] | MissingHeaders:
-    """Dozwolona treść każdego Wiersza danych z jego numerem wiersza; plik jest tylko czytany.
+@dataclass(frozen=True)
+class NumberedOrders:
+    rows: tuple[NumberedOrder, ...]
+    """Każdy Wiersz danych w kolejności z pliku."""
+    price_list: Mapping[str, str]
+    """Litera kolumny N:AP → nazwa pozycji cennika z wiersza 17."""
+
+
+def read_numbered_orders(path: Path) -> NumberedOrders | MissingHeaders:
+    """Dozwolona treść każdego Wiersza danych z jego numerem wiersza i tekstami; plik jest tylko czytany.
 
     Plik otwarty w Excelu też jest czytany: jego ostatnia zapisana wersja (ADR 0016).
     """
 
     read = workbook_files.read_data_rows(path, despite_excel_lock=True)
-    orders = collective_orders(read.header, [row.values for row in read.rows])
+    orders = collective_orders(read.header, read.rows)
     if isinstance(orders, MissingHeaders):
         return orders
-    return tuple(map(NumberedOrder, (row.number for row in read.rows), orders))
+    texts = [_texts(read.header, row) for row in read.rows]
+    return NumberedOrders(
+        tuple(map(NumberedOrder, (row.number for row in read.rows), orders, texts)), read.price_list
+    )
+
+
+def _texts(header: Mapping[str, int], row: DataRow) -> RowTexts:
+    def text(value: object) -> str:
+        return "" if value is None else str(value).strip()
+
+    def under(column: Column) -> str:
+        position = header.get(normalize_text(column.target_header))
+        return "" if position is None else text(row.cells[position - 1].value)
+
+    return RowTexts(text(row.worker), under(DEVICES), under(ACTIVITIES), under(COMPLETED))

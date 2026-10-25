@@ -3,10 +3,13 @@ import type {
   DadNoteRequest,
   DadNoteText,
   DecisionAnswer,
+  FillKind,
   GetCurrentRunResponse,
   GetNotificationsResponse,
   GetPeriodBoardResponse,
   GetQuantitiesToFillResponse,
+  GetKindTableResponse,
+  GetRunCardResponse,
   GetWithoutQuantityResponse,
   GetToolUpdateResponse,
   NotificationsRead,
@@ -14,6 +17,7 @@ import type {
   WorkerSettlementRequest,
   PeriodRow,
   RunEvent,
+  RunOutcome,
   RunRequest,
   SendDadNoteResponse,
   Settings,
@@ -35,6 +39,8 @@ import {
   zGetNotificationsResponse,
   zGetPeriodBoardResponse,
   zGetQuantitiesToFillResponse,
+  zGetKindTableResponse,
+  zGetRunCardResponse,
   zGetWithoutQuantityResponse,
   zGetRunSetupResponse,
   zGetSettingsResponse,
@@ -65,6 +71,10 @@ export type {
   Figure,
   FillKind,
   KindToFill,
+  KindTableCell,
+  KindTableRow,
+  PriceListItem,
+  LoggedOutcome,
   Message,
   Metrics,
   Percentiles,
@@ -82,8 +92,10 @@ export type {
   ResultCounts,
   RunEvent,
   RunInfo,
+  RunInterrupted,
   RunOutcome,
   RunRequest,
+  RunRestored,
   RunSummary,
   Settings,
   TemplateProblem,
@@ -95,6 +107,9 @@ export type PeriodBoard = GetPeriodBoardResponse
 
 /** Ilości do uzupełnienia okresu z zapisanego Pliku zbiorczego albo Komunikat o pliku (unia z kontraktu po `state`). */
 export type QuantitiesToFill = GetQuantitiesToFillResponse
+
+/** Wiersze jednego rodzaju Ilości do uzupełnienia z komórkami N:AP albo Komunikat o pliku (unia z kontraktu po `state`). */
+export type KindTable = GetKindTableResponse
 
 /** Wiersze bez ilości okresu dla okna „Uruchomić z zapisem?” albo „unread”, gdy Pliku zbiorczego nie odczytano. */
 export type WithoutQuantity = GetWithoutQuantityResponse
@@ -124,6 +139,15 @@ export type DadNoteState = SendDadNoteResponse
 
 /** Widok bieżącego Uruchomienia procesu; jego `state` to stany UI (unia z kontraktu). */
 export type RunView = GetCurrentRunResponse
+
+/** Ostatnie Uruchomienie sprzed startu Centrum: karta z Logów albo Urwane Uruchomienie (unia z kontraktu). */
+export type PastRun = NonNullable<Extract<RunView, { state: "idle" }>["previous"]>
+
+/** Karta Uruchomienia z wiersza Historii albo jej brak (unia z kontraktu). */
+export type RunCard = GetRunCardResponse
+
+/** Akcja, którą Centrum proponuje po wyniku Uruchomienia. */
+export type NextAction = RunOutcome["next_action"]
 
 function send(
   method: "POST" | "PUT",
@@ -194,6 +218,11 @@ export function getQuantitiesToFill(token: string) {
     "getQuantitiesToFill",
     `/api/periods/${encodeURIComponent(token)}/quantities-to-fill`
   )
+}
+
+/** Tabela jednego rodzaju Ilości do uzupełnienia, przeliczana przy każdym odczycie z zapisanego Pliku zbiorczego. */
+export function getKindTable(token: string, kind: FillKind) {
+  return call(zGetKindTableResponse, "getKindTable", `/api/periods/${encodeURIComponent(token)}/quantities-to-fill/${kind}`)
 }
 
 /** Wiersze bez ilości okresu dla okna „Uruchomić z zapisem?” Przebiegu rozliczeń, z zapisanego Pliku zbiorczego. */
@@ -299,6 +328,11 @@ export function watchRunEvents(
     document.removeEventListener("visibilitychange", followVisibility)
     source?.close()
   }
+}
+
+/** Karta Uruchomienia `runId` z jego Logów Uruchomienia (wiersz Historii); `missing`, gdy karty nie ma. */
+export function getRunCard(runId: string) {
+  return call(zGetRunCardResponse, "getRunCard", `/api/runs/${encodeURIComponent(runId)}/card`)
 }
 
 /** Historia Uruchomień procesu z obu plików metryk, z P50/P95 i rozkładem wyników; serwer czyta pliki przy każdym odczycie. */

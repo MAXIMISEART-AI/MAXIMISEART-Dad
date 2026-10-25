@@ -69,6 +69,10 @@ They complement `GLOSSARY.md`, the ADRs, and the executable checks; they do not 
 - Every changed line of `src/` needs a test that fails when the line is broken: `tools/mutacje_zmiany.py` (CI job `Change mutations`) mutates each changed line and fails on a mutation no test catches.
   Add the test that catches it.
   Only a mutation that leaves the behaviour unchanged gets `# mutacje-zmiany: <reason> | do YYYY-MM-DD | zgoda <who>` on its line, with Maks's approval.
+- A PR that adds or changes a check (a structure test, a lint rule, a CI job, a checking tool) shows its result on real history in the PR body, from `tools/na_scalonych_pr.py`.
+  On the commits of the PRs whose review found the mistake (`--commit <SHA>`), it finds what the review found.
+  On a few recent merged PRs (`--ostatnie 5`), including one with Windows-only code, it raises no false alarm.
+  The reviewer reruns at least one of these.
 
 ## Frontend
 

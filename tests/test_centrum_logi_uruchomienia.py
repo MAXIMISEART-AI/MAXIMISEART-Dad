@@ -9,26 +9,33 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
 import json
+import os
 from pathlib import Path
 import re
+import sys
 from typing import Any, NoReturn
 
 import pytest
 
+from rozliczenia import settlement_messages
 from rozliczenia.centrum import app, contract, runs
+from rozliczenia.centrum.tool_update import Release
 from rozliczenia.period_folder import PeriodFolderInaccessible
 
-from tests.fixtures.centrum import TOOL_COMMIT, finished_view, views_until, without_times
+from tests.fixtures.centrum import TOOL_COMMIT, FakeGitHub, finished_view, views_until, without_times
 from tests.fixtures.centrum_processes import (
     PreparingCentrum,
     SettlingCentrum,
+    Surroundings,
     preparing_centrum,
     run_to_end,
     settling_centrum,
     stopped_for_maks,
 )
 from tests.fixtures.preparation import PERIOD, incomplete_period_rows
+from tests.fixtures.run_cards import first_view, restored
 from tests.fixtures.settlement import MARKED, SOURCE_NAME, write_quantity_source
+from tests.fixtures.tool_clone import ToolRepository, git_command, git_failing_on, tool_repository
 
 AnyCentrum = PreparingCentrum | SettlingCentrum
 KEYS = {
@@ -301,6 +308,21 @@ def test_kazda_droga_zakonczenia_w_obu_trybach_daje_jeden_plik_logow_z_wynikiem_
     assert in_json(tmp_path) not in text and in_json(tmp_path.resolve()) not in text
 
 
+@pytest.mark.parametrize("ending", ENDINGS.values(), ids=ENDINGS.keys())
+def test_po_ponownym_starcie_karta_ostatniego_uruchomienia_wraca_z_logow(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, ending: Ending
+) -> None:
+    centrum, live = ending.run(tmp_path, monkeypatch)
+    [record] = records(centrum)
+
+    centrum.restart()
+
+    current = centrum.client.get("/api/runs/current").json()
+    assert current == {"state": "idle", "previous": restored(live, record["started_at"])}
+    assert first_view(centrum.client) == current
+    assert in_json(tmp_path) not in json.dumps(current), "same nazwy plików, bez ścieżek"
+
+
 def test_logi_maja_etapy_i_przetworzenia_szablonow_pracownika_z_wynikiem_wierszami_i_czasem(tmp_path: Path) -> None:
     centrum = settling_centrum(tmp_path)
 
@@ -417,6 +439,14 @@ def test_logi_nie_maja_tresci_komorek_wykonawcy_przy_wierszu_daty_dziennej_ani_p
     texts = [path.read_text(encoding="utf-8") for path in log_files(centrum)]
     assert len(texts) == 3
     texts += sent
+    naming = [
+        settlement_messages.unmapped_worker_warning(centrum.collective_file, "ZNACZNIK-WYKONAWCA").what,
+        settlement_messages.unmapped_worker(centrum.collective_file, ["ZNACZNIK-WYKONAWCA"]).what,
+    ]
+    for what in naming:
+        forms = (what, json.dumps(what)[1:-1])
+        assert any(form in text for form in forms for text in texts), what
+        texts = [text.replace(forms[0], "").replace(forms[1], "") for text in texts]
     forbidden = ("ZNACZNIK", "adrian.testowy", "2026-09-09", "09.09.2026", in_json(tmp_path), in_json(tmp_path.resolve()))
     assert [marker for marker in forbidden if any(marker in text for text in texts)] == []
     assert sum("Adrian Testowy" in text for text in texts) == 4, "Wykonawca z Konfiguracji w obu wynikach z planem"
@@ -476,3 +506,117 @@ def test_logi_przezywaja_zamkniecie_i_ponowny_start_centrum(tmp_path: Path) -> N
 
     assert [record["run_id"] for record in records(centrum)] == [before["run"]["id"], after["run"]["id"]]
     assert first.read_bytes() == first_bytes
+
+
+def installed_at(repository: ToolRepository, target: str) -> None:
+    """Klon taty jak po instalacji z README: tagi z „origin” i ``main`` na ``target`` (tag Wydania albo commit)."""
+
+    repository.in_clone("fetch", "--quiet", "--tags", "origin")
+    repository.in_clone("reset", "--quiet", "--hard", target)
+
+
+def _annotated_release(repository: ToolRepository) -> None:
+    repository.publish({"src/narzedzie.py": "WERSJA = 2\n"}, released=False)
+    installed_at(repository, repository.release(annotated=True))
+
+
+def _two_releases_on_one_commit(repository: ToolRepository) -> None:
+    repository.publish({"src/narzedzie.py": "WERSJA = 2\n"}, released=False)
+    repository.release(tag="v0.10.0")
+    installed_at(repository, repository.release(tag="v0.9.0"))
+
+
+def _commit_after_release(repository: ToolRepository) -> None:
+    installed_at(repository, repository.publish({"src/narzedzie.py": "WERSJA = 2\n"}, released=False))
+
+
+CLONES = {
+    "wydanie-z-opisem": (_annotated_release, "0.1.1"),
+    "dwa-wydania-na-commicie": (_two_releases_on_one_commit, "0.10.0"),
+    "commit-po-wydaniu": (_commit_after_release, None),
+}
+
+
+@pytest.mark.parametrize(("install", "wydanie"), CLONES.values(), ids=CLONES.keys())
+def test_logi_podaja_najwyzsze_wydanie_na_commicie_narzedzia_a_po_wydaniu_brak(
+    tmp_path: Path, install: Callable[[ToolRepository], None], wydanie: str | None
+) -> None:
+    repository = tool_repository(tmp_path / "repozytoria")
+    install(repository)
+    centrum = preparing_centrum(tmp_path, surroundings=Surroundings(tool=repository))
+
+    run_to_end(centrum, dry_run=True)
+
+    [record] = records(centrum)
+    assert record["tool"] == {"wydanie": wydanie, "commit": repository.head()}
+
+
+def _no_git(tmp_path: Path) -> Path | None:
+    return None
+
+
+def _uninstalled_git(tmp_path: Path) -> Path | None:
+    return tmp_path / "odinstalowany" / "git"
+
+
+def _git_failing_on_tags(tmp_path: Path) -> Path | None:
+    return git_failing_on(tmp_path, "for-each-ref")
+
+
+def _git_not_answering(tmp_path: Path) -> Path | None:
+    """Git, który na każde polecenie milczy dłużej, niż Centrum czeka na Wydanie, a potem podaje tag Wydania."""
+
+    script = tmp_path / "git_bez_odpowiedzi.py"
+    script.write_text("import time\ntime.sleep(30)\nprint('v9.9.9')\n", encoding="utf-8")
+    return git_command(tmp_path, script)
+
+
+GITS = {
+    "bez-gita": _no_git,
+    "git-odinstalowany": _uninstalled_git,
+    "blad-gita": _git_failing_on_tags,
+    "git-bez-odpowiedzi": _git_not_answering,
+}
+
+
+@pytest.mark.parametrize("found_git", GITS.values(), ids=GITS.keys())
+def test_bez_dzialajacego_gita_logi_maja_commit_narzedzia_bez_wydania(
+    tmp_path: Path, found_git: Callable[[Path], Path | None]
+) -> None:
+    repository = tool_repository(tmp_path / "repozytoria")
+    git = found_git(tmp_path)
+    centrum = preparing_centrum(tmp_path, surroundings=Surroundings(tool=repository, find_git=lambda: git))
+
+    run_to_end(centrum, dry_run=True)
+
+    [record] = records(centrum)
+    assert record["tool"] == {"wydanie": None, "commit": repository.head()}
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="program bez rozszerzenia z PATH uruchamia tylko POSIX")
+def test_bez_gita_logi_niczego_nie_uruchamiaja_po_wydanie(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    programs = tmp_path / "programy"
+    programs.mkdir()
+    started = tmp_path / "uruchomiony"
+    impostor = programs / "None"
+    impostor.write_text(f"#!/bin/sh\ntouch '{started}'\necho v9.9.9\n", encoding="utf-8")
+    impostor.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{programs}{os.pathsep}{os.environ['PATH']}")
+    repository = tool_repository(tmp_path / "repozytoria")
+    centrum = preparing_centrum(tmp_path, surroundings=Surroundings(tool=repository, find_git=lambda: None))
+
+    run_to_end(centrum, dry_run=True)
+
+    [record] = records(centrum)
+    assert record["tool"] == {"wydanie": None, "commit": repository.head()}
+    assert not started.exists()
+
+
+def test_narzedzie_poza_klonem_gita_ma_logi_bez_commitu_i_bez_wydania(tmp_path: Path) -> None:
+    github = FakeGitHub(tool_commit=None, wydanie=Release.of_tag("v0.1.0"))
+    centrum = settling_centrum(tmp_path, surroundings=Surroundings(github=github))
+
+    run_to_end(centrum, dry_run=True)
+
+    [record] = records(centrum)
+    assert record["tool"] == {"wydanie": None, "commit": None}

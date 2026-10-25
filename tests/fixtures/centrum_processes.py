@@ -25,7 +25,7 @@ from rozliczenia.centrum.reports import SEARCH_DEADLINE_S
 from rozliczenia.centrum.restart_guardian import Restart
 from rozliczenia.centrum.shutdown import Shutdown
 from rozliczenia.centrum.tool_freshness import GitHubReleases, ToolFreshness
-from rozliczenia.centrum.tool_update import ToolClone
+from rozliczenia.centrum.tool_update import ToolClone, find_git
 from rozliczenia.decision import Conversation
 from rozliczenia.domain import ProgressObserver
 from rozliczenia.input_checks import FILE_READERS, Readers
@@ -101,6 +101,7 @@ class Surroundings:
     ``report_search_deadline_s`` to limit, po którym Diagnoza przestaje czekać na skrzynkę Zgłoszeń.
     ``release_unanswered`` to GitHub, który przy ``tool`` nie odpowiada o najnowsze Wydanie, chociaż klon dalej
     pobiera z „origin”. ``readers`` czytają Rejestr zleceń i Wzorce w Uruchomieniu procesu, Diagnozie i Konfiguracji.
+    ``find_git`` znajduje Gita, którego przy ``tool`` używa Centrum (``None``: Gita nie ma).
     """
 
     github: FakeGitHub = field(default_factory=FakeGitHub)
@@ -115,6 +116,7 @@ class Surroundings:
     report_search_deadline_s: float = SEARCH_DEADLINE_S
     release_unanswered: bool = False
     readers: Readers = FILE_READERS
+    find_git: Callable[[], Path | None] = find_git
 
     def tool_freshness(self) -> ToolFreshness:
         tool = self.tool
@@ -124,7 +126,7 @@ class Surroundings:
         def release() -> GitHubReleases | None:
             return None if self.release_unanswered else tool.github_releases()
 
-        return ToolFreshness.of_clone(tool.clone, release, tool.published)
+        return ToolFreshness.of_clone(tool.clone, release, tool.published, find_git=self.find_git)
 
     def tool_update(self) -> ToolClone | None:
         tool, hold = self.tool, self.update_hold
@@ -134,8 +136,7 @@ class Surroundings:
         def held_git() -> Path | None:
             if hold is not None:
                 hold.wait()
-            found = shutil.which("git")
-            return None if found is None else Path(found)
+            return self.find_git()
 
         return ToolClone(
             tool.clone, origin=str(tool.origin), find_git=held_git, install=self.installer
@@ -148,6 +149,26 @@ class Surroundings:
             raise OSError("opiekun nie wystartował")
         self.restarts.append(restart)
         shutil.rmtree(restart.work)
+
+
+@dataclass
+class HeldRegister:
+    """Rejestr zleceń, którego odczyt w Uruchomieniu procesu czeka, aż test go puści (``released``).
+
+    ``reading`` mówi, że Uruchomienie już czyta Rejestr. Ponowny start Centrum w tym czasie to Centrum zamknięte
+    w trakcie Uruchomienia: stare Uruchomienie nie kończy się, dopóki test go nie puści.
+    """
+
+    reading: threading.Event = field(default_factory=threading.Event)
+    released: threading.Event = field(default_factory=threading.Event)
+
+    def readers(self) -> Readers:
+        def register(path: Path, period: Any) -> Any:
+            self.reading.set()
+            self.released.wait()
+            return FILE_READERS.register(path, period)
+
+        return replace(FILE_READERS, register=register)
 
 
 def _client(
