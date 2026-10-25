@@ -83,7 +83,9 @@ co stało się z tym, co wysłał.
   reguły, te same co na karcie Uruchomienia i w Zgłoszeniu: Komunikat
   `ZLE_SKUTECZNE` cytuje dowolny tekst, który tata wpisał w komórce `SKUTECZNE`;
   `NIEZNANY_WYKONAWCA` z Przygotowania podaje identyfikator Wykonawcy przy
-  numerze wiersza Rejestru; podsumowanie ma liczbę zleceń na każdy dzień okresu,
+  numerze wiersza Rejestru; `BRAK_MAPOWANIA` i `NIEZNANY_WYKONAWCA` z Przebiegu
+  rozliczeń podają identyfikator Wykonawcy spoza konfiguracji wykonawców, bez
+  numeru wiersza; podsumowanie ma liczbę zleceń na każdy dzień okresu,
   a ostrzeżenie `NIEPELNY_OKRES` datę ostatniego zlecenia. Żaden z nich nie
   niesie adresu ani numeru zlecenia czy umowy, więc nie wskazuje klienta; tata
   widzi te same teksty na swojej karcie.

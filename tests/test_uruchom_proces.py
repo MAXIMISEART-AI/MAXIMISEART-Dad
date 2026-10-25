@@ -346,8 +346,8 @@ def test_podsumowanie_i_ostrzezenia_w_kolejnosci_etapow_sa_te_same_w_skrypcie_na
     expected = [
         settlement_messages.row_without_worker_warning(centrum.collective_file, 20),
         settlement_messages.row_without_worker_warning(centrum.collective_file, 22),
-        settlement_messages.unmapped_worker_warning(centrum.collective_file),
-        settlement_messages.unmapped_worker_warning(centrum.collective_file),
+        settlement_messages.unmapped_worker_warning(centrum.collective_file, "andrzej.nieznany2"),
+        settlement_messages.unmapped_worker_warning(centrum.collective_file, "andrzej.nieznany3"),
     ]
     assert result["warnings"] == [
         {"code": message.code, "what": message.what, "where": message.where, "action": message.action} for message in expected

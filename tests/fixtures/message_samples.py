@@ -163,9 +163,12 @@ SETTLEMENT_SAMPLES: Samples = {
         )
         for problem in Problem
     ],
-    "unmapped_worker": [lambda: settlement_messages.unmapped_worker(SOURCE)],
+    "unmapped_worker": [
+        lambda: settlement_messages.unmapped_worker(SOURCE, ["jan.nieznany"]),
+        lambda: settlement_messages.unmapped_worker(SOURCE, ["jan.nieznany", "ewa.nieznana"]),
+    ],
     "rows_without_worker": [lambda: settlement_messages.rows_without_worker(SOURCE)],
-    "unmapped_worker_warning": [lambda: settlement_messages.unmapped_worker_warning(SOURCE)],
+    "unmapped_worker_warning": [lambda: settlement_messages.unmapped_worker_warning(SOURCE, "jan.nieznany")],
     "row_without_worker_warning": [lambda: settlement_messages.row_without_worker_warning(SOURCE, 19)],
     "worker_file_failed": [lambda: settlement_messages.worker_file_failed(WORKER_SETTLEMENTS, "Wykonawca Testowy")],
     "publish_failed": [lambda: settlement_messages.publish_failed(WORKER_SETTLEMENTS)],
