@@ -13,11 +13,11 @@ import sys
 from typing import Any
 
 import pytest
-import yaml
+
+from tests.fixtures.ci_workflow import combinations, jobs
 
 ROOT = Path(__file__).resolve().parents[1]
 TOOL = ROOT / "tools" / "czesci_pytest.py"
-WORKFLOW = ROOT / ".github" / "workflows" / "ci.yml"
 
 
 def _part(root: Path, text: str) -> list[str]:
@@ -109,27 +109,8 @@ def test_linux_dzieli_pliki_wedlug_wlasnej_tabeli_a_windows_wedlug_swojej(tmp_pa
     assert json.loads((tmp_path / "tools" / "czasy_testow_ci.json").read_text(encoding="utf-8")) == {"tests/test_a.py": 9.0, "tests/test_b.py": 1.0}
 
 
-def _combinations(matrix: dict[str, Any]) -> list[dict[str, Any]]:
-    """Kombinacje macierzy GitHub Actions: iloczyn list, bez ``exclude``, z ``include``."""
-
-    axes = {key: values for key, values in matrix.items() if key not in ("include", "exclude")}
-    combinations: list[dict[str, Any]] = [{}]
-    for key, values in axes.items():
-        combinations = [{**combination, key: value} for combination in combinations for value in values]
-    for excluded in matrix.get("exclude", []):
-        combinations = [c for c in combinations if any(c.get(key) != value for key, value in excluded.items())]
-    for extra in matrix.get("include", []):
-        matching = [c for c in combinations if all(c[key] == value for key, value in extra.items() if key in axes)]
-        for combination in matching:
-            combination.update({key: value for key, value in extra.items() if key not in axes})
-        if not matching:
-            combinations.append(dict(extra))
-    return combinations
-
-
 def _jobs_with_parts() -> dict[str, dict[str, Any]]:
-    jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
-    return {name: job for name, job in jobs.items() if any("part" in c for c in _combinations(job.get("strategy", {}).get("matrix", {})))}
+    return {name: job for name, job in jobs().items() if any("part" in c for c in combinations(job.get("strategy", {}).get("matrix", {})))}
 
 
 def test_macierz_kazdego_zadania_z_czesciami_obejmuje_dokladnie_czesci_od_1_do_n() -> None:
@@ -139,7 +120,7 @@ def test_macierz_kazdego_zadania_z_czesciami_obejmuje_dokladnie_czesci_od_1_do_n
         steps = " ".join(step.get("run", "") for step in job["steps"])
         count_in_steps = ",".join(sorted(set(re.findall(r"matrix\.part }}/(\d+)", steps))))
         groups: dict[tuple[tuple[str, Any], ...], list[str]] = {}
-        for combination in _combinations(job["strategy"]["matrix"]):
+        for combination in combinations(job["strategy"]["matrix"]):
             part = str(combination.pop("part"))
             groups.setdefault(tuple(sorted(combination.items())), []).append(part if "/" in part else f"{part}/{count_in_steps}")
         for group, found in groups.items():

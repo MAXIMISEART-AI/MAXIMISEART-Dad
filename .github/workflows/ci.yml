@@ -14,14 +14,16 @@ permissions:
   contents: read
 
 concurrency:
-  # A new push to a pull request cancels the run of its older commit; every push to main runs to the end.
-  group: ci-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.sha }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  # A new push to a pull request or to main cancels the run of the older commit: the account runs at most 20 jobs at once.
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  ruff:
-    name: Ruff
-    runs-on: windows-latest
+  szybkie:
+    # Short checks share one runner: alone, each spent most of its time on setup. mypy needs no Windows runner,
+    # because --platform decides which sys.platform branches it checks; CI checks both systems.
+    name: Ruff, mypy, Frontend
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
 
@@ -34,37 +36,76 @@ jobs:
         with:
           enable-cache: false
 
-      - name: Install development dependencies
+      - name: Install development dependencies (pinned FastAPI and Pydantic shape the contract)
         run: uv pip install --system --python "${{ steps.python.outputs.python-path }}" -e ".[dev]"
 
       - name: Lint Python code
         run: python -m ruff check
 
-  mypy:
-    name: mypy
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v7
+      - name: Typecheck Python code (Windows)
+        run: python -m mypy --platform win32
 
-      - id: python
-        uses: actions/setup-python@v7
+      - name: Typecheck Python code (Linux)
+        run: python -m mypy --platform linux
+
+      # Centrum rozliczeń: the committed build and contract must match their sources (tata has no Node).
+      - uses: actions/setup-node@v6
         with:
-          python-version: '3.14'
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
 
-      - uses: astral-sh/setup-uv@v10.3.2
-        with:
-          enable-cache: false
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
 
-      - name: Install development dependencies
-        run: uv pip install --system --python "${{ steps.python.outputs.python-path }}" -e ".[dev]"
+      - name: Generate the contract from the server models
+        working-directory: frontend
+        env:
+          PYTHON: python
+        run: npm run contract
 
-      - name: Typecheck Python code
-        run: python -m mypy
+      - name: Typecheck (tsc strict)
+        working-directory: frontend
+        run: npm run typecheck
+
+      - name: Lint (Oxlint with anti-slop)
+        working-directory: frontend
+        run: npm run lint
+
+      - name: Frontend rules (every contract field used, no process-name comparisons)
+        working-directory: frontend
+        run: npm run rules
+
+      - name: Unused files, exports and dependencies (knip)
+        working-directory: frontend
+        run: npm run unused
+
+      - name: Duplicated code (jscpd)
+        working-directory: frontend
+        run: npm run duplicates
+
+      - name: Build
+        working-directory: frontend
+        run: npm run build
+
+      - name: Require the committed contract and build to be fresh
+        run: |
+          stale="$(git status --porcelain -- frontend/src/api src/rozliczenia/centrum/static)"
+          if [ -n "$stale" ]; then
+            echo "$stale"
+            echo "The committed contract or build does not match its sources. Run 'npm run regen' in frontend/ and commit the result."
+            echo "After a merge or rebase this is expected: merge=wygenerowane in .gitattributes keeps the current HEAD's copy of generated files."
+            exit 1
+          fi
 
   pytest:
     # Tata has Windows, so both Pythons run there, each in two parts of similar CI time from
     # tools/czesci_pytest.py. Linux runs all files once, in two parts, for the tests Windows skips (POSIX
     # signals, process groups, the pre-push hook). Both pass the files longest first.
+    # E2E and the timing guard are steps of the Windows parts, not jobs of their own: every job takes one of the
+    # account's 20 runners. Each goes to the part that ends sooner without it (CI medians 25.10: 3.11 1/2 324 s
+    # + E2E 60 s, 2/2 388 s; 3.14 1/2 320 s + E2E 61 s, 2/2 353 s + timing 26 s).
     name: pytest (Python ${{ matrix.python-version }}${{ matrix.os == 'ubuntu-latest' && ', Linux' || '' }}, ${{ matrix.part }})
     runs-on: ${{ matrix.os }}
     strategy:
@@ -130,11 +171,88 @@ jobs:
         if: ${{ runner.os == 'Linux' }}
         run: python -m pytest -n auto $(python tools/czesci_pytest.py --linux ${{ matrix.part }})
 
+      - name: E2E (verify-rozliczenia --variant all)
+        id: e2e
+        if: ${{ !cancelled() && runner.os == 'Windows' && matrix.part == '1/2' }}
+        shell: pwsh
+        run: |
+          py -3 .agents/skills/verify-rozliczenia/scripts/run_verification.py --variant all
+          if ($LASTEXITCODE -ne 0) {
+            throw "E2E verification failed (exit code $LASTEXITCODE)"
+          }
+
+      - name: Upload E2E evidence on failure
+        if: ${{ failure() && steps.e2e.outcome == 'failure' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: e2e-evidence-python-${{ matrix.python-version }}
+          path: .verification/evidence/
+          retention-days: 7
+          if-no-files-found: warn
+          include-hidden-files: true
+
+      # Straż czasu Przebiegu rozliczeń (spec #141, #145): benchmark „typowy tydzień” na syntetycznych
+      # Wzorcach kształtu Wzorców taty (tools/syntetyczne_wzorce.py), bo prawdziwych nie ma w repozytorium.
+      - name: 'Timing guard: generate synthetic Wzorce'
+        id: timing-templates
+        if: ${{ !cancelled() && runner.os == 'Windows' && matrix.python-version == '3.14' && matrix.part == '2/2' }}
+        shell: pwsh
+        run: |
+          python tools/syntetyczne_wzorce.py "$env:RUNNER_TEMP\syntetyczne-wzorce"
+          if ($LASTEXITCODE -ne 0) {
+            throw "Synthetic Wzorce generation failed (exit code $LASTEXITCODE)"
+          }
+
+      - name: 'Timing guard: measure Przebieg rozliczeń (typowy tydzień)'
+        id: timing-measure
+        if: ${{ !cancelled() && steps.timing-templates.outcome == 'success' }}
+        shell: pwsh
+        run: |
+          $templates = "$env:RUNNER_TEMP\syntetyczne-wzorce"
+          python tools/benchmark_przebiegu.py measure --scenario typowy-tydzien `
+            --templates-dir $templates --config "$templates\worker_mapping.yaml" `
+            --mirror-dir "$env:RUNNER_TEMP\lustro" --journal "$env:RUNNER_TEMP\przebieg.jsonl" `
+            --machine github-windows-latest
+          if ($LASTEXITCODE -ne 0) {
+            throw "Benchmark failed (exit code $LASTEXITCODE)"
+          }
+
+      - name: 'Timing guard: report timings and enforce the budget'
+        id: timing-guard
+        if: ${{ !cancelled() && steps.timing-measure.outcome == 'success' }}
+        shell: pwsh
+        env:
+          # Budżet mediany czasu ściany typowego tygodnia na runnerze; krok pada tylko powyżej niego.
+          # Docelowo 3 × cel twardy po przeliczeniu na runner: 3 × 18 s (Mac M4 Max) × ~3,3 ≈ 180 000 ms.
+          # Przelicznik 3,3 to Mac → komputer taty (i7-10875H); windows-latest ma podobną wydajność
+          # jednego rdzenia.
+          # Po #147 (ADR 0008) Przebieg trwa ~3 s na Macu, czyli ~10 s na runnerze: budżet przepuszcza
+          # szum współdzielonych runnerów, a łapie powrót do pełnego zapisu przez openpyxl (~240 s).
+          # To jedyne miejsce budżetu.
+          PRZEBIEG_BUDGET_MS: '180000'
+        run: |
+          python tools/benchmark_przebiegu.py guard --journal "$env:RUNNER_TEMP\przebieg.jsonl" `
+            --budget-ms $env:PRZEBIEG_BUDGET_MS --summary $env:GITHUB_STEP_SUMMARY
+          if ($LASTEXITCODE -ne 0) {
+            throw "Przebieg rozliczeń exceeded the timing budget of $env:PRZEBIEG_BUDGET_MS ms (exit code $LASTEXITCODE)"
+          }
+
+      - name: Upload benchmark failure output
+        if: ${{ failure() && (steps.timing-measure.outcome == 'failure' || steps.timing-guard.outcome == 'failure') }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: timing-guard-output
+          path: ${{ runner.temp }}/lustro/ostatni-blad-*.txt
+          retention-days: 7
+          if-no-files-found: ignore
+
   change-mutations:
     # Each mutation of a line the pull request changes in src/ must fail a test (tools/mutacje_zmiany.py):
-    # a reviewer used to find these by hand, after CI was green. A push to main has no change to mutate.
+    # a reviewer used to find these by hand, after CI was green. A push to main has no change to mutate,
+    # so there the job does not start and takes no runner.
     # Each part takes every third mutation: 90 mutations of a seven-module refactor (#382) took 25 min on one busy Mac.
     name: Change mutations (${{ matrix.part }}/3)
+    if: ${{ github.event_name == 'pull_request' }}
     runs-on: ubuntu-latest
     timeout-minutes: 60
     strategy:
@@ -162,7 +280,6 @@ jobs:
         run: uv pip install --system --python "${{ steps.python.outputs.python-path }}" -r requirements.txt
 
       - name: Mutate the changed lines of src/
-        if: ${{ github.event_name == 'pull_request' }}
         run: python tools/mutacje_zmiany.py --baza HEAD^1 --czesc ${{ matrix.part }}/3
 
   mutations:
@@ -216,243 +333,34 @@ jobs:
             throw "Mutation checks failed (exit code $LASTEXITCODE)"
           }
 
-  e2e:
-    name: E2E (Python ${{ matrix.python-version }})
-    runs-on: windows-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        python-version: ['3.11', '3.14']
-    env:
-      EXPECTED_PYTHON_VERSION: ${{ matrix.python-version }}
-      PYTHONUTF8: '1'
-    steps:
-      - uses: actions/checkout@v7
-
-      - id: python
-        uses: actions/setup-python@v7
-        with:
-          python-version: ${{ matrix.python-version }}
-
-      - uses: astral-sh/setup-uv@v10.3.2
-        with:
-          enable-cache: false
-
-      - name: Route py -3 to the selected Python
-        shell: pwsh
-        run: Add-Content -Path $env:GITHUB_PATH -Value "$env:GITHUB_WORKSPACE\.github\scripts" -Encoding utf8
-
-      - name: Verify py -3 interpreter
-        run: |
-          $actualVersion = py -3 -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')"
-          if ($actualVersion -ne $env:EXPECTED_PYTHON_VERSION) {
-            throw "py -3 resolved to Python $actualVersion; expected $env:EXPECTED_PYTHON_VERSION."
-          }
-
-      - name: Install test dependencies
-        run: uv pip install --system --python "${{ steps.python.outputs.python-path }}" -r requirements.txt
-
-      - name: Run end-to-end verification
-        shell: pwsh
-        run: |
-          py -3 .agents/skills/verify-rozliczenia/scripts/run_verification.py --variant all
-          if ($LASTEXITCODE -ne 0) {
-            throw "E2E verification failed (exit code $LASTEXITCODE)"
-          }
-
-      - name: Upload E2E evidence on failure
-        if: ${{ failure() }}
-        uses: actions/upload-artifact@v7
-        with:
-          name: e2e-evidence-python-${{ matrix.python-version }}
-          path: .verification/evidence/
-          retention-days: 7
-          if-no-files-found: warn
-          include-hidden-files: true
-
-  timing:
-    # Straż czasu Przebiegu rozliczeń (spec #141, #145): benchmark „typowy tydzień” na syntetycznych
-    # Wzorcach kształtu Wzorców taty (tools/syntetyczne_wzorce.py), bo prawdziwych nie ma w repozytorium.
-    name: Timing guard (typowy tydzień)
-    runs-on: windows-latest
-    timeout-minutes: 60
-    env:
-      PYTHONUTF8: '1'
-      # Budżet mediany czasu ściany typowego tygodnia na runnerze; job pada tylko powyżej niego.
-      # Docelowo 3 × cel twardy po przeliczeniu na runner: 3 × 18 s (Mac M4 Max) × ~3,3 ≈ 180 000 ms.
-      # Przelicznik 3,3 to Mac → komputer taty (i7-10875H); windows-latest ma podobną wydajność
-      # jednego rdzenia.
-      # Po #147 (ADR 0008) Przebieg trwa ~3 s na Macu, czyli ~10 s na runnerze: budżet przepuszcza
-      # szum współdzielonych runnerów, a łapie powrót do pełnego zapisu przez openpyxl (~240 s).
-      # To jedyne miejsce budżetu.
-      PRZEBIEG_BUDGET_MS: '180000'
-    steps:
-      - uses: actions/checkout@v7
-
-      - id: python
-        uses: actions/setup-python@v7
-        with:
-          python-version: '3.14'
-
-      - uses: astral-sh/setup-uv@v10.3.2
-        with:
-          enable-cache: false
-
-      - name: Install dependencies
-        run: uv pip install --system --python "${{ steps.python.outputs.python-path }}" -r requirements.txt
-
-      - name: Generate synthetic Wzorce
-        shell: pwsh
-        run: |
-          python tools/syntetyczne_wzorce.py "$env:RUNNER_TEMP\syntetyczne-wzorce"
-          if ($LASTEXITCODE -ne 0) {
-            throw "Synthetic Wzorce generation failed (exit code $LASTEXITCODE)"
-          }
-
-      - name: Measure Przebieg rozliczeń (typowy tydzień)
-        shell: pwsh
-        run: |
-          $templates = "$env:RUNNER_TEMP\syntetyczne-wzorce"
-          python tools/benchmark_przebiegu.py measure --scenario typowy-tydzien `
-            --templates-dir $templates --config "$templates\worker_mapping.yaml" `
-            --mirror-dir "$env:RUNNER_TEMP\lustro" --journal "$env:RUNNER_TEMP\przebieg.jsonl" `
-            --machine github-windows-latest
-          if ($LASTEXITCODE -ne 0) {
-            throw "Benchmark failed (exit code $LASTEXITCODE)"
-          }
-
-      - name: Report timings and enforce the budget
-        shell: pwsh
-        run: |
-          python tools/benchmark_przebiegu.py guard --journal "$env:RUNNER_TEMP\przebieg.jsonl" `
-            --budget-ms $env:PRZEBIEG_BUDGET_MS --summary $env:GITHUB_STEP_SUMMARY
-          if ($LASTEXITCODE -ne 0) {
-            throw "Przebieg rozliczeń exceeded the timing budget of $env:PRZEBIEG_BUDGET_MS ms (exit code $LASTEXITCODE)"
-          }
-
-      - name: Upload benchmark failure output
-        if: ${{ failure() }}
-        uses: actions/upload-artifact@v7
-        with:
-          name: timing-guard-output
-          path: ${{ runner.temp }}/lustro/ostatni-blad-*.txt
-          retention-days: 7
-          if-no-files-found: ignore
-
-  frontend:
-    # Centrum rozliczeń: the committed build and contract must match their sources (tata has no Node).
-    name: Frontend
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-
-      - id: python
-        uses: actions/setup-python@v7
-        with:
-          python-version: '3.14'
-
-      - uses: astral-sh/setup-uv@v10.3.2
-        with:
-          enable-cache: false
-
-      - name: Install development dependencies (pinned FastAPI and Pydantic shape the contract)
-        run: uv pip install --system --python "${{ steps.python.outputs.python-path }}" -e ".[dev]"
-
-      - uses: actions/setup-node@v6
-        with:
-          node-version: '24'
-          cache: npm
-          cache-dependency-path: frontend/package-lock.json
-
-      - name: Install frontend dependencies
-        working-directory: frontend
-        run: npm ci
-
-      - name: Generate the contract from the server models
-        working-directory: frontend
-        env:
-          PYTHON: python
-        run: npm run contract
-
-      - name: Typecheck (tsc strict)
-        working-directory: frontend
-        run: npm run typecheck
-
-      - name: Lint (Oxlint with anti-slop)
-        working-directory: frontend
-        run: npm run lint
-
-      - name: Frontend rules (every contract field used, no process-name comparisons)
-        working-directory: frontend
-        run: npm run rules
-
-      - name: Unused files, exports and dependencies (knip)
-        working-directory: frontend
-        run: npm run unused
-
-      - name: Duplicated code (jscpd)
-        working-directory: frontend
-        run: npm run duplicates
-
-      - name: Build
-        working-directory: frontend
-        run: npm run build
-
-      - name: Require the committed contract and build to be fresh
-        run: |
-          stale="$(git status --porcelain -- frontend/src/api src/rozliczenia/centrum/static)"
-          if [ -n "$stale" ]; then
-            echo "$stale"
-            echo "The committed contract or build does not match its sources. Run 'npm run regen' in frontend/ and commit the result."
-            echo "After a merge or rebase this is expected: merge=wygenerowane in .gitattributes keeps the current HEAD's copy of generated files."
-            exit 1
-          fi
-
   required:
     # Configure only this stable status as required in branch protection.
     name: Required CI status
-    runs-on: windows-latest
+    runs-on: ubuntu-latest
     needs:
-      - ruff
-      - mypy
+      - szybkie
       - pytest
       - mutations
       - change-mutations
-      - e2e
-      - timing
-      - frontend
     if: ${{ always() }}
     steps:
       - name: Require every CI check to succeed
-        shell: pwsh
+        shell: python3 {0}
         env:
-          RUFF_RESULT: ${{ needs.ruff.result }}
-          MYPY_RESULT: ${{ needs.mypy.result }}
-          PYTEST_RESULT: ${{ needs.pytest.result }}
-          MUTATIONS_RESULT: ${{ needs.mutations.result }}
-          CHANGE_MUTATIONS_RESULT: ${{ needs.change-mutations.result }}
-          E2E_RESULT: ${{ needs.e2e.result }}
-          TIMING_RESULT: ${{ needs.timing.result }}
-          FRONTEND_RESULT: ${{ needs.frontend.result }}
+          NEEDS: ${{ toJSON(needs) }}
+          EVENT: ${{ github.event_name }}
         run: |
-          $results = [ordered]@{
-            Ruff = $env:RUFF_RESULT
-            mypy = $env:MYPY_RESULT
-            pytest = $env:PYTEST_RESULT
-            Mutations = $env:MUTATIONS_RESULT
-            'Change mutations' = $env:CHANGE_MUTATIONS_RESULT
-            E2E = $env:E2E_RESULT
-            Timing = $env:TIMING_RESULT
-            Frontend = $env:FRONTEND_RESULT
-          }
-          $failedChecks = @(
-            foreach ($result in $results.GetEnumerator()) {
-              if ($result.Value -ne 'success') {
-                "$($result.Key)=$($result.Value)"
-              }
-            }
-          )
-          if ($failedChecks.Count -gt 0) {
-            throw "Required CI checks did not all succeed: $($failedChecks -join ', ')"
-          }
-          Write-Host 'All required CI checks succeeded.'
+          import json
+          import os
+          import sys
+
+          # On a push to main Change mutations does not start: there is no change to mutate.
+          may_skip = {"change-mutations"} if os.environ["EVENT"] == "push" else set()
+          failed = [
+              f"{job}={need['result']}"
+              for job, need in json.loads(os.environ["NEEDS"]).items()
+              if need["result"] != "success" and not (job in may_skip and need["result"] == "skipped")
+          ]
+          if failed:
+              sys.exit(f"Required CI checks did not all succeed: {', '.join(failed)}")
+          print("All required CI checks succeeded.")
