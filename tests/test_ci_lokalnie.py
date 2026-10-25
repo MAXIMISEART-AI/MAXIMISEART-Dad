@@ -1,7 +1,7 @@
 """``tools/ci_lokalnie.py`` odtwarza lokalnie te same polecenia co CI, więc nie może się z nim rozjechać.
 
 Każde polecenie z zadań CI, które narzędzie odtwarza, ma w nim swój krok, a każdy krok narzędzia ma
-swoje polecenie w CI. Zadanie CI, którego narzędzie nie odtwarza, ma wskazane miejsce, które je zastępuje. ``--kazdy-commit``
+swoje polecenie w CI. Zadanie i polecenie CI, których narzędzie nie odtwarza, mają wskazane miejsce, które je zastępuje. ``--kazdy-commit``
 wskazuje każdy commit gałęzi, na którym krok pada, także gdy HEAD przechodzi.
 """
 
@@ -54,17 +54,18 @@ def test_kazde_zadanie_ci_jest_odtworzone_albo_ma_wskazane_zastepstwo() -> None:
     steps = _tool_steps()
     jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
 
-    assert set(jobs) == set(steps["lokalnie"]) | set(steps["gdzie_indziej"])  # type: ignore[call-overload]
+    assert set(jobs) == set(steps["lokalnie"]) | set(steps["gdzie_indziej"]["zadania"])  # type: ignore[call-overload, index]
 
 
 def test_kazde_polecenie_odtwarzanych_zadan_ma_krok_i_odwrotnie() -> None:
     steps = _tool_steps()
     jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
     fragments: list[str] = steps["fragmenty"]  # type: ignore[assignment]
+    elsewhere: list[str] = list(steps["gdzie_indziej"]["polecenia"])  # type: ignore[index]
     commands = [command for job in steps["lokalnie"] for command in _commands(jobs[job])]  # type: ignore[attr-defined]
 
-    without_step = [command for command in commands if not any(fragment in command for fragment in fragments)]
-    without_command = [fragment for fragment in fragments if not any(fragment in command for command in commands)]
+    without_step = [command for command in commands if not any(fragment in command for fragment in [*fragments, *elsewhere])]
+    without_command = [fragment for fragment in [*fragments, *elsewhere] if not any(fragment in command for command in commands)]
 
     assert without_step == []
     assert without_command == []
