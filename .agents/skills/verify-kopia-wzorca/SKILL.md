@@ -71,7 +71,12 @@ The check holds that copy to five rules, for any Wiersze danych:
 
 ## Does the change touch it?
 
-Coverage, confirmed at **sync commit `5714940`** (PR #345, sheet chunks compressed in parallel, 2026-10-24):
+Coverage, confirmed at **sync commit `11588db1`** (2026-10-25, `main` after #474). From the previous
+sync commit `5714940`, the covered code moved into `template_file.py`, `workbook_save.py` and
+`workbook_parts.py` (each move changed the checker with it), `template_copy.Row` became a dataclass
+with `DataCell`s, cells outside A:L read as General (`6b070dfa`), and Ilości tylko dla INEA reach the
+copy as empty cells with Wyróżnienia (`395949dc`), which the generator already draws (`data_rows` draws Wyróżnienia apart from values). No rule changed.
+The coverage at this commit:
 
 | Code | What the check covers |
 | --- | --- |
@@ -89,7 +94,7 @@ Run the check when a diff touches any of these. To see whether the covered code 
 sync commit:
 
 ```bash
-git diff --stat 5714940 -- src/rozliczenia/template_copy.py src/rozliczenia/sheet_data.py src/rozliczenia/workbook_parts.py src/rozliczenia/highlights.py src/rozliczenia/row_look.py src/rozliczenia/hyperlinks.py src/rozliczenia/workbook_files.py src/rozliczenia/template_file.py src/rozliczenia/workbook_save.py tools/porownanie_rozliczen.py tools/syntetyczne_wzorce.py tests/fixtures/settlement.py tests/fixtures/workbooks.py
+git diff --stat 11588db1 -- src/rozliczenia/template_copy.py src/rozliczenia/workbook_parts.py src/rozliczenia/highlights.py src/rozliczenia/row_look.py src/rozliczenia/hyperlinks.py src/rozliczenia/workbook_files.py src/rozliczenia/template_file.py src/rozliczenia/workbook_save.py tools/porownanie_rozliczen.py tools/syntetyczne_wzorce.py tests/fixtures/settlement.py tests/fixtures/workbooks.py
 ```
 
 Changes elsewhere (reading the Plik zbiorczy, `engine.py`, publication of the Folder rozliczeń
