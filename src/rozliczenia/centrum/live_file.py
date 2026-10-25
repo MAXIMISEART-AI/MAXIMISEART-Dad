@@ -136,12 +136,11 @@ class LastGoodReads(Generic[T]):
             now = self._clock()
             before = file.failing
             if before is not None and before.continues(attempt):
-                series = replace(before, ended=now, version=attempt.version)
+                since, causes = before.since, before.causes
             else:
-                causes = before.causes if before is not None else frozenset()
-                series = _Series(attempt.started, now, attempt.version, message=False, causes=causes)
+                since, causes = attempt.started, before.causes if before is not None else frozenset()
             kept = None
-            if file.last is not None and now - series.since < SHOWN_FAILING_AFTER_S:
+            if file.last is not None and now - since < SHOWN_FAILING_AFTER_S:
                 kept = replace(file.last, retrying=True)
-            file.failing = replace(series, message=kept is None, causes=series.causes | {cause})
-            return Failing(kept, cause not in series.causes)
+            file.failing = _Series(since, now, attempt.version, message=kept is None, causes=causes | {cause})
+            return Failing(kept, cause not in causes)
