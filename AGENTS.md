@@ -17,7 +17,7 @@
   Gdy `.venv` ma Pythona nowszego niż najstarszy z `requires-python`, importuje też każdy moduł `src/` tym Pythonem przez `uv` (bez `uv` pada).
   Na gałęzi zbudowanej na innej dodaj `--baza <gałąź rodzica>`.
   Na mergu z `origin/main` z ostatniego `git fetch` uruchamia tylko testy struktury.
-  Nie uruchamia zadań CI `mutations` (skrypty mutacji skilli), `Frontend`, E2E ani Timing guard.
+  Nie uruchamia zadania CI `mutations` (skrypty mutacji skilli), kroków frontendu z zadania `Ruff, mypy, Frontend` ani kroków E2E i Timing guard z zadania pytest.
   Krok pytest bierze 4 workery, chyba że ustawisz `PYTEST_XDIST_AUTO_NUM_WORKERS`.
   Z testów dotkniętych zmianą uruchamia zawsze te w odległości najwyżej 1 od zmienionego pliku spoza konfiguracji (test zmieniony albo importujący lub czytający taki plik), a dalsze tylko w budżecie czasu kroku pytest.
   Przy zmianie konfiguracji (`pyproject.toml`, `requirements.txt`, `tests/conftest.py`, `tests/fixtures/git_config.py`) testy, które importują albo czytają zmieniony plik konfiguracji, nie biegną zawsze, ale w budżecie biegną przed pozostałymi, a po nich najtańsze.

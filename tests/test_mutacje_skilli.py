@@ -239,7 +239,7 @@ def test_zabity_runner_nie_zostawia_skryptu_mutacji(tmp_path: Path) -> None:
         runner.kill()
         runner.wait(timeout=30)
 
-        assert wait_for(lambda: not beating(beats), 7), "skrypt mutacji przeżył runner"
+        assert wait_for(lambda: not beating(beats), 5), "skrypt mutacji przeżył runner"
     finally:
         runner.kill()
         runner.wait()
