@@ -21,6 +21,7 @@ from types import ModuleType
 import pytest
 
 from tests.fixtures.git_repo import commit, git
+from tests.fixtures.potomne import beating, wait_for
 
 ROOT = Path(__file__).resolve().parents[1]
 TOOLS = ROOT / "tools"
@@ -222,10 +223,11 @@ def test_sciezka_bezwzgledna_spoza_repo_daje_nazwany_fail(tmp_path: Path) -> Non
 
 
 def test_zabity_runner_nie_zostawia_skryptu_mutacji(tmp_path: Path) -> None:
-    ready, marker = tmp_path / "skrypt-gotowy", tmp_path / "skrypt-przezyl"
+    ready, beats = tmp_path / "skrypt-gotowy", tmp_path / "skrypt-zyje"
+    beat = f"open({str(beats)!r}, 'a').write('.')"
     script = (
-        f"import os, pathlib, time\npathlib.Path({str(ready)!r}).write_text(str(os.getpid()))\n"
-        f"time.sleep(5)\npathlib.Path({str(marker)!r}).touch()\ntime.sleep(600)\n"
+        f"import os, pathlib, time\n{beat}\npathlib.Path({str(ready)!r}).write_text(str(os.getpid()))\n"
+        f"while True:\n    {beat}\n    time.sleep(0.1)\n"
     )
     _skill(tmp_path, "verify-a", {"check_a_mutations.py": script})
     runner = subprocess.Popen(_tool(tmp_path), cwd=tmp_path, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
@@ -236,11 +238,8 @@ def test_zabity_runner_nie_zostawia_skryptu_mutacji(tmp_path: Path) -> None:
         assert ready.exists(), "skrypt mutacji nie ruszył"
         runner.kill()
         runner.wait(timeout=30)
-        deadline = time.monotonic() + 7
-        while not marker.exists() and time.monotonic() < deadline:
-            time.sleep(0.05)
 
-        assert not marker.exists(), "skrypt mutacji przeżył runner"
+        assert wait_for(lambda: not beating(beats), 7), "skrypt mutacji przeżył runner"
     finally:
         runner.kill()
         runner.wait()

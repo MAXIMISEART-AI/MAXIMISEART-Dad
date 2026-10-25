@@ -3607,6 +3607,10 @@
               }
             ],
             "title": "Version"
+          },
+          "collective_file_exists": {
+            "type": "boolean",
+            "title": "Collective File Exists"
           }
         },
         "additionalProperties": false,
@@ -3614,10 +3618,11 @@
         "required": [
           "state",
           "message",
-          "version"
+          "version",
+          "collective_file_exists"
         ],
         "title": "QuantitiesToFillProblem",
-        "description": "Pliku zbiorczego nie udało się odczytać; Komunikat go nazywa, a ``version`` to znacznik zapisu przed odczytem."
+        "description": "Pliku zbiorczego nie udało się odczytać; Komunikat go nazywa, a ``version`` to znacznik zapisu przed odczytem.\n\n``collective_file_exists``: plik jest w Folderze okresu, więc „Otwórz Plik zbiorczy” ma co otworzyć."
       },
       "QuantitiesToFillReady": {
         "properties": {

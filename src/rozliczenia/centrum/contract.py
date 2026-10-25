@@ -432,11 +432,15 @@ class QuantitiesToFillReady(_Model):
 
 
 class QuantitiesToFillProblem(_Model):
-    """Pliku zbiorczego nie udało się odczytać; Komunikat go nazywa, a ``version`` to znacznik zapisu przed odczytem."""
+    """Pliku zbiorczego nie udało się odczytać; Komunikat go nazywa, a ``version`` to znacznik zapisu przed odczytem.
+
+    ``collective_file_exists``: plik jest w Folderze okresu, więc „Otwórz Plik zbiorczy” ma co otworzyć.
+    """
 
     state: Literal["problem"]
     message: Message
     version: str | None
+    collective_file_exists: bool
 
 
 class CollectiveFileVersion(_Model):

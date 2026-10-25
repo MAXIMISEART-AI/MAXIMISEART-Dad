@@ -48,6 +48,7 @@ import { WriteAboutRun } from "@/components/write-to-maks"
 import { useChangeEntrance } from "@/lib/content-entrance"
 import { dateTime, seconds } from "@/lib/format"
 import { useRuns } from "@/lib/runs"
+import { FillingOnResult } from "@/pages/filling/filling-on-result"
 import { openAndConfirm, openOrderRegisterAndConfirm, type OpenedInPeriod } from "@/pages/periods/open-period-path"
 import { CountTiles, NumberStrip } from "@/pages/runs/count-tiles"
 import { useStopDiagnosis } from "@/pages/runs/diagnosis"
@@ -174,7 +175,7 @@ function RestoredRunCard({ past, reminder, onNewRun }: { past: RunRestored; remi
       <CardContent className="flex flex-col gap-6">
         <PastNote>Ostatnie Uruchomienie · {dateTime(past.started_at)} · Centrum było od tego czasu zamknięte</PastNote>
         <PhaseList phases={past.phases} />
-        <OutcomeBody run={run} result={result} action={next.button} />
+        <OutcomeBody run={run} result={result} action={next.button} filling />
         {next.dialog}
       </CardContent>
     </Card>
@@ -314,6 +315,7 @@ function RunOutcomeSection({ run, result, reminder }: { run: RunInfo; result: Ru
         action={offersDiagnosis ? diagnosis.action : next.button}
         live={{ filesUnchanged: result.files_unchanged, opens: result.opens, openFirst: !offersDiagnosis }}
         below={offersDiagnosis ? diagnosis.result : null}
+        filling
       />
       {next.dialog}
     </>
@@ -327,21 +329,28 @@ type DadFile = NonNullable<RunOutcome["opens"]>
 /** To, co przy Zatrzymaniu wie tylko bieżące Uruchomienie, a Logi Uruchomienia nie: notka o plikach i plik taty. */
 type LiveStop = { filesUnchanged: boolean; opens: DadFile | null; openFirst: boolean }
 
-/** Wynik: liczby, tytuł albo Zatrzymanie z akcją, ostrzeżenia, uwagi techniczne i szczegóły podsumowania. */
+/**
+ * Wynik: liczby, tytuł albo Zatrzymanie z akcją, ostrzeżenia, uwagi techniczne i szczegóły podsumowania.
+ * Z `filling` przygotowany Plik zbiorczy ma pod wynikiem podsumowanie Uzupełnienia pliku zbiorczego, w stanie z pliku.
+ */
 function OutcomeBody({
   run,
   result,
   action,
   live = null,
   below = null,
+  filling = false,
 }: {
   run: RunInfo
   result: LoggedOutcome
   action: React.ReactNode
   live?: LiveStop | null
   below?: React.ReactNode
+  filling?: boolean
 }) {
   const [stop] = result.stops
+  // Wynik bez Zatrzymania, który proponuje otworzyć zapisany Plik zbiorczy, to Plik zbiorczy przygotowany.
+  const prepared = filling && result.next_action === "open_collective_file" && stop === undefined
 
   return (
     <>
@@ -367,6 +376,7 @@ function OutcomeBody({
         />
       )}
       {below}
+      {prepared ? <FillingOnResult token={run.period} /> : null}
       {result.warnings.map((warning) => (
         <ThreePartMessage key={warning.what} message={warning} kind="warning" />
       ))}

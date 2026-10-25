@@ -338,6 +338,10 @@ def drive_preparation(run: Run, page: Page) -> None:
         "the Centrum log records the start and end of each Uruchomienie procesu with safe facts only",
     )
     run.capture(page, "35-przygotowanie-zapisane")
+    # Imported here: drive.uzupelnienie drives Przygotowanie first when it runs alone.
+    from drive.uzupelnienie import drive_result_card
+
+    drive_result_card(run, page)
 
     run.step(feature, "przygotowanie-otwieranie")
     # The tab drops a repeat of the same file for 1.5 s after the server's answer (REPEAT_IGNORED_MS in

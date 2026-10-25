@@ -15,6 +15,7 @@ import {
   type FillKind,
   type KindToFill,
   type QuantitiesToFill,
+  type QuantitiesToFillReady,
 } from "@/api/centrum"
 import type { RowState } from "@/api/generated"
 import { zFillKind } from "@/api/generated/zod.gen"
@@ -29,8 +30,9 @@ import { href, usePagePath } from "@/lib/address"
 import { useContentEntrance } from "@/lib/content-entrance"
 import { useSettings } from "@/lib/settings"
 import { useLiveFile } from "@/lib/use-live-file"
+import type { Resource } from "@/lib/use-resource"
 import { AfterSettlement, afterSettlementHint } from "@/pages/filling/after-settlement"
-import { KindPage } from "@/pages/filling/kind-page"
+import { hasCollectiveFile, KindPage } from "@/pages/filling/kind-page"
 import { ReadyForSettlement } from "@/pages/filling/ready-for-settlement"
 import { SaveHint } from "@/pages/filling/save-hint"
 import { openAndConfirm } from "@/pages/periods/open-period-path"
@@ -53,7 +55,8 @@ const CHIPS: Record<RowState, { look: string; label: string | null; shown: boole
 // `useResource` pamięta ostatnie dane pod funkcją odczytu, więc każdy okres ma jedną, tę samą funkcję.
 const loads = new Map<string, () => Promise<QuantitiesToFill>>()
 
-function quantitiesOf(token: string) {
+/** Odczyt Ilości do uzupełnienia okresu, ten sam dla podsumowania i karty wyniku Przygotowania. */
+export function quantitiesOf(token: string) {
   let load = loads.get(token)
 
   if (load === undefined) {
@@ -93,16 +96,6 @@ export function FillingPage() {
         <ArrowLeftIcon className="size-4" aria-hidden />
         Okresy
       </a>
-      <PageHeader
-        title={TITLE}
-        badge={
-          <Badge variant="outline" className="tabular-nums">
-            <CalendarRangeIcon aria-hidden />
-            {token}
-          </Badge>
-        }
-        action={<OpenCollectiveFile token={token} />}
-      />
       {/* Inny okres albo nowe pliki taty to nowy odczyt; zmiana motywu nim nie jest. */}
       <FillingContent key={`${token}/${filesVersion}`} token={token} />
     </>
@@ -120,6 +113,25 @@ function OpenCollectiveFile({ token }: { token: string }) {
 
 function FillingContent({ token }: { token: string }) {
   const { resource } = useLiveFile(token, quantitiesOf(token))
+
+  return (
+    <>
+      <PageHeader
+        title={TITLE}
+        badge={
+          <Badge variant="outline" className="tabular-nums">
+            <CalendarRangeIcon aria-hidden />
+            {token}
+          </Badge>
+        }
+        action={hasCollectiveFile(resource) ? <OpenCollectiveFile token={token} /> : undefined}
+      />
+      <FillingState token={token} resource={resource} />
+    </>
+  )
+}
+
+function FillingState({ token, resource }: { token: string; resource: Resource<QuantitiesToFill> }) {
   const entrance = useContentEntrance(resource.state === "loading")
 
   switch (resource.state) {
@@ -143,14 +155,7 @@ function FillingContent({ token }: { token: string }) {
       ) : (
         <div className={cn(entrance, "flex flex-col gap-3")}>
           {found.settled ? <AfterSettlement /> : null}
-          <Card className="py-0">
-            <CardContent className="divide-y px-0">
-              {found.kinds.map((kind) => (
-                <KindSection key={kind.kind} token={token} kind={kind} settled={found.settled} />
-              ))}
-              <DescriptionColumns columns={found.description_columns} />
-            </CardContent>
-          </Card>
+          <FillingSummary token={token} found={found} />
           {/* Po Przebiegu strona jest podglądem: nikt już nie wpisuje, więc wskazówka o zapisie nie ma sensu. */}
           {found.settled ? null : <SaveHint read={found.read} />}
           {found.settled ? null : <ReadyForSettlement token={token} />}
@@ -164,6 +169,20 @@ function FillingContent({ token }: { token: string }) {
       return unhandled
     }
   }
+}
+
+/** Podsumowanie: rodzaje z listą i kolumny z opisu technika; pokazuje je też karta wyniku Przygotowania. */
+export function FillingSummary({ token, found }: { token: string; found: QuantitiesToFillReady }) {
+  return (
+    <Card className="py-0">
+      <CardContent className="divide-y px-0">
+        {found.kinds.map((kind) => (
+          <KindSection key={kind.kind} token={token} kind={kind} settled={found.settled} />
+        ))}
+        <DescriptionColumns columns={found.description_columns} />
+      </CardContent>
+    </Card>
+  )
 }
 
 /**
@@ -246,7 +265,7 @@ function DescriptionColumns({ columns }: { columns: ReadonlyArray<DescriptionCol
   )
 }
 
-function FillingSkeleton() {
+export function FillingSkeleton() {
   return (
     <Card aria-busy="true" aria-label="Wczytywanie Ilości do uzupełnienia">
       <CardContent className="flex flex-col gap-5 py-2">

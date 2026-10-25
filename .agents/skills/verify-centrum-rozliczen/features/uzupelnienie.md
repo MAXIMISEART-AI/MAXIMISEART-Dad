@@ -1,12 +1,16 @@
 # Uzupełnienie pliku zbiorczego
 
 After Przygotowanie pliku zbiorczego, Dad types the Ilości do uzupełnienia in
-Excel. The card `Następny krok` on Okresy offers `Uzupełnij` for a period with
-Plik zbiorczy przygotowany, and it leads to the period's summary at
+Excel. Three entries lead to the period's summary: the card `Następny krok` on
+Okresy and the Tablica okresów row offer `Uzupełnij` for a period with Plik
+zbiorczy przygotowany, and the written Plik zbiorczy's result card shows the
+same summary with `Uzupełnij`. Droga okresu has `Uzupełnienie w Excelu` as its
+current step. The summary is at
 `#/uzupelnienie/<token>`: a counter „x z y” and the row numbers for `Wiersze bez
 reguły` and `Wiersze z opisu` (done rows crossed out, a kind with no rows or
 all rows done ticked, never red), how many rows hold a value in each column
-from the technician's description, `Otwórz Plik zbiorczy`, and `Gotowe, rozlicz
+from the technician's description, `Otwórz Plik zbiorczy` when the Plik
+zbiorczy is in the Folder okresu, and `Gotowe, rozlicz
 pracowników`, which opens Przebieg rozliczeń with the period chosen; its
 dialog `Uruchomić z zapisem?` lists the rows still without quantity. Centrum reads
 the saved Plik zbiorczy on every read, also while Excel holds it, and never
@@ -28,6 +32,11 @@ on screen, not yellow.
 
 ## Sub-features
 
+- `uzupelnienie-wynik`: the result card of Przygotowanie z zapisem has region `Uzupełnienie pliku zbiorczego` with the summary of `GET /api/periods/<token>/quantities-to-fill` and `Uzupełnij`, which opens the same summary; Wstecz returns to the result. Driven from `przygotowanie-kontynuuj`, the only written Przygotowanie without a stop.
+- `uzupelnienie-wynik-bez-starej-kopii`: with the summary page's copy older than the file (harness: Dad's value in Y18 while the summary is open), Wstecz to the result card shows `1 z 2` and never the older `0 z 2`: the card reads without the copy.
+- `uzupelnienie-wynik-po-starcie`: after Centrum is closed and started again, the card `Ostatnie Uruchomienie` (from Logi) of the same Przygotowanie has the same summary.
+- `uzupelnienie-tablica`: only the Tablica okresów row with Status `Plik zbiorczy przygotowany` has `Uzupełnij, okres <token>`, and it opens that period's summary.
+- `uzupelnienie-droga`: Droga okresu on `Następny krok` has one current step (`aria-current="step"`), `Uzupełnienie w Excelu`, after one done step.
 - `uzupelnienie-karta`: the card `Następny krok` for the last complete period with Status `Plik zbiorczy przygotowany` has `Uzupełnij` as its primary action and `Podgląd bez zapisu` next to it.
 - `uzupelnienie-podsumowanie`: `Uzupełnij` opens `#/uzupelnienie/06_12_10_2026` with the period token in the title row; the counters, row numbers and column counters equal `GET /api/periods/<token>/quantities-to-fill`; the sidebar highlights Okresy; the view is measured as page `uzupelnienie`.
 - `uzupelnienie-wpis-taty`: one value Dad types in column Y of row 18 (harness, openpyxl) while the summary is open makes, without a click or reload, row 18 done (`1 z 2`) and column Y count one more row; nothing else changes, and an unchanged file is not read again.
@@ -43,12 +52,14 @@ on screen, not yellow.
 - `uzupelnienie-gotowe-po-podgladzie`: `Podgląd bez zapisu` on the form, then `Uruchom` on the result card opens the same dialog with `2 wiersze bez ilości: 19, 20` (Dad's usual path); `Anuluj` closes it.
 - `uzupelnienie-gotowe-bez-odczytu`: with the Plik zbiorczy of `29_05_10_2026` damaged (harness, restored after), `Gotowe` on its summary chooses that period, not the preselected one; its rows answer `{state: unread}`, and the dialog says `Nie udało się sprawdzić wierszy bez ilości` with `Uruchom` enabled.
 - `uzupelnienie-po-przebiegu`: with the Folder rozliczeń pracowników of `06_12_10_2026` present (harness, removed after), the Tablica okresów says `Rozliczenia pracowników gotowe`; the summary says `Przebieg rozliczeń się odbył · tylko podgląd`, its answer has `settled: true`, row 18 (Dad's value) done and rows 19 and 20 `without_quantity` with `bez ilości` on screen next to their numbers (image `Bez ilości`), there is no `Gotowe, rozlicz pracowników`; on the kind page `Wiersze bez reguły` row 20 is no longer yellow as before the folder and not green like row 18, reads `bez ilości` on screen under its number, and the hint is `Szare zostały bez ilości.`
-- `uzupelnienie-bez-pliku`: a period without a Plik zbiorczy shows the server's three-part Komunikat (label `Komunikat`), not a failure, and the Centrum log has `uzupelnienie-odczyt-nieudany` with the period.
+- `uzupelnienie-bez-pliku`: a period without a Plik zbiorczy shows the server's three-part Komunikat (label `Komunikat`), not a failure, `Otwórz Plik zbiorczy` only when the file is in the Folder okresu (`collective_file_exists`), on the summary and on `#/uzupelnienie/15_21_09_2026/without_rule` alike, and the Centrum log has `uzupelnienie-odczyt-nieudany` with the period.
 - `uzupelnienie-gotowe-bez-okresu`: `Gotowe` on that summary opens Przebieg rozliczeń with the preselected `06_12_10_2026` and an alert `Okresu 15_21_09_2026 nie ma do wyboru, więc wybrany jest 06_12_10_2026.`, never a silent switch.
 
 ## How to get to it (user POV)
 
 - Okresy → card `Następny krok` → `Uzupełnij` (when the last complete period has Plik zbiorczy przygotowany).
+- Okresy → Tablica okresów → `Uzupełnij` in the row of any period with Plik zbiorczy przygotowany.
+- Uruchomienia → result of Przygotowanie pliku zbiorczego z zapisem → `Uzupełnij`.
 - The address `#/uzupelnienie/<token>` directly, also after a reload or Wstecz.
 
 ## Driving it with Playwright for Python
@@ -58,6 +69,11 @@ Preconditions:
 - The last complete period `06_12_10_2026` has Status `Plik zbiorczy przygotowany`. In `all` this feature runs right after `przygotowanie-pliku-zbiorczego`; alone, it drives that feature first.
 - After Przygotowanie the fixture's Plik zbiorczy has rows 18 and 20 without rule (a device the Reguły ilości do not know) and row 19 from the description (`prewencja`; `DEVICES` in `create_centrum_fixture.py`), none done.
 
+- **Result card.** In `przygotowanie-kontynuuj` the region `Podgląd na żywo` has region `Uzupełnienie pliku zbiorczego` with heading `Do uzupełnienia w Excelu`; inside it the kind regions and `Kolumny z opisu technika` equal `api/uzupelnienie-wynik.json` exactly as on the summary page (one rendering, one resource). Screenshot `230`. Click its `Uzupełnij`: the URL ends in `#/uzupelnienie/06_12_10_2026` with the same counters; `page.go_back()` shows the result again.
+- **No old copy.** On the summary opened from the card, harness: openpyxl writes `1` into Y18 (original bytes restored in `finally`). A MutationObserver records every text of region `Uzupełnienie pliku zbiorczego` from then on. `page.go_back()`: the card shows `1 z 2` and equals `api/uzupelnienie-wynik-po-wpisie.json`, and no recorded text has `0 z 2`.
+- **After a restart.** Close Centrum from the sidebar and start this run's Centrum again on the same port (harness, as in `karta-z-logow`), then reload `#/uruchomienia`: region `Ostatnie Uruchomienie` shows `Plik zbiorczy przygotowany · wymaga sprawdzenia` and region `Uzupełnienie pliku zbiorczego` equal to `api/uzupelnienie-wynik-po-starcie.json`. Screenshot `232`. `przygotowanie-pliku-zbiorczego` continues on this card.
+- **Tablica okresów.** On Okresy, row `06_12_10_2026` shows `Plik zbiorczy przygotowany` and button `Uzupełnij, okres 06_12_10_2026` (an `<a>`); the table has as many `Uzupełnij, okres …` buttons as `GET /api/periods` (`api/uzupelnienie-tablica.json`) has periods with `status: collective_file_prepared` (the fixture has two: `06_12_10_2026` and `29_05_10_2026`), each in its own row. Screenshot `231`. The click opens the summary (`api/uzupelnienie-z-tablicy.json`).
+- **Droga okresu.** `page.go_back()` to Okresy: list `Droga okresu` in `Następny krok` has one item with `aria-current="step"`, `Uzupełnienie w Excelu`, and one image `zrobione`.
 - **Card.** On Okresy, region `Następny krok` shows `06_12_10_2026` and `Utwórz rozliczenia pracowników`, button `Uzupełnij` (an `<a>` rendered as a button) and button `Podgląd bez zapisu`. `GET /api/periods` (`api/uzupelnienie-karta.json`) has the last complete period with `status: collective_file_prepared`. Screenshot `220`.
 - **Summary.** Click `Uzupełnij`: the URL ends in `#/uzupelnienie/06_12_10_2026`, heading level 1 `Uzupełnienie pliku zbiorczego`, the token in `main`. `GET /api/periods/06_12_10_2026/quantities-to-fill` (`api/uzupelnienie-podsumowanie.json`) is `ready` with rows `[18, 20]` and `[19]`, none done. Regions `Wiersze bez reguły` and `Wiersze z opisu` each show `<done> z <rows>`, the image `Zrobione` or `Do uzupełnienia` after the kind's `done`, and list items with the row numbers in order (a done row reads `18 zrobiony`; a kind without rows says `Nie ma takich wierszy.`). Region `Kolumny z opisu technika` has one `dt` per column (Y, AB, AD, AJ, AK, AL, AM) and its `dd` `nic nie wpisano`, `wpisane w 1 wierszu` or `wpisane w N wierszach`. The sidebar link `Okresy` has `data-active`. A `pomiar` line with `strona=uzupelnienie` and `getQuantitiesToFill:` reaches the Centrum log. Screenshot `221`.
 - **Dad's value, live.** The drive marks the page (`window.__bez_przeladowania`) and records its requests. Harness (labelled in `drive.txt`): openpyxl writes `1` into Y18 of the run's Plik zbiorczy, saves and closes it, with no lock file. Without a click or reload, region `Wiersze bez reguły` shows `1 z 2` within 10 s, the mark survives, and at least one `GET …/collective-file-version` went out. The answer (`api/uzupelnienie-po-wpisie.json`) has row 18 done, row 20 not, column Y one more row, everything else unchanged; the screen shows `1 z 2` and `18 zrobiony`. Two more version checks bring no further `GET …/quantities-to-fill`. Screenshot `222` in the light theme (the drive switches the theme for it and back).
@@ -73,9 +89,9 @@ Preconditions:
 - **Unreadable.** Harness: replace the bytes of `Rozliczenie 29_05_10_2026 - zbiorcze.xlsx` with text (restored in `finally`). Open `#/uzupelnienie/29_05_10_2026` and click `Gotowe`: combobox `Okres` shows `29_05_10_2026`, and `GET /api/periods/29_05_10_2026/without-quantity` (`api/uzupelnienie-gotowe-bez-odczytu-wiersze.json`) is `200` with `{state: unread}`. `Uruchom` opens the dialog with `Nie udało się sprawdzić wierszy bez ilości` and an enabled `Uruchom`. Screenshot `217`. `Anuluj`, then a reload drops the form's draft.
 - **After Przebieg.** First open `#/uzupelnienie/06_12_10_2026/without_rule` and keep the computed background of row 20's number cell (`20 do uzupełnienia`, yellow). Harness: create the empty folder `Rozliczenie pracowników 06_12_10_2026` next to the Plik zbiorczy, the fact Status okresu reads (a real Przebieg rozliczeń is in `tests/test_centrum_uzupelnienie_po_przebiegu.py`; `przebieg-rozliczen` needs this period still open), with Dad's value still in Y18. Okresy: the period's row says `Rozliczenia pracowników gotowe`. Open `#/uzupelnienie/06_12_10_2026`: status `Przebieg rozliczeń się odbył · tylko podgląd`; the answer (`api/uzupelnienie-po-przebiegu.json`) has `settled: true` and rows `18 done`, `20 without_quantity`, `19 without_quantity`; the screen matches it (`20 bez ilości`, `19 bez ilości`, image `Bez ilości` for a kind not done), and the words `bez ilości` in both list items take real room on screen (at least 20 px wide, so not the one-pixel screen-reader text); no button `Gotowe, rozlicz pracowników` and no `Nie widzisz zmian?` hint, `Otwórz Plik zbiorczy` stays. Screenshot `233-uzupelnienie-po-przebiegu`. Click the link in region `Wiersze bez reguły`: row headers `18 zrobiony` and `20 bez ilości`, the same status, `Szare zostały bez ilości.` and no `Nie widzisz zmian?` hint, the answer has `settled: true`, row 20's number cell has another background than its own yellow before the folder and than the done row 18, and its `bez ilości` under the number takes real room on screen. Screenshots `233-uzupelnienie-po-przebiegu-bez-reguly` and `…-jasny`. In `finally` the folder is removed.
 - **Restore.** In `finally` the drive writes back the Plik zbiorczy's original bytes and removes the lock file; the damaged Plik zbiorczy of `29_05_10_2026` gets its bytes back too, because `przebieg-rozliczen` reads it.
-- **No Plik zbiorczy.** Open `#/uzupelnienie/15_21_09_2026` (empty Folder okresu): label `Komunikat` shows the answer's `what`, `where` and `action` (`api/uzupelnienie-bez-pliku.json`, `state: problem`), no alert `Nie udało się …`, and the Centrum log has `uzupelnienie-odczyt-nieudany … okres=15_21_09_2026`. Screenshot `224`.
-- **Gotowe without the period.** Click `Gotowe, rozlicz pracowników` there: radio `Przebieg rozliczeń` checked, combobox `Okres` shows `06_12_10_2026`, and an alert says `Okresu 15_21_09_2026 nie ma do wyboru, więc wybrany jest 06_12_10_2026.` Screenshot `234-uzupelnienie-gotowe-bez-okresu`. A reload drops the draft.
-- **Proof.** Screenshots `215`–`218`, `220`–`227`, `229`, `233` and `234`, `api/uzupelnienie-*.json`, checks in `drive.txt`.
+- **No Plik zbiorczy.** Open `#/uzupelnienie/15_21_09_2026` (empty Folder okresu): label `Komunikat` shows the answer's `what`, `where` and `action` (`api/uzupelnienie-bez-pliku.json`, `state: problem`), no alert `Nie udało się …`; `collective_file_exists` and the button `Otwórz Plik zbiorczy` follow the disk (alone: no file, no button; in `all`, `tablica-okresow` left an empty `Rozliczenie 15_21_09_2026 - zbiorcze.xlsx`, so the Komunikat calls it damaged and the button is there), and the Centrum log has `uzupelnienie-odczyt-nieudany … okres=15_21_09_2026`. Screenshot `224`.
+- **Gotowe without the period.** In `all` the harness first sets aside the empty Plik zbiorczy `tablica-okresow` left (back in `finally`), so Przebieg rozliczeń does not offer the period. Click `Gotowe, rozlicz pracowników` there: radio `Przebieg rozliczeń` checked, combobox `Okres` shows `06_12_10_2026`, and an alert says `Okresu 15_21_09_2026 nie ma do wyboru, więc wybrany jest 06_12_10_2026.` Screenshot `234-uzupelnienie-gotowe-bez-okresu`. A reload drops the draft.
+- **Proof.** Screenshots `215`–`218`, `220`–`227`, `229`, `230`–`232`, `233` and `234`, `api/uzupelnienie-*.json`, checks in `drive.txt`.
 
 ## Gotchas
 

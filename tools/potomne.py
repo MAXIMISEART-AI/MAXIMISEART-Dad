@@ -48,6 +48,8 @@ import time
 from typing import IO, Any
 
 _DRAIN_S = 5.0
+# Na Windows tyle czeka zabijanie drzewa, aż każdy jego proces skończy I/O w toku.
+_KILL_S = 10.0
 _POLL_S = 0.1
 # Na Windows pliki zabitych procesów zwalniają się z opóźnieniem, więc usuwanie kopii trochę ponawia.
 _RELEASE_S = 10.0
@@ -192,8 +194,20 @@ if sys.platform == "win32":
             ("PeakJobMemoryUsed", ctypes.c_size_t),
         ]
 
+    class _ProcessIds(ctypes.Structure):
+        """JOBOBJECT_BASIC_PROCESS_ID_LIST."""
+
+        _fields_ = [
+            ("NumberOfAssignedProcesses", wintypes.DWORD),
+            ("NumberOfProcessIdsInList", wintypes.DWORD),
+            ("ProcessIdList", ctypes.c_size_t * 64),
+        ]
+
     _KILL_ON_JOB_CLOSE = 0x2000
     _EXTENDED_LIMIT_INFORMATION = 9
+    _PROCESS_ID_LIST = 3
+    _ERROR_MORE_DATA = 234
+    _SYNCHRONIZE = 0x00100000
     _TERMINATE_SET_QUOTA_AND_RESUME = 0x0901
     _CREATE_SUSPENDED = 0x0004
 
@@ -248,9 +262,45 @@ if sys.platform == "win32":
                 kernel32.CloseHandle(handle)
 
         def kill(self) -> None:
-            self._kernel32.TerminateJobObject(self._job, 1)
-            self._kernel32.CloseHandle(self._job)
-            self.process.wait()
+            """``TerminateJobObject`` tylko zaczyna zabijanie: proces z I/O w toku pisze jeszcze po jego powrocie (#401).
+
+            Licznik ``ActiveProcesses`` zadania spada, zanim proces zgłosi koniec, więc czeka na uchwyty członków
+            zadania otwarte przed zabiciem, najwyżej ``_KILL_S``.
+            """
+
+            kernel32 = self._kernel32
+            try:
+                deadline = time.monotonic() + _KILL_S
+                while members := self._members():
+                    if time.monotonic() >= deadline:
+                        raise OSError("drzewo procesów polecenia przeżyło zabicie")
+                    opened = (wintypes.HANDLE(kernel32.OpenProcess(_SYNCHRONIZE, False, pid)) for pid in members)
+                    handles = [handle for handle in opened if handle.value]  # bez uchwytu: już się zakończył
+                    try:
+                        if not kernel32.TerminateJobObject(self._job, 1):
+                            raise ctypes.WinError(ctypes.get_last_error(), "zabicie Job Object polecenia")
+                        for handle in handles:
+                            remaining_ms = max(0, int((deadline - time.monotonic()) * 1000))
+                            if kernel32.WaitForSingleObject(handle, remaining_ms) != 0:
+                                raise OSError("drzewo procesów polecenia przeżyło zabicie")
+                    finally:
+                        for handle in handles:
+                            kernel32.CloseHandle(handle)
+            finally:
+                kernel32.CloseHandle(self._job)
+                self.process.wait()
+
+        def _members(self) -> list[int]:
+            """PID-y procesów zadania, najwyżej 64; resztę zabija to samo ``TerminateJobObject``, a łapie następne koło."""
+
+            ids = _ProcessIds()
+            if not self._kernel32.QueryInformationJobObject(
+                self._job, _PROCESS_ID_LIST, ctypes.byref(ids), ctypes.sizeof(ids), None
+            ):
+                error = ctypes.get_last_error()
+                if error != _ERROR_MORE_DATA:
+                    raise ctypes.WinError(error, "członkowie Job Object polecenia")
+            return list(ids.ProcessIdList[: ids.NumberOfProcessIdsInList])
 
 else:
 
