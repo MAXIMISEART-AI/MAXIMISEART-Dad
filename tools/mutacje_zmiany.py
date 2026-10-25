@@ -23,17 +23,23 @@ na tym systemie, i sam warunek. Kod tylko dla innego systemu w innej postaci (st
 warunek przez ``startswith`` albo zmienną) przeżywa i potrzebuje wyjątku.
 
 Najpierw biegną raz testy dotknięte zmianą, wybrane jak w ``tools/szybko.py``, z pluginem
-``tools/pokrycie_linii.py``, który zapisuje, które testy wykonują które zmienione linie. Muszą przejść, inaczej
-wynik mutacji niczego nie dowodzi. Potem każda mutacja biegnie przez silnik ``tools/mutacje.py`` (własna kopia
-checkoutu) najpierw tylko z testami, które wykonały jej linie (a gdy takich nie ma, z testami innych zmienionych
-linii tego pliku). Pokrycie tylko przyspiesza wykrycie: mutacja, która je przeżyła, biegnie jeszcze raz ze wszystkimi
-testami dotkniętymi jej plikiem (kod modułu przy imporcie, kod wykonany raz na proces, kod w procesie uruchomionym
-przez test), i dopiero ta porażka daje ``NIEWYKRYTA``.
+``tools/pokrycie_linii.py``. Zapisuje on, które testy wykonują które zmienione linie i jakikolwiek kod zmienionych
+plików, także w procesach Pythona uruchomionych przez test, oraz linie wykonane dla wielu testów naraz: przy imporcie
+modułu i w fixture o zasięgu szerszym niż test. Testy muszą przejść, inaczej wynik mutacji niczego nie dowodzi.
+
+Potem każda mutacja biegnie przez silnik ``tools/mutacje.py`` (własna kopia checkoutu), najpierw z testami, które
+wykonały jej linie. Pokrycie tylko przyspiesza wykrycie: mutacja, która je przeżyła, biegnie drugi raz, po jednej
+naraz z ``--rownolegle`` workerami xdist, i dopiero ta porażka daje ``NIEWYKRYTA``. Drugi raz biegną testy, które
+wykonały jakikolwiek kod jej pliku albo uruchomiły proces (jego kodu zapis nie widzi, gdy proces ma ``-I``), a wszystkie
+testy dotknięte plikiem, gdy linię wykonano dla wielu testów naraz
+albo leży w funkcji z ``@cache``, ``@lru_cache`` albo ``@cached_property`` (wynik pierwszego wywołania dostają też
+inne testy). Linia ``CZAS`` mówi, ile trwała każda faza.
 
 Mutacja, która przeżywa, to obietnica bez testu: dopisz test, który ją wykrywa. Mutacja równoważna (kod robi to samo)
 dostaje wyjątek w linii mutacji albo w samodzielnym komentarzu tuż nad nią:
 ``# mutacje-zmiany: <powód> | do RRRR-MM-DD | zgoda <kto>``. Wyjątek obejmuje każdą mutację tej linii; cofnięcie
-fragmentu ma linię początku fragmentu, więc obejmuje je komentarz nad nim albo w jego pierwszej linii. Wyjątek po terminie nie obowiązuje, ale narzędzie widzi go dopiero przy
+fragmentu ma linię początku fragmentu, więc obejmuje je komentarz nad nim albo w jego pierwszej linii. Wyjątek po
+terminie nie obowiązuje, ale narzędzie widzi go dopiero przy
 następnej zmianie jego pliku, a komentarz ``mutacje-zmiany:`` w innej postaci kończy narzędzie błędem.
 
 Kończy się ``MUTACJE ZMIANY OK | …`` albo ``MUTACJE ZMIANY FAIL | …``. Nie zastępuje mutacji z opisu PR: zachowanie,
@@ -51,8 +57,9 @@ import argparse
 import ast
 from collections import defaultdict
 from collections.abc import Iterator, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import datetime
+import itertools
 import json
 import os
 from pathlib import Path, PurePosixPath
@@ -60,8 +67,10 @@ import re
 import subprocess
 import sys
 import tempfile
+import time
 
 import mutacje
+import pokrycie_procesu
 import potomne
 import szybko
 
@@ -84,6 +93,7 @@ class Mutant:
     description: str
     source: str  # cały plik po mutacji
     other_system: bool = False  # kod gałęzi innego systemu niż ten, na którym biegną testy
+    shared_state: bool = False  # kod funkcji z ``@cache``: wynik pierwszego wywołania dostają następne testy
 
 
 @dataclass(frozen=True)
@@ -252,8 +262,8 @@ def _other_system(tree: ast.AST, platform: str) -> set[int]:
                 mark(node.orelse if here else node.body)
             else:
                 mark([node.orelse if here else node.body])
-        for field in ("body", "orelse", "finalbody"):
-            block = getattr(node, field, None)
+        for name in ("body", "orelse", "finalbody"):
+            block = getattr(node, name, None)
             if not isinstance(block, list):
                 continue
             for index, statement in enumerate(block):
@@ -263,6 +273,24 @@ def _other_system(tree: ast.AST, platform: str) -> set[int]:
                     if (platform == literal) == equal:
                         mark(block[index + 1 :])
     return other
+
+
+_CACHES = frozenset({"cache", "lru_cache", "cached_property"})
+
+
+def _cached_lines(tree: ast.AST) -> set[int]:
+    """Linie funkcji z ``@cache``, ``@lru_cache`` albo ``@cached_property``."""
+
+    found: set[int] = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        for decorator in node.decorator_list:
+            target = decorator.func if isinstance(decorator, ast.Call) else decorator
+            name = target.attr if isinstance(target, ast.Attribute) else target.id if isinstance(target, ast.Name) else ""
+            if name in _CACHES:
+                found |= _span_lines(node)
+    return found
 
 
 _BOUNDARY: dict[type[ast.cmpop], str] = {ast.Lt: "<=", ast.LtE: "<", ast.Gt: ">=", ast.GtE: ">"}
@@ -396,6 +424,7 @@ def mutants(path: str, text: str, hunks: Sequence[Hunk], platform: str = sys.pla
     other_lines = {
         line for node in ast.walk(tree) if id(node) in other and isinstance(node, (ast.expr, ast.stmt)) for line in _span_lines(node)
     }
+    cached = _cached_lines(tree)
     found: dict[str, Mutant] = {}
     meaning = _meaning(text)
 
@@ -407,7 +436,7 @@ def mutants(path: str, text: str, hunks: Sequence[Hunk], platform: str = sys.pla
         except (SyntaxError, ValueError):
             return
         if _meaning(mutated) != meaning:
-            found[mutated] = Mutant(path, line, lines, description, mutated, other_system)
+            found[mutated] = Mutant(path, line, lines, description, mutated, other_system, bool(lines & cached))
 
     for node in ast.walk(tree):
         if id(node) in skipped:
@@ -455,32 +484,63 @@ def exceptions(text: str, path: str) -> dict[int, Allowance]:
     return found
 
 
-def _coverage(tests: Sequence[str], lines: dict[str, frozenset[int]]) -> tuple[subprocess.CompletedProcess[str], dict[str, dict[str, set[int]]]]:
-    """Uruchamia testy raz z pluginem ``pokrycie_linii``; zwraca wynik i zmienione linie wykonane przez każdy test."""
+@dataclass
+class Coverage:
+    lines: dict[str, dict[str, set[int]]] = field(default_factory=lambda: defaultdict(lambda: defaultdict(set)))  # test → plik → linie
+    files: dict[str, set[str]] = field(default_factory=lambda: defaultdict(set))  # test → pliki, których kod wykonał
+    shared: dict[str, set[int]] = field(default_factory=lambda: defaultdict(set))  # plik → linie wykonane dla wielu testów
+    spawners: set[str] = field(default_factory=set)  # testy, które uruchomiły proces
+
+    def covering(self, mutant: Mutant) -> list[str]:
+        return sorted(test for test, files in self.lines.items() if files.get(mutant.path, set()) & mutant.lines)
+
+    def touching(self, path: str) -> list[str]:
+        """Testy, które wykonały kod pliku ``path`` albo uruchomiły proces, którego kodu zapis może nie widzieć."""
+
+        return sorted({test for test, files in self.files.items() if path in files} | self.spawners)
+
+
+def _coverage(tests: Sequence[str], lines: dict[str, frozenset[int]]) -> tuple[subprocess.CompletedProcess[str], Coverage]:
+    """Uruchamia testy raz z pluginem ``pokrycie_linii``; zwraca wynik i pokrycie zmienionych plików."""
 
     with tempfile.TemporaryDirectory(prefix="mutacje-zmiany-") as folder:
         settings = {"linie": {str(ROOT / path): sorted(numbers) for path, numbers in lines.items()}, "wynik": folder}
-        python_path = os.pathsep.join([str(ROOT / "tools"), str(ROOT / "src"), os.environ.get("PYTHONPATH", "")])
+        # ``sitecustomize`` włącza zapis w każdym procesie Pythona, który test uruchamia z tym ``PYTHONPATH``.
+        site = Path(folder) / "site"
+        site.mkdir()
+        (site / "sitecustomize.py").write_text(pokrycie_procesu.SITECUSTOMIZE, encoding="utf-8")
+        python_path = os.pathsep.join([str(site), str(ROOT / "tools"), str(ROOT / "src"), os.environ.get("PYTHONPATH", "")])
+        inherited = {name: value for name, value in os.environ.items() if name != pokrycie_procesu.TEST}
         env = {
-            **os.environ,
+            **inherited,
             "PYTEST_XDIST_AUTO_NUM_WORKERS": os.environ.get("PYTEST_XDIST_AUTO_NUM_WORKERS", str(WORKERS)),
             "PYTHONPATH": python_path.rstrip(os.pathsep),
             "POKRYCIE_LINII": json.dumps(settings),
         }
         command = [sys.executable, "-m", "pytest", "-q", "-n", "auto", "-p", "pokrycie_linii", "-p", "no:cacheprovider", *tests]
         done = potomne.run(command, cwd=ROOT, env=env)
-        hits: dict[str, dict[str, set[int]]] = defaultdict(lambda: defaultdict(set))
-        for part in Path(folder).glob("*.json"):
-            for test, files in json.loads(part.read_text(encoding="utf-8")).items():
+        coverage = Coverage()
+
+        def relative(absolute: str) -> str:
+            return Path(absolute).relative_to(ROOT).as_posix()
+
+        for part in sorted(Path(folder).glob("*.json")):
+            recorded = json.loads(part.read_text(encoding="utf-8"))
+            for test, files in recorded["linie"].items():
                 for absolute, numbers in files.items():
-                    hits[test][Path(absolute).relative_to(ROOT).as_posix()].update(numbers)
-    return done, hits
+                    coverage.lines[test][relative(absolute)].update(numbers)
+            for test, paths in recorded["pliki"].items():
+                coverage.files[test].update(relative(path) for path in paths)
+            for absolute, numbers in recorded["wspolne"].items():
+                coverage.shared[relative(absolute)].update(numbers)
+            coverage.spawners.update(recorded["procesy"])
+    return done, coverage
 
 
-def _command(tests: Sequence[str]) -> tuple[str, ...]:
+def _command(tests: Sequence[str], workers: int = 0) -> tuple[str, ...]:
     if sum(len(test) + 1 for test in tests) > COMMAND_LIMIT:
         tests = sorted({test.split("::")[0] for test in tests})
-    return ("-m", "pytest", "-q", "-x", "-n", "0", "-p", "no:cacheprovider", *tests)
+    return ("-m", "pytest", "-q", "-x", "-n", str(workers), "-p", "no:cacheprovider", *tests)
 
 
 def _allowance(allowed: dict[int, Allowance], mutant: Mutant, today: datetime.date) -> Allowance | None:
@@ -528,15 +588,17 @@ def main(argv: list[str] | None = None) -> int:
     tests = sorted({test for selected in by_file.values() for test in selected})
     part = f" (część {number}/{count} z {len(every)})" if count > 1 else ""
     print(f"Mutacje: {len(found)}{part} w {len(paths)} plikach src/ od {args.baza}. Testy dotknięte zmianą: {len(tests)}.", flush=True)
-    hits: dict[str, dict[str, set[int]]] = {}
+    clock = [time.monotonic()]
+    coverage = Coverage()
     if tests:
-        done, hits = _coverage(tests, {path: changed_lines(hunks[path]) for path in paths})
+        done, coverage = _coverage(tests, {path: changed_lines(hunks[path]) for path in paths})
         if done.returncode != 0:
             print("\n".join((done.stdout + done.stderr).rstrip().splitlines()[-30:]))
             print("MUTACJE ZMIANY FAIL | testy dotknięte zmianą padają bez mutacji, więc mutacje niczego nie dowiodą")
             return 2
+        print(f"Pokrycie: {len(coverage.lines)} testów wykonało zmienione linie, {len(coverage.spawners)} uruchomiło proces.", flush=True)
     today = datetime.datetime.now(datetime.UTC).date()
-    narrow: list[tuple[Mutant, mutacje.Mutation]] = []
+    narrow: list[tuple[Mutant, mutacje.Mutation, list[str]]] = []  # i testy drugiego przebiegu, gdy pierwszy przeżyje
     survived = excused = other_system = 0
     for mutant in found:
         name = f"{mutant.path}:{mutant.line} {mutant.description}"
@@ -553,22 +615,37 @@ def main(argv: list[str] | None = None) -> int:
             survived += 1
             print(f"NIEWYKRYTA: {name} → żaden test nie zależy od {mutant.path}")
             continue
-        covering = sorted(test for test, files in hits.items() if files.get(mutant.path, set()) & mutant.lines)
-        covering = covering or sorted(test for test, files in hits.items() if files.get(mutant.path))
+        # Kod, którego wynik dostają też testy, które go nie wykonały (import, fixture szersza niż test, ``@cache``),
+        # sprawdzają wszystkie testy pliku; inny kod testy, które wykonały jakikolwiek kod jego pliku.
+        shared = mutant.shared_state or bool(mutant.lines & coverage.shared.get(mutant.path, set()))
+        candidates = set(by_file[mutant.path])
+        touching = [test for test in coverage.touching(mutant.path) if test.split("::")[0] in candidates]
+        second = by_file[mutant.path] if shared else touching or by_file[mutant.path]
+        first = coverage.covering(mutant) or second
         edit = mutacje.Edit(Path(mutant.path), texts[mutant.path], mutant.source)
-        narrow.append((mutant, mutacje.Mutation(name, (edit,), _command(covering or by_file[mutant.path]))))
+        narrow.append((mutant, mutacje.Mutation(name, (edit,), _command(first)), [] if first == second else second))
+    clock.append(time.monotonic())
     # Pokrycie tylko przyspiesza: mutacja, która przeżyła testy swoich linii, biegnie ze wszystkimi testami pliku.
+    # Takich jest kilka, a testów pliku tysiące, więc biegną po jednej, każda z workerami xdist.
     wide: list[mutacje.Mutation] = []
-    for (mutant, mutation), (verdict, last) in zip(narrow, mutacje.verdicts([m for _, m in narrow], workers=args.rownolegle, limit_s=args.limit_s), strict=True):
-        full = _command(by_file[mutant.path])
-        if verdict == "WYKRYTA" or mutation.command == full:
+    for (_, mutation, second), (verdict, last) in zip(narrow, mutacje.verdicts([m for _, m, _ in narrow], workers=args.rownolegle, limit_s=args.limit_s), strict=True):
+        if verdict == "WYKRYTA" or not second:
             survived += verdict != "WYKRYTA"
             print(f"{verdict}: {mutation.name} → {last}", flush=True)
         else:
-            wide.append(mutacje.Mutation(mutation.name, mutation.edits, full))
-    for mutation, (verdict, last) in zip(wide, mutacje.verdicts(wide, workers=args.rownolegle, limit_s=args.limit_s), strict=True):
+            wide.append(mutacje.Mutation(mutation.name, mutation.edits, _command(second, args.rownolegle)))
+    clock.append(time.monotonic())
+    for mutation, (verdict, last) in zip(wide, mutacje.verdicts(wide, workers=1, limit_s=args.limit_s), strict=True):
         survived += verdict != "WYKRYTA"
-        print(f"{verdict}: {mutation.name} → {last} (wszystkie testy pliku)", flush=True)
+        print(f"{verdict}: {mutation.name} → {last} (testy pliku)", flush=True)
+    clock.append(time.monotonic())
+    uncovered = sum(not second for _, _, second in narrow)
+    coverage_s, narrow_s, wide_s = (later - earlier for earlier, later in itertools.pairwise(clock))
+    print(
+        f"CZAS | pokrycie {coverage_s:.0f} s | testy linii {narrow_s:.0f} s ({len(narrow)} mutacji, w tym {uncovered} bez drugiego)"
+        f" | testy pliku {wide_s:.0f} s ({len(wide)} mutacji)",
+        flush=True,
+    )
     summary = f"mutacje={len(found)} | wyjątki={excused} | innego systemu={other_system}"
     if survived:
         print(f"MUTACJE ZMIANY FAIL | przeżyło {survived} | {summary}")

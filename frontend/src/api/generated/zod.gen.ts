@@ -12,10 +12,12 @@ export const zApiTiming = z.object({
         'getHealth',
         'getSettings',
         'chooseRegister',
+        'openRegister',
         'choosePeriodsDirectory',
         'changeTheme',
         'getPeriodBoard',
         'openPeriodPath',
+        'openWorkerSettlement',
         'getRunSetup',
         'startRun',
         'decideRun',
@@ -295,7 +297,8 @@ export const zPeriodChoice = z.object({
     status_label: z.string(),
     last_complete: z.boolean(),
     previewed: z.boolean(),
-    collective_file: z.string().nullable()
+    collective_file: z.string().nullable(),
+    open_in_excel: z.array(z.string())
 });
 
 /**
@@ -934,13 +937,15 @@ export const zViewTiming = z.object({
 });
 
 /**
- * WorkerFile
+ * WorkerSettlement
  *
- * Wiersz planu plików: nazwa pliku Szablonu pracownika i liczba Wierszy danych (0 = pusty skoroszyt).
+ * Rozliczenie pracownika jednego Wykonawcy: nazwa pliku, liczba jego zleceń w okresie i czy szablon jest pusty.
  */
-export const zWorkerFile = z.object({
+export const zWorkerSettlement = z.object({
+    worker: z.string(),
     file: z.string(),
-    rows: z.int()
+    orders: z.int(),
+    empty: z.boolean()
 });
 
 /**
@@ -948,14 +953,14 @@ export const zWorkerFile = z.object({
  *
  * Podsumowanie albo plan (DRY-RUN) procesu tak, jak pokazuje je karta Uruchomienia, bez danych klientów.
  *
- * Liczby wyniku, potem szczegóły: kafelki liczb (np. Zlecenia na dzień), pliki okresu i plan plików
- * (``None``, gdy proces go nie ma).
+ * Liczby wyniku, potem szczegóły: kafelki liczb (np. Zlecenia na dzień), pliki okresu i Rozliczenia
+ * pracowników: plan po podglądzie, zapisane po uruchomieniu (``None``, gdy proces ich nie tworzy).
  */
 export const zRunSummary = z.object({
     figures: z.array(zFigure),
     counts: zCountGroup.nullable(),
     files: z.array(zPeriodFile),
-    file_plan: z.array(zWorkerFile).nullable()
+    worker_settlements: z.array(zWorkerSettlement).nullable()
 });
 
 /**
@@ -963,12 +968,15 @@ export const zRunSummary = z.object({
  *
  * Wynik Uruchomienia procesu: zatrzymania i ostrzeżenia w trzech częściach, uwagi techniczne i podsumowanie.
  *
- * ``ending`` mówi, jak się skończyło: ``finished``, własne zatrzymanie procesu (``stop``), nieoczekiwany
- * błąd (``unexpected``) albo błąd po zakończeniu silnika (``after_engine``). ``next_action`` to akcja,
- * którą Centrum proponuje po wyniku, a ``headline`` to tytuł banera wyniku. ``stop_kind`` to rodzaj
+ * ``ending`` mówi, jak się skończyło: ``finished``, własne zatrzymanie procesu (``stop``), Zatrzymanie po
+ * odmowie w Decyzji taty (``declined``), nieoczekiwany błąd (``unexpected``) albo błąd po zakończeniu
+ * silnika (``after_engine``). ``next_action`` to akcja, którą Centrum proponuje po wyniku, a ``headline``
+ * to tytuł banera wyniku. ``stop_kind`` to rodzaj
  * Zatrzymania (``None`` bez Zatrzymania), ``diagnosis`` to Diagnoza, którą z niego Centrum proponuje
  * (``None``: bez Zatrzymania i przy Zatrzymaniu „dla taty”), a ``report`` stan Zgłoszenia do Maksa tego
- * problemu (``None``, gdy Centrum nie proponuje Diagnozy).
+ * problemu (``None``, gdy Centrum nie proponuje Diagnozy). ``files_unchanged``: Uruchomienie nie zmieniło
+ * plików taty (podgląd bez zapisu albo koniec przed Zapisywaniem), więc karta może to tacie powiedzieć.
+ * ``opens`` to plik taty, w którym jest poprawka Zatrzymania, a karta proponuje go otworzyć (``None``: żaden).
  */
 export const zRunOutcome = z.object({
     result: z.enum([
@@ -980,18 +988,21 @@ export const zRunOutcome = z.object({
     ending: z.enum([
         'finished',
         'stop',
+        'declined',
         'unexpected',
         'after_engine'
     ]),
     next_action: z.enum([
         'run',
         'rerun',
-        'open_period_folder'
+        'open_collective_file',
+        'open_worker_settlements_folder'
     ]),
     stop_kind: z.enum([
         'for_tata',
         'for_maks',
-        'repeated'
+        'repeated',
+        'declined'
     ]).nullable(),
     diagnosis: z.enum(['on_request', 'automatic']).nullable(),
     report: z.discriminatedUnion('state', [
@@ -1003,7 +1014,9 @@ export const zRunOutcome = z.object({
     stops: z.array(zMessage),
     warnings: z.array(zMessage),
     technical_notes: z.array(z.string()),
-    summary: zRunSummary.nullable()
+    summary: zRunSummary.nullable(),
+    files_unchanged: z.boolean(),
+    opens: z.enum(['order_register', 'collective_file']).nullable()
 });
 
 /**
@@ -1030,6 +1043,15 @@ export const zRunEvent = z.object({
         zRunAwaitingDecision,
         zRunFinished
     ])
+});
+
+/**
+ * WorkerSettlementRequest
+ *
+ * Którego Wykonawcy Rozliczenie pracownika otworzyć; ścieżkę wylicza serwer z Folderu okresu.
+ */
+export const zWorkerSettlementRequest = z.object({
+    worker: z.string()
 });
 
 /**
@@ -1154,6 +1176,17 @@ export const zOpenPeriodPathPath = z.object({
  */
 export const zOpenPeriodPathResponse = zOpened;
 
+export const zOpenWorkerSettlementBody = zWorkerSettlementRequest;
+
+export const zOpenWorkerSettlementPath = z.object({
+    token: z.string()
+});
+
+/**
+ * Successful Response
+ */
+export const zOpenWorkerSettlementResponse = zOpened;
+
 export const zStartRunBody = zRunRequest;
 
 /**
@@ -1247,6 +1280,11 @@ export const zChoosePeriodsDirectoryResponse = zChoice;
  * Successful Response
  */
 export const zChooseRegisterResponse = zChoice;
+
+/**
+ * Successful Response
+ */
+export const zOpenRegisterResponse = zOpened;
 
 export const zChangeThemeBody = zThemeChange;
 

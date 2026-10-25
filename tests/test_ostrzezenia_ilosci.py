@@ -112,7 +112,7 @@ def test_w_centrum_podglad_z_ostrzezeniami_ilosci_prowadzi_do_uruchom_a_zapis_wy
     assert preview_previewed is True
     assert (written["result"], written["next_action"], written["headline"]) == (
         "WYMAGA_SPRAWDZENIA",
-        "open_period_folder",
+        "open_collective_file",
         "Plik zbiorczy przygotowany · wymaga sprawdzenia",
     )
     shown = [(warning["what"], warning["where"]) for warning in written["warnings"]]

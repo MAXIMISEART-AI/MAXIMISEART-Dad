@@ -70,7 +70,7 @@ EXPECTED_SUMMARY = contract.RunSummary(
         contract.PeriodFile(name=INTERNAL_NAME, kind="internal_settlement"),
         contract.PeriodFile(name=COLLECTIVE_NAME, kind="collective_file"),
     ],
-    file_plan=None,
+    worker_settlements=None,
 )
 INTERNAL_TEMPLATE = Path("config") / "Wzorzec rozliczenia wewnętrznego.xlsx"
 COLLECTIVE_TEMPLATE = Path("config") / "Wzorzec pliku zbiorczego.xlsx"

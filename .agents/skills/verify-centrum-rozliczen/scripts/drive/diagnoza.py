@@ -27,6 +27,8 @@ NO_ORDERS = "W Rejestrze zleceń nie ma żadnego zlecenia z tego okresu."
 TEMPLATE_MISSING = "Nie znaleziono wzorca, z którego powstają pliki okresu."
 NOT_FOUND = "Nie znalazłem przyczyny na tym komputerze."
 CONFIRMS = "Diagnoza potwierdza ten komunikat."
+FILES_UNCHANGED = "Nic nie zapisano, Twoje pliki są bez zmian."
+NOT_DAD_FILES = "To nie wynika z Twoich plików."
 NOT_CHECKED_UNEXPECTED = "Nie udało się sprawdzić: nieoczekiwany błąd."
 # The Centrum log entry of a check that failed itself: the exception type and the check, never its text.
 UNEXPECTED_IN_DIAGNOSIS = 'nieoczekiwany-wyjatek typ=RuntimeError miejsce="Diagnoza: Rejestr zleceń"'
@@ -78,11 +80,29 @@ def drive_diagnosis(run: Run, page: Page) -> None:
     page.get_by_role("button", name="Podgląd bez zapisu", exact=True).click()
     expect(stop_banner(page)).to_contain_text(REGISTER_OPEN)
     result = finished_result(run, "diagnoza-dla-taty")
-    run.check(result["stop_kind"] == "for_tata", "a stop Dad fixes himself is „dla taty”")
+    run.check(
+        (result["stop_kind"], result["headline"], result["files_unchanged"], result["opens"])
+        == ("for_tata", "Do poprawy", True, "order_register"),
+        "a stop Dad fixes himself is „dla taty”, to fix in the Rejestr zleceń, with his files unchanged",
+    )
+    for_tata = page.get_by_role("region", name="Podgląd na żywo").get_by_label("Zatrzymanie do poprawy", exact=True)
+    expect(for_tata).to_contain_text("Do poprawy")
+    expect(for_tata).to_contain_text(FILES_UNCHANGED)
+    expect(for_tata).not_to_contain_text(NOT_DAD_FILES)
+    run.check(
+        "text-destructive" not in (for_tata.get_attribute("class") or ""),
+        "the stop Dad fixes himself is yellow, not a red error",
+    )
     expect(stop_banner(page).get_by_role("button", name="Uruchom ponownie", exact=True)).to_be_visible()
     expect(page.get_by_role("button", name="Diagnoza", exact=True)).to_have_count(0)
     run.check(True, "the stop offers Uruchom ponownie and no Diagnoza")
     run.capture(page, "50-diagnoza-dla-taty")
+    opened_before = len(run.lines("opened.jsonl"))
+    for_tata.get_by_role("button", name="Otwórz Rejestr zleceń", exact=True).click()
+    run.wait_for(
+        lambda: run.lines("opened.jsonl")[opened_before:] == [{"path": str(register)}],
+        "Otwórz Rejestr zleceń opens the Rejestr zleceń from Dad's settings",
+    )
 
     run.step(FEATURE, "diagnoza-powtorka")
     stop_banner(page).get_by_role("button", name="Uruchom ponownie", exact=True).click()
@@ -149,7 +169,17 @@ def drive_diagnosis(run: Run, page: Page) -> None:
     stop_banner(page).get_by_role("button", name="Uruchom ponownie", exact=True).click()
     expect(stop_banner(page)).to_contain_text(TEMPLATE_MISSING)
     result = finished_result(run, "diagnoza-do-maksa")
-    run.check(result["stop_kind"] == "for_maks", "a stop that tells Dad to pass it on is „do Maksa”")
+    run.check(
+        (result["stop_kind"], result["headline"], result["opens"]) == ("for_maks", "Błąd", None),
+        "a stop that tells Dad to pass it on is „do Maksa”, an error",
+    )
+    for_maks = page.get_by_role("region", name="Podgląd na żywo").get_by_label("Zatrzymanie", exact=True)
+    expect(for_maks).to_contain_text(NOT_DAD_FILES)
+    expect(for_maks).to_contain_text(FILES_UNCHANGED)
+    run.check(
+        "text-destructive" in (for_maks.get_attribute("class") or ""),
+        "the stop „do Maksa” stays red and says it does not come from Dad's files",
+    )
     expect(stop_banner(page).get_by_role("button", name="Diagnoza", exact=True)).to_be_visible()
     run.capture(page, "55-diagnoza-do-maksa")
     main_commit.parent.mkdir(exist_ok=True)

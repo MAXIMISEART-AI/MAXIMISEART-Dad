@@ -30,6 +30,8 @@ ROW_MARKER = "CENTRUM-SYN-ROW"
 # Dad double-clicks out of habit and double-taps the touch screen: the second click comes within milliseconds,
 # so a repeated request is sent well within this, and an answer reaches the screen (a refusal as a toast) too.
 REPEAT_SETTLE_MS = 300
+# Dad's return to Centrum's window: the pages read the server again (`useResource`).
+FOCUS = "window.dispatchEvent(new Event('focus'))"
 
 
 class DriveFailure(Exception):
@@ -210,6 +212,55 @@ def stop_banner(page: Page) -> Locator:
     """The three-part stop banner of the Uruchomienie procesu shown on Uruchomienia."""
 
     return page.get_by_role("region", name="Podgląd na żywo").get_by_label("Zatrzymanie")
+
+
+def start_card_warns_while_open(
+    run: Run, page: Page, *, process: str, workbook: Path, warning: str, name: str, shots: tuple[str, str]
+) -> None:
+    """The start card warns while ``workbook`` is open in Excel and stops warning when Dad closes it.
+
+    The card shows the server's ``open_in_excel`` for the chosen period (``LAST_COMPLETE``), turns off „Uruchom”,
+    and keeps „Podgląd bez zapisu”. Excel is not driven: the harness adds and removes its lock file ``~$<name>``,
+    then fires ``focus`` as Dad's return to the window does.
+    """
+
+    lock = workbook.with_name(f"~${workbook.name}")
+    warned = page.get_by_role("alert").filter(has_text=warning)
+    start = page.get_by_role("button", name="Uruchom", exact=True)
+    preview = page.get_by_role("button", name="Podgląd bez zapisu", exact=True)
+
+    def shown(answer: str) -> list[object]:
+        processes = run.api("/api/runs/setup", answer)["processes"]
+        assert isinstance(processes, list)
+        [setup] = [setup for setup in processes if setup["process"] == process]
+        [choice] = [choice for choice in setup["periods"] if choice["token"] == LAST_COMPLETE]
+        found = choice["open_in_excel"]
+        assert isinstance(found, list)
+        return found
+
+    lock.touch()
+    print(f"  harness: Excel opens {workbook.name}, so its lock file is next to it; Dad returns to Centrum", flush=True)
+    try:
+        page.evaluate(FOCUS)
+        expect(warned).to_have_text(warning)
+        expect(start).to_be_disabled()
+        expect(preview).to_be_enabled()
+        run.check(
+            shown(f"{name}-otwarty-w-excelu") == [warning],
+            f"the start card names {workbook.name} open in Excel; Uruchom is off and Podgląd bez zapisu stays on",
+        )
+        run.capture(page, shots[0])
+    finally:
+        lock.unlink(missing_ok=True)
+    print(f"  harness: Excel closes {workbook.name}, so its lock file is gone; Dad returns to Centrum", flush=True)
+    page.evaluate(FOCUS)
+    expect(warned).to_have_count(0)
+    expect(start).to_be_enabled()
+    run.check(
+        shown(f"{name}-zamkniety") == [],
+        f"after {workbook.name} is closed the warning is gone without a reload and Uruchom is on again",
+    )
+    run.capture(page, shots[1])
 
 
 def diagnosis_answer(run: Run, run_id: str, name: str) -> dict[str, object]:

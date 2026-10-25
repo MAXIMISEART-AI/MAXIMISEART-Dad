@@ -79,7 +79,7 @@ class CodedMessage(_Model):
 
 
 class StopResult(_Model):
-    kind: Literal["stop", "unexpected", "after_engine"]
+    kind: Literal["stop", "declined", "unexpected", "after_engine"]
     message: CodedMessage
 
 
