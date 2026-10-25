@@ -70,8 +70,10 @@ Centrum bez identyfikatora Uruchomienia.
 
 ## Konsekwencje
 
-- Podwójna awaria (plik startu zapisany, a Logi na końcu nie) nazywa
-  zakończone Uruchomienie urwanym. Rada „Uruchom ponownie” jest wtedy
-  bezpieczna dzięki Nienadpisywaniu.
+- Wystarczy jeden nieudany zapis Logów na końcu Uruchomienia (np. brak
+  uprawnień do katalogu Logów, który leży obok pliku startu), żeby karta po
+  ponownym starcie Centrum nazwała zakończone Uruchomienie urwanym: plik
+  startu jest, a Logów nie. Rada „Uruchom ponownie” jest wtedy bezpieczna
+  dzięki Nienadpisywaniu.
 - Plik Logów bez pola Diagnozy (sprzed tego pola, tylko u Maksa) daje „karty
   nie ma”.
