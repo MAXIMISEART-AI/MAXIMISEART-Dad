@@ -29,10 +29,10 @@ importuje albo czyta plik ``FULL``, ma najwyżej 2, więc przy zmianie konfigura
 bez drogi w grafie. Resztę liczy pełny pytest w CI, a szybko wypisuje ją przed wynikiem
 jako „zostawione CI”, więc ``SZYBKO OK`` znaczy, że przeszły uruchomione testy.
 
-Testy ``STRUCTURE`` (reguły z tabel w ``AGENTS.md`` i ``docs/agents/skille.md`` oraz testy całego repozytorium)
-biegną przy każdej zmianie, a gdy ``--baza`` poszła dalej niż HEAD, także na mergu z nią (to drzewo sprawdza CI
-PR-u; numer ADR zajęty równolegle pada dopiero tam). Na mergu biegną tylko one, bez mypy, testów dotkniętych zmianą i workerów xdist, razem z
-pozostałymi krokami.
+Testy ``STRUCTURE`` (reguły z tabel w ``AGENTS.md``, ``CODING_STANDARDS.md`` i ``docs/agents/`` oraz testy całego
+repozytorium) biegną przy każdej zmianie, a gdy ``--baza`` poszła dalej niż HEAD, także na mergu z nią (to drzewo
+sprawdza CI PR-u; numer ADR zajęty równolegle pada dopiero tam). Na mergu biegną tylko one, bez mypy, testów
+dotkniętych zmianą i workerów xdist, razem z pozostałymi krokami.
 Szybko nie pobiera ``origin``, więc merge jest z bazą z ostatniego ``git fetch``. Nie uruchamia zadań CI
 ``mutations`` (skrypty mutacji skilli), ``Frontend``, E2E ani Timing guard.
 

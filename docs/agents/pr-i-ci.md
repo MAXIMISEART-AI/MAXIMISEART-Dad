@@ -6,8 +6,7 @@ Kiedy PR jest gotowy i jak go scalić, mówi sekcja `PR: od pushu do merge'a` w 
 
 - Porażkę zadania odtwarzasz przez `.venv/bin/python tools/ci_lokalnie.py --tylko <zadanie>` (Windows: `py -3 tools/ci_lokalnie.py --tylko <zadanie>`).
 - Ciężkie zadania (`change-mutations`, `mutations`) liczy GitHub po pushu, w trzech częściach każde, a ich stan sprawdzasz przez `tools/praca_w_toku.py` albo `gh pr checks`.
-  Lokalnie uruchamiasz je tylko do odtworzenia porażki z runu Actions tej gałęzi, w którym to zadanie padło: `.venv/bin/python tools/mutacje_zmiany.py --odtwarzam <id albo URL runu>`, na gałęzi zbudowanej na innej z `--baza <gałąź rodzica>`.
-  Inne przebiegi odrzuca `tools/ciezkie_ci.py`.
+  Porażkę z runu Actions tej gałęzi odtwarzasz przez `.venv/bin/python tools/mutacje_zmiany.py --odtwarzam <id albo URL runu>`, na gałęzi zbudowanej na innej z `--baza <gałąź rodzica>`.
 
 ## Status `scalenie z main`
 
@@ -17,11 +16,17 @@ Kiedy PR jest gotowy i jak go scalić, mówi sekcja `PR: od pushu do merge'a` w 
 - `error` z „sam nie przechodzi” znaczy, że czerwony jest `main`, nie PR.
 - Brak statusu znaczy, że `main` nie zmienił się od pushu PR albo przebieg jeszcze trwa.
 
-## Aktualizacja gałęzi z `main`
+## Czerwony `main`
 
-- O rebase albo merge `main` do gałęzi rozstrzyga werdykt `AKTUALIZACJA` z `tools/praca_w_toku.py --aktualizacja`, który drukuje też brama `pre-push`.
 - Czerwony `main` naprawia od razu osobny PR, a PR, nad którym pracujesz, zostaje przy swojej zmianie.
 
 ## Każdy commit gałęzi
 
 - Każdy commit gałęzi sprawdzasz, gdy tego potrzebujesz (nic tego nie wymaga), przez `tools/ci_lokalnie.py --kazdy-commit`.
+
+## Reguły i co ich pilnuje
+
+| Reguła | Co jej pilnuje |
+|---|---|
+| Rebase albo merge `main` do gałęzi robisz tylko przy konflikcie albo gdy `main` zmienił te same pliki co PR. | werdykt `AKTUALIZACJA` z `tools/praca_w_toku.py --aktualizacja`, drukowany też przez bramę `tools/hooks/pre-push`; `tests/test_praca_w_toku.py`, `tests/test_brama_pre_push.py` |
+| Ciężkie zadania CI (`change-mutations`, `mutations`) liczy GitHub, a lokalnie biegną tylko do odtworzenia porażki z runu Actions tej gałęzi. | `tools/ciezkie_ci.py`, `tests/test_ciezkie_ci.py`, `tests/test_na_scalonych_pr.py` |

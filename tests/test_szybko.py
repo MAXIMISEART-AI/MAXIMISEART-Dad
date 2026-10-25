@@ -31,6 +31,15 @@ BY_CHANGE_ONLY = {
     "tests/test_szybko.py": "sprawdza samo szybko w repozytoriach testu; graf wybiera go przy zmianie tools/szybko.py i tabel reguł",
 }
 
+# Pliki z tabelami reguł: nagłówek po polsku w dokumentach procesu, po angielsku w ``CODING_STANDARDS.md``.
+RULE_TABLES = (
+    ROOT / "AGENTS.md",
+    ROOT / "CODING_STANDARDS.md",
+    ROOT / "docs" / "agents" / "pr-i-ci.md",
+    ROOT / "docs" / "agents" / "skille.md",
+)
+RULE_TABLE_HEADERS = ("| Reguła | Co jej pilnuje |", "| Rule | Guard |")
+
 BASE_FILES = {
     ".agents/skills/verify-x/scripts/skrypt.py": "WARTOSC = 1\n",
     "uruchom.py": "WARTOSC = 1\n",
@@ -652,12 +661,33 @@ def test_nieznana_baza_konczy_sie_jedna_linia_wyniku(tmp_path: Path) -> None:
     assert (answered.returncode, answered.stdout.splitlines()) == (1, ["SZYBKO FAIL | nieznana baza nie-ma-takiej"])
 
 
-def test_kazdy_test_z_tabeli_regul_w_agents_md_jest_testem_struktury_albo_ma_powod() -> None:
-    """Tabele reguł to ``AGENTS.md`` i ``docs/agents/skille.md``; dokument bez nagłówka tabeli wywraca test."""
+def _rule_rows(text: str) -> list[str]:
+    """Wiersze każdej tabeli reguł w tekście: linie ``|`` pod nagłówkiem z ``RULE_TABLE_HEADERS``, bez separatora."""
 
-    documents = (ROOT / "AGENTS.md", ROOT / "docs" / "agents" / "skille.md")
-    tables = [path.read_text(encoding="utf-8").split("## Reguły i co ich pilnuje", 1)[1] for path in documents]
-    guards = [line.rsplit("|", 2)[-2] for table in tables for line in table.splitlines() if line.startswith("|")]
+    rows: list[str] = []
+    in_table = False
+    for line in text.splitlines():
+        if line.strip() in RULE_TABLE_HEADERS:
+            in_table = True
+        elif not (in_table and line.startswith("|")):
+            in_table = False
+        elif not line.startswith("|---"):
+            rows.append(line)
+    return rows
+
+
+def test_kazdy_test_z_tabel_regul_jest_testem_struktury_albo_ma_powod() -> None:
+    """Tabele reguł żyją w ``RULE_TABLES``: plik bez tabeli i tabela w innym pliku Markdown wywracają test."""
+
+    rows = {path: _rule_rows(path.read_text(encoding="utf-8")) for path in RULE_TABLES}
+    listed = ["git", "ls-files", "--cached", "--others", "--exclude-standard", "*.md"]
+    markdown = subprocess.run(listed, cwd=ROOT, capture_output=True, text=True, encoding="utf-8", check=True)
+    elsewhere = [
+        name
+        for name in markdown.stdout.splitlines()
+        if ROOT / name not in rows and (ROOT / name).is_file() and _rule_rows((ROOT / name).read_text(encoding="utf-8"))
+    ]
+    guards = [row.rsplit("|", 2)[-2] for found in rows.values() for row in found]
     named = {path for guard in guards for path in re.findall(r"tests/test_\w+\.py", guard)}
     structure = {node.partition("::")[0] for node in szybko.STRUCTURE}
 
@@ -670,6 +700,8 @@ def test_kazdy_test_z_tabeli_regul_w_agents_md_jest_testem_struktury_albo_ma_pow
         check=False,
     )
 
+    assert [path.relative_to(ROOT).as_posix() for path, found in rows.items() if not found] == []
+    assert elsewhere == [], "dopisz plik z tabelą reguł do RULE_TABLES"
     undecided = named - structure - BY_CHANGE_ONLY.keys()
     assert undecided == set(), "dopisz test do STRUCTURE w tools/szybko.py albo powód do BY_CHANGE_ONLY"
     assert BY_CHANGE_ONLY.keys() - named == set(), "BY_CHANGE_ONLY ma test spoza tabeli"
