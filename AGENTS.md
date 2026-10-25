@@ -17,7 +17,7 @@
   Gdy `.venv` ma Pythona nowszego niż najstarszy z `requires-python`, importuje też każdy moduł `src/` tym Pythonem przez `uv` (bez `uv` pada).
   Na gałęzi zbudowanej na innej dodaj `--baza <gałąź rodzica>`.
   Na mergu z `origin/main` z ostatniego `git fetch` uruchamia tylko testy struktury.
-  Nie uruchamia zadań CI `mutations` (skrypty mutacji skilli), `Frontend`, E2E ani Timing guard.
+  Nie uruchamia zadania CI `mutations` (skrypty mutacji skilli), kroków frontendu z zadania `Ruff, mypy, Frontend` ani kroków E2E i Timing guard z zadania pytest.
   Krok pytest bierze 4 workery, chyba że ustawisz `PYTEST_XDIST_AUTO_NUM_WORKERS`.
   `SZYBKO OK` nie jest gotowością.
 - Status `scalenie z main` na HEAD PR mówi, czy scalenie PR z obecnym `main` przechodzi bez konfliktu, ruff i mypy dla obu systemów (`tools/scalenia_pr.py` w workflow `scalenia.yml`, po każdym pushu do `main`).
