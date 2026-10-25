@@ -415,10 +415,14 @@ class QuantitiesToFillReady(_Model):
 
 
 class QuantitiesToFillProblem(_Model):
-    """Pliku zbiorczego nie udało się odczytać; Komunikat go nazywa."""
+    """Pliku zbiorczego nie udało się odczytać; Komunikat go nazywa.
+
+    ``collective_file_exists``: plik jest w Folderze okresu, więc „Otwórz Plik zbiorczy” ma co otworzyć.
+    """
 
     state: Literal["problem"]
     message: Message
+    collective_file_exists: bool
 
 
 QuantitiesToFill = Annotated[QuantitiesToFillReady | QuantitiesToFillProblem, Field(discriminator="state")]

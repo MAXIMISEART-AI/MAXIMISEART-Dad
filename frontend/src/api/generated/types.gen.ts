@@ -1063,6 +1063,8 @@ export type Progress = {
  * QuantitiesToFillProblem
  *
  * Pliku zbiorczego nie udało się odczytać; Komunikat go nazywa.
+ *
+ * ``collective_file_exists``: plik jest w Folderze okresu, więc „Otwórz Plik zbiorczy” ma co otworzyć.
  */
 export type QuantitiesToFillProblem = {
     /**
@@ -1070,6 +1072,10 @@ export type QuantitiesToFillProblem = {
      */
     state: 'problem';
     message: Message;
+    /**
+     * Collective File Exists
+     */
+    collective_file_exists: boolean;
 };
 
 /**

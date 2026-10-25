@@ -49,7 +49,10 @@ def filling_router(store: SettingsStore, log: CentrumLog, cloud_files: CloudFile
                 return _ready(quantities_to_fill(read))
             message, failure = fill_messages.headers_missing(path, read.headers), "-"
         log.fill_unreadable(period=token, cause=message.code, excel_lock=_excel_lock(path), failure=failure)
-        return contract.QuantitiesToFillProblem(state="problem", message=contract.Message.of(message))
+        # ``os.path.isfile``, bo ``Path.is_file`` w folderze bez dostępu rzuca PermissionError zamiast odpowiedzieć „nie”.
+        return contract.QuantitiesToFillProblem(
+            state="problem", message=contract.Message.of(message), collective_file_exists=os.path.isfile(path)
+        )
 
     return router
 

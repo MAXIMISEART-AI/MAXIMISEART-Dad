@@ -525,10 +525,13 @@ export const zProgress = z.object({
  * QuantitiesToFillProblem
  *
  * Pliku zbiorczego nie udało się odczytać; Komunikat go nazywa.
+ *
+ * ``collective_file_exists``: plik jest w Folderze okresu, więc „Otwórz Plik zbiorczy” ma co otworzyć.
  */
 export const zQuantitiesToFillProblem = z.object({
     state: z.literal('problem'),
-    message: zMessage
+    message: zMessage,
+    collective_file_exists: z.boolean()
 });
 
 /**

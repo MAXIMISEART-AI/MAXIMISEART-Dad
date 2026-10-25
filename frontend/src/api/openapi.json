@@ -3163,16 +3163,21 @@
           },
           "message": {
             "$ref": "#/components/schemas/Message"
+          },
+          "collective_file_exists": {
+            "type": "boolean",
+            "title": "Collective File Exists"
           }
         },
         "additionalProperties": false,
         "type": "object",
         "required": [
           "state",
-          "message"
+          "message",
+          "collective_file_exists"
         ],
         "title": "QuantitiesToFillProblem",
-        "description": "Pliku zbiorczego nie udało się odczytać; Komunikat go nazywa."
+        "description": "Pliku zbiorczego nie udało się odczytać; Komunikat go nazywa.\n\n``collective_file_exists``: plik jest w Folderze okresu, więc „Otwórz Plik zbiorczy” ma co otworzyć."
       },
       "QuantitiesToFillReady": {
         "properties": {
