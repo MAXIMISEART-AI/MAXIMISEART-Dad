@@ -7,9 +7,9 @@ from pathlib import Path
 from openpyxl import load_workbook
 from openpyxl.utils import column_index_from_string
 from openpyxl.worksheet.worksheet import Worksheet
-from playwright.sync_api import Page, expect
+from playwright.sync_api import Locator, Page, expect
 
-from drive.common import LAST_COMPLETE, Run, last_opened_is, period_files
+from drive.common import LAST_COMPLETE, Run, last_opened_is, period_files, period_row
 from drive.przygotowanie_pliku_zbiorczego import drive_preparation
 
 FEATURE = "uzupelnienie"
@@ -50,8 +50,8 @@ def _columns(answer: dict[str, object]) -> dict[str, int]:
     return {column["column"]: column["rows"] for column in columns}
 
 
-def _check_screen(run: Run, page: Page, answer: dict[str, object], where: str) -> None:
-    """The summary shows every kind's counter and row numbers and every column counter of the server's answer."""
+def _check_screen(run: Run, page: Page | Locator, answer: dict[str, object], where: str) -> None:
+    """The summary in ``page`` shows every kind's counter and row numbers and every column counter of the answer."""
 
     kinds = answer["kinds"]
     assert isinstance(kinds, list)
@@ -69,6 +69,62 @@ def _check_screen(run: Run, page: Page, answer: dict[str, object], where: str) -
     expect(reminder.locator("dt")).to_have_text(list(columns))
     expect(reminder.locator("dd")).to_have_text([_in_rows(rows) for rows in columns.values()])
     run.check(True, f"{where}: counters, row numbers with their done state, and column counters match the server")
+
+
+def drive_result_card(run: Run, page: Page) -> None:
+    """Entry from Przygotowanie: the written Plik zbiorczy's result card shows the summary and leads to it."""
+
+    run.step(FEATURE, "uzupelnienie-wynik")
+    card = page.get_by_role("region", name="Podgląd na żywo")
+    filling = card.get_by_role("region", name="Uzupełnienie pliku zbiorczego", exact=True)
+    expect(filling.get_by_role("heading", name="Do uzupełnienia w Excelu")).to_be_visible()
+    answer = _ready(run, "uzupelnienie-wynik")
+    run.check(
+        _rows(answer) == {kind: [(row, False) for row in rows] for kind, rows in EXPECTED_ROWS.items()},
+        "right after Przygotowanie the server lists rows 18 and 20 without rule and row 19 from the description",
+    )
+    _check_screen(run, filling, answer, "on the Przygotowanie result card")
+    run.capture(page, "230-uzupelnienie-wynik")
+    filling.get_by_role("button", name="Uzupełnij", exact=True).click()
+    expect(page).to_have_url(f"{run.url.rstrip('/')}/{SUMMARY}")
+    _check_screen(run, page, answer, "on the summary opened from the result card")
+    page.go_back()
+    expect(card.get_by_role("region", name="Uzupełnienie pliku zbiorczego", exact=True)).to_be_visible()
+    run.check(True, "Uzupełnij on the result card opens the same summary, and Wstecz returns to the result")
+
+
+def _drive_entries(run: Run, page: Page) -> None:
+    """Entries from Okresy: the Tablica okresów row and Droga okresu of the card Następny krok."""
+
+    run.step(FEATURE, "uzupelnienie-tablica")
+    page.goto(run.url)
+    row = period_row(page, LAST_COMPLETE)
+    expect(row).to_contain_text("Plik zbiorczy przygotowany")
+    fill = row.get_by_role("button", name=f"Uzupełnij, okres {LAST_COMPLETE}", exact=True)
+    others = page.get_by_role("table", name="Tablica okresów").get_by_role("button", name="Uzupełnij, okres", exact=False)
+    board = run.api("/api/periods", "uzupelnienie-tablica")
+    periods = board["periods"]
+    assert isinstance(periods, list)
+    prepared = [period["token"] for period in periods if period["status"] == "collective_file_prepared"]
+    expect(others).to_have_count(len(prepared))
+    run.check(
+        prepared == [LAST_COMPLETE],
+        "only the row with Status okresu Plik zbiorczy przygotowany offers Uzupełnij",
+    )
+    run.capture(page, "231-uzupelnienie-tablica")
+    fill.click()
+    expect(page).to_have_url(f"{run.url.rstrip('/')}/{SUMMARY}")
+    expect(page.get_by_role("heading", level=1)).to_have_text("Uzupełnienie pliku zbiorczego")
+    _check_screen(run, page, _ready(run, "uzupelnienie-z-tablicy"), "on the summary opened from Tablica okresów")
+
+    run.step(FEATURE, "uzupelnienie-droga")
+    page.go_back()
+    path = page.get_by_role("region", name="Następny krok").get_by_role("list", name="Droga okresu")
+    current = path.locator('[aria-current="step"]')
+    expect(current).to_have_count(1)
+    expect(current).to_contain_text("Uzupełnienie w Excelu")
+    expect(path.get_by_role("img", name="zrobione")).to_have_count(1)
+    run.check(True, "Droga okresu shows Uzupełnienie w Excelu as the current step after Plik zbiorczy")
 
 
 def _write_dad_value(collective_file: Path, row: int) -> None:
@@ -121,6 +177,11 @@ def drive_filling(run: Run, page: Page) -> None:
         answer["state"] == "problem" and page.get_by_role("alert").filter(has_text="Nie udało się").count() == 0,
         "a period without a Plik zbiorczy shows the server's three-part Komunikat, calm and not as a failure",
     )
+    expect(page.get_by_role("button", name="Otwórz Plik zbiorczy", exact=True)).to_have_count(0)
+    run.check(
+        answer["collective_file_exists"] is False,
+        "with no Plik zbiorczy to open the summary has no Otwórz Plik zbiorczy",
+    )
     log = (run.root / "logs" / "centrum-rozliczen.log").read_text(encoding="utf-8").splitlines()
     run.check(
         any(" uzupelnienie-odczyt-nieudany " in line and f"okres={EMPTY_PERIOD}" in line for line in log),
@@ -130,6 +191,7 @@ def drive_filling(run: Run, page: Page) -> None:
 
 
 def _drive(run: Run, page: Page, collective_file: Path, lock: Path) -> None:
+    _drive_entries(run, page)
     run.step(FEATURE, "uzupelnienie-karta")
     page.goto(run.url)
     next_step = page.get_by_role("region", name="Następny krok")

@@ -21,6 +21,7 @@ RUN_CARDS = Path("src/rozliczenia/centrum/run_cards.py")
 TOOL_UPDATES = Path("src/rozliczenia/centrum/tool_updates.py")
 WORKBOOK_FILES = Path("src/rozliczenia/workbook_files.py")
 QUANTITIES_TO_FILL = Path("src/rozliczenia/quantities_to_fill.py")
+FILLING = Path("src/rozliczenia/centrum/filling.py")
 SETTINGS = Path("src/rozliczenia/centrum/settings.py")
 STOPS = Path("src/rozliczenia/centrum/stops.py")
 RUN_VIEW = Path("src/rozliczenia/centrum/run_view.py")
@@ -99,6 +100,12 @@ MUTATIONS = (
         ),
         AKTUALIZACJA,
         "karta mówi „Masz najnowszą wersję.” o Wydaniu, którego Centrum już nie zna",
+    ),
+    Mutation(
+        "podsumowanie bez Pliku zbiorczego proponuje go otworzyć",
+        (Edit(FILLING, "collective_file_exists=os.path.isfile(path)", "collective_file_exists=True"),),
+        UZUPELNIENIE,
+        "tata klika „Otwórz Plik zbiorczy” w okresie bez pliku i dostaje tylko „Nie udało się otworzyć”",
     ),
     Mutation(
         "plik blokady Excela blokuje odczyt Uzupełnienia",
