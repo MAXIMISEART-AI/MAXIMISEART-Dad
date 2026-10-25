@@ -66,6 +66,7 @@ export type {
   Figure,
   FillKind,
   KindToFill,
+  QuantitiesToFillReady,
   LoggedOutcome,
   Message,
   Metrics,

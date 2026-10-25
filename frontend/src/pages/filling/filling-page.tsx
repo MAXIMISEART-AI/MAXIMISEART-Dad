@@ -7,6 +7,7 @@ import {
   type FillKind,
   type KindToFill,
   type QuantitiesToFill,
+  type QuantitiesToFillReady,
 } from "@/api/centrum"
 import { PageHeader } from "@/components/page-header"
 import { ThreePartMessage } from "@/components/three-part-message"
@@ -18,7 +19,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { href, usePagePath } from "@/lib/address"
 import { useContentEntrance } from "@/lib/content-entrance"
 import { useSettings } from "@/lib/settings"
-import { useResource } from "@/lib/use-resource"
+import { useResource, type Resource } from "@/lib/use-resource"
 import { openAndConfirm } from "@/pages/periods/open-period-path"
 
 const TITLE = "Uzupełnienie pliku zbiorczego"
@@ -31,7 +32,8 @@ const KINDS: Record<FillKind, { title: string; hint: string }> = {
 // `useResource` pamięta ostatnie dane pod funkcją odczytu, więc każdy okres ma jedną, tę samą funkcję.
 const loads = new Map<string, () => Promise<QuantitiesToFill>>()
 
-function quantitiesOf(token: string) {
+/** Odczyt Ilości do uzupełnienia okresu, ten sam dla podsumowania i karty wyniku Przygotowania. */
+export function quantitiesOf(token: string) {
   let load = loads.get(token)
 
   if (load === undefined) {
@@ -56,16 +58,6 @@ export function FillingPage() {
         <ArrowLeftIcon className="size-4" aria-hidden />
         Okresy
       </a>
-      <PageHeader
-        title={TITLE}
-        badge={
-          <Badge variant="outline" className="tabular-nums">
-            <CalendarRangeIcon aria-hidden />
-            {token}
-          </Badge>
-        }
-        action={<OpenCollectiveFile token={token} />}
-      />
       {/* Inny okres albo nowe pliki taty to nowy odczyt; zmiana motywu nim nie jest. */}
       <FillingContent key={`${token}/${filesVersion}`} token={token} />
     </>
@@ -81,8 +73,32 @@ function OpenCollectiveFile({ token }: { token: string }) {
   )
 }
 
+/** Plik zbiorczy jest w Folderze okresu: odczytany albo z Komunikatem, który go nazywa (uszkodzony, bez nagłówka). */
+function hasCollectiveFile(resource: Resource<QuantitiesToFill>): boolean {
+  return resource.state === "ready" && (resource.data.state === "ready" || resource.data.collective_file_exists)
+}
+
 function FillingContent({ token }: { token: string }) {
   const { resource } = useResource(quantitiesOf(token))
+
+  return (
+    <>
+      <PageHeader
+        title={TITLE}
+        badge={
+          <Badge variant="outline" className="tabular-nums">
+            <CalendarRangeIcon aria-hidden />
+            {token}
+          </Badge>
+        }
+        action={hasCollectiveFile(resource) ? <OpenCollectiveFile token={token} /> : undefined}
+      />
+      <FillingState resource={resource} />
+    </>
+  )
+}
+
+function FillingState({ resource }: { resource: Resource<QuantitiesToFill> }) {
   const entrance = useContentEntrance(resource.state === "loading")
 
   switch (resource.state) {
@@ -104,14 +120,7 @@ function FillingContent({ token }: { token: string }) {
         </div>
       ) : (
         <div className={cn(entrance, "flex flex-col gap-3")}>
-          <Card className="py-0">
-            <CardContent className="divide-y px-0">
-              {found.kinds.map((kind) => (
-                <KindSection key={kind.kind} kind={kind} />
-              ))}
-              <DescriptionColumns columns={found.description_columns} />
-            </CardContent>
-          </Card>
+          <FillingSummary found={found} />
           <p className="px-1 text-sm text-muted-foreground">Nie widzisz zmian? Zapisz w Excelu (Ctrl+S).</p>
         </div>
       )
@@ -123,6 +132,20 @@ function FillingContent({ token }: { token: string }) {
       return unhandled
     }
   }
+}
+
+/** Podsumowanie: rodzaje z listą i kolumny z opisu technika; pokazuje je też karta wyniku Przygotowania. */
+export function FillingSummary({ found }: { found: QuantitiesToFillReady }) {
+  return (
+    <Card className="py-0">
+      <CardContent className="divide-y px-0">
+        {found.kinds.map((kind) => (
+          <KindSection key={kind.kind} kind={kind} />
+        ))}
+        <DescriptionColumns columns={found.description_columns} />
+      </CardContent>
+    </Card>
+  )
 }
 
 /** Rodzaj z listą: licznik „x z y” i numery wierszy; zrobiony rodzaj (także bez wierszy) jest spokojnie odhaczony. */
@@ -197,7 +220,7 @@ function DescriptionColumns({ columns }: { columns: ReadonlyArray<DescriptionCol
   )
 }
 
-function FillingSkeleton() {
+export function FillingSkeleton() {
   return (
     <Card aria-busy="true" aria-label="Wczytywanie Ilości do uzupełnienia">
       <CardContent className="flex flex-col gap-5 py-2">

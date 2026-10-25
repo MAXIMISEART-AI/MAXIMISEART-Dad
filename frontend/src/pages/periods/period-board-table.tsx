@@ -1,5 +1,5 @@
 import * as React from "react"
-import { FileSpreadsheetIcon, FileTextIcon, FolderOpenIcon, UsersIcon } from "lucide-react"
+import { ClipboardPenLineIcon, FileSpreadsheetIcon, FileTextIcon, FolderOpenIcon, UsersIcon } from "lucide-react"
 
 import type { OpenTarget, PeriodRow } from "@/api/centrum"
 import { PeriodStatusBadge } from "@/components/period-status-badge"
@@ -14,6 +14,7 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
+import { href } from "@/lib/address"
 import { shortDate } from "@/lib/format"
 import { openAndConfirm } from "@/pages/periods/open-period-path"
 import { PrepareLink, stepProcess } from "@/pages/periods/prepare-actions"
@@ -73,6 +74,7 @@ function PeriodBoardRow({ period, onStale }: { period: PeriodRow; onStale: () =>
         <PeriodFiles period={period} onStale={onStale} />
       </TableCell>
       <TableCell className="text-right">
+        {period.status === "collective_file_prepared" ? <FillingLink token={period.token} /> : null}
         {process !== null ? (
           <PrepareLink period={period} process={process} />
         ) : (
@@ -92,6 +94,22 @@ function PeriodBoardRow({ period, onStale }: { period: PeriodRow; onStale: () =>
         )}
       </TableCell>
     </TableRow>
+  )
+}
+
+/** Okres z Plikiem zbiorczym przygotowanym prowadzi na podsumowanie Uzupełnienia pliku zbiorczego. */
+function FillingLink({ token }: { token: string }) {
+  return (
+    <Button
+      variant="ghost"
+      size="sm"
+      aria-label={`Uzupełnij, okres ${token}`}
+      nativeButton={false}
+      render={<a href={href("uzupelnienie", token)} />}
+    >
+      <ClipboardPenLineIcon data-icon="inline-start" />
+      Uzupełnij
+    </Button>
   )
 }
 
