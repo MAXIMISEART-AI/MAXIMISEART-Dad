@@ -55,6 +55,8 @@ GENERIC_500 = "W Centrum rozliczeń wystąpił nieoczekiwany błąd. Odśwież k
 DIAGNOSIS_UNEXPECTED = "Nie udało się sprawdzić: nieoczekiwany błąd."
 
 TEXT, LINES, XLSX, FOLDER = "tekst", "wiersze", "xlsx", "folder"
+# Układ folderów taty: Foldery okresu obu procesów w folderze INEA miesiąca.
+MONTH = "Załączniki/Rozliczenia 2026/09_Wrzesien_2026"
 FILES: dict[str, tuple[str, str]] = {
     "ustawienia": ("config/centrum-ustawienia.yaml", TEXT),
     "konfiguracja_wykonawcow": ("config/worker_mapping.yaml", TEXT),
@@ -73,10 +75,11 @@ FILES: dict[str, tuple[str, str]] = {
     "wzorzec_wewnetrzny": ("config/Wzorzec rozliczenia wewnętrznego.xlsx", XLSX),
     "wzorzec_zbiorczy": ("config/Wzorzec pliku zbiorczego.xlsx", XLSX),
     "wzorzec_pracownika": ("config/Wzorzec rozliczenia pracownika.xlsx", XLSX),
-    "plik_zbiorczy": (f"Załączniki/{SETTLEMENT_PERIOD}/Rozliczenie {SETTLEMENT_PERIOD} - zbiorcze.xlsx", XLSX),
+    "plik_zbiorczy": (f"{MONTH}/INEA/{SETTLEMENT_PERIOD}/Rozliczenie {SETTLEMENT_PERIOD} - zbiorcze.xlsx", XLSX),
     "folder_okresow": ("Załączniki", FOLDER),
-    "folder_okresu": (f"Załączniki/{SETTLEMENT_PERIOD}", FOLDER),
-    "folder_okresu_przygotowania": (f"Załączniki/{PERIOD}", FOLDER),
+    "folder_miesiaca": (MONTH, FOLDER),
+    "folder_okresu": (f"{MONTH}/INEA/{SETTLEMENT_PERIOD}", FOLDER),
+    "folder_okresu_przygotowania": (f"{MONTH}/INEA/{PERIOD}", FOLDER),
     "folder_zgloszen": ("config/zgloszenia", FOLDER),
 }
 # Pliki sprzed Spraw taty: Centrum czyta je tylko przy starcie bez pliku Spraw taty, czyli przy pierwszym starcie

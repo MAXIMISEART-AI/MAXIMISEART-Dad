@@ -850,6 +850,32 @@ def test_nieudany_zapis_rozliczenia_pracownika_wstrzymuje_publikacje(
     assert worker_template_path.read_bytes() == worker_template_before
 
 
+def test_plik_tymczasowy_trzymany_przez_onedrive_po_nieudanym_zapisie_nazywa_rozliczenie_pracownika(
+    complete_run: tuple[Path, Path, Path, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source_path, _, config_path, worker_template_path = complete_run
+    real_replace, real_unlink = os.replace, os.unlink
+
+    def fail_replacing_workbook(source: str | os.PathLike[str], target: str | os.PathLike[str]) -> None:
+        if Path(target).suffix == ".xlsx":
+            raise OSError("synthetic write failure")
+        real_replace(source, target)
+
+    def hold_temporary_workbook(path: str | os.PathLike[str], **kwargs: object) -> None:
+        if Path(path).name.startswith(".Rozliczenie ") and Path(path).suffix == ".xlsx":
+            raise PermissionError("wymuszony: plik tymczasowy trzyma OneDrive")
+        real_unlink(path, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(os, "replace", fail_replacing_workbook)
+    monkeypatch.setattr(os, "unlink", hold_temporary_workbook)
+
+    with pytest.raises(StopError) as raised:
+        run_settlements(source_path, config_path, worker_template_path=worker_template_path)
+
+    assert raised.value.message.code == "BLAD_SZABLONU_PRACOWNIKA"
+    assert "Adrian Testowy" in raised.value.message.what
+
+
 def fail_renaming_staging_folder(monkeypatch: pytest.MonkeyPatch, target_directory: Path) -> None:
     real_rename = os.rename
 
@@ -1058,13 +1084,16 @@ def test_plik_zbiorczy_z_tokenem_ktory_nie_jest_okresem_zatrzymuje_przebieg_rozl
 
 
 @pytest.mark.parametrize(
-    "failure",
-    [OSError(errno.EIO, "synthetic failure"), RuntimeError("synthetic failure")],
+    ("failure", "stopped_as"),
+    [(OSError(errno.EIO, "synthetic failure"), StopError), (RuntimeError("synthetic failure"), RuntimeError)],
     ids=["blad-zapisu", "nieoczekiwany-blad"],
 )
 def test_failed_przetworzenie_szablonu_pracownika_emits_failure_without_false_completion(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failure: Exception
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failure: Exception, stopped_as: type[Exception]
 ) -> None:
+    """Błąd zapisu pliku to Komunikat dla taty; każdy inny wyjątek wychodzi z silnika bez zmian, więc granica procesu
+    zgłasza go jako błąd nieoczekiwany ze śladem wywołań."""
+
     source_path, target_directory, config_path = make_fixture(tmp_path)
     real_replace = os.replace
     saved = 0
@@ -1080,7 +1109,7 @@ def test_failed_przetworzenie_szablonu_pracownika_emits_failure_without_false_co
 
     monkeypatch.setattr(os, "replace", fail_on_second_save)
 
-    with pytest.raises(StopError) as raised:
+    with pytest.raises(stopped_as) as raised:
         run_settlements(
             source_path,
             config_path,
@@ -1088,8 +1117,11 @@ def test_failed_przetworzenie_szablonu_pracownika_emits_failure_without_false_co
             observer=recorded.append,
         )
 
-    assert raised.value.message.code == "BLAD_SZABLONU_PRACOWNIKA"
-    assert "Darek Fikcyjny" in raised.value.message.what
+    if isinstance(raised.value, StopError):
+        assert raised.value.message.code == "BLAD_SZABLONU_PRACOWNIKA"
+        assert "Darek Fikcyjny" in raised.value.message.what
+    else:
+        assert raised.value is failure
     assert not target_directory.exists()
     assert not list(target_directory.parent.glob(f".{target_directory.name}.staging-*"))
 
