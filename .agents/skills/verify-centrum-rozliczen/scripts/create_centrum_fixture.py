@@ -124,7 +124,7 @@ PRICE_LIST = (
     "Dodatek za usterkę po godzinach", "Instalacja internetu", "Instalacja telewizji", "Multiroom",
     "Aktywacja telefonu", "Dostarczenie urządzenia", "Drukowanie umowy", "Prace niestandardowe (rbh)",
     "Dojazd do klienta", "Przyłącze w mikrokanalizacji", "Przyłącze napowietrzne",
-    "Przyłącze w budynku wielorodzinnym", "Montaż terminala optycznego", "Przyłącze doziemne", "Spawanie w mufie",
+    "Przyłącze w budynku wielorodzinnym", "Montaż ONT", "Przyłącze doziemne", "Spawanie w mufie",
     "Przedłużenie przyłącza", "Spawanie gniazdka", "Trasa do splittera", "Instalacja wewnętrzna",
     "Dodatkowe urządzenie", "Dostarczenie dodatkowego urządzenia", "Usterka", "Sieć domowa do 30 m",
     "Sieć domowa do 10 m bez przebicia", "Sieć domowa do 15 m z przebiciem", "Modyfikacja sieci domowej",
