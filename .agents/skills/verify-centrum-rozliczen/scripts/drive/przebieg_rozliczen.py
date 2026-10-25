@@ -161,7 +161,16 @@ def drive_settlement(run: Run, page: Page) -> None:
     expect(confirm).to_contain_text("Zapisz i zamknij Plik zbiorczy w Excelu")
     expect(confirm).to_contain_text("„Uruchom” potwierdza Gotowość Pliku zbiorczego")
     expect(confirm.get_by_text("Nie było podglądu bez zapisu")).to_have_count(0)
-    run.check(True, "Uruchom asks to confirm the write; the click is Dad's confirmation of Gotowość")
+    without_quantity = run.api(f"/api/periods/{LAST_COMPLETE}/without-quantity", "przebieg-potwierdzenie-wiersze")
+    sentence = without_quantity.get("sentence")
+    # Gotowość types only N, which does not make a row without rule done, so those rows stay listed.
+    assert isinstance(sentence, str), without_quantity
+    expect(confirm).to_contain_text(sentence)
+    run.check(
+        True,
+        "Uruchom asks to confirm the write; the click is Dad's confirmation of Gotowość, and the result card's "
+        f"dialog lists the rows without quantity: {sentence}",
+    )
     run.capture(page, "42-przebieg-potwierdzenie")
     pacing = run.root / "pacing" / "szablony-ms.txt"
     pacing.parent.mkdir(exist_ok=True)

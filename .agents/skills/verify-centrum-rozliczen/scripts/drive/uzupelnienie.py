@@ -218,10 +218,10 @@ def _drive(run: Run, page: Page, collective_file: Path, lock: Path) -> None:
     lock.unlink()
     run.check(not lock.exists(), "harness: Dad closed Excel, so no lock file keeps Uruchom disabled")
     expected = _without_quantity(_ready(run, "uzupelnienie-gotowe-podsumowanie"))
-    choice = _go_to_settlement(run, page, LAST_COMPLETE, "uzupelnienie-gotowe")
+    answer = _go_to_settlement(run, page, LAST_COMPLETE, "uzupelnienie-gotowe")
     run.check(
-        choice["without_quantity"] == {"state": "read", "rows": expected} and expected == [19, 20],
-        "the Przebieg setup of the period lists rows 19 and 20 without quantity, the summary's rows not done",
+        answer == {"state": "read", "rows": expected, "sentence": "2 wiersze bez ilości: 19, 20"} and expected == [19, 20],
+        "the period's rows without quantity are 19 and 20, the summary's rows not done",
     )
     run.capture(page, "215-uzupelnienie-gotowe")
 
@@ -236,6 +236,19 @@ def _drive(run: Run, page: Page, collective_file: Path, lock: Path) -> None:
     confirm.get_by_role("button", name="Anuluj", exact=True).click()
     expect(confirm).to_have_count(0)
 
+    run.step(FEATURE, "uzupelnienie-gotowe-po-podgladzie")
+    page.get_by_role("button", name="Podgląd bez zapisu", exact=True).click()
+    live = page.get_by_role("region", name="Podgląd na żywo")
+    expect(live).to_contain_text("Podgląd gotowy · nic nie zapisano")
+    live.get_by_role("button", name="Uruchom", exact=True).click()
+    confirm = page.get_by_role("alertdialog", name="Uruchomić z zapisem?")
+    expect(confirm).to_contain_text("2 wiersze bez ilości: 19, 20")
+    expect(confirm.get_by_role("button", name="Uruchom", exact=True)).to_be_enabled()
+    run.check(True, "after the preview, the result card's Uruchom dialog lists the same rows, Dad's usual path")
+    run.capture(page, "218-uzupelnienie-gotowe-po-podgladzie")
+    confirm.get_by_role("button", name="Anuluj", exact=True).click()
+    expect(confirm).to_have_count(0)
+
     run.step(FEATURE, "uzupelnienie-gotowe-bez-odczytu")
     other = run.fixture["settlement"]["needs_check"]
     assert isinstance(other, str)
@@ -246,11 +259,11 @@ def _drive(run: Run, page: Page, collective_file: Path, lock: Path) -> None:
         run.check(True, f"harness: the Plik zbiorczy of {other} is damaged for this step and restored after it")
         page.goto(f"{run.url.rstrip('/')}/#/uzupelnienie/{other}")
         expect(page.get_by_role("main").get_by_text(other, exact=True)).to_be_visible()
-        choice = _go_to_settlement(run, page, other, "uzupelnienie-gotowe-bez-odczytu")
+        answer = _go_to_settlement(run, page, other, "uzupelnienie-gotowe-bez-odczytu")
         run.check(
-            choice["without_quantity"] == {"state": "unread"},
-            f"Gotowe on the summary of {other} selects it, not the preselected {LAST_COMPLETE}, and the setup "
-            "answers although its Plik zbiorczy cannot be read",
+            answer == {"state": "unread"},
+            f"Gotowe on the summary of {other} selects it, not the preselected {LAST_COMPLETE}, and its rows "
+            "without quantity answer although its Plik zbiorczy cannot be read",
         )
         page.get_by_role("button", name="Uruchom", exact=True).click()
         confirm = page.get_by_role("alertdialog", name="Uruchomić z zapisem?")
@@ -271,7 +284,7 @@ def _without_quantity(answer: dict[str, object]) -> list[int]:
 
 
 def _go_to_settlement(run: Run, page: Page, period: str, name: str) -> dict[str, object]:
-    """Clicks Gotowe on the summary: Przebieg rozliczeń with the period chosen; returns its choice of the setup."""
+    """Clicks Gotowe on the summary: Przebieg rozliczeń with the period chosen; returns the period's rows without quantity."""
 
     page.get_by_role("button", name="Gotowe, rozlicz pracowników", exact=True).click()
     expect(page).to_have_url(f"{run.url.rstrip('/')}/#/uruchomienia")
@@ -281,10 +294,10 @@ def _go_to_settlement(run: Run, page: Page, period: str, name: str) -> dict[str,
     processes = run.api("/api/runs/setup", name)["processes"]
     assert isinstance(processes, list)
     [setup] = [process for process in processes if process["process"] == "settlement"]
-    [choice] = [choice for choice in setup["periods"] if choice["token"] == period]
     run.check(
-        processes[0]["process"] != "settlement" and setup["preselected_period"] == LAST_COMPLETE,
+        processes[0]["process"] != "settlement"
+        and setup["preselected_period"] == LAST_COMPLETE
+        and period in [choice["token"] for choice in setup["periods"]],
         f"Gotowe chose Przebieg rozliczeń and {period}; without it the form shows the first process",
     )
-    assert isinstance(choice, dict)
-    return choice
+    return run.api(f"/api/periods/{period}/without-quantity", f"{name}-wiersze")

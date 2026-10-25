@@ -20,9 +20,10 @@ changes it. A Plik zbiorczy it cannot read is a calm three-part Komunikat.
 - `uzupelnienie-blokada-excela`: Excel's lock file `~$…` next to the Plik zbiorczy changes neither the server's answer nor the screen.
 - `uzupelnienie-otworz`: `Otwórz Plik zbiorczy` opens the period's Plik zbiorczy (`opened.jsonl`).
 - `uzupelnienie-powrot`: the link `Okresy` leads back and Wstecz returns to the same summary.
-- `uzupelnienie-gotowe`: with Excel closed, `Gotowe, rozlicz pracowników` opens `#/uruchomienia` with Przebieg rozliczeń and `06_12_10_2026` chosen; the setup's `without_quantity` of the period is the summary's rows not done (`[19, 20]`).
+- `uzupelnienie-gotowe`: with Excel closed, `Gotowe, rozlicz pracowników` opens `#/uruchomienia` with Przebieg rozliczeń and `06_12_10_2026` chosen; `GET /api/periods/<token>/without-quantity` is the summary's rows not done (`[19, 20]`), and the setup itself carries no rows.
 - `uzupelnienie-gotowe-potwierdzenie`: `Uruchom` opens `Uruchomić z zapisem?`, which says `2 wiersze bez ilości: 19, 20` and keeps `Uruchom` enabled; `Anuluj` closes it.
-- `uzupelnienie-gotowe-bez-odczytu`: with the Plik zbiorczy of `29_05_10_2026` damaged (harness, restored after), `Gotowe` on its summary chooses that period, not the preselected one; the setup still answers with `without_quantity: {state: unread}`, and the dialog says `Nie udało się sprawdzić wierszy bez ilości` with `Uruchom` enabled.
+- `uzupelnienie-gotowe-po-podgladzie`: `Podgląd bez zapisu` on the form, then `Uruchom` on the result card opens the same dialog with `2 wiersze bez ilości: 19, 20` (Dad's usual path); `Anuluj` closes it.
+- `uzupelnienie-gotowe-bez-odczytu`: with the Plik zbiorczy of `29_05_10_2026` damaged (harness, restored after), `Gotowe` on its summary chooses that period, not the preselected one; its rows answer `{state: unread}`, and the dialog says `Nie udało się sprawdzić wierszy bez ilości` with `Uruchom` enabled.
 - `uzupelnienie-bez-pliku`: a period without a Plik zbiorczy shows the server's three-part Komunikat (label `Komunikat`), not a failure, and the Centrum log has `uzupelnienie-odczyt-nieudany` with the period.
 
 ## How to get to it (user POV)
@@ -43,18 +44,20 @@ Preconditions:
 - **Excel's lock.** Write `~$Rozliczenie 06_12_10_2026 - zbiorcze.xlsx` next to the file and reload: the answer (`api/uzupelnienie-blokada-excela.json`) equals the previous one, and so does the screen. Screenshot `213`.
 - **Open.** Click `Otwórz Plik zbiorczy`: the last line of `opened.jsonl` is the period's Plik zbiorczy, and the toast names it.
 - **Back.** Click link `Okresy` in `main`: heading `Okresy`. `page.go_back()`: heading `Uzupełnienie pliku zbiorczego` again.
-- **Gotowe.** Harness: remove the lock file (Dad closed Excel). Click button `Gotowe, rozlicz pracowników` (an `<a>` rendered as a button): the URL ends in `#/uruchomienia`, `Nowe Uruchomienie procesu` is visible, radio `Przebieg rozliczeń` is checked (the form's first process is Przygotowanie), combobox `Okres` shows `06_12_10_2026`. `GET /api/runs/setup` (`api/uzupelnienie-gotowe.json`) has for the period `without_quantity: {state: read, rows: [19, 20]}`, the rows the summary shows not done. Screenshot `215`.
+- **Gotowe.** Harness: remove the lock file (Dad closed Excel). Click button `Gotowe, rozlicz pracowników` (an `<a>` rendered as a button): the URL ends in `#/uruchomienia`, `Nowe Uruchomienie procesu` is visible, radio `Przebieg rozliczeń` is checked (the form's first process is Przygotowanie), combobox `Okres` shows `06_12_10_2026`. `GET /api/runs/setup` (`api/uzupelnienie-gotowe.json`) offers the period, and `GET /api/periods/06_12_10_2026/without-quantity` (`api/uzupelnienie-gotowe-wiersze.json`) is `{state: read, rows: [19, 20], sentence: "2 wiersze bez ilości: 19, 20"}`, the rows the summary shows not done. Screenshot `215`.
 - **Confirm.** Click `Uruchom`: alertdialog `Uruchomić z zapisem?` contains `„Uruchom” potwierdza Gotowość Pliku zbiorczego` and `2 wiersze bez ilości: 19, 20`, and its `Uruchom` is enabled. Screenshot `216`. Click `Anuluj`; nothing runs.
-- **Unreadable.** Harness: replace the bytes of `Rozliczenie 29_05_10_2026 - zbiorcze.xlsx` with text (restored in `finally`). Open `#/uzupelnienie/29_05_10_2026` and click `Gotowe`: combobox `Okres` shows `29_05_10_2026`, and `GET /api/runs/setup` (`api/uzupelnienie-gotowe-bez-odczytu.json`) is `200` with `without_quantity: {state: unread}` for it. `Uruchom` opens the dialog with `Nie udało się sprawdzić wierszy bez ilości` and an enabled `Uruchom`. Screenshot `217`. `Anuluj`, then a reload drops the form's draft.
+- **After the preview.** Click `Podgląd bez zapisu`: region `Podgląd na żywo` says `Podgląd gotowy · nic nie zapisano`. Its `Uruchom` opens `Uruchomić z zapisem?` with `2 wiersze bez ilości: 19, 20` and an enabled `Uruchom`. Screenshot `218`. Click `Anuluj`; the preview wrote nothing.
+- **Unreadable.** Harness: replace the bytes of `Rozliczenie 29_05_10_2026 - zbiorcze.xlsx` with text (restored in `finally`). Open `#/uzupelnienie/29_05_10_2026` and click `Gotowe`: combobox `Okres` shows `29_05_10_2026`, and `GET /api/periods/29_05_10_2026/without-quantity` (`api/uzupelnienie-gotowe-bez-odczytu-wiersze.json`) is `200` with `{state: unread}`. `Uruchom` opens the dialog with `Nie udało się sprawdzić wierszy bez ilości` and an enabled `Uruchom`. Screenshot `217`. `Anuluj`, then a reload drops the form's draft.
 - **Restore.** In `finally` the drive writes back the Plik zbiorczy's original bytes and removes the lock file; the damaged Plik zbiorczy of `29_05_10_2026` gets its bytes back too, because `przebieg-rozliczen` reads it.
 - **No Plik zbiorczy.** Open `#/uzupelnienie/15_21_09_2026` (empty Folder okresu): label `Komunikat` shows the answer's `what`, `where` and `action` (`api/uzupelnienie-bez-pliku.json`, `state: problem`), no alert `Nie udało się …`, and the Centrum log has `uzupelnienie-odczyt-nieudany … okres=15_21_09_2026`. Screenshot `214`.
-- **Proof.** Screenshots `210`–`217`, `api/uzupelnienie-*.json`, checks in `drive.txt`.
+- **Proof.** Screenshots `210`–`218`, `api/uzupelnienie-*.json`, checks in `drive.txt`.
 
 ## Gotchas
 
 - Restore the Plik zbiorczy: `przebieg-rozliczen` continues from it, and a value left in Y18 would reach a Rozliczenie pracownika and the Kontrola ilości.
 - `Uzupełnij` has role `button`, not `link`: it is a Base UI `Button` rendered as `<a>`, like the bell.
 - `Gotowe` only fills the Przebieg form (`setDraft`, in page memory); a reload drops it. The drive reloads after the last `Gotowe` so the next feature starts from the preselected process.
-- The rows without quantity are the listed kinds' rows not done (bez reguły and z opisu), never a row the Reguły ilości cover; an unreadable Plik zbiorczy makes them `unread`, and the setup still answers.
+- The rows without quantity are the listed kinds' rows not done (bez reguły and z opisu), never a row the Reguły ilości cover; an unreadable Plik zbiorczy makes them `unread`. The dialog reads them for its period when the card shows it, never the setup, because one read takes Dad's laptop over a second.
+- The preview in `uzupelnienie-gotowe-po-podgladzie` adds one DRY-RUN of Przebieg rozliczeń to the week before `przebieg-rozliczen`; that feature counts its records from its own start.
 - The page has no polling (#419): a change in the file shows after a reload or a return to the tab.
 - Delete the lock file in `finally`; a leftover `~$…` makes Przebieg rozliczeń stop with „Plik zbiorczy otwarty”.
