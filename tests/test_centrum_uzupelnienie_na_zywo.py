@@ -145,3 +145,23 @@ def test_seria_nieudanych_odczytow_to_jeden_wpis_w_dzienniku(tmp_path: Path) -> 
     _get(centrum, VIEW)
 
     assert len(_log_lines(centrum)) == 2
+
+
+def test_blokada_excela_bez_odpowiedzi_systemu_jest_nieznana(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    centrum = _prepared(tmp_path)
+    path = centrum.fixture.collective_file_path
+    path.write_bytes(b"to nie jest skoroszyt")
+    path.with_name(f"~${path.name}").write_bytes(b"blokada Excela")
+    stat = Path.stat
+
+    def denied(self: Path, *, follow_symlinks: bool = True) -> Any:
+        # Jak ACL w Windows, której os.access nie widzi: system odmawia odpowiedzi o pliku blokady.
+        if self.name.startswith("~$"):
+            raise PermissionError(13, "Odmowa dostępu", str(self))
+        return stat(self, follow_symlinks=follow_symlinks)
+
+    monkeypatch.setattr(Path, "stat", denied)
+
+    assert _get(centrum, VIEW)["state"] == "problem"
+    [line] = _log_lines(centrum)
+    assert "przyczyna=USZKODZONY_PLIK_ZBIORCZY excel=nieznany typ=BadZipFile" in line
