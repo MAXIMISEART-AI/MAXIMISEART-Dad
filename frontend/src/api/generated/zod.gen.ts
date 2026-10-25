@@ -304,22 +304,6 @@ export const zOpened = z.object({
 });
 
 /**
- * PeriodChoice
- *
- * Okres do wyboru przy starcie, ze Statusem okresu wyliczonym z plików.
- */
-export const zPeriodChoice = z.object({
-    token: z.string(),
-    tuesday: z.iso.date(),
-    monday: z.iso.date(),
-    status_label: z.string(),
-    last_complete: z.boolean(),
-    previewed: z.boolean(),
-    collective_file: z.string().nullable(),
-    open_in_excel: z.array(z.string())
-});
-
-/**
  * PeriodFile
  *
  * Plik okresu z wyniku, sama nazwa: Rozliczenie wewnętrzne albo Plik zbiorczy.
@@ -434,26 +418,6 @@ export const zProcessRun = z.object({
     origin: z.enum(['cmd', 'centrum']),
     stop_kind: z.enum(['for_tata', 'for_maks']).nullable(),
     run_id: z.string().nullable()
-});
-
-/**
- * ProcessSetup
- *
- * Co tata wybiera przed Uruchomieniem procesu; ``blocker`` mówi, czego jeszcze brakuje w ustawieniach.
- *
- * ``reminder``, ``confirms_readiness`` i ``preview_hint`` deklaruje proces: przypomnienie przed
- * uruchomieniem, czy „Uruchom” potwierdza Gotowość, i podpowiedź „Podgląd bez zapisu”.
- */
-export const zProcessSetup = z.object({
-    process: z.enum(['preparation', 'settlement']),
-    title: z.string(),
-    creates: z.string(),
-    reminder: z.string(),
-    confirms_readiness: z.boolean(),
-    preview_hint: z.string(),
-    periods: z.array(zPeriodChoice),
-    preselected_period: z.string(),
-    blocker: z.string().nullable()
 });
 
 /**
@@ -775,13 +739,6 @@ export const zRunRunning = z.object({
 });
 
 /**
- * RunSetup
- */
-export const zRunSetup = z.object({
-    processes: z.array(zProcessSetup)
-});
-
-/**
  * Settings
  */
 export const zSettings = z.object({
@@ -995,6 +952,72 @@ export const zViewTiming = z.object({
     fcp_ms: z.int().gte(0).lte(600000).nullable(),
     skeleton_ms: z.int().gte(0).lte(600000),
     requests: z.array(zApiTiming).max(20)
+});
+
+/**
+ * WithoutQuantityRead
+ *
+ * Wiersze Ilości do uzupełnienia z listą (bez reguły, z opisu), w których tata nic jeszcze nie wpisał, rosnąco.
+ */
+export const zWithoutQuantityRead = z.object({
+    state: z.literal('read'),
+    rows: z.array(z.int())
+});
+
+/**
+ * WithoutQuantityUnread
+ *
+ * Pliku zbiorczego nie udało się odczytać, więc nie wiadomo, które wiersze są bez ilości; start zostaje możliwy.
+ */
+export const zWithoutQuantityUnread = z.object({
+    state: z.literal('unread')
+});
+
+/**
+ * PeriodChoice
+ *
+ * Okres do wyboru przy starcie, ze Statusem okresu wyliczonym z plików.
+ */
+export const zPeriodChoice = z.object({
+    token: z.string(),
+    tuesday: z.iso.date(),
+    monday: z.iso.date(),
+    status_label: z.string(),
+    last_complete: z.boolean(),
+    previewed: z.boolean(),
+    collective_file: z.string().nullable(),
+    open_in_excel: z.array(z.string()),
+    without_quantity: z.discriminatedUnion('state', [
+        zWithoutQuantityRead,
+        zWithoutQuantityUnread
+    ]).nullable()
+});
+
+/**
+ * ProcessSetup
+ *
+ * Co tata wybiera przed Uruchomieniem procesu; ``blocker`` mówi, czego jeszcze brakuje w ustawieniach.
+ *
+ * ``reminder``, ``confirms_readiness`` i ``preview_hint`` deklaruje proces: przypomnienie przed
+ * uruchomieniem, czy „Uruchom” potwierdza Gotowość, i podpowiedź „Podgląd bez zapisu”.
+ */
+export const zProcessSetup = z.object({
+    process: z.enum(['preparation', 'settlement']),
+    title: z.string(),
+    creates: z.string(),
+    reminder: z.string(),
+    confirms_readiness: z.boolean(),
+    preview_hint: z.string(),
+    periods: z.array(zPeriodChoice),
+    preselected_period: z.string(),
+    blocker: z.string().nullable()
+});
+
+/**
+ * RunSetup
+ */
+export const zRunSetup = z.object({
+    processes: z.array(zProcessSetup)
 });
 
 /**

@@ -675,6 +675,14 @@ export type PeriodChoice = {
      * Open In Excel
      */
     open_in_excel: Array<string>;
+    /**
+     * Without Quantity
+     */
+    without_quantity: ({
+        state: 'read';
+    } & WithoutQuantityRead) | ({
+        state: 'unread';
+    } & WithoutQuantityUnread) | null;
 };
 
 /**
@@ -1767,6 +1775,34 @@ export type ViewTiming = {
      * Requests
      */
     requests: Array<ApiTiming>;
+};
+
+/**
+ * WithoutQuantityRead
+ *
+ * Wiersze Ilości do uzupełnienia z listą (bez reguły, z opisu), w których tata nic jeszcze nie wpisał, rosnąco.
+ */
+export type WithoutQuantityRead = {
+    /**
+     * State
+     */
+    state: 'read';
+    /**
+     * Rows
+     */
+    rows: Array<number>;
+};
+
+/**
+ * WithoutQuantityUnread
+ *
+ * Pliku zbiorczego nie udało się odczytać, więc nie wiadomo, które wiersze są bez ilości; start zostaje możliwy.
+ */
+export type WithoutQuantityUnread = {
+    /**
+     * State
+     */
+    state: 'unread';
 };
 
 /**

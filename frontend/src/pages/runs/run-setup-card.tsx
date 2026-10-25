@@ -206,6 +206,7 @@ export function RunSetupCard({ processes }: { processes: ReadonlyArray<ProcessSe
         reminder={chosen.reminder}
         confirmsReadiness={chosen.confirms_readiness}
         previewed={chosenPeriod?.previewed ?? false}
+        withoutQuantity={chosenPeriod?.without_quantity ?? null}
         onConfirm={() => run(false)}
       />
     </Card>

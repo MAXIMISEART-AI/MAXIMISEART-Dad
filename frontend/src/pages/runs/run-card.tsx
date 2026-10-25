@@ -19,6 +19,7 @@ import {
 import type {
   Message,
   OpenTarget,
+  PeriodChoice,
   PeriodFile,
   PhaseProgress,
   Progress as RunProgress,
@@ -75,10 +76,12 @@ const PHASE_VALUES: Record<PhaseProgress["state"], number | null> = {
 export function RunCard({
   view,
   reminder,
+  withoutQuantity,
   onNewRun,
 }: {
   view: ShownRun
   reminder: string
+  withoutQuantity: PeriodChoice["without_quantity"]
   onNewRun: () => void
 }) {
   const { disconnected } = useRuns()
@@ -167,7 +170,13 @@ export function RunCard({
           </p>
         ) : null}
         {view.state === "finished" ? (
-          <RunOutcomeSection key={run.id} run={run} result={view.result} reminder={reminder} />
+          <RunOutcomeSection
+            key={run.id}
+            run={run}
+            result={view.result}
+            reminder={reminder}
+            withoutQuantity={withoutQuantity}
+          />
         ) : null}
       </CardContent>
     </Card>
@@ -185,7 +194,17 @@ function PhaseIcon({ state }: { state: PhaseProgress["state"] }) {
   )
 }
 
-function RunOutcomeSection({ run, result, reminder }: { run: RunInfo; result: RunOutcome; reminder: string }) {
+function RunOutcomeSection({
+  run,
+  result,
+  reminder,
+  withoutQuantity,
+}: {
+  run: RunInfo
+  result: RunOutcome
+  reminder: string
+  withoutQuantity: PeriodChoice["without_quantity"]
+}) {
   const { start } = useRuns()
   const [confirming, setConfirming] = React.useState(false)
   const open = (target: OpenTarget) => openAndConfirm(run.period, { target })
@@ -249,6 +268,7 @@ function RunOutcomeSection({ run, result, reminder }: { run: RunInfo; result: Ru
         confirmsReadiness={run.confirms_readiness}
         // „Uruchom” przy wyniku jest tylko po udanym podglądzie bez zapisu tego okresu.
         previewed
+        withoutQuantity={withoutQuantity}
         onConfirm={() => again(false)}
       />
     </>

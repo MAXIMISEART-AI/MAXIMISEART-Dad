@@ -147,11 +147,17 @@ function RunOrSetup({
     )
   }
 
-  const reminder = processes.find((process) => process.process === view.run.process)?.reminder ?? ""
+  const setup = processes.find((process) => process.process === view.run.process)
+  const withoutQuantity = setup?.periods.find((choice) => choice.token === view.run.period)?.without_quantity ?? null
 
   return (
     <div key="podglad" className={shown}>
-      <RunCard view={view} reminder={reminder} onNewRun={() => newRun(view.run.id)} />
+      <RunCard
+        view={view}
+        reminder={setup?.reminder ?? ""}
+        withoutQuantity={withoutQuantity}
+        onNewRun={() => newRun(view.run.id)}
+      />
       {view.state === "awaiting_decision" ? (
         <DecisionDialog
           decision={view.decision}
