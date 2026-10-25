@@ -63,7 +63,7 @@ def _table(centrum: PreparingCentrum, kind: str) -> dict[str, Any]:
     return found
 
 
-def _write(centrum: PreparingCentrum, cells: dict[str, int | str]) -> None:
+def _write(centrum: PreparingCentrum, cells: dict[str, int | str | None]) -> None:
     path = centrum.fixture.collective_file_path
     workbook = load_workbook(path)
     sheet = workbook.active
@@ -202,3 +202,25 @@ def test_po_odczycie_strony_rodzaju_teksty_wierszy_nie_wychodza_z_komputera(tmp_
     for text in (log, draft["title"] + draft["body"], *(path.read_text(encoding="utf-8") for path in run_logs)):
         assert "SYN-" not in text
         assert WORKER not in text
+
+
+def test_tekst_wiersza_jest_bez_spacji_na_brzegach(tmp_path: Path) -> None:
+    centrum = _prepared(tmp_path)
+    _write(centrum, {"K19": "  wymiana gniazdka  "})
+
+    [first, _] = _table(centrum, "without_rule")["rows"]
+
+    assert first["completed"] == "wymiana gniazdka"
+
+
+def test_bez_naglowka_czynnosci_zrealizowane_tabela_ma_pusty_opis(tmp_path: Path) -> None:
+    centrum = _prepared(tmp_path)
+    _write(centrum, {"K17": None})
+
+    table = _table(centrum, "without_rule")
+
+    assert table["state"] == "ready"
+    assert [(row["row"], row["completed"], row["devices"]) for row in table["rows"]] == [
+        (19, "", "przeniesienie"),
+        (22, "", "router x9"),
+    ]
