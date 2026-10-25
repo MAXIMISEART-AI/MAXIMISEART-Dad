@@ -13,7 +13,7 @@ from openpyxl.worksheet.worksheet import Worksheet
 from playwright.sync_api import Page, expect
 
 from create_centrum_fixture import PRICE_LIST
-from drive.common import LAST_COMPLETE, ROW_MARKER, Run, last_opened_is, period_files
+from drive.common import LAST_COMPLETE, ROW_MARKER, Run, last_opened_is, period_files, period_row
 from drive.przygotowanie_pliku_zbiorczego import drive_preparation
 
 FEATURE = "uzupelnienie"
@@ -29,7 +29,9 @@ DAD_COLUMN = "Y"
 # The pinned column headers of a kind's table, the row texts the browser gets, and each row state's words.
 PINNED = ("Nr", "WYKONAWCA", "URZĄDZENIA", "CZYNNOŚCI", "CZYNNOŚCI ZREALIZOWANE")
 ROW_TEXTS = ("worker", "devices", "activities", "completed")
-ROW_LABELS = {"to_fill": "do uzupełnienia", "done": "zrobiony"}
+ROW_LABELS = {"to_fill": "do uzupełnienia", "done": "zrobiony", "without_quantity": "bez ilości"}
+# A row number on the summary reads its state's words after the number; a row to fill reads none.
+CHIP_LABELS = {"to_fill": "", "done": " zrobiony", "without_quantity": " bez ilości"}
 # Dad's 15,6" 1920×1080 touch screen scaled 150% and 125%, in CSS pixels; the narrower must fit 10 columns N:AP.
 DAD_WIDTHS = (1280, 1536)
 # A period whose Folder okresu holds no Plik zbiorczy.
@@ -49,9 +51,15 @@ def _ready(run: Run, name: str) -> dict[str, object]:
 def _rows(answer: dict[str, object]) -> dict[str, list[tuple[int, bool]]]:
     """Each kind's rows as (row number, done)."""
 
+    return {kind: [(row, state == "done") for row, state in rows] for kind, rows in _states(answer).items()}
+
+
+def _states(answer: dict[str, object]) -> dict[str, list[tuple[int, str]]]:
+    """Each kind's rows as (row number, row state)."""
+
     kinds = answer["kinds"]
     assert isinstance(kinds, list)
-    return {kind["kind"]: [(row["row"], row["done"]) for row in kind["rows"]] for kind in kinds}
+    return {kind["kind"]: [(row["row"], row["state"]) for row in kind["rows"]] for kind in kinds}
 
 
 def _columns(answer: dict[str, object]) -> dict[str, int]:
@@ -65,15 +73,16 @@ def _check_screen(run: Run, page: Page, answer: dict[str, object], where: str) -
 
     kinds = answer["kinds"]
     assert isinstance(kinds, list)
+    undone = "Bez ilości" if answer["settled"] else "Do uzupełnienia"
     for kind in kinds:
-        rows = [(row["row"], row["done"]) for row in kind["rows"]]
+        rows = [(row["row"], row["state"]) for row in kind["rows"]]
         section = page.get_by_role("region", name=KIND_TITLES[kind["kind"]], exact=True)
         if rows:
-            expect(section).to_contain_text(f"{sum(done for _, done in rows)} z {len(rows)}")
+            expect(section).to_contain_text(f"{sum(state == 'done' for _, state in rows)} z {len(rows)}")
         else:
             expect(section).to_contain_text("Nie ma takich wierszy.")
-        expect(section.get_by_role("img", name="Zrobione" if kind["done"] else "Do uzupełnienia")).to_be_visible()
-        expect(section.get_by_role("listitem")).to_have_text([f"{row}{' zrobiony' if done else ''}" for row, done in rows])
+        expect(section.get_by_role("img", name="Zrobione" if kind["done"] else undone)).to_be_visible()
+        expect(section.get_by_role("listitem")).to_have_text([f"{row}{CHIP_LABELS[state]}" for row, state in rows])
     columns = _columns(answer)
     reminder = page.get_by_role("region", name="Kolumny z opisu technika", exact=True)
     expect(reminder.locator("dt")).to_have_text(list(columns))
@@ -101,13 +110,13 @@ def _without_texts(answer: dict[str, object]) -> dict[str, object]:
     return {**answer, "rows": [{**row, **hidden} for row in rows]}
 
 
-def _kind_answer(run: Run, kind: str) -> dict[str, object]:
+def _kind_answer(run: Run, kind: str, name: str | None = None) -> dict[str, object]:
     """The kind's table from the server; the evidence keeps it without the row texts, which are workbook content."""
 
     with urllib.request.urlopen(f"{run.url.rstrip('/')}{API}/{kind}", timeout=10) as response:
         answer = json.load(response)
     assert isinstance(answer, dict)
-    (run.evidence / "api" / f"uzupelnienie-tabela-{kind}.json").write_text(
+    (run.evidence / "api" / f"{name or f'uzupelnienie-tabela-{kind}'}.json").write_text(
         json.dumps(_without_texts(answer), ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
     )
     return answer
@@ -292,6 +301,18 @@ def drive_filling(run: Run, page: Page) -> None:
     )
     run.capture(page, "224-uzupelnienie-bez-pliku")
 
+    run.step(FEATURE, "uzupelnienie-gotowe-bez-okresu")
+    page.get_by_role("button", name="Gotowe, rozlicz pracowników", exact=True).click()
+    expect(page.get_by_role("radio", name="Przebieg rozliczeń")).to_be_checked()
+    expect(page.get_by_role("combobox", name="Okres")).to_contain_text(LAST_COMPLETE)
+    expect(page.get_by_role("alert").filter(has_text=f"Okresu {EMPTY_PERIOD} nie ma do wyboru")).to_contain_text(
+        f"wybrany jest {LAST_COMPLETE}"
+    )
+    run.check(True, f"Gotowe of {EMPTY_PERIOD}, which Przebieg rozliczeń does not offer, says aloud which period it chose")
+    run.capture(page, "224-uzupelnienie-gotowe-bez-okresu")
+    page.goto(run.url)
+    page.reload()
+
 
 def _drive(run: Run, page: Page, collective_file: Path, lock: Path) -> None:
     run.step(FEATURE, "uzupelnienie-karta")
@@ -454,6 +475,58 @@ def _drive(run: Run, page: Page, collective_file: Path, lock: Path) -> None:
     # The draft of the Przebieg form lives in the page; the next feature must start without it.
     page.goto(run.url)
     page.reload()
+
+    _drive_after_settlement(run, page, collective_file)
+
+
+def _drive_after_settlement(run: Run, page: Page, collective_file: Path) -> None:
+    run.step(FEATURE, "uzupelnienie-po-przebiegu")
+    worker_settlements = collective_file.with_name(f"Rozliczenie pracowników {LAST_COMPLETE}")
+    worker_settlements.mkdir()
+    try:
+        run.check(
+            True,
+            "harness: the Folder rozliczeń pracowników a Przebieg rozliczeń creates exists, removed after this step",
+        )
+        page.goto(run.url)
+        expect(period_row(page, LAST_COMPLETE)).to_contain_text("Rozliczenia pracowników gotowe")
+        page.goto(f"{run.url.rstrip('/')}/{SUMMARY}")
+        expect(page.get_by_role("status").filter(has_text="Przebieg rozliczeń się odbył")).to_be_visible()
+        answer = _ready(run, "uzupelnienie-po-przebiegu")
+        run.check(
+            answer["settled"] is True
+            and _states(answer)
+            == {"without_rule": [(18, "done"), (20, "without_quantity")], "from_description": [(19, "without_quantity")]},
+            "after Przebieg the summary says so, Dad's row 18 stays done and rows 19 and 20 are without quantity",
+        )
+        _check_screen(run, page, answer, "after Przebieg")
+        expect(page.get_by_role("button", name="Gotowe, rozlicz pracowników", exact=True)).to_have_count(0)
+        expect(page.get_by_role("button", name="Otwórz Plik zbiorczy", exact=True)).to_be_visible()
+        run.check(True, "after Przebieg the summary is a preview: no Gotowe, Otwórz Plik zbiorczy stays")
+        run.capture(page, "227-uzupelnienie-po-przebiegu")
+
+        page.get_by_role("region", name=KIND_TITLES["without_rule"], exact=True).get_by_role("link").click()
+        table = page.get_by_role("table", name="Wiersze Pliku zbiorczego", exact=True)
+        expect(table.get_by_role("rowheader")).to_have_text(["18 zrobiony", "20 bez ilości"])
+        expect(page.get_by_role("status").filter(has_text="Przebieg rozliczeń się odbył")).to_be_visible()
+        expect(page.get_by_role("main")).to_contain_text("Szare zostały bez ilości.")
+        kind = _kind_answer(run, "without_rule", "uzupelnienie-po-przebiegu-tabela-without_rule")
+        grey, green = (
+            table.locator(f"tr[data-state='{state}'] th").evaluate("th => getComputedStyle(th).backgroundColor")
+            for state in ("without_quantity", "done")
+        )
+        run.check(
+            kind["settled"] is True and grey != green,
+            "the kind page marks row 20 without quantity in its own colour, row 18 stays done",
+        )
+        _capture(run, page, "227-uzupelnienie-po-przebiegu-bez-reguly", kind)
+        switched = _light_theme(page)
+        _capture(run, page, "227-uzupelnienie-po-przebiegu-bez-reguly-jasny", kind)
+        if switched:
+            page.locator("header").get_by_role("button", name="Włącz motyw ciemny", exact=True).click()
+    finally:
+        worker_settlements.rmdir()
+    page.goto(run.url)
 
 
 def _without_quantity(answer: dict[str, object]) -> list[int]:
