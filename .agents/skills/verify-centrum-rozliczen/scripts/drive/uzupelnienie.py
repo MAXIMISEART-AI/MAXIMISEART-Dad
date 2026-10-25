@@ -126,7 +126,7 @@ def drive_filling(run: Run, page: Page) -> None:
         any(" uzupelnienie-odczyt-nieudany " in line and f"okres={EMPTY_PERIOD}" in line for line in log),
         "the failed read is in the Centrum log with the period",
     )
-    run.capture(page, "214-uzupelnienie-bez-pliku")
+    run.capture(page, "224-uzupelnienie-bez-pliku")
 
 
 def _drive(run: Run, page: Page, collective_file: Path, lock: Path) -> None:
@@ -147,7 +147,7 @@ def _drive(run: Run, page: Page, collective_file: Path, lock: Path) -> None:
         "Następny krok offers Uzupełnij for the last complete period with Plik zbiorczy przygotowany, "
         "with Podgląd bez zapisu next to it",
     )
-    run.capture(page, "210-uzupelnienie-karta")
+    run.capture(page, "220-uzupelnienie-karta")
 
     run.step(FEATURE, "uzupelnienie-podsumowanie")
     log_path = run.root / "logs" / "centrum-rozliczen.log"
@@ -171,7 +171,7 @@ def _drive(run: Run, page: Page, collective_file: Path, lock: Path) -> None:
         ),
         "the view is measured as page uzupelnienie with its getQuantitiesToFill request",
     )
-    run.capture(page, "211-uzupelnienie-podsumowanie")
+    run.capture(page, "221-uzupelnienie-podsumowanie")
 
     run.step(FEATURE, "uzupelnienie-wpis-taty")
     row = EXPECTED_ROWS["without_rule"][0]
@@ -187,7 +187,7 @@ def _drive(run: Run, page: Page, collective_file: Path, lock: Path) -> None:
     )
     _check_screen(run, page, after, "after Dad's value")
     switched = _light_theme(page)
-    run.capture(page, "212-uzupelnienie-po-wpisie")
+    run.capture(page, "222-uzupelnienie-po-wpisie")
     if switched:
         page.locator("header").get_by_role("button", name="Włącz motyw ciemny", exact=True).click()
 
@@ -200,7 +200,7 @@ def _drive(run: Run, page: Page, collective_file: Path, lock: Path) -> None:
         "with Excel's lock file next to the Plik zbiorczy the server reads its last saved version unchanged",
     )
     _check_screen(run, page, held, "with Excel's lock file")
-    run.capture(page, "213-uzupelnienie-blokada-excela")
+    run.capture(page, "223-uzupelnienie-blokada-excela")
 
     run.step(FEATURE, "uzupelnienie-otworz")
     page.get_by_role("button", name="Otwórz Plik zbiorczy", exact=True).click()

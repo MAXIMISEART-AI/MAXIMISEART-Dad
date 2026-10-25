@@ -127,11 +127,11 @@ REQUIRED_SCREENSHOTS = {
         "38-przygotowanie-historia.png",
     ),
     "uzupelnienie": (
-        "210-uzupelnienie-karta.png",
-        "211-uzupelnienie-podsumowanie.png",
-        "212-uzupelnienie-po-wpisie.png",
-        "213-uzupelnienie-blokada-excela.png",
-        "214-uzupelnienie-bez-pliku.png",
+        "220-uzupelnienie-karta.png",
+        "221-uzupelnienie-podsumowanie.png",
+        "222-uzupelnienie-po-wpisie.png",
+        "223-uzupelnienie-blokada-excela.png",
+        "224-uzupelnienie-bez-pliku.png",
     ),
     "przebieg-rozliczen": (
         "40-przebieg-nowe-uruchomienie.png",
