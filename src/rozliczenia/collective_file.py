@@ -77,6 +77,6 @@ def _texts(header: Mapping[str, int], row: DataRow) -> RowTexts:
 
     def under(column: Column) -> str:
         position = header.get(normalize_text(column.target_header))
-        return "" if position is None else text(row.values[position - 1])
+        return "" if position is None else text(row.cells[position - 1].value)
 
     return RowTexts(text(row.worker), under(DEVICES), under(ACTIVITIES), under(COMPLETED))
