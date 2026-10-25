@@ -19,7 +19,7 @@ from collections.abc import Mapping
 from datetime import datetime
 from pathlib import Path
 import re
-from typing import Any, Final, Literal, TypeVar
+from typing import Final, Literal, TypeVar
 
 from fastapi import APIRouter
 from pydantic import BaseModel, ConfigDict
@@ -27,12 +27,9 @@ from pydantic import BaseModel, ConfigDict
 from rozliczenia.centrum import contract
 from rozliczenia.centrum.atomic_file import replace_atomically
 from rozliczenia.centrum.run_logs import RunLog
-from rozliczenia.centrum.run_view import PREPARATION, SETTLEMENT, ProcessView
 from rozliczenia.centrum.runs import ProcessEntry, verdict
 
 LAST_STARTED_FILE: Final = "ostatnie-uruchomienie.json"
-# Deklaracja procesu (Gotowość, tytuł wyniku po zapisie) dla Uruchomienia znanego tylko z dysku, ta sama co przy starcie.
-_VIEWS: Final[Mapping[contract.ProcessKey, ProcessView[Any, Any]]] = {"preparation": PREPARATION, "settlement": SETTLEMENT}
 # Identyfikator Uruchomienia z Centrum (``uuid4().hex``); inny nie ma Logów, więc nie dotyka dysku.
 _RUN_ID: Final = re.compile(r"[0-9a-f]{32}")
 
@@ -60,8 +57,7 @@ class RunCards:
     """Karty Uruchomień z dysku: ostatnie Uruchomienie sprzed startu Centrum i karta po identyfikatorze.
 
     ``logs`` to katalog Logów Uruchomienia, ``last_started`` plik ostatniego startu, a ``entries`` procesy Centrum,
-    z których karta bierze tytuł procesu; Gotowość i tytuł wyniku po zapisie daje deklaracja procesu
-    (``run_view``), jak przy starcie.
+    z których karta bierze tytuł procesu i deklarację procesu (Gotowość, tytuł wyniku po zapisie), jak przy starcie.
     """
 
     def __init__(self, logs: Path, last_started: Path, entries: Mapping[contract.ProcessKey, ProcessEntry]) -> None:
@@ -116,14 +112,13 @@ class RunCards:
             title=self._entries[process].process.name,
             period=period,
             dry_run=mode == "podgląd",
-            confirms_readiness=_VIEWS[process].confirms_readiness,
+            confirms_readiness=self._entries[process].view.confirms_readiness,
         )
 
     def _restored(self, record: RunLog) -> contract.RunRestored:
         info = self._info(record.run_id, record.process, record.mode, record.period)
-        headline, next_action = verdict(
-            ending=record.ending, result=record.result, dry_run=info.dry_run, done=_VIEWS[info.process].done
-        )
+        done = self._entries[info.process].view.done
+        headline, next_action = verdict(ending=record.ending, result=record.result, dry_run=info.dry_run, done=done)
         messages = {
             kind: [
                 contract.Message(what=message.what, where=message.where, action=message.action)

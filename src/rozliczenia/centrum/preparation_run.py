@@ -44,6 +44,10 @@ class PreparationEntry:
     def key(self) -> contract.ProcessKey:
         return _KEY
 
+    @property
+    def view(self) -> run_view.ProcessView[Any, Any]:
+        return _VIEW
+
     def setup(self) -> contract.ProcessSetup:
         settings = self.store.load()
         last_complete = last_complete_period(self.today())
@@ -86,7 +90,7 @@ class PreparationEntry:
             period=period,
             process=self.process,
             inputs=inputs,
-            view=_VIEW,
+            view=self.view,
         )
 
 

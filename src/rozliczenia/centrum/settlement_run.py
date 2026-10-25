@@ -46,6 +46,10 @@ class SettlementEntry:
     def key(self) -> contract.ProcessKey:
         return _KEY
 
+    @property
+    def view(self) -> run_view.ProcessView[Any, Any]:
+        return _VIEW
+
     def setup(self) -> contract.ProcessSetup:
         periods_directory = self.store.load().periods_directory
         board = read_board(periods_directory, self.today())
@@ -86,7 +90,7 @@ class SettlementEntry:
             period=period.token,
             process=self.process,
             inputs=inputs,
-            view=_VIEW,
+            view=self.view,
         )
 
 
