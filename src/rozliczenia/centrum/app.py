@@ -18,6 +18,7 @@ from dataclasses import replace
 from datetime import date
 from pathlib import Path
 from typing import Any
+import time
 import uuid
 from urllib.parse import urlsplit
 
@@ -81,6 +82,7 @@ def create_app(
     cloud_files: CloudFiles | None = None,
     report_box: ReportBox | None = None,
     clock: Clock = SYSTEM_CLOCK,
+    pause: Callable[[float], None] = time.sleep,
     report_search_deadline_s: float = SEARCH_DEADLINE_S,
     tool_update: ToolClone | None = None,
     guardian: GuardianLauncher | None = None,
@@ -164,7 +166,7 @@ def create_app(
     release = RememberedRelease(freshness.release, clock=clock)
     # Sprawy taty: wysłane Zgłoszenia i Uwagi taty w jednym pliku stanu obok Ustawień taty (ADR 0015).
     config = settings_path.parent
-    cases = DadCases(config, log)
+    cases = DadCases(config, log, pause=pause)
     # Zgłoszenia do Maksa: skrzynka obok platformy, klucz obok Ustawień taty (ADR 0007).
     box = KeyedBox(report_box or GitHubReportBox(), lambda: read_report_key(config), clock=clock)
     # Diagnoza: commit `main` z GitHuba, atrybuty OneDrive i werdykt Skrzynki o kluczu to granice komputera taty.
@@ -202,7 +204,7 @@ def create_app(
     # Powiadomienia o Uwagach taty, wysłanych Zgłoszeniach i Wydaniach; przeczytane obok Ustawień taty (ADR 0015).
     notifications = Notifications(
         cases,
-        ReadNotifications(config / NOTIFICATIONS_FILE, log),
+        ReadNotifications(config / NOTIFICATIONS_FILE, log, pause=pause),
         box,
         surroundings.tool_freshness,
         release,
