@@ -38,8 +38,8 @@ HEAVY = {"change-mutations": "Change mutations", "mutations": "Mutation checks"}
 FROM_MERGED_PRS = "MAXIMISEART_NA_SCALONYCH_PR"
 # Run, który sprawdził już strażnik narzędzia nadrzędnego: ``tools/ci_lokalnie.py`` przekazuje go swoim krokom.
 REPRODUCING = "MAXIMISEART_ODTWARZAM"
-# Najdłuższa ręczna lista ``tools/mutacje.py`` w 14 dniach do 26.10 miała 100 mutacji (p99 45), a generator Change
-# mutations dał 335.
+# Najdłuższa ręczna lista ``tools/mutacje.py`` w 14 dniach do 26.10 miała 100 mutacji (1038 list, p99 64), a generator
+# Change mutations dał 335.
 TARGETED = 100
 
 Gh = Callable[[Sequence[str]], str]
