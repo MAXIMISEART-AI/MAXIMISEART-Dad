@@ -136,6 +136,38 @@ def test_pusta_lista_mutacji_niczego_nie_dowodzi() -> None:
     assert (answered.returncode, answered.stdout.strip()) == (1, "MUTACJE: brak mutacji, więc nie ma czego dowieść")
 
 
+def test_czesci_tabeli_sprawdzaja_kazda_mutacje_raz_kazda_z_podstawa_tylko_polecen_swoich_mutacji(tmp_path: Path) -> None:
+    repo = _small_repository(tmp_path)
+    log = tmp_path / "polecenia"
+
+    def command(name: str) -> list[str]:
+        seen = "os.environ.get('MUTACJE_CZESC', '-')"
+        writes = f"open(os.environ['DZIENNIK'], 'a').write('{name} ' + str(rozliczenia.WARTOSC) + ' ' + {seen} + chr(10))"
+        return ["-c", f"import os, rozliczenia\n{writes}\nraise SystemExit(rozliczenia.WARTOSC)"]
+
+    table = [{"nazwa": f"m{number}", "zmiany": [[PACKAGE, "WARTOSC = 0", "WARTOSC = 1"]], "polecenie": command("AB"[number % 2])} for number in range(1, 6)]
+    seen = {}
+    # Każda część to osobne zadanie CI z tą samą tabelą, a kolejność tabeli nie zmienia podziału.
+    for part, order in (("1/3", table), ("2/3", table[::-1]), ("3/3", table[2:] + table[:2]), ("6/6", table)):
+        (tmp_path / "mutacje.json").write_text(json.dumps(order), encoding="utf-8")
+        log.write_text("", encoding="utf-8")
+        answered = _in_repository(repo, "--plik", str(tmp_path / "mutacje.json"), "--", "-c", "", env=WITHOUT_XDIST_WORKERS | {"MUTACJE_CZESC": part, "DZIENNIK": str(log)})
+        checked = sorted(line.split()[1] for line in answered.stdout.splitlines() if line.startswith("WYKRYTA: "))
+        ran = [line.split() for line in log.read_text(encoding="utf-8").splitlines()]
+        baseline = sorted(command for command, value, _ in ran if value == "0")
+        # Część dzieli tabelę skryptu, a sprawdzane polecenie zmiennej nie dostaje.
+        seen[part] = (answered.returncode, answered.stdout.splitlines()[-1], checked, baseline, {inherited for _, _, inherited in ran})
+    broken = _in_repository(repo, "--plik", str(tmp_path / "mutacje.json"), "--", "-c", "", env=WITHOUT_XDIST_WORKERS | {"MUTACJE_CZESC": "0/3", "DZIENNIK": str(log)})
+
+    assert seen == {
+        "1/3": (0, "MUTACJE OK", ["m1", "m4"], ["A", "B"], {"-"}),
+        "2/3": (0, "MUTACJE OK", ["m2", "m5"], ["A", "B"], {"-"}),
+        "3/3": (0, "MUTACJE OK", ["m3"], ["B"], {"-"}),
+        "6/6": (0, "MUTACJE OK", [], [], set()),
+    }
+    assert broken.returncode == 1 and "MUTACJE_CZESC to K/N z 1 <= K <= N, nie '0/3'" in broken.stderr, broken.stderr
+
+
 def test_kopia_ma_niezacommitowane_zmiany_checkoutu_a_checkout_zostaje_nietkniety(tmp_path: Path) -> None:
     package = "src/rozliczenia"
     repo = repository(

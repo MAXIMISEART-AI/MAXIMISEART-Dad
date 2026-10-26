@@ -5,8 +5,8 @@ Uruchamia każdy krok po kolei Pythonem, który uruchomił skrypt (w worktree: j
 patrz ``tools/setup_worktree.py``), i drukuje wynik kroku jedną linią; wyjście pokazuje tylko
 przy porażce. Kończy się ``CI LOKALNIE OK`` (z ``--tylko``: ``CI LOKALNIE OK | tylko <zadania>``)
 albo ``CI LOKALNIE FAIL | <kroki>``; przebieg wszystkich zadań drukuje przedtem nakładania z pracą
-w toku (``tools/praca_w_toku.py --nakladania``). Krok pytest biegnie tu w całości, a w CI plan
-(``tools/plan_ci.py``) dzieli go między zadania i dokłada do zadań Windows E2E i Timing guard, które mają swoje
+w toku (``tools/praca_w_toku.py --nakladania``). Kroki pytest i mutacji skilli biegną tu w całości, a w CI plan
+(``tools/plan_ci.py``) dzieli je między zadania i dokłada do zadań Windows E2E i Timing guard, które mają swoje
 narzędzia (skill verify-rozliczenia, ``tools/benchmark_przebiegu.py``), bo trwają kilka minut.
 
 Ciężkie zadania (``change-mutations``, ``mutations``), także w przebiegu wszystkich zadań, liczy CI na GitHubie:
@@ -47,7 +47,7 @@ GENERATED = ("frontend/src/api", "src/rozliczenia/centrum/static")
 # Zadanie w ci.yml, w którym biegną kroki zadania narzędzia, gdy nazywa się inaczej.
 CI_JOB = {"ruff": "szybkie", "mypy": "szybkie", "frontend": "szybkie"}
 JOBS_ELSEWHERE = {
-    "plan": "plan zadań pytest runu (tools/plan_ci.py plan drukuje go lokalnie), nic nie sprawdza",
+    "plan": "plan zadań pytest i Mutation checks runu (tools/plan_ci.py plan drukuje go lokalnie), nic nie sprawdza",
     "required": "zbiorczy status pozostałych zadań, nic do odtworzenia",
 }
 # Fragment polecenia `run:` w odtwarzanym zadaniu CI, którego narzędzie nie odtwarza, i co je zastępuje.
@@ -82,7 +82,8 @@ def _steps(root: Path) -> list[Step]:
         # Własny cache, bo zmiana --platform unieważnia wspólny i oba kroki sprawdzałyby za każdym razem całość.
         Step("mypy (Windows)", "mypy", "-m mypy --platform win32", (python, "-m", "mypy", "--platform", "win32", "--cache-dir", ".mypy_cache/win32"), root),
         Step("pytest", "pytest", "tools/plan_ci.py wykonaj", (python, "-m", "pytest", "-q", "-n", "auto"), root),
-        Step("mutacje skilli", "mutations", "tools/mutacje_skilli.py", (python, "tools/mutacje_skilli.py"), root),
+        # W CI kroki skilli biegną z planu, w zadaniach Mutation checks; tu wszystkie po kolei.
+        Step("mutacje skilli", "mutations", "tools/plan_ci.py wykonaj", (python, "tools/mutacje_skilli.py"), root),
         Step("mutacje zmiany", "change-mutations", "tools/mutacje_zmiany.py", (python, "tools/mutacje_zmiany.py"), root),
         Step("npm ci", "frontend", "npm ci", (npm, "ci"), frontend),
         *(

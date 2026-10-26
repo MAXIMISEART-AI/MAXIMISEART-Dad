@@ -1,6 +1,6 @@
 """Czasy CI: zadanie zapisuje czas każdej jednostki swojej pracy, a Required na main scala zapisy runu w ``czasy-ci``.
 
-Zapis zadania bierze testy z junit pytest, kroki skilli z wyjścia ``tools/mutacje_skilli.py`` i kroki CI z API zadań
+Zapis zadania bierze testy z junit pytest, jednostki zmierzone przez ``tools/plan_ci.py wykonaj`` i kroki CI z API zadań
 runu. Wejście, którego brakuje albo którego nie da się odczytać, jest zgłoszone linią ``CZASY CI FAIL``, a reszta
 pomiaru zostaje.
 """
@@ -53,29 +53,6 @@ JUNIT = """<?xml version="1.0" encoding="utf-8"?><testsuites><testsuite name="py
 <testcase classname="" name="tests.test_e" file="tests/test_e.py" time="0.000"><error message="collection failure">E</error></testcase>
 </testsuite></testsuites>
 """
-# Wyjście Mutation checks z końcami linii Windows: echo skryptów (także od początku linii i w cp1250), pominięty skrypt
-# i zły klucz ci bez czasu.
-MUTATIONS_LOG = (
-    "== .agents/skills/verify-a/scripts/check_a_mutations.py\r\n"
-    "WYKRYTA: próg 18:00 → OK   PODSTAWA nie-ta-linia (1 s)\r\n"
-    "OK   PODSTAWA nie-koniec (2 s) to echo skryptu\r\n"
-    "OK   .agents/skills/verify-a/scripts/check_a_mutations.py (101 s)\r\n"
-    "== PODSTAWA verify-b: .agents/skills/verify-b/scripts/explore.py\r\n"
-    "OK   PODSTAWA verify-b (23 s)\r\n"
-    "FAIL .agents/skills/verify-c/scripts/check_c_mutations.py (7 s): kod wyjścia 1\r\n"
-    "FAIL PODSTAWA verify-d (300 s): przekroczył limit 300 s\r\n"
-    "FAIL PODSTAWA verify-e: ci: brak skryptu\r\n"
-    "POMINIĘTY .agents/skills/verify-f/scripts/check_f_mutations.py: brak zmian\r\n"
-    "MUTACJE SKILLI FAIL | .agents/skills/verify-c/scripts/check_c_mutations.py, PODSTAWA verify-d\r\n"
-)
-MUTATION_UNITS = [
-    {"klucz": "skill:verify-a/check_a_mutations.py", "s": 101.0, "status": "ok"},
-    {"klucz": "skill:verify-b/ci", "s": 23.0, "status": "ok"},
-    {"klucz": "skill:verify-c/check_c_mutations.py", "s": 7.0, "status": "fail"},
-    {"klucz": "skill:verify-d/ci", "s": 300.0, "status": "fail"},
-]
-
-
 def _step(name: str, conclusion: str, started: str, completed: str) -> dict[str, str | None]:
     times = {"started_at": f"2026-10-26T{started}Z", "completed_at": f"2026-10-26T{completed}Z"}
     return {"name": name, "conclusion": conclusion, **times}
@@ -166,10 +143,9 @@ def api(monkeypatch: pytest.MonkeyPatch) -> Iterator[_Api]:
 
 def _inputs(folder: Path) -> dict[str, Path]:
     folder.mkdir(parents=True, exist_ok=True)
-    paths = {"junit": folder / "junit.xml", "mutacje": folder / "mutacje.log", "wykonanie": folder / "wykonanie.json"}
+    paths = {"junit": folder / "junit.xml", "wykonanie": folder / "wykonanie.json"}
     paths["junit"].write_text(JUNIT, encoding="utf-8")
     paths["wykonanie"].write_text(json.dumps({**PLANNED, "jednostki": PLANNED_UNITS}), encoding="utf-8")
-    paths["mutacje"].write_bytes("skrypt wypisał w cp1250: zażółć\r\n".encode("cp1250") + MUTATIONS_LOG.encode("utf-8"))
     return paths
 
 
@@ -205,26 +181,11 @@ def test_zadanie_pytest_zapisuje_czas_kazdego_pliku_testow_i_kazdej_jednostki_pl
     assert capsys.readouterr().out.splitlines() == ["CZASY CI | pytest (Python 3.14, 1/2) | windows-3.14 | 9 jednostek | narzut 17 s | pytest-0-2.json"]
 
 
-def test_zadanie_mutation_checks_zapisuje_czas_kazdego_kroku_skilla_takze_nieudanego(tmp_path: Path, api: _Api) -> None:
-    api.steps(
-        [
-            _step("Run each verify skill's baseline check and prove it fails on broken variants", "failure", "02:32:00", "02:42:00"),
-            _step("Upload baseline evidence on failure", "success", "02:42:00", "02:42:03"),
-        ]
-    )
-    code, record = _record(tmp_path, _inputs(tmp_path / "wejscie"), "mutacje", tor="Windows-3.14.2")
-
-    assert code == 0
-    assert (record["tor"], record["narzut_s"], record["bledy"]) == ("windows-3.14", 69.0, [])
-    assert record["jednostki"] == [{"klucz": "krok:mutacje", "s": 600.0, "status": "fail"}, *MUTATION_UNITS]
-
-
 def test_zadanie_bez_kroku_jednostki_skonczonego_sukcesem_albo_porazka_nie_ma_narzutu(tmp_path: Path, capsys: pytest.CaptureFixture[str], api: _Api) -> None:
     api.steps(
         [
             _step("Set up job", "success", "02:30:51", "02:30:54"),
             _step("Run the planned units", "cancelled", "02:31:00", "02:31:30"),
-            _step("Run each verify skill's baseline check and prove it fails on broken variants", "skipped", "02:31:30", "02:31:30"),
         ]
     )
     code, record = _record(tmp_path, {}, tor="Linux-3.14.0")
@@ -289,9 +250,6 @@ def _replace(path: Path, content: str | None) -> None:
         ("junit", '<testsuite><testcase name="test_x" time="1.0" /></testsuite>', "junit.xml: ValueError('test test_x bez atrybutu file"),
         ("junit", '<testsuite><testcase name="test_x" file="tests/test_x.py" /></testsuite>', "junit.xml: ValueError('test test_x bez atrybutu file albo time"),
         ("junit", '<testsuite name="pytest" tests="0"></testsuite>', "junit.xml: ValueError('brak testów')"),
-        ("mutacje", None, "mutacje.log: FileNotFoundError("),
-        ("mutacje", "OK   PODSTAWA verify-b (23 s)\n", "mutacje.log: ValueError('brak linii MUTACJE SKILLI OK/FAIL"),
-        ("mutacje", "OK   PODSTAWA verify-b (23 s)\nskrypt wypisał: MUTACJE SKILLI OK | 1 kroków\n", "mutacje.log: ValueError('brak linii MUTACJE"),
         ("wykonanie", None, "wykonanie.json: FileNotFoundError("),
         ("wykonanie", "{", "wykonanie.json: JSONDecodeError("),
         ("wykonanie", '{"plan": "digest-planu", "jednostki": []}', "wykonanie.json: KeyError('zadanie')"),
@@ -326,15 +284,15 @@ def test_brakujace_albo_zepsute_wejscie_jest_zgloszone_a_reszta_pomiaru_zostaje(
     else:
         monkeypatch.setenv("GITHUB_API_URL", "http://127.0.0.1:1")
 
-    code, record = _record(tmp_path, paths, "junit", "mutacje", "wykonanie")
+    code, record = _record(tmp_path, paths, "junit", "wykonanie")
     errors = record["bledy"]
     out = capsys.readouterr().out.splitlines()
 
     assert code == 1
     assert isinstance(errors, list) and len(errors) == 1 and errors[0].startswith(error), errors
     assert out[0] == f"CZASY CI FAIL | {errors[0]}"
-    kept = {"api": API_UNITS, "junit": JUNIT_UNITS, "mutacje": MUTATION_UNITS, "wykonanie": PLANNED_UNITS}
-    assert record["jednostki"] == [unit for other in ("api", "junit", "mutacje", "wykonanie") if other != source for unit in kept[other]]
+    kept = {"api": API_UNITS, "junit": JUNIT_UNITS, "wykonanie": PLANNED_UNITS}
+    assert record["jednostki"] == [unit for other in ("api", "junit", "wykonanie") if other != source for unit in kept[other]]
     assert record["zadanie"] == ("pytest" if source == "api" else "pytest (Python 3.14, 1/2)")
     assert (record["plan"], record["zadanie_planu"]) == ((None, None) if source == "wykonanie" else ("digest-planu", "windows-3.14-1"))
 
@@ -593,30 +551,7 @@ def test_kazdy_krok_jednostki_jest_krokiem_ci_a_zapis_czyta_junit_i_wynik_tam_gd
     assert set(KROKI) - names == set()
     assert tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["tool"]["pytest"]["ini_options"]["junit_family"] == "xunit1"
     assert Path(_recorded("pytest", "--junit")) == plan_ci.JUNIT
-    assert Path(_recorded("pytest", "--wykonanie")) == plan_ci.WYKONANIE
-
-
-# Polecenie, którym GitHub Actions uruchamia skrypt kroku z danym ``shell:``; inna wartość to własny szablon z ``{0}``.
-SHELLS = {"bash": "bash --noprofile --norc -eo pipefail {0}", "sh": "sh -e {0}"}
-
-
-@pytest.mark.skipif(sys.platform == "win32", reason="bash na PATH Windows bywa bashem WSL; krok sprawdza tor Linux i Mac")
-@pytest.mark.parametrize("event", ["pull_request", "push"])
-def test_krok_mutation_checks_pada_z_kodem_narzedzia_a_jego_wyjscie_trafia_do_zapisu_czasow(tmp_path: Path, event: str) -> None:
-    skills = next(step for step in jobs()["mutations"]["steps"] if step.get("id") == "skills")
-    tools = tmp_path / "bin"
-    tools.mkdir()
-    (tools / "python").write_text("#!/bin/sh\nprintf 'OK   PODSTAWA verify-b (23 s)\\nMUTACJE SKILLI FAIL | x\\n'\nexit 3\n", encoding="utf-8")
-    (tools / "python").chmod(0o755)
-    script = tmp_path / "krok.sh"
-    script.write_text(skills["run"].replace("${{ matrix.part }}", "1"), encoding="utf-8")
-    command = SHELLS.get(skills["shell"], skills["shell"]).replace("{0}", str(script))
-    env = {**os.environ, "PATH": f"{tools}{os.pathsep}{os.environ['PATH']}", "GITHUB_EVENT_NAME": event}
-
-    done = subprocess.run(shlex.split(command), cwd=tmp_path, env=env, capture_output=True, text=True, encoding="utf-8", check=False)
-
-    assert done.returncode == 3, done.stdout + done.stderr
-    assert (tmp_path / _recorded("mutations", "--mutacje")).read_text(encoding="utf-8") == "OK   PODSTAWA verify-b (23 s)\nMUTACJE SKILLI FAIL | x\n"
+    assert Path(_recorded("pytest", "--wykonanie")) == Path(_recorded("mutations", "--wykonanie")) == plan_ci.WYKONANIE
 
 
 def test_pomiar_czasow_nie_zmienia_werdyktu_ci_i_biegnie_takze_po_porazce_z_dostepem_do_api_zadan() -> None:

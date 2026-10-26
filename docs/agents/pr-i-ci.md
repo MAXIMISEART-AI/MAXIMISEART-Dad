@@ -5,15 +5,21 @@ Kiedy PR jest gotowy i jak go scalić, mówi sekcja `PR: od pushu do merge'a` w 
 ## Zadanie CI padło
 
 - Porażkę zadania odtwarzasz przez `.venv/bin/python tools/ci_lokalnie.py --tylko <zadanie>` (Windows: `py -3 tools/ci_lokalnie.py --tylko <zadanie>`).
-- Ciężkie zadania (`change-mutations`, `mutations`) liczy GitHub po pushu, w trzech częściach każde, a ich stan sprawdzasz przez `tools/praca_w_toku.py` albo `gh pr checks`.
-  `change-mutations` startuje tylko na PR, który ma mutacje zmiany, bo tak mówi plan runu.
+- Ciężkie zadania (`change-mutations`, `mutations`) liczy GitHub po pushu, w częściach, a ich stan sprawdzasz przez `tools/praca_w_toku.py` albo `gh pr checks`.
+  `change-mutations` startuje tylko na PR, który ma mutacje zmiany, a `mutations` (Mutation checks) tylko z krokami skilli, które wybrał plan runu.
+  Część skryptu mutacji z planu (`#k/n` w nazwie jednostki) odtwarzasz przez `MUTACJE_CZESC=k/n` w środowisku polecenia tego skryptu.
   Porażkę z runu Actions tej gałęzi odtwarzasz przez `.venv/bin/python tools/mutacje_zmiany.py --odtwarzam <id albo URL runu>` (Windows: `py -3 tools/mutacje_zmiany.py --odtwarzam …`), na gałęzi zbudowanej na innej z `--baza <gałąź rodzica>`.
 
-## Plan runu i zadania pytest
+## Plan runu, zadania pytest i Mutation checks
 
 - Ile zadań pytest startuje i które pliki testów (albo udziały długiego pliku) bierze każde, ustala zadanie `Plan CI` (`tools/plan_ci.py`) z czasów ostatnich zielonych runów `main`, a E2E i straż czasu dokłada do zadań Windows.
+- Kroki skilli (podstawę `ci:` i każdy skrypt `check_*_mutations.py`) plan bierze z wyboru `tools/mutacje_skilli.py`: na PR tylko te, których werdykt mogą zmienić zmiany, a na pushu do `main` wszystkie.
+- Plan dzieli je między zadania Mutation checks w tym samym limicie zadań runu i z tym samym celem ściany co pytest, a skrypt mutacji dłuższy niż zadanie dzieli na części, najwyżej po jednej na mutację.
+- Podstawy `ci:` plan nie dzieli, więc linia każdego toru w planie nazywa najdłuższą jednostkę po podziale, poniżej której ściana zadania nie zejdzie.
+- Chromium instaluje tylko zadanie Mutation checks z krokiem skilla, którego skrypty importują Playwright.
 - Plan dla swojej gałęzi drukujesz przez `.venv/bin/python tools/plan_ci.py plan --baza origin/main` (Windows: `py -3 tools/plan_ci.py plan --baza origin/main`), z prognozą ściany każdego zadania.
-- `Required CI status` czerwienieje także wtedy, gdy planu nie ma albo zadanie pytest nie zgłosiło w zapisie czasów ostatniej próby którejś swojej jednostki albo zgłosiło ją z porażką, a linia `REQUIRED FAIL` nazywa zadanie i jednostkę.
+- `Required CI status` czerwienieje także wtedy, gdy planu nie ma albo zadanie planu (pytest albo Mutation checks) nie zgłosiło w zapisie czasów ostatniej próby którejś swojej jednostki albo zgłosiło ją z porażką, a linia `REQUIRED FAIL` nazywa zadanie i jednostkę.
+- Skrypt mutacji, którego wybór skilli by nie uruchomił (nazwa spoza wzorca, wskazany w `SKILL.md`, a usunięty), i zły klucz `ci:` plan zgłasza w `Required CI status` linią `REQUIRED FAIL | mutacje skilli: …`.
 - Porażkę jednego zadania pytest odtwarzasz przez `tools/ci_lokalnie.py --tylko pytest` albo przez pytest na plikach tego zadania.
 - Linia zadania w planie podaje liczbę jego plików i nazywa tylko udziały i kroki, a listę plików ma pole `jednostki` zadania w artefakcie `plan` runu (`gh run download <id runu> --name plan`).
 
