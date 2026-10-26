@@ -431,17 +431,17 @@ def _files_in_onedrive(computer: _Computer, label: str) -> list[CheckResult]:
     return [CheckResult.passed(label, f"Sprawdzone pliki są na tym komputerze: {len(files)}.")]
 
 
-@_check("Klucz do Zgłoszeń")
+@_check("Token do Zgłoszeń")
 def _report_key(computer: _Computer, label: str) -> list[CheckResult]:
-    """Stan klucza idzie do Zgłoszenia, ale nie jest przyczyną Zatrzymania: odrzucony albo brakujący klucz to ``aside``."""
+    """Stan tokenu idzie do Zgłoszenia, ale nie jest przyczyną Zatrzymania: odrzucony albo brakujący token to ``aside``."""
 
     match computer.surroundings.report_key():
         case "accepted":
-            return [CheckResult.passed(label, "Skrzynka Zgłoszeń przyjmuje klucz.")]
+            return [CheckResult.passed(label, "Skrzynka Zgłoszeń przyjmuje Token do Zgłoszeń.")]
         case "refused":
-            return [CheckResult.aside(label, "Skrzynka Zgłoszeń odrzuca klucz. Zgłoszenie poczeka, aż Maks go wymieni.")]
+            return [CheckResult.aside(label, "Skrzynka Zgłoszeń odrzuca Token do Zgłoszeń. Zgłoszenie poczeka, aż Maks go wymieni.")]
         case "missing":
-            return [CheckResult.aside(label, "Na tym komputerze nie ma klucza do Zgłoszeń. Zgłoszenie poczeka, aż Maks go wpisze.")]
+            return [CheckResult.aside(label, "Na tym komputerze nie ma Tokenu do Zgłoszeń. Zgłoszenie poczeka, aż Maks go wpisze.")]
         case "unchecked":
             return [CheckResult.not_checked(label, "Nie sprawdzono: brak połączenia ze Skrzynką Zgłoszeń.")]
 
@@ -458,7 +458,7 @@ def _centrum_log(computer: _Computer, label: str) -> list[CheckResult]:
 # OneDrive idzie przed sprawdzeniami, które otwierają Rejestr zleceń, wzorce i pliki okresu: plik tylko w
 # chmurze może się nie otworzyć, a wtedy przyczyną jest OneDrive, nie uszkodzony plik. Aktualność narzędzia
 # idzie po plikach taty: nowsze Wydanie jest wyjaśnieniem tylko bez innej przyczyny (ADR 0009), bo przyczyny
-# w plikach taty nowa wersja nie usuwa. Klucz do Zgłoszeń nigdy nie jest wyjaśnieniem (``CheckResult.aside``), tylko
+# w plikach taty nowa wersja nie usuwa. Token do Zgłoszeń nigdy nie jest wyjaśnieniem (``CheckResult.aside``), tylko
 # idzie do Zgłoszenia. Dziennik idzie ostatni, po wpisach o sprawdzeniach, które same się nie udały.
 _CHECKS: Final[Mapping[contract.ProcessKey, Sequence[_Check]]] = {
     "preparation": (

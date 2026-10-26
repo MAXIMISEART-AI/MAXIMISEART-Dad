@@ -189,6 +189,10 @@ def create_app(
         after_delivery(post, number, cases, outbox)
         reports.delivered(post, number)
 
+    def rejected(post: Post) -> None:
+        cases.rejected(post.run_id)
+        reports.rejected(post)
+
     def run_logs_address(run_id: str) -> str | None:
         return outbox.delivered(run_id, RUN_LOGS_LABEL)
 
@@ -201,6 +205,7 @@ def create_app(
         log,
         clock=clock,
         on_delivered=delivered,
+        on_rejected=rejected,
         prepare=lambda post: with_logs(post, cases, run_logs_address, run_logs_rejected),
         addresses=config / ADDRESSES_FILE,
     )
@@ -287,6 +292,7 @@ def create_app(
         dad_notes_router(
             cases,
             outbox,
+            box,
             surroundings.tool_freshness.local,
             lambda: read_runs(entry_processes, centrum_runs.started()),
             run_logs_address,

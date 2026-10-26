@@ -13,7 +13,7 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "tools"))
 sys.path.insert(0, str(Path(__file__).resolve().parents[4] / ".agents/skills/verify-centrum-rozliczen/scripts"))
 
-from cele_mutacji_centrum import KEYED_BOX, OUTBOX, ZGLOSZENIE
+from cele_mutacji_centrum import BUILD, KEYED_BOX, OUTBOX, REPORTS, ZGLOSZENIE
 from mutacje import Edit, Mutation, check_all
 
 MUTATIONS = (
@@ -40,6 +40,18 @@ MUTATIONS = (
         ),
         ZGLOSZENIE,
         "Zgłoszenie bez sieci nie wysyła się samo po powrocie sieci",
+    ),
+    Mutation(
+        "Zgłoszenie odrzucone przez Skrzynkę czeka na internet",
+        (Edit(REPORTS, '        if hold == "rejected":\n            return contract.ReportRejected', "        if False:\n            return contract.ReportRejected"),),
+        ZGLOSZENIE,
+        "tata czeka na internet, który nie naprawi treści odrzuconej przez Skrzynkę (Q17)",
+    ),
+    Mutation(
+        "brak Tokenu do Zgłoszeń obiecuje wysyłkę",
+        (Edit(BUILD, "`Token do Zgłoszeń nie działa. Skontaktuj się z Maksem.`", "`Wyślę do Maksa, gdy będzie internet.`"),),
+        ZGLOSZENIE,
+        "bez tokenu tata czyta, że Zgłoszenie wyjdzie samo, zamiast skontaktować się z Maksem (Q17)",
     ),
 )
 

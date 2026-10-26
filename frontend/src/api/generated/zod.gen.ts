@@ -154,9 +154,20 @@ export const zDadNoteNotification = z.object({
     state: z.enum([
         'wyslana',
         'czeka_na_internet',
+        'czeka_na_token',
+        'odrzucona',
         'rozwiazana',
         'przeczytana'
     ])
+});
+
+/**
+ * DadNoteRejected
+ *
+ * Skrzynka Zgłoszeń odrzuciła treść Uwagi taty; jak ``ReportRejected``, Centrum niczego nie obiecuje.
+ */
+export const zDadNoteRejected = z.object({
+    state: z.literal('rejected')
 });
 
 /**
@@ -197,10 +208,11 @@ export const zDadNoteText = z.object({
 /**
  * DadNoteWaiting
  *
- * Uwaga taty czeka w kolejce (brak internetu, klucza albo odmowa) i wyjdzie sama, także po następnym starcie.
+ * Uwaga taty czeka w Kolejce wysyłki i wyjdzie sama, także po następnym starcie, gdy będzie to, na co czeka.
  */
 export const zDadNoteWaiting = z.object({
-    state: z.literal('waiting')
+    state: z.literal('waiting'),
+    waits_for: z.enum(['internet', 'key'])
 });
 
 /**
@@ -670,6 +682,8 @@ export const zReportNotification = z.object({
     state: z.enum([
         'wyslana',
         'czeka_na_internet',
+        'czeka_na_token',
+        'odrzucona',
         'rozwiazana',
         'przeczytana'
     ])
@@ -678,8 +692,7 @@ export const zReportNotification = z.object({
 /**
  * ReportQueued
  *
- * Zgłoszenie czeka w kolejce Skrzynki na tym komputerze i wyjdzie samo; ``waits_for``: na internet albo na klucz
- * do Zgłoszeń od Maksa (brak klucza albo klucz, którego Skrzynka odmówiła).
+ * Zgłoszenie czeka w Kolejce wysyłki na tym komputerze i wyjdzie samo, gdy będzie to, na co czeka.
  */
 export const zReportQueued = z.object({
     state: z.literal('queued'),
@@ -693,6 +706,18 @@ export const zReportQueued = z.object({
  */
 export const zReportReady = z.object({
     state: z.literal('ready')
+});
+
+/**
+ * ReportRejected
+ *
+ * Skrzynka Zgłoszeń odrzuciła treść tego Zgłoszenia: ani internet, ani Token do Zgłoszeń tego nie naprawią.
+ *
+ * Plik zostaje w Kolejce wysyłki, która spróbuje go dopiero przy następnym starcie Centrum, więc Centrum niczego nie
+ * obiecuje, tylko każe skontaktować się z Maksem.
+ */
+export const zReportRejected = z.object({
+    state: z.literal('rejected')
 });
 
 /**
@@ -1056,6 +1081,7 @@ export const zToolUpdateFailed = z.object({
         zReportSent,
         zReportWaiting,
         zReportQueued,
+        zReportRejected,
         zReportNotQueued
     ]),
     draft: zReportDraft
@@ -1295,6 +1321,7 @@ export const zRunOutcome = z.object({
         zReportSent,
         zReportWaiting,
         zReportQueued,
+        zReportRejected,
         zReportNotQueued
     ]).nullable(),
     files_unchanged: z.boolean(),
@@ -1447,7 +1474,8 @@ export const zSendDadNoteBody = zDadNoteRequest;
  */
 export const zSendDadNoteResponse = z.discriminatedUnion('state', [
     zDadNoteSent,
-    zDadNoteWaiting
+    zDadNoteWaiting,
+    zDadNoteRejected
 ]);
 
 export const zDraftDadNoteBody = zDadNoteText;
@@ -1683,6 +1711,7 @@ export const zReportRunResponse = z.discriminatedUnion('state', [
     zReportSent,
     zReportWaiting,
     zReportQueued,
+    zReportRejected,
     zReportNotQueued
 ]);
 
@@ -1754,6 +1783,7 @@ export const zReportToolUpdateResponse = z.discriminatedUnion('state', [
     zReportSent,
     zReportWaiting,
     zReportQueued,
+    zReportRejected,
     zReportNotQueued
 ]);
 
