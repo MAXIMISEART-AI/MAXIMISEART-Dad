@@ -51,8 +51,8 @@ step of this code that the checker can fail, lose or kill:
 | a box write | `KeyedBox.open_issue` and `comment`, called by `_deliver_new_issue`, `_deliver_report`, `_deliver_to_period`, `_comment_all` |
 | the delivery marker | `Outbox._send_all`: `replace_atomically(path, _queue_text(post, delivered_parts=len(post.parts)))` in `suppress(OSError)` |
 | the removal of a queue file | `Outbox._remove` (`path.unlink`, `_undeleted`) |
-| a pass of the queue | `Outbox._drain` (`_claimed`, `_send_all`, `_released`) |
-| the `RETRY_S` wake | `Outbox._drain`: `self._clock.after(RETRY_S, self._woken)` when `_stopped_on` is set and no wake is armed; the checker fires an armed wake between passes, and a restart drops it with its process |
+| a pass of the queue | `Outbox._drain` (`_claimed`, `_send_all`, `_released`), run only after the code asked for one with `send_in_background`: in `Outbox.post`, `Outbox.resume` or `Outbox._woken` |
+| the `RETRY_S` wake | `Outbox._drain`: `self._clock.after(RETRY_S, self._woken)` when `_stopped_on` is set and no wake is armed; the checker calls an armed wake when nothing else asked for a pass, and a restart drops it with its process |
 | a restart of Centrum | a new `Outbox` and `KeyedBox` on the same folder, then `Outbox.resume` |
 
 Covered files: `src/rozliczenia/centrum/outbox.py`,
@@ -86,7 +86,7 @@ mutations pass there.
 
 On Windows use `py -3` instead of `.venv/bin/python`. In a worktree, create its
 `.venv` first (`python3 tools/setup_worktree.py`). It needs nothing beyond the
-repo's Python and takes about 50 s. `--scope NAME` runs one scope, and
+repo's Python and takes about 30 to 80 s, depending on the machine. `--scope NAME` runs one scope, and
 `--strict` counts known findings and accepted risks as violations too.
 
 The last line is the verdict:
@@ -102,7 +102,8 @@ The last line is the verdict:
 
 `explore_outbox.py` writes the wysyłki of a scope into a real queue folder in a
 temporary directory with `Outbox.post`, then runs passes of the real queue
-(`_drain`) in its own thread. Behind `KeyedBox` stands `MemoryBox`, GitHub's
+(`_drain`) in its own thread. `send_in_background` only records that the code
+asked for a pass, and the checker runs one only after such a request. Behind `KeyedBox` stands `MemoryBox`, GitHub's
 issues, labels, bodies and comments in memory. Before each step in the table
 the checker picks one option:
 
@@ -112,9 +113,11 @@ the checker picks one option:
   effect, as a timed-out POST to GitHub), or the process dies before it;
 - the marker or the removal: it works, raises `OSError` (Windows, antivirus or
   OneDrive holding the file), or the process dies before it;
-- between two passes, when files are left: the `RETRY_S` wake runs the next
-  pass, if the code armed one, or Centrum restarts. With neither, the schedule
-  ends there, and the rules judge what is left.
+- when files are left and nothing asked for a pass: the `RETRY_S` wake fires,
+  if the code armed one, or Centrum restarts. Without an armed wake, the queue
+  may also stay as it is until the next start. When the wake or the start does
+  not ask for a pass either, the schedule ends there, and the rules judge what
+  is left.
 
 Bounds in every scope: at most 2 network failures, 1 lost answer, 1 file error
 and 1 killed or restarted Centrum. After the failures run out the queue gets
@@ -235,7 +238,10 @@ with `MUTACJE OK`. Each of these gives `KOLEJKA: NOWE NARUSZENIE`:
 - an Uwaga taty that opens two issues;
 - no delivery marker;
 - no `RETRY_S` wake after a pass that stopped;
-- the queue file removed before its marker is written.
+- the queue file removed before its marker is written;
+- a `RETRY_S` wake that does not ask for a pass (`_woken`);
+- a start that does not ask for a pass (`resume`);
+- a new wysyłka that does not ask for a pass (`post`).
 
 The Zgłoszenie, Uwaga, marker and removal mutations break the same rule as a
 known finding or an accepted risk, in a schedule those do not excuse. A mutation reported as `NIEAKTUALNA` no longer

@@ -149,6 +149,45 @@ MUTATIONS = (
         "proces zamknięty przy usuwaniu wysłanej Uwagi taty wysyła ją po restarcie drugi raz",
         NEW,
     ),
+    Mutation(
+        "budzik RETRY_S nie rusza wysyłki",
+        (
+            Edit(
+                VERIFIED,
+                "            self._retry_armed = False\n        self.send_in_background()\n",
+                "            self._retry_armed = False\n",
+            ),
+        ),
+        (EXPLORER, "--scope", "znane-issue"),
+        "po zerwanej sieci budzik tylko zeruje _retry_armed, a wysyłka czeka do restartu",
+        NEW,
+    ),
+    Mutation(
+        "start Centrum nie wysyła kolejki",
+        (
+            Edit(
+                VERIFIED,
+                "                    leftover.unlink()\n        self.send_in_background()\n",
+                "                    leftover.unlink()\n",
+            ),
+        ),
+        (EXPLORER, "--scope", "nowe-issue"),
+        "po starcie wysyłki z poprzedniej pracy czekają do nowej wysyłki",
+        NEW,
+    ),
+    Mutation(
+        "nowa wysyłka nie rusza kolejki",
+        (
+            Edit(
+                VERIFIED,
+                "        self._log.box_post_queued(label=post.target.label, period=post.period)\n        self.send_in_background()\n",
+                "        self._log.box_post_queued(label=post.target.label, period=post.period)\n",
+            ),
+        ),
+        (EXPLORER, "--scope", "nowe-issue"),
+        "Uwaga taty czeka w kolejce do następnego startu Centrum",
+        NEW,
+    ),
 )
 
 

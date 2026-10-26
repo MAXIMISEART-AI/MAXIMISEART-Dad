@@ -6,19 +6,24 @@ Skrzynka, the write of the delivery marker and the removal of a queue file is on
 the checker may let it succeed, let the network fail before the Skrzynka sees it (``Unreachable``), let the Skrzynka
 accept it and lose the answer (``Unreachable`` after the effect), fail the file call with ``OSError``, or kill the
 process. Between two passes of the queue it may also restart Centrum. It tries every such schedule within the bounds
-of a scope, re-running the code from scratch once per schedule, and after the failures run out it lets the queue pass
-until it is empty. Then it checks:
+of a scope, re-running the code from scratch once per schedule. A pass runs only when the code asks for one with
+``send_in_background``: ``Outbox.post``, ``Outbox.resume`` at a start, or the ``RETRY_S`` wake (``_woken``) that
+``_drain`` armed. When nothing asks, the schedule may end there. Then it checks:
 
 - WSZYSTKIE_CZESCI: every part of every wysyłka is in the Skrzynka, in an issue of its target (decision 12 in
   ADR 0015: „Wysyłka jest co najmniej raz”).
 - JEDNO_ISSUE: one problem has one open Zgłoszenie and one period has one issue okresu; a wysyłka to a new issue
-  (Uwaga taty) opens one issue. ADR 0015 accepts a second issue of a NewIssue after a lost answer.
-- KOLEJKA_PUSTA: the queue folder is empty once failures stop.
+  (Uwaga taty) opens one issue. ADR 0015 accepts a second issue of a NewIssue after the connection broke once the
+  Skrzynka opened it (a lost answer, a failed comment), and the docstring of ``outbox.py`` after a process killed
+  before the delivery marker (``_connection_broke_after_issue``).
+- KOLEJKA_PUSTA: no queue file without its delivery marker is left when the schedule ends; a delivered file whose
+  removal failed may wait for the next start.
 - BEZ_WYJATKU: no pass ends in an exception that ``_drain`` logs as ``nieoczekiwany-wyjatek``.
 
 Nothing in ``outbox.py`` or ``keyed_box.py`` is replaced. The Skrzynka behind ``KeyedBox`` is the in-memory
-``MemoryBox`` (GitHub's issues and comments), the clock never moves, ``send_in_background`` runs the pass in the
-checker's thread, and the key is always there and accepted.
+``MemoryBox`` (GitHub's issues and comments), the clock never moves and keeps the wakes ``after`` arms,
+``send_in_background`` records that the code asked for a pass, which the checker then runs in its own thread, and the
+key is always there and accepted.
 """
 
 from __future__ import annotations
@@ -138,7 +143,9 @@ class MemoryBox:
         return found
 
 
-Choice = Literal["ok", "unreachable", "lost", "oserror", "kill", "next", "restart"]
+Choice = Literal[
+    "ok", "unreachable", "lost", "oserror", "kill", "next", "restart", "stuck"
+]
 
 
 @dataclass(frozen=True)
@@ -212,24 +219,18 @@ class Scheduler:
         return chosen == "oserror"
 
     def between_passes(self, woken: bool) -> Literal["next", "restart", "stuck"]:
-        """After a pass that left files: the ``RETRY_S`` wake the code armed runs the next pass, or Centrum restarts.
+        """When nothing asked for a pass and files are left: the ``RETRY_S`` wake the code armed fires, Centrum
+        restarts, or, without an armed wake, the queue may simply stay as it is until the next start."""
 
-        Without an armed wake and without a restart left, nothing runs the queue again in this work of Centrum.
-        """
-
-        offered: list[Choice] = []
-        if woken:
-            offered.append("next")
+        offered: list[Choice] = ["next" if woken else "stuck"]
         if self.left["kill"]:
             offered.append("restart")
-        if not offered:
-            return "stuck"
         chosen = offered[0] if len(offered) == 1 else self._pick(offered, "przejście")
         if chosen == "restart":
             self.left["kill"] -= 1
             self.faults.append(("restart", "przejście"))
             return "restart"
-        return "next"
+        return "next" if chosen == "next" else "stuck"
 
 
 def _part_name(text: str) -> str:
@@ -573,6 +574,12 @@ def execute(
         box.issues[len(box.issues) + 1] = _Issue(label, title, body)
     failures: list[str] = []
     clock = _Clock()
+    asked: list[bool] = [
+        False
+    ]  # the code called send_in_background since the last pass
+
+    def ask() -> None:
+        asked[0] = True
 
     def started() -> Outbox:
         clock.armed.clear()  # a timer dies with its process
@@ -582,7 +589,7 @@ def execute(
             _Log(work / "centrum.log", failures),
             clock=clock,
         )
-        outbox.send_in_background = lambda: None  # type: ignore[method-assign]
+        outbox.send_in_background = ask  # type: ignore[method-assign]
         return outbox
 
     def drive(outbox: Outbox) -> None:
@@ -592,39 +599,43 @@ def execute(
     outbox = started()
     for post in scope.posts:
         assert outbox.post(post), "zapis wysyłki do kolejki"
-    scheduler.say("wysyłki czekają w kolejce; przejście kolejki")
+    scheduler.say("wysyłki czekają w kolejce (Outbox.post)")
     bounds = scope.bounds
     passes = (
         bounds.unreachable + bounds.lost + bounds.disk + bounds.kills + EXTRA_PASSES
     )
     with _intercepted(scheduler, queue):
         while any(queue.glob("*.json")) and passes:
+            if not asked[0]:
+                then = scheduler.between_passes(bool(clock.armed))
+                if then == "restart":
+                    scheduler.say("Centrum startuje znów (Outbox.resume)")
+                    outbox = started()
+                    outbox.resume()
+                elif then == "next":
+                    scheduler.say("mija RETRY_S: budzik woła Outbox._woken")
+                    clock.armed.pop(0)()
+                else:
+                    scheduler.say("nic nie rusza kolejki do następnego startu Centrum")
+                    break
+                if not asked[0]:
+                    scheduler.say(
+                        "kod nie prosi o przejście kolejki (send_in_background)"
+                    )
+                    break
             state = _state(box, queue, outbox, scheduler, passes, failures, clock)
             if state in visited and len(scheduler.taken) >= len(prefix):
                 return scheduler, []
             visited.add(state)
             passes -= 1
+            asked[0] = False
+            scheduler.say("przejście kolejki (Outbox._drain)")
             try:
                 drive(outbox)
             except Crash:
                 outbox = started()
-                scheduler.say("Centrum startuje znów (resume): przejście kolejki")
+                scheduler.say("Centrum startuje znów (Outbox.resume)")
                 outbox.resume()
-                continue
-            if any(queue.glob("*.json")):
-                then = scheduler.between_passes(bool(clock.armed))
-                if then == "restart":
-                    scheduler.say("Centrum startuje znów (resume): przejście kolejki")
-                    outbox = started()
-                    outbox.resume()
-                elif then == "next":
-                    scheduler.say("po RETRY_S budzik: następne przejście kolejki")
-                    clock.armed.pop(0)()
-                else:
-                    scheduler.say(
-                        "nic nie budzi kolejki do następnego startu Centrum ani nowej wysyłki"
-                    )
-                    break
     trace = tuple(scheduler.trace)
     faults = tuple(scheduler.faults)
     return scheduler, [
