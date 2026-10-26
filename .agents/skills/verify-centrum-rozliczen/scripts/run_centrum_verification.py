@@ -238,8 +238,6 @@ REQUIRED_SCREENSHOTS = {
         "182-powiadomienia-widok.png",
         "183-powiadomienia-widok-drugi-motyw.png",
         "184-powiadomienia-brak-sieci.png",
-        "201-powiadomienia-plik-niedostepny.png",
-        "202-powiadomienia-plik-zapisany.png",
     ),
     "pomiar-u-taty": ("80-pomiar-bez-sladu.png",),
     # Numbered 9x: the feature closes Centrum, so its screenshots are always the last ones.
