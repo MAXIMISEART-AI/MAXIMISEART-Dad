@@ -48,6 +48,12 @@ MUTATIONS = (
         "akcja po wyniku nie otwiera uporządkowanego INTERMAX",
     ),
     Mutation(
+        "Zatrzymanie proponuje Rejestr zleceń zamiast INTERMAX",
+        (Edit(RUN_VIEW, '    register_name="INTERMAX",\n', ""),),
+        UPORZADKOWANIE,
+        "karta mówi „INTERMAX”, a przycisk Zatrzymania „Otwórz Rejestr zleceń”: dwie nazwy jednego pliku",
+    ),
+    Mutation(
         "karta bez ostatniego Uporządkowania",
         (Edit(APP, "lambda: cards.latest(intermax.key)", "lambda: None"),),
         UPORZADKOWANIE,
@@ -58,6 +64,12 @@ MUTATIONS = (
         (Edit(DIAGNOSIS, "        _files_in_onedrive,\n        _intermax,\n", "        _files_in_onedrive,\n"),),
         UPORZADKOWANIE,
         "Diagnoza Zatrzymania „do Maksa” nie sprawdza INTERMAX",
+    ),
+    Mutation(
+        "Metryki INTERMAX z trybem DRY-RUN",
+        (Edit(RUN_VIEW, '        return ("RUN",)\n', '        return ("RUN", "DRY-RUN")\n'),),
+        UPORZADKOWANIE,
+        "Metryki proponują przy INTERMAX tryb DRY-RUN, którego Uporządkowanie nie ma, z pustym wykresem",
     ),
 )
 

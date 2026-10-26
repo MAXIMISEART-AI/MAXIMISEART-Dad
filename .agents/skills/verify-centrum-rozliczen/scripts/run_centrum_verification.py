@@ -228,6 +228,7 @@ REQUIRED_SCREENSHOTS = {
         "234-intermax-zatrzymanie-dla-taty.png",
         "235-intermax-do-maksa.png",
         "236-intermax-historia.png",
+        "237-intermax-metryki.png",
     ),
     "powiadomienia": (
         "180-powiadomienia-dzwonek.png",

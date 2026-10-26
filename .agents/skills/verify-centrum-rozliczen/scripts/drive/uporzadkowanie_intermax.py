@@ -127,7 +127,10 @@ def drive_intermax_ordering(run: Run, page: Page) -> None:
     banner = stop_banner(page)
     expect(banner).to_contain_text(NOTHING_TO_ORDER)
     expect(banner).to_contain_text("Do poprawy")
+    expect(banner.get_by_role("button", name="Otwórz INTERMAX", exact=True)).to_be_visible()
+    expect(banner.get_by_role("button", name="Otwórz Rejestr zleceń", exact=True)).to_have_count(0)
     run.check(result["stop_kind"] == "for_tata", "the INTERMAX ordered before stops „dla taty”: nothing left to order")
+    run.check(True, "the stop offers „Otwórz INTERMAX”, the card's one name of the file")
     banner.get_by_role("button", name="Uruchom ponownie", exact=True).click()
     repeated = finished_result(run, "intermax-powtorka")
     expect(stop_banner(page).get_by_role("button", name="Diagnoza", exact=True)).to_be_visible()
@@ -180,6 +183,11 @@ def drive_intermax_ordering(run: Run, page: Page) -> None:
         "Historia lists every Uporządkowanie INTERMAX from Centrum",
     )
     run.capture(page, "236-intermax-historia")
+    page.get_by_role("link", name="Metryki", exact=True).click()
+    page.get_by_role("group", name="Proces", exact=True).get_by_role("button", name="INTERMAX", exact=True).click()
+    expect(page.get_by_role("group", name="Tryb", exact=True).get_by_role("button")).to_have_text(["RUN"])
+    run.check(True, "Metryki of INTERMAX offer only the mode RUN: Uporządkowanie INTERMAX has no Podgląd bez zapisu")
+    run.capture(page, "237-intermax-metryki")
 
     print("  harness: the Rejestr zleceń from before this feature", flush=True)
     _to_card(run, page)
