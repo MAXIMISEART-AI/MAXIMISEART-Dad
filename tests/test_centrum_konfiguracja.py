@@ -111,6 +111,60 @@ def test_niezmieniony_wzorzec_jest_sprawdzany_raz_a_brakujacy_przy_kazdym_odczyc
     assert sorted(checked) == sorted([INTERNAL, COLLECTIVE, WORKER, WORKER])
 
 
+@pytest.mark.parametrize("problem", [Problem.UNREADABLE, Problem.LAYOUT, Problem.HAS_DATA])
+def test_niezmieniony_wzorzec_z_problemem_tresci_jest_sprawdzany_raz(tmp_path: Path, problem: Problem) -> None:
+    checked: list[str] = []
+
+    def damaged(template: TemplateFile) -> NoReturn:
+        checked.append(template.path.name)
+        raise WorkbookError(template.path, problem)
+
+    app = configured(tmp_path, readers=replace(FILE_READERS, template=damaged))
+
+    first = read_configuration(app)
+    second = read_configuration(app)
+
+    assert sorted(checked) == sorted([INTERNAL, COLLECTIVE, WORKER])
+    assert second["templates"] == first["templates"]
+
+
+INACCESSIBLE_TEMPLATE = (
+    "Nie można teraz odczytać wzorca. Plik może być zajęty przez inny program. Nie utworzono żadnego pliku."
+)
+
+
+@pytest.mark.parametrize(
+    ("file_name", "what"),
+    [
+        (INTERNAL, INACCESSIBLE_TEMPLATE),
+        (COLLECTIVE, INACCESSIBLE_TEMPLATE),
+        (WORKER, f"{WORKER_TEMPLATE_STOP} Nie można odczytać Wzorca rozliczenia pracownika."),
+    ],
+)
+def test_wzorzec_niedostepny_jest_gotowy_bez_restartu_gdy_dostep_wraca(
+    tmp_path: Path, file_name: str, what: str
+) -> None:
+    blocked = {file_name}
+
+    def blocking(template: TemplateFile) -> None:
+        if template.path.name in blocked:
+            raise WorkbookError(template.path, Problem.INACCESSIBLE)
+        FILE_READERS.template(template)
+
+    app = configured(tmp_path, readers=replace(FILE_READERS, template=blocking))
+    path = tmp_path / "config" / file_name
+    signature = (path.stat().st_mtime_ns, path.stat().st_size)
+    while_blocked = templates_by_file(read_configuration(app))[file_name]
+    blocked.clear()
+
+    after = templates_by_file(read_configuration(app))[file_name]
+
+    assert (while_blocked["state"], while_blocked["message"]["what"]) == ("problem", what)
+    assert "uszkodzony" not in while_blocked["message"]["what"]
+    assert (path.stat().st_mtime_ns, path.stat().st_size) == signature
+    assert after["state"] == "ready"
+
+
 def test_wszystkie_trzy_wzorce_sa_na_miejscu_i_czytelne(tmp_path: Path) -> None:
     configuration = read_configuration(configured(tmp_path))
 

@@ -25,7 +25,7 @@ from rozliczenia.centrum.tool_freshness import Judgement, ReleaseSource, ToolFre
 from rozliczenia.centrum.version import short_commit
 from rozliczenia.collective_preparation import default_collective_template_path, default_internal_template_path
 from rozliczenia.engine import default_worker_template_path
-from rozliczenia.input_checks import ProcessTemplate, Readers
+from rozliczenia.input_checks import ProcessTemplate, Readers, TemplateProblem
 from rozliczenia.message import Message
 from rozliczenia.workbook_files import Problem
 from rozliczenia.worker_config import default_config_path
@@ -96,9 +96,6 @@ def open_in_excel(workbooks: Iterable[InputWorkbook]) -> list[str]:
     ]
 
 
-_Problem = tuple[contract.TemplateProblemKind, Message]
-
-
 @dataclass(frozen=True)
 class Template:
     """Wzorzec: etykieta, proces, który z niego tworzy pliki, i Wzorzec tego procesu ze Sprawdzaniem."""
@@ -110,12 +107,6 @@ class Template:
     @property
     def path(self) -> Path:
         return self.template.file.path
-
-    def find_problem(self, readers: Readers) -> _Problem | None:
-        """Rodzaj problemu i Komunikat, którym zatrzymałby się proces; ``None``, gdy Wzorzec przechodzi Sprawdzanie."""
-
-        found = self.template.problem(readers)
-        return None if found is None else (_kind(found.problem), found.message)
 
     def problem(self, readers: Readers) -> Message | None:
         """Komunikat, którym zatrzymałby się proces używający Wzorca; ``None``, gdy przechodzi Sprawdzanie."""
@@ -191,28 +182,37 @@ _KEY_STATE: Final[Mapping[KeyJudgement, contract.ReportKeyState]] = {
 CONFIGURATION_WAIT_S: Final = 1.0
 
 
+_CONTENT_PROBLEMS: Final = frozenset({Problem.UNREADABLE, Problem.LAYOUT, Problem.HAS_DATA})
+
+
 class _CheckedTemplates:
     """Wynik Sprawdzania każdego wzorca, ważny do zmiany pliku albo jego blokady.
 
     Prawdziwe Wzorce otwierają się sekundami, a Konfiguracja jest odczytywana
-    przy każdym powrocie do karty. Brak pliku jest sprawdzany zawsze od nowa.
+    przy każdym powrocie do karty. Pamięta tylko wynik zależny od treści pliku:
+    Wzorzec gotowy albo problem z treści. Brak pliku, plik otwarty w Excelu
+    i plik niedostępny (zmiana uprawnień albo zwolnienie przez inny program nie
+    zmieniają daty ani rozmiaru) są sprawdzane zawsze od nowa.
     """
 
     def __init__(self, readers: Readers) -> None:
         self._readers = readers
-        self._results: dict[Path, tuple[tuple[int, int, bool], _Problem | None]] = {}
+        self._results: dict[Path, tuple[tuple[int, int, bool], TemplateProblem | None]] = {}
 
     def status(self, template: Template) -> contract.TemplateStatus:
         label, path = template.label, template.path
         found = self._problem(template)
         if found is None:
             return contract.TemplateReady(state="ready", label=label, file_name=path.name)
-        problem, message = found
         return contract.TemplateProblem(
-            state="problem", label=label, file_name=path.name, problem=problem, message=contract.Message.of(message)
+            state="problem",
+            label=label,
+            file_name=path.name,
+            problem=_kind(found.problem),
+            message=contract.Message.of(found.message),
         )
 
-    def _problem(self, template: Template) -> _Problem | None:
+    def _problem(self, template: Template) -> TemplateProblem | None:
         path = template.path
         try:
             stat = path.stat()
@@ -223,8 +223,8 @@ class _CheckedTemplates:
             cached = self._results.get(path)
             if cached is not None and cached[0] == signature:
                 return cached[1]
-        found = template.find_problem(self._readers)
-        if signature is not None:
+        found = template.template.problem(self._readers)
+        if signature is not None and (found is None or found.problem in _CONTENT_PROBLEMS):
             self._results[path] = (signature, found)
         return found
 
