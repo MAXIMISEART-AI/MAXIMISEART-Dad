@@ -12,7 +12,7 @@ from typing import Any
 import urllib.parse
 import urllib.request
 
-from playwright.sync_api import Locator, Page, Request, ViewportSize, expect
+from playwright.sync_api import FloatRect, Locator, Page, Request, ViewportSize, expect
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
 from drive import kontrola_ilosci
@@ -33,6 +33,22 @@ SECOND = ("Proszę o większą czcionkę", "")
 # wide letters wraps to the most lines in „Maks dostanie”.
 LONG = "W" * 120, ("https://onedrive.live.com/edit?id=" + "SYNTETYCZNY0123456789" * 20)[:400]
 SMALL_SCREEN: ViewportSize = {"width": 1366, "height": 768}
+# Windows Dad's screen may give the browser (#488): 1280×720 at 150% is 853×480 CSS pixels. A long Tytuł and a Treść of
+# many short lines fill the form; a 10 000-character link is the longest Treść the contract allows.
+LOW_WINDOW = ViewportSize(width=853, height=480)
+LOW_WINDOWS: tuple[tuple[ViewportSize, str], ...] = (
+    (LOW_WINDOW, "lines"),
+    (ViewportSize(width=1280, height=520), "link"),
+    (SMALL_SCREEN, "lines"),
+    (ViewportSize(width=1093, height=614), "lines"),
+)
+LOW_NOTES = {
+    "lines": (
+        " ".join(f"Linia tytułu numer {line}." for line in range(5)),
+        "\n".join(f"Linia treści uwagi taty numer {line}." for line in range(30)),
+    ),
+    "link": ("Link do pliku", ("https://onedrive.live.com/edit?id=" + "SYNTETYCZNY0123456789" * 500)[:10_000]),
+}
 # Each issue waits this long in the skrzynka, so „Wyślij” is seen sending; two issues stay under the 5 s wait.
 BOX_PACING_MS = 1500
 ABOUT_RUN = "Napisz do Maksa o tym Uruchomieniu"
@@ -50,6 +66,12 @@ NOT_IN_HISTORY = "Tego Uruchomienia nie ma w historii Centrum. Wybierz inne albo
 LAPTOP = ViewportSize(width=1280, height=720)
 # Measured as painted: in the frame after the next, whose ResizeObserver has already scrolled the list for the last
 # change. A layout read between React's commit and that frame sees the list shrunk but not yet scrolled.
+# „Wyślij” takes a click at its centre: the topmost element there is the button or part of it.
+CLICKABLE = """button => {
+    const box = button.getBoundingClientRect()
+    const hit = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2)
+    return hit !== null && button.contains(hit)
+}"""
 WHOLLY_SHOWN = """element => new Promise(measured => requestAnimationFrame(() => requestAnimationFrame(() => {
     const box = element.getBoundingClientRect()
     const inside = outer => box.top >= outer.top - 0.5 && box.bottom <= outer.bottom + 0.5
@@ -142,7 +164,8 @@ def _write(dialog: Locator, title: str, body: str) -> None:
 
 
 def _overflowing(page: Page, dialog: Locator) -> list[str]:
-    """Parts of the form that stick out of the dialog or off the screen, and the dialog itself if it scrolls sideways."""
+    """Parts of the form that stick out of the dialog sideways, the form or „Wyślij” off the screen (the fields between
+    them scroll), and the dialog itself if it scrolls sideways."""
 
     frame = dialog.bounding_box()
     viewport = page.viewport_size
@@ -160,8 +183,8 @@ def _overflowing(page: Page, dialog: Locator) -> list[str]:
         if (box := part.bounding_box()) is None
         or box["x"] < frame["x"]
         or box["x"] + box["width"] > min(frame["x"] + frame["width"], viewport["width"]) + 0.5
-        or box["y"] < 0
-        or box["y"] + box["height"] > viewport["height"] + 0.5
+        or (name in ("form", "Wyślij")
+        and (box["y"] < 0 or box["y"] + box["height"] > viewport["height"] + 0.5))
     ]
     if (
         frame["x"] < 0
@@ -173,6 +196,88 @@ def _overflowing(page: Page, dialog: Locator) -> list[str]:
     if dialog.evaluate("dialog => dialog.scrollWidth > dialog.clientWidth"):
         outside.append("dialog scrolls sideways")
     return outside
+
+
+def _boxed(outer: FloatRect, inner: FloatRect) -> bool:
+    return (
+        inner["x"] >= outer["x"] - 0.5
+        and inner["y"] >= outer["y"] - 0.5
+        and inner["x"] + inner["width"] <= outer["x"] + outer["width"] + 0.5
+        and inner["y"] + inner["height"] <= outer["y"] + outer["height"] + 0.5
+    )
+
+
+def _overlap(one: FloatRect, other: FloatRect) -> bool:
+    return (
+        one["x"] < other["x"] + other["width"]
+        and other["x"] < one["x"] + one["width"]
+        and one["y"] < other["y"] + other["height"]
+        and other["y"] < one["y"] + one["height"]
+    )
+
+
+def _send_misplaced(page: Page, dialog: Locator) -> list[str]:
+    """What keeps Dad from „Wyślij” or garbles the form in this window; empty when nothing does."""
+
+    viewport = page.viewport_size
+    frame = dialog.bounding_box()
+    send = dialog.get_by_role("button", name="Wyślij", exact=True)
+    button = send.bounding_box()
+    toggle = dialog.get_by_role("group", name="Dotyczy", exact=True).bounding_box()
+    caption = dialog.get_by_role("figure", name="Co dostanie Maks", exact=True).get_by_text("Maks dostanie", exact=True)
+    assert viewport is not None and frame is not None and button is not None and toggle is not None
+    screen = FloatRect(x=0, y=0, width=viewport["width"], height=viewport["height"])
+    wrong = []
+    if not _boxed(screen, frame):
+        wrong.append(f"the dialog {frame} sticks out of the window")
+    if dialog.evaluate("dialog => dialog.scrollWidth > dialog.clientWidth"):
+        wrong.append("the dialog scrolls sideways")
+    shown = send.evaluate(WHOLLY_SHOWN)
+    if not (_boxed(frame, button) and shown["shown"]):
+        wrong.append(f"„Wyślij” {button} is not wholly inside the dialog {frame} or is clipped ({shown})")
+    if not send.is_enabled() or not send.evaluate(CLICKABLE):
+        wrong.append("„Wyślij” does not take a click at its centre")
+    if (label := caption.bounding_box()) is None or _overlap(toggle, label):
+        wrong.append(f"the switch „Dotyczy” {toggle} overlaps the caption „Maks dostanie” {label}")
+    return wrong
+
+
+def _drive_low_windows(run: Run, page: Page) -> None:
+    run.step(FEATURE, "uwaga-niskie-okno")
+    screen = page.viewport_size
+    assert screen is not None
+    drafts = {kind: _draft(run, *note, f"uwaga-szkic-niskie-okno-{kind}") for kind, note in LOW_NOTES.items()}
+    themes = []
+    try:
+        for second_theme in (False, True):
+            if second_theme:
+                page.locator("header").get_by_role("button", name="Włącz motyw", exact=False).click()
+            theme = "jasny" if page.locator("header").get_by_role("button", name="Włącz motyw ciemny").count() else "ciemny"
+            themes.append(theme)
+            for window, kind in ((screen, "lines"), *LOW_WINDOWS):
+                page.set_viewport_size(window)
+                dialog = _open(page)
+                _write(dialog, *LOW_NOTES[kind])
+                figure = dialog.get_by_role("figure", name="Co dostanie Maks", exact=True)
+                _shows(run, figure, drafts[kind], f"„Maks dostanie” shows the draft at {window['width']}×{window['height']}")
+                expect(dialog.get_by_role("button", name="Wyślij", exact=True)).to_be_enabled()
+                if window == screen and not second_theme:
+                    run.capture(page, "178-uwaga-pelne-okno", full_page=False)
+                if window == LOW_WINDOW:
+                    shot = "177b-uwaga-niskie-okno-drugi-motyw" if second_theme else "177-uwaga-niskie-okno"
+                    run.capture(page, shot, full_page=False)
+                wrong = _send_misplaced(page, dialog)
+                run.check(
+                    wrong == [],
+                    f"at {window['width']}×{window['height']} ({kind}, motyw {theme}) „Wyślij” is inside the dialog and"
+                    f" takes a click, „Dotyczy” clears „Maks dostanie”, and the dialog fits the window ({wrong})",
+                )
+                page.keyboard.press("Escape")
+                expect(dialog).to_have_count(0)
+    finally:
+        page.set_viewport_size(screen)
+    page.locator("header").get_by_role("button", name="Włącz motyw", exact=False).click()
+    run.check(sorted(themes) == ["ciemny", "jasny"], "the low windows were checked in both themes")
 
 
 def drive_dad_note(run: Run, page: Page) -> None:
@@ -246,6 +351,10 @@ def drive_dad_note(run: Run, page: Page) -> None:
     finally:
         page.set_viewport_size(screen)
     _write(dialog, "", "")
+    page.keyboard.press("Escape")
+    expect(dialog).to_have_count(0)
+    _drive_low_windows(run, page)
+    dialog = _open(page)
 
     run.step(FEATURE, "uwaga-szkic-po-bledzie")
 

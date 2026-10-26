@@ -13,10 +13,16 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "tools"))
 sys.path.insert(0, str(Path(__file__).resolve().parents[4] / ".agents/skills/verify-centrum-rozliczen/scripts"))
 
-from cele_mutacji_centrum import DAD_NOTES, UWAGA
+from cele_mutacji_centrum import BUILD, DAD_NOTES, UWAGA
 from mutacje import Edit, Mutation, check_all
 
 MUTATIONS = (
+    Mutation(
+        "pola okna Uwagi się nie przewijają",
+        (Edit(BUILD, "`-m-1 flex flex-col gap-2 overflow-y-auto p-1 ", "`-m-1 flex flex-col gap-2 p-1 "),),
+        UWAGA,
+        "przy niskim oknie „Wyślij” schodzi pod krawędź okna Uwagi (#488)",
+    ),
     Mutation(
         "komentarz z odnośnikiem do odrzuconych Logów nie powstaje",
         (

@@ -89,45 +89,44 @@ export function DadNoteForm({ openedFrom, close }: { openedFrom: string | null; 
       <DialogHeader>
         <DialogTitle>Napisz do Maksa</DialogTitle>
       </DialogHeader>
-      <Field>
-        <FieldLabel htmlFor="uwaga-tytul">Tytuł</FieldLabel>
-        <Input
-          id="uwaga-tytul"
-          required
-          autoFocus
-          maxLength={TITLE_MAX_LENGTH}
-          placeholder="Np. Brakuje kolumny z kilometrami"
-          value={title}
-          onChange={(event) => setTitle(event.target.value)}
-        />
-      </Field>
-      <Field>
-        <FieldLabel htmlFor="uwaga-tresc">
-          Treść <span className="font-normal text-muted-foreground">(niekonieczna)</span>
-        </FieldLabel>
-        <Textarea
-          id="uwaga-tresc"
-          rows={3}
-          maxLength={BODY_MAX_LENGTH}
-          className="max-h-48"
-          value={body}
-          onChange={(event) => setBody(event.target.value)}
-        />
-      </Field>
-      <Field className="min-h-0">
-        <FieldTitle>Dotyczy</FieldTitle>
-        <SegmentedFilter label="Dotyczy" options={SCOPES} value={scope} onChange={setScope} />
-        {scope === "run" ? (
-          <DadNoteRuns
-            runs={runs}
-            reload={reloadRuns}
-            openedFrom={openedFrom}
-            checked={checked}
-            onCheck={setChecked}
+      {/* Nagłówek i „Wyślij” zostają w oknie, a pola między nimi się przewijają. Wysokość oddaje najpierw tylko lista
+          Uruchomień, więc stoi tu wprost, poza „Dotyczy”, które nie kurczy się pod przełącznik; odstępy jak w Field
+          (gap-2 w polu, mt-3 między polami). `-m-1 p-1` zostawia miejsce na obwódkę fokusu. */}
+      <div className="-m-1 flex flex-col gap-2 overflow-y-auto p-1 *:not-data-[slot=radio-group]:shrink-0">
+        <Field>
+          <FieldLabel htmlFor="uwaga-tytul">Tytuł</FieldLabel>
+          <Input
+            id="uwaga-tytul"
+            required
+            autoFocus
+            maxLength={TITLE_MAX_LENGTH}
+            placeholder="Np. Brakuje kolumny z kilometrami"
+            value={title}
+            onChange={(event) => setTitle(event.target.value)}
           />
+        </Field>
+        <Field className="mt-3">
+          <FieldLabel htmlFor="uwaga-tresc">
+            Treść <span className="font-normal text-muted-foreground">(niekonieczna)</span>
+          </FieldLabel>
+          <Textarea
+            id="uwaga-tresc"
+            rows={3}
+            maxLength={BODY_MAX_LENGTH}
+            className="max-h-48"
+            value={body}
+            onChange={(event) => setBody(event.target.value)}
+          />
+        </Field>
+        <Field className="mt-3">
+          <FieldTitle>Dotyczy</FieldTitle>
+          <SegmentedFilter label="Dotyczy" options={SCOPES} value={scope} onChange={setScope} />
+        </Field>
+        {scope === "run" ? (
+          <DadNoteRuns runs={runs} reload={reloadRuns} openedFrom={openedFrom} checked={checked} onCheck={setChecked} />
         ) : null}
-      </Field>
-      <Preview shown={shown} />
+        <Preview shown={shown} />
+      </div>
       <DialogFooter>
         <Button type="submit" disabled={title.trim() === "" || sendable === null || sending}>
           {sending ? <Spinner data-icon="inline-start" /> : <SendIcon data-icon="inline-start" />}
@@ -260,7 +259,7 @@ function Preview({ shown }: { shown: Shown | null }) {
   const title = shown?.kind === "draft" ? shown.draft.title : ""
 
   return (
-    <figure aria-label="Co dostanie Maks" className="flex min-h-0 flex-col gap-1 overflow-y-auto rounded-lg bg-muted/50 p-3 text-sm">
+    <figure aria-label="Co dostanie Maks" className="mt-3 flex flex-col gap-1 rounded-lg bg-muted/50 p-3 text-sm">
       <figcaption className="text-xs text-muted-foreground">Maks dostanie</figcaption>
       <p className={cn("font-medium break-words", title === "" && "text-muted-foreground/60")}>
         {title === "" ? "Tytuł" : title}
