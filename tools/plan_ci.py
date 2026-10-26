@@ -29,6 +29,10 @@ Change mutations startują tylko na pull request, który ma mutacje zmiany albo 
 postaci, i dopiero po zielonym ``Required CI status``, którego nie blokują: plan liczy je tak samo jak
 ``tools/mutacje_zmiany.py`` (``selected``), bez testów i bez instalacji.
 
+Na pull request zadanie po porażce pytest uruchamia raz same testy, które padły (``niestabilne_testy``, najwyżej
+``PONOWIENIE_NAJWIECEJ``; więcej porażek to nie flak). Gdy wszystkie przejdą, pytest przechodzi, a każdy z nich trafia do
+zapisu flaków; druga porażka to porażka. Każde zadanie z pytest zapisuje też wynik swoich testów z kwarantanny.
+
 Plan ma ``digest``: zadanie wykonuje tylko plan, którego treść się z nim zgadza, i zapisuje go w swoim zapisie czasów,
 a ``Required CI status`` (``werdykt``) przyjmuje tylko zapisy tego planu. Werdykt przepuszcza run, gdy każde zadanie
 przeszło, zadanie pominięte to tylko takie, któremu plan nie dał pracy, a każde zadanie planu zgłosiło w ostatniej
@@ -65,6 +69,8 @@ import czasy_ci
 import mutacje
 import mutacje_skilli
 import mutacje_zmiany
+import niestabilne_testy
+from niestabilne_testy import Flak, ZapisKwarantanny
 import potomne
 import szybko
 
@@ -72,6 +78,10 @@ ROOT = Path(__file__).resolve().parents[1]
 WERSJA = 1
 WORKERY = 4  # pytest -n auto na runnerze 4 vCPU
 JUNIT = Path(".ci-czasy", "junit.xml")
+PONOWIENIE = Path(".ci-czasy", "junit-ponowienie.xml")
+# Flak trafia w jeden albo dwa testy (Skrzynka w runach 26.10); więcej porażek naraz to defekt albo awaria runnera.
+PONOWIENIE_NAJWIECEJ = 5
+PONOWIENIE_LIMIT_S = 10 * 60
 WYKONANIE = Path(".ci-czasy", "wykonanie.json")
 CZESCI = Path(".ci-plan", "czesci.json")
 # Domyślne python_files pytest: pyproject.toml go nie zmienia.
@@ -520,6 +530,33 @@ def _krok_skilla(klucz: str, znalezione: Mapping[str, mutacje_skilli.Step]) -> d
     return {"klucz": nazwa, "s": s, "status": "ok" if powod is None else "fail"}
 
 
+def _krok_pytest(plan: Plan, zadanie: Zadanie, pliki: Mapping[str, list[tuple[int, int]]]) -> dict[str, object]:
+    """Pytest zadania; na pull request po porażce raz same testy, które padły. Potem wynik testów z kwarantanny."""
+
+    start = time.monotonic()
+    status = _uruchom("krok:pytest", [(_pytest(pliki), None)])["status"]
+    if status != "ok" and plan.zdarzenie == "pull_request" and (testy := niestabilne_testy.padniete(JUNIT)):
+        if len(testy) > PONOWIENIE_NAJWIECEJ:
+            print(f"PONOWIENIE | bez ponowienia: padło {len(testy)} testów, a flak to najwyżej {PONOWIENIE_NAJWIECEJ}", flush=True)
+        elif _ponow(zadanie, testy):
+            status = "ok"
+    sha, proba = os.environ.get("GITHUB_SHA", ""), int(os.environ.get("GITHUB_RUN_ATTEMPT", "0"))
+    niestabilne_testy.zapisz_kwarantanne(ZapisKwarantanny(zadanie.id, proba, sha, niestabilne_testy.wyniki_kwarantanny(JUNIT)))
+    return {"klucz": "krok:pytest", "s": round(time.monotonic() - start, 1), "status": status}
+
+
+def _ponow(zadanie: Zadanie, testy: Sequence[str]) -> bool:
+    """Testy, które padły, raz jeszcze w jednym procesie; przejście każdego to flaki w ``niestabilne_testy.FLAKI``."""
+
+    polecenie = (sys.executable, "-m", "pytest", "-p", "no:cacheprovider", *testy, "--junitxml", str(PONOWIENIE))
+    if _uruchom("ponowienie", [(polecenie, PONOWIENIE_LIMIT_S)])["status"] != "ok" or not niestabilne_testy.po_ponowieniu(JUNIT, PONOWIENIE, testy):
+        return False
+    print(f"FLAK | przeszły po ponowieniu: {', '.join(testy)}", flush=True)
+    sha, run, proba = os.environ.get("GITHUB_SHA", ""), int(os.environ.get("GITHUB_RUN_ID", "0")), int(os.environ.get("GITHUB_RUN_ATTEMPT", "0"))
+    niestabilne_testy.zapisz_flaki([Flak(test, zadanie.nazwa, sha, run, proba) for test in testy])
+    return True
+
+
 def wykonaj(plan: Plan, zadanie_id: str) -> int:
     """Pytest z plikami i udziałami zadania, potem jego kroki CI i kroki skilli po kolei, także po porażce. Kod 1, gdy
     coś padło."""
@@ -540,7 +577,7 @@ def wykonaj(plan: Plan, zadanie_id: str) -> int:
             skille.append(klucz)
         else:
             kroki.append(KROKI[nazwa.removeprefix("krok:")])
-    wyniki = [_uruchom("krok:pytest", [(_pytest(pliki), None)])] if pliki else []
+    wyniki = [_krok_pytest(plan, zadanie, pliki)] if pliki else []
     wyniki += [_uruchom(f"krok:{krok.nazwa}", _polecenia(krok)) for krok in kroki]
     if skille:
         # Po kolei: mutacje kilku skilli naraz na czterech rdzeniach runnera przekraczają swoje limity czasu.

@@ -26,6 +26,7 @@ sys.path.insert(0, str(ROOT / "tools"))
 import czasy_ci  # noqa: E402
 import mutacje_skilli  # noqa: E402
 import mutacje_zmiany  # noqa: E402
+import niestabilne_testy  # noqa: E402
 import plan_ci  # noqa: E402
 import szybko  # noqa: E402
 
@@ -322,6 +323,100 @@ def test_zadanie_wykonuje_kroki_po_czerwonym_pytest_przerywa_krok_po_limicie_i_z
     assert [(unit["klucz"], unit["status"]) for unit in result["jednostki"]] == [("krok:pytest", "fail"), ("krok:wiszacy", "fail"), ("krok:szybki", "ok")]
     assert ((mini_repo / "nie-biegnie").exists(), (mini_repo / "biegl").exists()) == (False, True)
     assert capsys.readouterr().out.splitlines()[-1] == "WYKONANIE FAIL | krok:pytest, krok:wiszacy"
+
+
+FLAKY = (
+    "import pathlib\n\nimport pytest\n\n\n"
+    "def test_stabilny() -> None:\n    pass\n\n\n"
+    "class TestFlak:\n"
+    "    def test_pada_raz(self) -> None:\n"
+    "        marker = pathlib.Path('padl-raz')\n"
+    "        if marker.exists():\n            {second}\n"
+    "        marker.touch()\n        raise AssertionError('pierwszy raz')\n\n\n"
+    "def test_pada_zawsze() -> None:\n    assert {always}\n"
+)
+
+
+@pytest.mark.parametrize(
+    ("always", "second", "code", "flaky"),
+    [(True, "return", 0, ["tests/test_flak.py::TestFlak::test_pada_raz"]), (False, "return", 1, None), (True, "pytest.skip('drugi raz')", 1, None)],
+    ids=["flak", "dwie porazki", "pominiety po ponowieniu"],
+)
+def test_bramka_ponawia_raz_test_ktory_padl_a_przejscie_po_ponowieniu_to_flak_a_druga_porazka_to_porazka(
+    mini_repo: Path, monkeypatch: pytest.MonkeyPatch, always: bool, second: str, code: int, flaky: list[str] | None
+) -> None:
+    (mini_repo / "tests" / "test_flak.py").write_text(FLAKY.format(always=always, second=second), encoding="utf-8")
+    monkeypatch.setenv("GITHUB_RUN_ID", "40380584486")
+    job = plan_ci.Zadanie("linux-3.14-1", "linux-3.14", "pytest (Python 3.14, Linux, 1/1)", ("pytest:tests/test_flak.py",), 1.0)
+
+    result = plan_ci.wykonaj(plan_ci.Plan("pull_request", plan_ci.CEL_S, (), 0, (job,)), job.id)
+    records = czasy_ci._junit(plan_ci.JUNIT)
+
+    assert result == code
+    assert [(unit.klucz, unit.status) for unit in records] == [("pytest:tests/test_flak.py", "ok" if code == 0 else "fail")]
+    found = niestabilne_testy.FLAKI
+    assert (None if not found.exists() else [(flak.test, flak.run, flak.zadanie) for flak in niestabilne_testy.flaki_z_json(found.read_text(encoding="utf-8"))]) == (
+        None if flaky is None else [(test, 40380584486, job.nazwa) for test in flaky]
+    )
+
+
+def test_push_nie_ponawia_testu_ktory_padl(mini_repo: Path) -> None:
+    (mini_repo / "tests" / "test_flak.py").write_text(FLAKY.format(always=True, second="return"), encoding="utf-8")
+    job = plan_ci.Zadanie("linux-3.14-1", "linux-3.14", "pytest (Python 3.14, Linux, 1/1)", ("pytest:tests/test_flak.py",), 1.0)
+
+    assert plan_ci.wykonaj(plan_ci.Plan("push", plan_ci.CEL_S, (), 0, (job,)), job.id) == 1
+    assert not niestabilne_testy.FLAKI.exists()
+
+
+def test_zadanie_zapisuje_wynik_testow_z_kwarantanny_xfail_to_porazka_a_xpass_przejscie(mini_repo: Path) -> None:
+    (mini_repo / "tests" / "test_flak.py").write_text(
+        FLAKY.format(always=False, second="return"),
+        encoding="utf-8",
+    )
+    # Jak tests/conftest.py: test z kwarantanny jest xfail(strict=False) i ma w junit własność kwarantanny.
+    (mini_repo / "conftest.py").write_text(
+        "import pytest\n\n\ndef pytest_itemcollected(item):\n"
+        "    if item.name in ('test_stabilny', 'test_pada_zawsze'):\n"
+        "        item.add_marker(pytest.mark.xfail(strict=False))\n"
+        f"        item.user_properties.append(({niestabilne_testy.WLASNOSC!r}, '#1 do 2026-11-01'))\n",
+        encoding="utf-8",
+    )
+    job = plan_ci.Zadanie("windows-3.14-1", "windows-3.14", "pytest (Python 3.14, 1/1)", ("pytest:tests/test_flak.py",), 1.0)
+
+    plan_ci.wykonaj(plan_ci.Plan("push", plan_ci.CEL_S, (), 0, (job,)), job.id)
+    record = niestabilne_testy.kwarantanna_z_json(niestabilne_testy.KWARANTANNA.read_text(encoding="utf-8"))
+
+    assert record.zadanie == job.id
+    assert record.wyniki == {"tests/test_flak.py::test_pada_zawsze": "padł", "tests/test_flak.py::test_stabilny": "przeszedł"}
+    assert niestabilne_testy.stan_kwarantanny([record]) == "padła"
+
+
+@pytest.mark.parametrize(
+    ("proby", "stan"),
+    [
+        ([], "bez zapisu"),
+        ([("a", 1, {"t": "przeszedł"}), ("b", 1, {"t": "pominięty"})], "przeszła"),
+        ([("a", 1, {"t": "pominięty"}), ("b", 1, {})], "bez zapisu"),
+        ([("a", 1, {"t": "przeszedł"}), ("b", 1, {"t": "padł"})], "padła"),
+        ([("a", 1, {"t": "padł"}), ("a", 2, {"t": "przeszedł"})], "przeszła"),
+        ([("a", 2, {"t": "padł"}), ("a", 1, {"t": "przeszedł"})], "padła"),
+    ],
+)
+def test_testy_z_kwarantanny_przeszly_gdy_w_ostatniej_probie_kazdego_zadania_nie_padly_i_gdzies_przeszly(
+    proby: list[tuple[str, int, dict[str, niestabilne_testy.Wynik]]], stan: str
+) -> None:
+    zapisy = [niestabilne_testy.ZapisKwarantanny(zadanie, proba, "a" * 40, wyniki) for zadanie, proba, wyniki in proby]
+
+    assert niestabilne_testy.stan_kwarantanny(zapisy) == stan
+
+
+def test_bramka_nie_ponawia_wiecej_porazek_niz_flak(mini_repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    monkeypatch.setattr(plan_ci, "PONOWIENIE_NAJWIECEJ", 2)
+    job = plan_ci.Zadanie("linux-3.14-1", "linux-3.14", "pytest (Python 3.14, Linux, 1/1)", ("pytest:tests/test_mini.py",), 1.0)
+
+    assert plan_ci.wykonaj(plan_ci.Plan("pull_request", plan_ci.CEL_S, (), 0, (job,)), job.id) == 1
+    assert "PONOWIENIE | bez ponowienia: padło 3 testów, a flak to najwyżej 2" in capsys.readouterr().out
+    assert not niestabilne_testy.FLAKI.exists()
 
 
 def test_zadanie_mutation_checks_uruchamia_po_kolei_swoje_kroki_skilli_a_czesc_skryptu_z_jej_numerem(
