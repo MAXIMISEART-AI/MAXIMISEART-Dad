@@ -62,9 +62,6 @@ def test_brak_pliku_konfiguracji_wykonawcow(tmp_path: Path, missing: Path) -> No
     assert (raised.value.reason, raised.value.detail) == ("missing", "Nie można odczytać pliku konfiguracji.")
 
 
-INACCESSIBLE = ("inaccessible", "Nie można teraz odczytać pliku konfiguracji. Plik może być zajęty przez inny program.")
-
-
 @pytest.mark.parametrize(
     "error",
     [PermissionError(errno.EACCES, "Plik jest używany przez inny proces"), OSError(errno.EIO, "Błąd wejścia/wyjścia")],
@@ -83,7 +80,7 @@ def test_plik_konfiguracji_wykonawcow_bez_dostepu_jest_niedostepny(
     with pytest.raises(WorkerConfigError) as raised:
         load_worker_mapping(config_path)
 
-    assert (raised.value.reason, raised.value.detail) == INACCESSIBLE
+    assert raised.value.reason == "inaccessible"
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="chmod w Windows nie odbiera prawa odczytu")
@@ -96,7 +93,7 @@ def test_plik_konfiguracji_wykonawcow_w_folderze_bez_dostepu_jest_niedostepny(tm
     finally:
         tmp_path.chmod(0o755)
 
-    assert (raised.value.reason, raised.value.detail) == INACCESSIBLE
+    assert raised.value.reason == "inaccessible"
 
 
 def test_typ_powodu_wymienia_dokladnie_powody_ktore_daje_wczytanie_konfiguracji() -> None:

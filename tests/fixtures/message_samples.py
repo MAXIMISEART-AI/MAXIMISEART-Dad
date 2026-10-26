@@ -44,9 +44,7 @@ SOURCE = PERIOD_DIRECTORY / f"Rozliczenie {PERIOD} - zbiorcze.xlsx"
 WORKER_SETTLEMENTS = PERIOD_DIRECTORY / f"Rozliczenie pracowników {PERIOD}"
 WORKER_TEMPLATE = Path("C:/Narzedzie/config/Wzorzec rozliczenia pracownika.xlsx")
 MISSING_CONFIG = WorkerConfigError("missing", "Nie można odczytać pliku konfiguracji.")
-INACCESSIBLE_CONFIG = WorkerConfigError(
-    "inaccessible", "Nie można teraz odczytać pliku konfiguracji. Plik może być zajęty przez inny program."
-)
+INACCESSIBLE_CONFIG = WorkerConfigError("inaccessible", "Nie można odczytać pliku konfiguracji.")
 CONFIG_NOT_UTF8 = WorkerConfigError("not_utf8", "Plik nie jest zapisany w kodowaniu UTF-8.")
 CONFIG_NOT_YAML = WorkerConfigError("not_yaml", "Plik nie jest poprawnym YAML.")
 INVALID_CONFIG = WorkerConfigError("invalid", "Nieobsługiwana wersja konfiguracji.")

@@ -117,11 +117,7 @@ def _unread(config_path: Path) -> WorkerConfigError:
         missing = True
     except OSError:
         missing = False
-    if missing:
-        return WorkerConfigError("missing", "Nie można odczytać pliku konfiguracji.")
-    return WorkerConfigError(
-        "inaccessible", "Nie można teraz odczytać pliku konfiguracji. Plik może być zajęty przez inny program."
-    )
+    return WorkerConfigError("missing" if missing else "inaccessible", "Nie można odczytać pliku konfiguracji.")
 
 
 def _invalid(detail: str) -> WorkerConfigError:

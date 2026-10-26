@@ -434,6 +434,7 @@ def drive_diagnosis(run: Run, page: Page) -> None:
         page.get_by_role("option", name=period_choice(PERIOD, "Brak plików okresu"), exact=True).click()
         page.get_by_role("button", name="Podgląd bez zapisu", exact=True).click()
         expect(stop_banner(page)).to_contain_text(WORKER_CONFIG_INACCESSIBLE)
+        expect(stop_banner(page)).to_contain_text(f"plik {worker_config.name}")
         result = finished_result(run, "diagnoza-konfiguracja-wykonawcow-niedostepna")
         run.check(
             result["stop_kind"] == "for_maks",
@@ -449,9 +450,10 @@ def drive_diagnosis(run: Run, page: Page) -> None:
         assert isinstance(explanation, dict) and isinstance(answer["checks"], list)
         run.check(
             explanation["what"] == WORKER_CONFIG_INACCESSIBLE
+            and explanation["where"] == f"plik {worker_config.name}"
             and answer["confirms_stop"] is True
             and {"label": "Konfiguracja wykonawców", "state": "failed", "detail": WORKER_CONFIG_INACCESSIBLE}
             in answer["checks"],
-            "the Diagnoza confirms the stop and names the konfiguracja wykonawców without access niedostępna, never niepoprawna",
+            "the Diagnoza confirms the stop and names the konfiguracja wykonawców file without access niedostępna, never niepoprawna",
         )
         run.capture(page, "59d-diagnoza-konfiguracja-wykonawcow-niedostepna")
