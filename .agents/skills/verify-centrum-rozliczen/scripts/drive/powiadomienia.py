@@ -2,12 +2,9 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator, Sequence
-from contextlib import ExitStack, contextmanager
 import json
 from pathlib import Path
 import subprocess
-import sys
 
 from playwright.sync_api import Locator, Page, expect
 
@@ -28,8 +25,6 @@ FIRST_SUMMARY = "Pierwsza wersja z Powiadomieniami. Tutaj zobaczysz, co Maks zro
 # A Wydanie GitHub names as the newest on `main` that the update does not take: the clone never had this commit.
 DORMANT_RELEASE = "e" * 40
 CASE_LABELS = ("zgloszenie", "uwaga-taty")
-# Centrum's state files in `config/` that Powiadomienia write: Dad's cases and the read Powiadomienia.
-STATE_FILES = ("sprawy-taty.json", "powiadomienia.json")
 
 
 def _release(tag: str, body: str, published_at: str) -> dict[str, object]:
@@ -228,7 +223,6 @@ def drive_notifications(run: Run, page: Page) -> None:
     finally:
         for name in ("wydanie.txt", "main-commit.txt", "wydania.json", "brak-sieci"):
             (run.root / "github" / name).unlink(missing_ok=True)
-    _drive_unavailable_files(run, page, config, box)
     log = (run.root / "logs" / "centrum-rozliczen.log").read_text(encoding="utf-8")
     run.check(KEY not in log and KEY not in page.content(), "the key is neither in the Centrum log nor in the browser")
     key_file.unlink()
@@ -360,91 +354,3 @@ def _drive_new_version(run: Run, page: Page, note: dict[str, object], report: di
         "without network the Powiadomienia about Wydania stay as they were, with no Komunikat",
     )
     run.capture(page, "189-powiadomienia-wydania-brak-sieci")
-
-
-@contextmanager
-def _locked(files: Sequence[Path]) -> Iterator[None]:
-    """Harness: another program holds ``files``, so Centrum cannot rename its new content onto them; always undone."""
-
-    if sys.platform == "win32":
-        # Python opens without FILE_SHARE_DELETE, so Windows refuses os.replace onto the file, as with Dad's antivirus.
-        print("  harness: the drive holds the files open", flush=True)
-        with ExitStack() as handles:
-            for path in files:
-                handles.enter_context(path.open("rb"))
-            yield
-    elif sys.platform == "darwin":
-        print("  harness: the files are immutable (chflags uchg)", flush=True)
-        try:
-            subprocess.run(["chflags", "uchg", *map(str, files)], check=True)
-            yield
-        finally:
-            subprocess.run(["chflags", "nouchg", *map(str, files)], check=True)
-    else:
-        # Linux has no per-file lock without root (chattr +i); a read-only folder refuses Centrum's temporary file.
-        folder = files[0].parent
-        mode = folder.stat().st_mode
-        print("  harness: the config folder is read-only", flush=True)
-        try:
-            folder.chmod(0o555)
-            yield
-        finally:
-            folder.chmod(mode)
-
-
-def _drive_unavailable_files(run: Run, page: Page, config: Path, box: Path) -> None:
-    run.step(FEATURE, "powiadomienia-plik-niedostepny")
-    files = [config / name for name in STATE_FILES]
-    note = next(issue for issue in uwaga_taty._issues(box) if issue["state"] == "open")
-    print(f"  harness: Maks closes Uwaga #{note['number']} while another program holds both state files", flush=True)
-    _close_issue(box, int(str(note["number"])), "completed")
-    _advance_clock(run, 10)
-    with _locked(files):
-        before = [path.read_text(encoding="utf-8") for path in files]
-        _enter(page, run, "powiadomienia", BELL)
-
-        def both_named() -> bool:
-            message = run.api("/api/notifications", "powiadomienia-plik-niedostepny")["message"]
-            return isinstance(message, dict) and all(name in str(message["where"]) for name in STATE_FILES)
-
-        run.wait_for(both_named, "Powiadomienia name both state files Centrum could not save", timeout_s=20)
-        answer = run.api("/api/notifications", "powiadomienia-plik-niedostepny")
-        message, items = answer["message"], answer["items"]
-        assert isinstance(message, dict) and isinstance(items, list)
-        read_ids = {
-            str(item["id"])
-            for item in items
-            if item["kind"] == "uwaga" and item["title"] == note["title"] and item["state"] == "rozwiazana"
-        }
-        run.check(bool(read_ids), "Centrum learned that Maks closed the Uwaga")
-        page.reload()
-        expect(page.get_by_role("heading", name=BELL, exact=True)).to_be_visible()
-        notice = page.get_by_label("Komunikat", exact=True)
-        for part in ("what", "where", "action"):
-            expect(notice).to_contain_text(str(message[part]))
-        for name in STATE_FILES:
-            expect(notice).to_contain_text(name)
-        expect(notice).to_contain_text("niedostępn")
-        run.check("uszkodzon" not in notice.inner_text(), "a held file is niedostępny, never uszkodzony")
-        expect(_row(page, "Uwaga", str(note["title"])).filter(has_text=RESOLVED)).to_have_count(1)
-        expect(error_toasts(page)).to_have_count(0)
-        run.check(
-            [path.read_text(encoding="utf-8") for path in files] == before,
-            "while the files are held, Centrum does not pretend it saved them",
-        )
-        run.capture(page, "201-powiadomienia-plik-niedostepny")
-    print("  harness: the other program lets the files go", flush=True)
-    _enter(page, run, "powiadomienia", BELL)
-    expect(page.get_by_label("Komunikat", exact=True)).to_have_count(0)
-    run.check(
-        run.api("/api/notifications", "powiadomienia-plik-zapisany")["message"] is None,
-        "the next read of Powiadomienia saves both files and the Komunikat is gone",
-    )
-    stored = json.loads((config / "powiadomienia.json").read_text(encoding="utf-8"))
-    run.check(read_ids <= set(stored["przeczytane"]), "config/powiadomienia.json now keeps the Uwaga read")
-    cases = json.loads((config / "sprawy-taty.json").read_text(encoding="utf-8"))["sprawy"]
-    run.check(
-        any(case["number"] == note["number"] and (case["closure"] or {}).get("reason") == "completed" for case in cases),
-        "config/sprawy-taty.json now keeps Maks's closing of the Uwaga",
-    )
-    run.capture(page, "202-powiadomienia-plik-zapisany")

@@ -214,15 +214,6 @@ nie wyjdziesz. Niczego nie oznaczasz ręcznie. Centrum sprawdza to przy
 otwarciu i najwyżej raz na 10 minut. Bez internetu nic się nie pokazuje i nic
 się nie psuje; Centrum sprawdzi ponownie później.
 
-Centrum zapisuje Twoje Uwagi, Zgłoszenia i przeczytane Powiadomienia w folderze
-`config`. Gdy na chwilę nie może, bo inny program trzyma plik, nad listą
-pojawia się komunikat. Centrum pamięta zmiany i zapisze je samo; komunikat
-zniknie, gdy się uda.
-
-| Co się stało (fragment) | Co zrobić |
-|---|---|
-| „Centrum nie może teraz zapisać Powiadomień na tym komputerze” | Nie zamykaj Centrum. Zamknij program, który może trzymać plik nazwany w komunikacie, i otwórz Powiadomienia ponownie. Jeśli komunikat zostaje, wyślij Uwagę do Maksa. |
-
 ### Aktualizacja narzędzia
 
 Na stronie `Konfiguracja`, w karcie `Narzędzie`, widać wersję narzędzia, np.
