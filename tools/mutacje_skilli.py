@@ -17,7 +17,8 @@ w ``git diff REF...HEAD``, z niezacommitowanymi). Skill deklaruje we frontmatter
 bez tego klucza biegnie zawsze. Skrypt skilla z kluczem biegnie, gdy zmieniony jest plik z
 ``pilnuje``, plik w folderze skilla albo plik, który skrypt czyta: on sam, sprawdzenia z poleceń
 jego mutacji, pliki, które mutacje zmieniają, ich importy z repozytorium (każdy ``import`` w kodzie,
-także w funkcji) oraz infrastruktura mutacji: ten runner z importami i ``INFRASTRUCTURE``. Pliki
+także w funkcji), skrypty ``.py``, które pliki spoza ``src/`` uruchamiają ścieżką z ``/`` (``executed``, ten sam
+wybór co w ``tools/skille_dla_zmiany.py``), oraz infrastruktura mutacji: ten runner z importami i ``INFRASTRUCTURE``. Pliki
 czytane liczy runner, więc lista ``pilnuje`` nie musi ich powtarzać i nie zawęża selekcji poniżej
 nich. Skrypt, którego plików nie da się tak wyznaczyć (polecenie mutacji nie jest skryptem z
 repozytorium, kod się nie parsuje), biegnie zawsze. Pominięty skrypt dostaje linię ``POMINIĘTY``.
@@ -54,9 +55,11 @@ import time
 from typing import Any, NamedTuple
 
 import potomne
+from sciezki_w_kodzie import references
 
 ROOT = Path(__file__).resolve().parents[1]
 SKILLS = ROOT / ".agents" / "skills"
+SRC = ROOT / "src"
 PATTERN = "check_*_mutations.py"
 # Wywołanie skryptu mutacji w SKILL.md; ścieżka bez ``.agents`` na początku liczy się od folderu skilla.
 MENTION = re.compile(r"[\w.\\/-]*scripts[\\/]check_\w+_mutations\.py")
@@ -166,6 +169,34 @@ def closure(starts: Iterable[Path]) -> set[Path]:
 
 
 @cache
+def launched(path: Path) -> set[Path]:
+    """Skrypty ``.py`` z repozytorium, które plik uruchamia ścieżką z ``/`` (``"tools/x.py"``, ``ROOT / "tools" / "x.py"``)."""
+
+    texts = references(ast.parse(path.read_bytes(), filename=str(path)))[0]
+    return {ROOT / text for text in texts if "/" in text and text.endswith(".py") and (ROOT / text).is_file()}
+
+
+def executed(starts: Iterable[Path]) -> set[Path]:
+    """Pliki, które wykonuje uruchomienie ``starts``: ``closure`` razem ze skryptami, które uruchamiają ścieżką, przechodnio.
+
+    Uruchomień szuka tylko poza ``src/``: produkt nie uruchamia skryptów repozytorium, a skill może pilnować go ``pilnuje``.
+    """
+
+    seen = closure(starts)
+    todo = seen
+    while todo:
+        found = {
+            script
+            for path in todo
+            if path.suffix == ".py" and path.is_file() and not path.is_relative_to(SRC)
+            for script in launched(path)
+        }
+        todo = closure(found) - seen
+        seen |= todo
+    return seen
+
+
+@cache
 def _mutations(script: Path) -> tuple[Any, ...]:
     spec = importlib.util.spec_from_file_location(f"_mutacje_{script.parents[1].name}", script)
     if spec is None or spec.loader is None:
@@ -184,7 +215,7 @@ def reads(script: Path) -> set[str]:
         if checker.suffix != ".py" or not checker.is_file():
             raise ValueError(f"polecenie mutacji {mutation.name!r} nie zaczyna się skryptem z repozytorium")
         starts |= {checker, *(ROOT / edit.file for edit in mutation.edits)}
-    return {_name(path) for path in closure(starts) if path.is_relative_to(ROOT)}
+    return {_name(path) for path in executed(starts) if path.is_relative_to(ROOT)}
 
 
 def _front(skill_md: Path) -> list[str]:
@@ -242,6 +273,23 @@ def ci_command(skill_md: Path) -> tuple[str, ...] | None:
     return command
 
 
+def skill_scripts(skill: Path) -> list[Path]:
+    """Skrypty skilla bez skryptów mutacji: te uruchamia jego workflow i polecenie ``ci``."""
+
+    return [path for path in skill.glob("scripts/**/*.py") if not fnmatchcase(path.name, PATTERN)]
+
+
+def read_in_ci(skill: Path, scripts: list[Path]) -> set[str]:
+    """Pliki repozytorium, których zmiana może zmienić werdykt podstawy ``ci`` skilla albo jego skryptów mutacji ``scripts``."""
+
+    command = ci_command(skill / "SKILL.md")
+    # Polecenie ``ci`` uruchamia też skrypty skilla ścieżką od ``__file__``, której ``launched`` nie nazwie, więc liczą się
+    # wszystkie, jak w ``tools/skille_dla_zmiany.py``.
+    ran = [ROOT / command[0], *skill_scripts(skill)] if command else []
+    starts = {Path(__file__), *(ROOT / name for name in INFRASTRUCTURE), *ran}
+    return {_name(path) for path in executed(starts) if path.is_relative_to(ROOT)}.union(*map(reads, scripts))
+
+
 def _why_run(skill: Path, scripts: list[Path], changed: set[str]) -> tuple[bool, str]:
     """Czy podstawa i skrypty mutacji skilla biegną przy tych zmianach, i dlaczego."""
 
@@ -249,9 +297,7 @@ def _why_run(skill: Path, scripts: list[Path], changed: set[str]) -> tuple[bool,
         globs = guarded(skill / "SKILL.md")
         if globs is None:
             return True, f"{_name(skill)}/SKILL.md nie ma klucza pilnuje"
-        command = ci_command(skill / "SKILL.md")
-        starts = {Path(__file__), *(ROOT / name for name in INFRASTRUCTURE), *([ROOT / command[0]] if command else [])}
-        read = {_name(path) for path in closure(starts) if path.is_relative_to(ROOT)}.union(*map(reads, scripts))
+        read = read_in_ci(skill, scripts)
     except Exception as error:  # noqa: BLE001 - skill, którego plików nie da się wyznaczyć, biegnie i pokazuje swój błąd
         return True, f"nie da się wyznaczyć plików, które czyta: {error}"
     touched = sorted(

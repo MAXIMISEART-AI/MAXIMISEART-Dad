@@ -4,9 +4,9 @@ Zmiana to pliki z ``git diff BAZA...HEAD`` oraz pliki niezacommitowane i nieśle
 frontmatterze ``SKILL.md`` klucz ``pilnuje:``, listę globów ścieżek względem korzenia repozytorium (``*`` obejmuje
 też ``/``). Ten sam klucz, tym samym czytnikiem, wybiera mutacje skilla w CI (``tools/mutacje_skilli.py``). Skill
 obowiązuje, gdy zmieniony plik pasuje do jego globu, leży w jego folderze albo jest plikiem spoza ``src/``, który
-wykonują skrypty skilla: ich importem (przechodnio) albo skryptem ``.py``, który uruchamiają ścieżką z ``/``, razem z
-jego importami. Tych plików ``pilnuje`` nie musi wymieniać. Skill bez klucza albo z kluczem, którego nie da się
-odczytać, obowiązuje zawsze.
+wykonują skrypty skilla: ich importem albo skryptem ``.py``, który one albo ich importy uruchamiają ścieżką z ``/``,
+przechodnio (``executed`` w ``tools/mutacje_skilli.py``, ten sam wybór liczy CI). Tych plików ``pilnuje`` nie musi
+wymieniać. Skill bez klucza albo z kluczem, którego nie da się odczytać, obowiązuje zawsze.
 
 Każdy skill, który obowiązuje, dostaje linię ``<skill>: <plik> (<glob>), …``. Ostatnia linia to
 ``SKILLE VERIFY: <skille po przecinku>`` albo ``SKILLE VERIFY: brak``: każdy skill, który obowiązuje, także taki,
@@ -22,15 +22,13 @@ zmiany (np. nie ma bazy), ostatnia linia to ``SKILLE VERIFY: nieznane (<powód>)
 from __future__ import annotations
 
 import argparse
-import ast
 from collections.abc import Iterable
 from fnmatch import fnmatchcase
 from pathlib import Path
 import re
 import subprocess
 
-from mutacje_skilli import PATTERN, ROOT, SKILLS, ci_command, closure, guarded
-from szybko import references
+from mutacje_skilli import PATTERN, ROOT, SKILLS, SRC, ci_command, executed, guarded, skill_scripts
 
 VERDICT = "SKILLE VERIFY"
 IN_CI = "LICZY CI"
@@ -60,14 +58,7 @@ def _executed(skill: Path) -> set[Path]:
     zachowania. Skrypty mutacji pomija, bo ich werdykt sprawdza zadanie CI mutations (``tools/mutacje_skilli.py``).
     """
 
-    scripts = [path for path in skill.glob("scripts/**/*.py") if not fnmatchcase(path.name, PATTERN)]
-    launched = {
-        ROOT / text
-        for script in scripts
-        for text in references(ast.parse(script.read_bytes(), filename=str(script)))[0]
-        if "/" in text and text.endswith(".py") and (ROOT / text).is_file()
-    }
-    return {path for path in closure([*scripts, *launched]) if not path.is_relative_to(ROOT / "src")}
+    return {path for path in executed(skill_scripts(skill)) if not path.is_relative_to(SRC)}
 
 
 def _reasons(skill_md: Path, files: Iterable[str]) -> list[str]:

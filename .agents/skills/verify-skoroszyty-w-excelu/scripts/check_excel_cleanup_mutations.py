@@ -63,6 +63,12 @@ MUTATIONS = (
         "run zamyka Excela z otwartym plikiem Maksa",
     ),
     Mutation(
+        "Excel z oknem dialogowym zatrzymany mimo skoroszytu użytkownika",
+        (Edit(RUNNER, " and not _holds_others(run.desk):", ":"),),
+        TESTS,
+        "run zabija Excela, w którym użytkownik otworzył w trakcie runu swój skoroszyt, i ten skoroszyt przepada",
+    ),
+    Mutation(
         "nieudane zamknięcie Excela wychodzi ze sprzątania",
         (Edit(RUNNER, '        notes.append(f"excel_quit_failed=', '        raise\n        notes.append(f"excel_quit_failed='),),
         TESTS,

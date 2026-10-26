@@ -43,6 +43,8 @@ The workflow `.github/workflows/verify-centrum-na-windowsie.yml` also runs by it
 to `main` that touches the files in the description. A dispatch needs the workflow on `main` and then runs any pushed
 branch (`--ref`, default the current one) with that branch's skill. To wait for a PR's own run instead, pass it with
 `--run` (`gh run list --workflow verify-centrum-na-windowsie.yml --branch <branch>`).
+The verdict is about your local `HEAD`: a run of another commit ends in `VERIFY FAIL`, the last line names the run's
+commit (`head=`), and a dispatch refuses to start until `origin/<ref>` is your `HEAD`.
 
 On a Windows machine (a disposable one: the run installs `requirements.txt` into this Python, as Dad's
 installation does), from the repository root, with the `dev` extras and Chromium installed

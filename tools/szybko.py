@@ -65,12 +65,12 @@ import sys
 import threading
 import time
 import tomllib
-from typing import TypeGuard
 import xml.etree.ElementTree as ET
 
 import ci_lokalnie
 from mutacje import environment
 import potomne
+from sciezki_w_kodzie import Glob, references
 
 ROOT = Path(__file__).resolve().parents[1]
 BASE = "origin/main"
@@ -110,8 +110,6 @@ STATIC_JOBS = ("ruff", "mypy")
 MODULE_ROOTS = ("src", ".", "tools")
 SKILL_SCRIPTS = ".agents/skills/*/scripts"
 GREEN = "szybko-zielone.json"
-PATH_TYPES = frozenset({"Path", "PurePath", "PurePosixPath", "PureWindowsPath"})
-GLOBS = frozenset({"glob", "rglob", "iterdir"})
 WORKERS = "4"
 TIMES = Path("tools", "czasy_testow_ci_linux.json")
 # Sekundy tabeli ``TIMES`` na workera. Porażki pytest w szybko z 23–24.10 łapie ten sam plan od 20 s wzwyż, bo prawie
@@ -315,68 +313,6 @@ def _packages(path: str, files: frozenset[str]) -> set[str]:
     return {init for parent in parents if (init := str(parent / "__init__.py")) in files}
 
 
-@dataclass(frozen=True)
-class _Glob:
-    folder: str
-    pattern: str
-    recursive: bool
-
-
-def references(tree: ast.AST) -> tuple[set[str], set[_Glob]]:
-    """Napisy modułu, ścieżki składane operatorem ``/`` (``ROOT / "docs" / "adr"`` daje ``docs/adr``) i globy na katalogach."""
-
-    def is_path(node: ast.AST) -> TypeGuard[ast.BinOp]:
-        return isinstance(node, ast.BinOp) and isinstance(node.op, ast.Div)
-
-    names: dict[str, list[str | None]] = {}
-
-    def pieces(node: ast.AST) -> list[str | None]:
-        if is_path(node):
-            return pieces(node.left) + pieces(node.right)
-        if isinstance(node, ast.Constant) and isinstance(node.value, str):
-            return [node.value.strip("/")]
-        if isinstance(node, ast.Name) and node.id in names:
-            return names[node.id]
-        if _is_path_call(node):
-            return [piece for argument in node.args for piece in pieces(argument)]
-        return [None]
-
-    def runs(path: list[str | None]) -> list[str]:
-        found, joined = [], []
-        for piece in [*path, None]:
-            if piece is not None:
-                joined.append(piece)
-                continue
-            if joined:
-                found.append("/".join(joined))
-            joined = []
-        return found
-
-    nodes = list(ast.walk(tree))
-    assignments = [node for node in nodes if isinstance(node, ast.Assign) and len(node.targets) == 1]
-    for assignment in sorted(assignments, key=lambda node: (node.lineno, node.col_offset)):
-        target, value = assignment.targets[0], assignment.value
-        if isinstance(target, ast.Name) and (is_path(value) or (isinstance(value, ast.Name) and value.id in names)):
-            names[target.id] = pieces(value)
-    # Tylko cała ścieżka: początek ``ROOT / ".agents" / "skills"`` łańcucha ``... / "x"`` wskazałby wszystkie skille.
-    beginnings = {id(node.left) for node in nodes if is_path(node)}
-    texts = {node.value for node in nodes if isinstance(node, ast.Constant) and isinstance(node.value, str)}
-    paths = [node for node in nodes if (is_path(node) or _is_path_call(node)) and id(node) not in beginnings]
-    texts |= {run for node in paths for run in runs(pieces(node)) if "/" in run}
-    globs: set[_Glob] = set()
-    for node in nodes:
-        if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr in GLOBS):
-            continue
-        folder = pieces(node.func.value)
-        if folder[-1] is None:
-            continue
-        if node.func.attr == "iterdir":
-            globs.add(_Glob(runs(folder)[-1], "*", recursive=False))
-        elif node.args and isinstance(node.args[0], ast.Constant) and isinstance(node.args[0].value, str):
-            globs.add(_Glob(runs(folder)[-1], node.args[0].value, recursive=node.func.attr == "rglob"))
-    return texts, globs
-
-
 def _as_path(text: str) -> str | None:
     path = text.strip().replace("\\", "/").strip("/")
     if ("/" in path or "." in path) and path.strip(".") and not any(c.isspace() for c in path):
@@ -399,11 +335,7 @@ def _folder_files(text: str, files: frozenset[str], directories: set[str]) -> se
     return set() if any(PurePosixPath(file).name == "__init__.py" for file in found) else found
 
 
-def _is_path_call(node: ast.AST) -> TypeGuard[ast.Call]:
-    return isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id in PATH_TYPES and bool(node.args)
-
-
-def _globbed(glob: _Glob, files: frozenset[str], directories: set[str]) -> set[str]:
+def _globbed(glob: Glob, files: frozenset[str], directories: set[str]) -> set[str]:
     folders = {folder for folder in directories if folder == glob.folder or folder.endswith("/" + glob.folder)}
     depth = len(PurePosixPath(glob.pattern).parts)
     found = set()
