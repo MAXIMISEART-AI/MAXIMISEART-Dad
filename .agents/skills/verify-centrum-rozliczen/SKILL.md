@@ -36,7 +36,7 @@ py -3 .agents\skills\verify-centrum-rozliczen\scripts\run_centrum_verification.p
 `--feature ustawienia`, `--feature tablica-okresow`, `--feature uklad-folderow-taty`, `--feature konfiguracja`, `--feature aktualizacja`,
 `--feature metryki`, `--feature blad-odczytu`, `--feature przygotowanie-pliku-zbiorczego`, `--feature uzupelnienie`,
 `--feature przebieg-rozliczen`, `--feature uporzadkowanie-intermax`, `--feature kontrola-ilosci`, `--feature diagnoza`, `--feature aktualnosc-i-onedrive`, `--feature zgloszenie`, `--feature uwaga-taty`, `--feature logi-uruchomienia`, `--feature karta-z-logow`, `--feature powiadomienia`, `--feature pomiar-u-taty`, or `--feature start-i-zamykanie` drives one
-feature; the default `all` drives every feature in `features/README.md`, ending
+feature; the default `all` drives every feature in `features/` except `wydajnosc`, ending
 with `start-i-zamykanie`, which closes Centrum through its own button. In `all`,
 Dad's whole week runs in order: Przygotowanie pliku zbiorczego, the summary of
 Uzupełnienie pliku zbiorczego, Gotowość, and
@@ -230,6 +230,7 @@ Then confirm the evidence directory still exists.
 - `tools/quiet_machine.py --status`: what holds the machine now (a
   measurement, other verification runs, test runs or benchmarks).
 
-Read `features/README.md` before choosing a feature. Each Centrum slice adds
+Read `features/README.md` for the conventions, then the chosen feature's
+`features/<feature>.md`. Each Centrum slice adds
 its feature file and drive steps in the same PR as the feature; keep the map
 honest with `/maintain-verification-skill`.

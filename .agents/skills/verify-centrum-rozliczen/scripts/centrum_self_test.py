@@ -30,7 +30,6 @@ REQUIRED_MAP_HEADINGS = (
     "## Driving conventions",
     "## Proof and skip reporting",
     "## Feature entry contract",
-    "## Features",
 )
 REQUIRED_FEATURE_HEADINGS = (
     "## Sub-features",
@@ -62,18 +61,14 @@ def _check_feature_map(errors: list[str]) -> None:
     for heading in REQUIRED_MAP_HEADINGS:
         if heading not in index.splitlines():
             errors.append(f"features/README.md is missing {heading}")
-    linked = re.findall(r"\]\(\./([a-z0-9-]+\.md)\)", index)
-    if not linked:
-        errors.append("features/README.md links no feature file")
-    for name in linked:
-        path = FEATURES_ROOT / name
-        if not path.exists():
-            errors.append(f"features/README.md links a missing file: {name}")
-            continue
+    files = sorted(path for path in FEATURES_ROOT.glob("*.md") if path.name != "README.md")
+    if not files:
+        errors.append("features/ holds no feature file")
+    for path in files:
         lines = path.read_text(encoding="utf-8").splitlines()
         headings = [line for line in lines if line.startswith("## ")]
         if headings != list(REQUIRED_FEATURE_HEADINGS):
-            errors.append(f"{name} must have exactly the H2s {REQUIRED_FEATURE_HEADINGS}, in order")
+            errors.append(f"{path.name} must have exactly the H2s {REQUIRED_FEATURE_HEADINGS}, in order")
 
 
 def _check_performance_gate(errors: list[str]) -> None:
