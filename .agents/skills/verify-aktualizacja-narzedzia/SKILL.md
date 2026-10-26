@@ -116,8 +116,10 @@ Covered files: `src/rozliczenia/centrum/tool_update.py`,
 `src/rozliczenia/centrum/restart_guardian.py`,
 `src/rozliczenia/centrum/launcher.py`.
 
-Sync commit: `55b84059` (2026-10-26, `main` after #509). At this commit every
-row above was checked against the code. The covered files did not change since
+Sync commit: `0d66f985` (2026-10-26, #540). Since `55b84059` the covered files
+changed only in `tool_update.GITHUB_REPOSITORY`, the repository address after
+the move to the `maximiseartai` organization, which the model does not describe.
+At `55b84059` every row above was checked against the code. The covered files did not change since
 `11588db1`; this sync added the `OSError` from the `unlink` of Dad's file in
 `_roll_back` (`CofanieUsun` under `AwariaKopiowania`), a path the review of
 #478 found. Before it, since `bd7c9ff8`:
