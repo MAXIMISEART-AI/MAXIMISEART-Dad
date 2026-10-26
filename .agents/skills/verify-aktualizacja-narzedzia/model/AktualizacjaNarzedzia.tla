@@ -425,8 +425,9 @@ CofanieUsunUdane == CofanieUsun /\ pc' = "cofanie_reset"
 
 \* git reset --keep --quiet before, w try. Stara wersja śledzi plik taty, więc reset
 \* zapisuje jej treść z repozytorium. Porażka (GitFailed, TimeoutExpired, OSError z _run_tree) zostawia
-\* klon, gdzie stał: na nowym commicie albo na starym, gdy klon się jeszcze nie przesunął, a dziennik został
-\* (wyjątek albo nieudane _put_back w checkout HEAD -- lub w scalaniu, wyłączenie komputera przed scaleniem).
+\* klon, gdzie stał: na nowym commicie albo na starym, gdy dziennik został, a klon się jeszcze nie przesunął
+\* (wyjątek albo nieudane _put_back w checkout HEAD -- lub w scalaniu, wyłączenie komputera przed scaleniem)
+\* albo już wrócił (wcześniejsze cofanie z udanym resetem, po którym _put_back rzucił albo komputer zgasł).
 CofanieReset ==
     /\ pc = "cofanie_reset"
     /\ \/ /\ head' = "stara"
