@@ -1,7 +1,8 @@
 """Ciężkie zadania CI (mutacje zmiany, mutacje skilli) liczy GitHub, a lokalnie biegną tylko do odtworzenia porażki.
 
 ``tools/mutacje_zmiany.py`` i ``tools/ci_lokalnie.py`` z ciężkim zadaniem poza CI odmawiają startu, chyba że
-``--odtwarzam`` wskazuje run Actions tej gałęzi, w którym to zadanie padło. Atrapa ``gh`` podaje run bez sieci.
+``--odtwarzam`` wskazuje run Actions tej gałęzi, w którym to zadanie padło; tak samo ``tools/mutacje.py`` z listą
+dłuższą niż 100 mutacji. Atrapa ``gh`` podaje run bez sieci.
 """
 
 from __future__ import annotations
@@ -243,6 +244,69 @@ def test_dluga_lista_mutacji_z_runu_gdzie_padly_tylko_mutacje_skilli_odmawia(tmp
 
     assert refused is not None and refused.startswith("CIĘŻKIE CI ODMOWA | --odtwarzam 123: ") and "nie padło change-mutations" in refused
     assert "a ta lista ma 335." in refused
+
+
+# Podstawa padnie na pierwszej kopii: mutacje, które przeszły przez strażnika, kończą się na niej, a nie po 101 kopiach.
+RED_BASELINE = ("--", "-c", "raise SystemExit(1)")
+RED_BASELINE_LINE = "PODSTAWA CZERWONA: -c raise SystemExit(1) → kod wyjścia 1"
+
+
+def _mutation_list(tmp_path: Path, count: int) -> Path:
+    path = tmp_path / "mutacje.json"
+    entries = [{"nazwa": f"m{number}", "zmiany": [["src/rozliczenia/__init__.py", "", f"X = {number}\n"]]} for number in range(count)]
+    path.write_text(json.dumps(entries), encoding="utf-8")
+    return path
+
+
+def test_mutacje_z_lista_ponad_100_poza_ci_odmawiaja_zanim_policza_podstawe(tmp_path: Path) -> None:
+    done = _tool(_repo(tmp_path), "tools/mutacje.py", "--plik", str(_mutation_list(tmp_path, 101)), *RED_BASELINE)
+
+    assert done.returncode == 2, done.stdout + done.stderr
+    [line] = done.stdout.splitlines()
+    assert line.startswith("CIĘŻKIE CI ODMOWA | change-mutations ") and "a ta lista ma 101." in line
+
+
+@pytest.mark.parametrize(
+    ("count", "passes", "reproduces"),
+    [
+        (100, {}, ()),
+        (101, {"GITHUB_ACTIONS": "true"}, ()),
+        (101, {"MAXIMISEART_NA_SCALONYCH_PR": "1"}, ()),
+        pytest.param(101, {}, ("--odtwarzam", "123"), marks=pytest.mark.skipif(sys.platform == "win32", reason="atrapa gh to skrypt sh")),
+    ],
+    ids=["celowany dowod poza CI", "w CI", "z tools/na_scalonych_pr.py", "odtworzenie czerwonych mutacji zmiany"],
+)
+def test_mutacje_licza_celowany_dowod_i_dluga_liste_w_ci_na_scalonych_pr_i_przy_odtwarzaniu(
+    tmp_path: Path, count: int, passes: dict[str, str], reproduces: tuple[str, ...]
+) -> None:
+    repo = _repo(tmp_path)
+    env = {**_with_fake_gh(tmp_path, {"headBranch": "praca", "headSha": "0" * 40, "jobs": RED_MUTATIONS}), **passes}
+
+    done = _tool(repo, "tools/mutacje.py", "--plik", str(_mutation_list(tmp_path, count)), *reproduces, *RED_BASELINE, env=env)
+
+    assert done.returncode == 2, done.stdout + done.stderr
+    assert "ODMOWA" not in done.stdout and done.stdout.splitlines()[0] == RED_BASELINE_LINE
+
+
+def test_skrypt_mutacji_skilla_liczy_dluga_liste_poza_ci_bez_limitu(tmp_path: Path) -> None:
+    repo = _repo(tmp_path)
+    script = repo / ".agents" / "skills" / "verify-x" / "scripts" / "check_x_mutations.py"
+    script.parent.mkdir(parents=True)
+    script.write_text(
+        "from pathlib import Path\n"
+        "import sys\n\n"
+        'sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "tools"))\n\n'
+        "from mutacje import Edit, Mutation, check_all\n\n"
+        'EDIT = Edit(Path("src/rozliczenia/__init__.py"), "", "X = 1\\n")\n'
+        f'MUTATIONS = [Mutation(f"m{{number}}", (EDIT,), {RED_BASELINE[1:]!r}) for number in range(101)]\n'
+        "raise SystemExit(check_all(MUTATIONS))\n",
+        encoding="utf-8",
+    )
+
+    done = _tool(repo, str(script.relative_to(repo)))
+
+    assert done.returncode == 2, done.stdout + done.stderr
+    assert "ODMOWA" not in done.stdout and done.stdout.splitlines()[0] == RED_BASELINE_LINE
 
 
 @pytest.mark.parametrize("given", ["ostatni", "https://github.com/a/b/pull/12"])
