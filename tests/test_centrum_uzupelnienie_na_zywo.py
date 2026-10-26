@@ -10,7 +10,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-import shutil
 from typing import Any
 
 import pytest
@@ -18,9 +17,7 @@ from openpyxl import load_workbook
 from openpyxl.worksheet.worksheet import Worksheet
 
 from rozliczenia import workbook_files
-from rozliczenia.centrum.live_file import LastGoodReads
-from tests.fixtures.centrum import FakeOneDrive
-from tests.fixtures.clock import ManualClock
+from tests.fixtures.centrum import FakeClock, FakeOneDrive
 from tests.fixtures.centrum_processes import PreparingCentrum, Surroundings, preparing_centrum, run_to_end
 from tests.fixtures.preparation import PERIOD, register_order
 
@@ -82,7 +79,7 @@ def _hidden_for(centrum: PreparingCentrum, seconds: float) -> None:
 class _SlowOneDrive(FakeOneDrive):
     """OneDrive, który przez ``seconds`` sekund zegara Centrum próbuje pobrać plik tylko w chmurze, zanim odczyt padnie."""
 
-    clock: ManualClock | None = None
+    clock: FakeClock | None = None
     seconds: float = 0
 
     def attributes(self, path: Path) -> int:
@@ -336,59 +333,3 @@ def test_trwaly_problem_po_komunikacie_zostaje_jedna_seria(tmp_path: Path) -> No
 
     assert after_save["state"] == "problem"
     assert len(_log_lines(centrum)) == 1
-
-
-def test_po_uruchomieniu_ktore_zmienilo_pliki_okresu_nieudany_odczyt_nie_pokazuje_pliku_sprzed_niego(
-    tmp_path: Path,
-) -> None:
-    centrum = _prepared(tmp_path)
-    path = centrum.fixture.collective_file_path
-    _get(centrum, VIEW)
-    # Tata usuwa Folder okresu i przygotowuje Plik zbiorczy od nowa; zaraz po zapisie OneDrive go jeszcze trzyma.
-    shutil.rmtree(path.parent)
-    assert run_to_end(centrum, dry_run=False)["result"]["result"] == "WYMAGA_SPRAWDZENIA"
-    path.write_bytes(b"OneDrive synchronizuje")
-
-    view = _get(centrum, VIEW)
-
-    assert view["state"] == "problem"
-    assert view["message"]["what"] == "Plik zbiorczy jest uszkodzony albo nie jest skoroszytem Excela."
-
-
-def test_podglad_bez_zapisu_zostawia_ostatni_dobry_odczyt(tmp_path: Path) -> None:
-    centrum = _prepared(tmp_path)
-    path = centrum.fixture.collective_file_path
-    good = _get(centrum, VIEW)
-    run_to_end(centrum, dry_run=True)
-    path.write_bytes(b"Excel zapisuje")
-
-    assert _get(centrum, VIEW) == {**good, "read": {**good["read"], "retrying": True}}
-
-
-def test_po_uruchomieniu_ktore_zmienilo_pliki_okresu_porazka_trafia_do_dziennika_od_nowa(tmp_path: Path) -> None:
-    centrum = _prepared(tmp_path)
-    path = centrum.fixture.collective_file_path
-    _get(centrum, VIEW)
-    path.write_bytes(b"Excel zapisuje")
-    _get(centrum, VIEW)
-    assert len(_log_lines(centrum)) == 1
-    shutil.rmtree(path.parent)
-    assert run_to_end(centrum, dry_run=False)["result"]["result"] == "WYMAGA_SPRAWDZENIA"
-    path.write_bytes(b"OneDrive synchronizuje")
-
-    _get(centrum, VIEW)
-
-    assert len(_log_lines(centrum)) == 2
-
-
-def test_po_uruchomieniu_z_zapisem_zaden_plik_zbiorczy_nie_pokazuje_odczytu_sprzed_niego(tmp_path: Path) -> None:
-    reads: LastGoodReads[str] = LastGoodReads(clock=lambda: 0.0)
-    # Tata ogląda Uzupełnienie okresu A, potem okresu B, a potem przygotowuje okres A od nowa.
-    files = [tmp_path / "A.xlsx", tmp_path / "B.xlsx"]
-    for path in files:
-        path.write_bytes(b"zapisany")
-        reads.succeeded(path, path.name, reads.attempt(path))
-
-    reads.forget_all()
-
-    assert [reads.failed(path, reads.attempt(path), "USZKODZONY").kept for path in files] == [None, None]

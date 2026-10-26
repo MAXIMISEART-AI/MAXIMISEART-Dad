@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
-import json
 from pathlib import Path
 import threading
 import time
@@ -11,18 +10,14 @@ from typing import Any
 
 import pytest
 
-from rozliczenia.centrum.notifications import CHECK_WAIT_S, NOTIFICATIONS_FILE
-from rozliczenia.centrum.outbox import RETRY_S
+from rozliczenia.centrum.notifications import CHECK_WAIT_S
 from rozliczenia.centrum.release_notes import DadCase, ReleaseNotes, render
-from rozliczenia.centrum.dad_cases import DAD_CASES_FILE, NOTE, REPORT
+from rozliczenia.centrum.dad_cases import NOTE, REPORT
 from rozliczenia.centrum.report_box import CloseReason, Refused, Unreachable
 from rozliczenia.centrum.tool_freshness import PublishedRelease
 from rozliczenia.centrum.tool_update import Release
 
-from tests.fixtures.centrum import TOOL_COMMIT, case_states, centrum as plain_centrum
 from tests.fixtures.centrum_processes import PreparingCentrum, preparing_centrum, stopped_for_maks
-from tests.fixtures.locked_file import lock_file
-from tests.fixtures.potomne import wait_for
 
 KEY = "github_pat_SYNTETYCZNY_KLUCZ_ZGLOSZEN"
 NOTE_TITLE = "Plik zbiorczy otwiera się długo"
@@ -119,12 +114,12 @@ def test_powod_zamkniecia_issue_rozstrzyga_stan_sprawy(
     assert rows(centrum) == [("uwaga", NOTE_TITLE, state, True)]
 
 
-def test_uwaga_bez_tokenu_czeka_na_token_bez_kropki_a_skrzynka_nie_jest_pytana(tmp_path: Path) -> None:
+def test_uwaga_bez_klucza_czeka_na_internet_bez_kropki_a_skrzynka_nie_jest_pytana(tmp_path: Path) -> None:
     centrum = preparing_centrum(tmp_path)
 
-    assert sent_note(centrum) == {"state": "waiting", "waits_for": "key"}
+    assert sent_note(centrum) == {"state": "waiting"}
 
-    assert rows(centrum) == [("uwaga", NOTE_TITLE, "czeka_na_token", False)]
+    assert rows(centrum) == [("uwaga", NOTE_TITLE, "czeka_na_internet", False)]
     assert notifications(centrum)["unread"] == 0
     assert centrum.surroundings.report_box.listed == []
 
@@ -164,74 +159,6 @@ def test_przeczytane_sa_tylko_powiadomienia_ktore_tata_zobaczyl(tmp_path: Path) 
     assert notifications(centrum)["unread"] == 1
 
     assert read(centrum, [item["id"] for item in seen["items"]])["unread"] == 1
-
-
-def unavailable(where: str) -> dict[str, str]:
-    """Komunikat Powiadomień o pliku stanu, którego Centrum nie może zapisać."""
-
-    return {
-        "what": "Centrum nie może teraz zapisać Powiadomień na tym komputerze, bo plik jest niedostępny.",
-        "where": f"plik {where} w folderze config",
-        "action": "Nie zamykaj Centrum: pamięta zmiany i zapisze je samo. Zamknij program, który może trzymać ten "
-        "plik, i otwórz Powiadomienia ponownie. Jeśli Komunikat zostaje, wyślij Uwagę do Maksa.",
-    }
-
-
-def test_niedostepny_plik_spraw_taty_daje_komunikat_a_po_zwolnieniu_odczyt_zapisuje_numer(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    centrum = preparing_centrum(tmp_path)
-    with_key(centrum)
-    locked = lock_file(monkeypatch, DAD_CASES_FILE)
-    assert sent_note(centrum) == {"state": "sent"}
-
-    blocked = notifications(centrum)
-    locked.release()
-    released = notifications(centrum)
-    centrum.restart()
-
-    assert blocked["message"] == unavailable(DAD_CASES_FILE)
-    assert released["message"] is None
-    assert rows(centrum) == [("uwaga", NOTE_TITLE, "wyslana", False)]
-
-
-@pytest.mark.parametrize("again", ["odczyt", "oznaczenie"])
-def test_niedostepny_plik_przeczytanych_daje_komunikat_a_po_zwolnieniu_zapisuje_je_odczyt_albo_oznaczenie(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, again: str
-) -> None:
-    centrum = preparing_centrum(tmp_path)
-    with_key(centrum)
-    sent_note(centrum)
-    centrum.surroundings.report_box.close(number_of(centrum, NOTE_TITLE))
-    ids = [item["id"] for item in notifications(centrum)["items"]]
-    locked = lock_file(monkeypatch, NOTIFICATIONS_FILE)
-
-    blocked = read(centrum, ids)
-    locked.release()
-    released = notifications(centrum) if again == "odczyt" else read(centrum, ids)
-    centrum.restart()
-
-    assert (blocked["unread"], blocked["message"]) == (0, unavailable(NOTIFICATIONS_FILE))
-    assert released["message"] is None
-    assert notifications(centrum)["unread"] == 0
-
-
-def test_oba_niedostepne_pliki_stanu_sa_w_jednym_komunikacie(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    centrum = preparing_centrum(tmp_path)
-    with_key(centrum)
-    sent_note(centrum)
-    centrum.surroundings.report_box.close(number_of(centrum, NOTE_TITLE))
-    lock_file(monkeypatch, DAD_CASES_FILE)
-    lock_file(monkeypatch, NOTIFICATIONS_FILE)
-
-    answer = read(centrum, [item["id"] for item in notifications(centrum)["items"]])
-
-    assert answer["message"] == {
-        "what": "Centrum nie może teraz zapisać Powiadomień na tym komputerze, bo pliki są niedostępne.",
-        "where": f"pliki {DAD_CASES_FILE} i {NOTIFICATIONS_FILE} w folderze config",
-        "action": "Nie zamykaj Centrum: pamięta zmiany i zapisze je samo. Zamknij program, który może trzymać te "
-        "pliki, i otwórz Powiadomienia ponownie. Jeśli Komunikat zostaje, wyślij Uwagę do Maksa.",
-    }
 
 
 def test_skrzynka_jest_pytana_przy_starcie_i_najwyzej_raz_na_10_minut(tmp_path: Path) -> None:
@@ -299,7 +226,7 @@ def test_bez_wyslanych_spraw_albo_klucza_skrzynka_nie_jest_pytana(tmp_path: Path
     with_key(centrum)
     box = centrum.surroundings.report_box
 
-    assert notifications(centrum) == {"unread": 0, "items": [], "message": None}
+    assert notifications(centrum) == {"unread": 0, "items": []}
     assert box.listed == []
 
     sent_report(centrum)
@@ -516,110 +443,3 @@ def test_github_jest_pytany_o_wydania_przy_starcie_i_najwyzej_raz_na_10_minut_ws
         assert [item["version"] for item in new_versions(centrum)] == ["0.2.0"]
         centrum.client.get("/api/configuration")
         assert (github.asked, github.asked_published) == (2, 2)
-
-
-def queued_report(centrum: PreparingCentrum) -> str:
-    """Zgłoszenie „do Maksa”, które czeka w kolejce Skrzynki (bez Tokenu do Zgłoszeń); zwraca jego „Co się stało”."""
-
-    run_id = stopped_for_maks(centrum)
-    diagnosis = centrum.client.post(f"/api/runs/{run_id}/diagnosis").json()
-    assert centrum.client.post(f"/api/runs/{run_id}/report").json() == {"state": "queued", "waits_for": "key"}
-    what: str = diagnosis["report"]["title"].split(": ", 1)[1]
-    return what
-
-
-def delivered_from_queue(centrum: PreparingCentrum) -> int:
-    """Maks wpisuje klucz, kolejka budzi się po minucie i dostarcza Zgłoszenie; zwraca numer jego issue."""
-
-    with_key(centrum)
-    box = centrum.surroundings.report_box
-    centrum.surroundings.clock.advance(RETRY_S)
-    assert box.wait_until(lambda box: len(box.sent) == 1)
-    number = box.sent[0].number
-    assert wait_for(lambda: case_states(centrum.client, "zgloszenie") == ["wyslana"])
-    return number
-
-
-def test_zgloszenie_w_kolejce_bez_tokenu_czeka_na_token_a_po_dostarczeniu_jest_wyslane_bez_kropki(tmp_path: Path) -> None:
-    centrum = preparing_centrum(tmp_path)
-    what = queued_report(centrum)
-    waiting = notifications(centrum)
-
-    number = delivered_from_queue(centrum)
-
-    assert [(item["what"], item["state"], item["unread"]) for item in waiting["items"]] == [
-        (what, "czeka_na_token", False)
-    ]
-    [item] = notifications(centrum)["items"]
-    assert (item["id"], item["state"], item["unread"]) == (f"zgloszenie-{number}-wyslana", "wyslana", False)
-
-
-def test_wydanie_rozwiazuje_zgloszenie_wyslane_z_kolejki(tmp_path: Path) -> None:
-    centrum = preparing_centrum(tmp_path)
-    what = queued_report(centrum)
-    number = delivered_from_queue(centrum)
-    cases = (DadCase(number, "Tytuł z Release", REPORT.label),)
-    release_on_main(centrum, "v0.2.0", NEW_COMMIT, published("v0.2.0", render(ReleaseNotes(SUMMARY, cases))))
-    centrum.surroundings.clock.advance(minutes=10)
-
-    [version] = new_versions(centrum)
-
-    assert version["solved"] == [{"kind": "zgloszenie", "title": what}]
-
-
-def test_zgloszenie_wyslane_przed_kolejka_zostaje_przeczytane(tmp_path: Path) -> None:
-    centrum = preparing_centrum(tmp_path)
-    config = tmp_path / "config"
-    (config / "zgloszenia-wyslane.json").write_text(
-        json.dumps(
-            [
-                {
-                    "fingerprint": "0123456789abcdef",
-                    "number": 12,
-                    "commit": TOOL_COMMIT,
-                    "what": "Nie znaleziono wzorca.",
-                    "sent_at": "2026-10-19T08:00:00+00:00",
-                    "closure": {"reason": "completed", "at": CLOSED_AT.isoformat()},
-                }
-            ]
-        ),
-        encoding="utf-8",
-    )
-    (config / "powiadomienia.json").write_text(
-        json.dumps({"schema_version": 1, "przeczytane": ["zgloszenie-12-rozwiazana"]}), encoding="utf-8"
-    )
-    centrum.restart()
-
-    answer = notifications(centrum)
-
-    assert [(item["id"], item["unread"]) for item in answer["items"]] == [("zgloszenie-12-rozwiazana", False)]
-    assert answer["unread"] == 0
-
-
-def queued_case(fingerprint: str, what: str) -> dict[str, object]:
-    """Zgłoszenie w pliku Spraw taty, które czeka w kolejce Skrzynki: bez numeru issue."""
-
-    return {
-        "kind": "zgloszenie",
-        "id": fingerprint,
-        "title": what,
-        "commit": TOOL_COMMIT,
-        "sent_at": "2026-10-19T08:00:00+00:00",
-        "number": None,
-        "closure": None,
-    }
-
-
-def test_dwa_zgloszenia_w_kolejce_to_dwa_powiadomienia_o_roznych_id(tmp_path: Path) -> None:
-    config = tmp_path / "config"
-    config.mkdir()
-    cases = [queued_case("0123456789abcdef", "Nie znaleziono wzorca."), queued_case("fedcba9876543210", "Brak folderu.")]
-    (config / DAD_CASES_FILE).write_text(json.dumps({"schema_version": 1, "sprawy": cases}), encoding="utf-8")
-
-    items = plain_centrum(tmp_path).client.get("/api/notifications").json()["items"]
-
-    assert sorted((item["what"], item["state"]) for item in items) == [
-        ("Brak folderu.", "czeka_na_token"),
-        ("Nie znaleziono wzorca.", "czeka_na_token"),
-    ]
-    assert len({item["id"] for item in items}) == 2

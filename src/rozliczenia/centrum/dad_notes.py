@@ -3,7 +3,7 @@
 Treść issue powstaje tylko w ``note_issue``: podgląd „Maks dostanie” i wysyłka wołają tę samą funkcję, więc tata
 widzi dokładnie to, co dostanie Maks. „Wyślij” zapisuje Uwagę bez numeru issue jako sprawę taty (``DadCases``),
 kładzie ją w kolejce Skrzynki Zgłoszeń jako osobne issue z etykietą ``uwaga-taty`` i czeka na skrzynkę najwyżej
-``DELIVERY_WAIT_S``, a gdy jej nie przyjęła, mówi, na co Uwaga czeka (``DadCases.hold``). Numer issue dopisuje wątek kolejki, także po następnym starcie Centrum, a zamknięcie issue przez
+``DELIVERY_WAIT_S``. Numer issue dopisuje wątek kolejki, także po następnym starcie Centrum, a zamknięcie issue przez
 Maksa sprawdzanie Powiadomień. Sprawa ma tylko tytuł Uwagi i przypięte Uruchomienie, bez treści.
 
 Uwaga przypięta do Uruchomienia procesu z Centrum niesie w stopce jego proces, okres, tryb, wynik i datę oraz
@@ -28,11 +28,12 @@ from fastapi import APIRouter
 
 from rozliczenia.centrum import contract
 from rozliczenia.centrum.dad_cases import NOTE, Case, DadCases
-from rozliczenia.centrum.keyed_box import KeyedBox
-from rozliczenia.centrum.outbox import DELIVERY_WAIT_S, KnownIssue, NewIssue, Outbox, Post
+from rozliczenia.centrum.outbox import KnownIssue, NewIssue, Outbox, Post
 from rozliczenia.centrum.tool_freshness import CommitSource
 from rozliczenia.centrum.version import version_label
 
+# Tyle „Wyślij” czeka na skrzynkę, zanim powie tacie, że Uwaga czeka w kolejce.
+DELIVERY_WAIT_S: Final = 5.0
 RECENT_RUNS: Final = 6
 _NOT_QUEUED: Final = "Uwaga się nie zapisała i nie pójdzie do Maksa. Spróbuj wysłać ją jeszcze raz."
 _UNKNOWN_RUN: Final = (
@@ -205,15 +206,9 @@ def _pinned(run_id: str | None, history: History, logs: LogsAddress) -> PinnedRu
 
 
 def send(
-    request: contract.DadNoteRequest,
-    cases: DadCases,
-    outbox: Outbox,
-    box: KeyedBox,
-    commit: str | None,
-    pinned: PinnedRun | None,
+    request: contract.DadNoteRequest, cases: DadCases, outbox: Outbox, commit: str | None, pinned: PinnedRun | None
 ) -> contract.DadNoteState:
-    """Zapisuje Uwagę, kładzie ją w kolejce i mówi, czy skrzynka przyjęła ją w ``DELIVERY_WAIT_S``, a jeśli nie, na
-    co czeka albo że skrzynka odrzuciła jej treść.
+    """Zapisuje Uwagę, kładzie ją w kolejce i mówi, czy skrzynka przyjęła ją w ``DELIVERY_WAIT_S``.
 
     Uwaga, której kolejka nie zapisała, to odmowa: inaczej tekst taty przepadłby po cichu.
     """
@@ -230,14 +225,11 @@ def send(
         raise contract.Refusal(500, _NOT_QUEUED)
     if outbox.wait_delivered(note.id, NOTE.label, timeout_s=DELIVERY_WAIT_S):
         return contract.DadNoteSent(state="sent")
-    hold = cases.hold(note.id, box)
-    if hold == "rejected":
-        return contract.DadNoteRejected(state="rejected")
-    return contract.DadNoteWaiting(state="waiting", waits_for=hold)
+    return contract.DadNoteWaiting(state="waiting")
 
 
 def dad_notes_router(
-    cases: DadCases, outbox: Outbox, box: KeyedBox, commit: CommitSource, history: History, logs: LogsAddress
+    cases: DadCases, outbox: Outbox, commit: CommitSource, history: History, logs: LogsAddress
 ) -> APIRouter:
     router = APIRouter(prefix="/api/dad-notes", tags=["uwagi-taty"])
     refusals: dict[int | str, dict[str, object]] = {status: {"model": contract.Problem} for status in (404, 500)}
@@ -252,6 +244,6 @@ def dad_notes_router(
 
     @router.post("", operation_id="sendDadNote", responses=refusals)
     def send_note(request: contract.DadNoteRequest) -> contract.DadNoteState:
-        return send(request, cases, outbox, box, commit(), _pinned(request.run_id, history, logs))
+        return send(request, cases, outbox, commit(), _pinned(request.run_id, history, logs))
 
     return router
