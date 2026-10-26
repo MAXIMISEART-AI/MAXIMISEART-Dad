@@ -1,9 +1,9 @@
-"""``tools/scal_pr.py``: agent scala PR tylko przy zielonym CI na HEAD, werdykcie PASS dla HEAD i scaleniu z bieżącą
-bazą, które przechodzi ruff i mypy.
+"""``tools/scal_pr.py``: agent scala PR tylko przy zielonym CI na HEAD, werdykcie PASS dla HEAD, który omawia każdą
+przeżytą mutację skończonych Change mutations, i scaleniu z bieżącą bazą, które przechodzi ruff i mypy.
 
 Testy biegną na prawdziwym Gicie z repozytorium bare jako ``origin`` (z ``refs/pull/N/head`` jak na GitHubie)
-i na prawdziwym ``tools/ci_lokalnie.py --tylko ruff,mypy`` na małym kodzie. Atrapa ``gh`` podaje stan PR
-i zapisuje wywołania ``gh pr merge`` zamiast scalać.
+i na prawdziwym ``tools/ci_lokalnie.py --tylko ruff,mypy`` na małym kodzie. Atrapa ``gh`` podaje stan PR i artefakty
+runów (plan i zapisy części Change mutations) i zapisuje wywołania ``gh pr merge`` zamiast scalać.
 """
 
 from __future__ import annotations
@@ -22,11 +22,14 @@ from tests.fixtures.git_repo import commit, git, repository
 pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="Atrapa gh to skrypt sh.")
 
 TOOLS = Path(__file__).resolve().parents[1] / "tools"
+sys.path.insert(0, str(TOOLS))
+
+import plan_ci  # noqa: E402
 SUM = "def suma(a: int, b: int) -> int:\n    return a + b\n"
 PYPROJECT = '[tool.ruff]\ninclude = ["kod/**/*.py"]\n\n[tool.mypy]\nstrict = true\nfiles = ["kod"]\n'
 CLEANUP = 'import pathlib\n\npathlib.Path("posprzatane").write_text("tak")\nprint("SPRZĄTANIE OK | 0 usuniętych")\n'
 FAKE_GH = """\
-import json, os, pathlib, subprocess, sys
+import fnmatch, json, os, pathlib, subprocess, sys
 
 here = pathlib.Path(sys.argv[0]).parent
 arguments = sys.argv[1:]
@@ -54,18 +57,41 @@ elif arguments[:2] == ["pr", "merge"]:
     (here / "pulls.json").write_text(json.dumps(pulls))
     with (here / "merges.jsonl").open("a") as log:
         log.write(json.dumps(arguments) + "\\n")
+elif arguments[:2] == ["run", "download"]:
+    artifacts = json.loads((here / "artifacts.json").read_text()).get(arguments[2], {})
+    folder = pathlib.Path(arguments[arguments.index("--dir") + 1])
+    by_name = "--name" in arguments
+    wanted = arguments[arguments.index("--name" if by_name else "--pattern") + 1]
+    found = [name for name in artifacts if fnmatch.fnmatch(name, wanted)]
+    if not found:
+        sys.exit("no valid artifacts found to download")
+    for name in found:
+        target = folder if by_name else folder / name
+        target.mkdir(parents=True, exist_ok=True)
+        for file, text in artifacts[name].items():
+            (target / file).write_text(text)
 else:
     sys.exit(f"atrapa gh nie zna: {arguments}")
 """
 
 
-def _check_run(status: str, conclusion: str | None, *, workflow: str = "CI") -> dict[str, str | None]:
-    return {"__typename": "CheckRun", "name": "Required CI status", "status": status, "conclusion": conclusion, "workflowName": workflow}
+RUN = "4077"
+URL = f"https://github.com/o/r/actions/runs/{RUN}/job/1"
 
 
+def _plan(mutations: int) -> str:
+    return plan_ci.Plan("pull_request", plan_ci.CEL_S, (), mutations, ()).do_json()
+
+
+def _check_run(status: str, conclusion: str | None, *, workflow: str = "CI", name: str = "Required CI status") -> dict[str, str | None]:
+    return {"__typename": "CheckRun", "name": name, "status": status, "conclusion": conclusion, "workflowName": workflow, "detailsUrl": URL}
+
+
+TEMPLATE = "Change mutations (${{ matrix.part }}/3)"
 GREEN = [
     {"__typename": "CheckRun", "name": "Ruff", "status": "COMPLETED", "conclusion": "SUCCESS", "workflowName": "CI"},
     _check_run("COMPLETED", "SUCCESS"),
+    _check_run("COMPLETED", "SKIPPED", name=TEMPLATE),
 ]
 COMMIT_STATUS = {"__typename": "StatusContext", "context": "Required CI status", "state": "SUCCESS"}
 NOT_ACTIONS = "CI: brak „Required CI status” z GitHub Actions na HEAD"
@@ -96,6 +122,7 @@ class FakeGitHub:
         gh.chmod(0o755)
         self.pulls: dict[str, dict[str, object]] = {}
         self.written = 0
+        self.artifacts(RUN, {"plan": {"plan.json": _plan(0)}})
 
     def open_pull(self, number: int, files: dict[str, str], *, parent: str = "") -> str:
         """HEAD nowego PR z zielonym CI i bez werdyktu: commit ``files`` na ``parent`` (domyślnie commit ``start``)."""
@@ -169,6 +196,9 @@ class FakeGitHub:
     def merges(self) -> list[list[str]]:
         log = self.bin / "merges.jsonl"
         return [json.loads(line) for line in log.read_text(encoding="utf-8").splitlines()] if log.exists() else []
+
+    def artifacts(self, run: str, artifacts: dict[str, dict[str, str]]) -> None:
+        (self.bin / "artifacts.json").write_text(json.dumps({run: artifacts}), encoding="utf-8")
 
     def _save(self) -> None:
         (self.bin / "pulls.json").write_text(json.dumps(self.pulls), encoding="utf-8")
@@ -462,3 +492,141 @@ def test_sprzatanie_po_czasie_nie_odwoluje_scalenia(tmp_path: Path) -> None:
     assert answered.returncode == 0, answered.stdout + answered.stderr
     assert _last_line(answered).endswith("| UWAGA: sprzątanie przerwane po 1 s, uruchom je ponownie")
     assert len(github.merges()) == 1
+
+
+SURVIVOR = "src/a.py:2 bez `b` w `and`"
+OTHER = "src/a.py:5 zmiana linii 5 cofnięta do bazy"
+SURVIVED = "MUTACJE ZMIANY FAIL | przeżyło 1 | mutacje=4 | wyjątki=0 | innego systemu=0"
+TESTS_FAIL = "MUTACJE ZMIANY FAIL | testy dotknięte zmianą padają bez mutacji, więc mutacje niczego nie dowiodą"
+UNDISCUSSED = "przeżyte Change mutations bez linii „MUTACJA <id> | test dodany” albo „MUTACJA <id> | nie warto, bo <powód>” w PASS: "
+
+
+def _part(number: int, conclusion: str | None = "SUCCESS", status: str = "COMPLETED") -> dict[str, str | None]:
+    return _check_run(status, conclusion, name=f"Change mutations ({number}/3)")
+
+
+def _records(**survivors: tuple[str, list[str]]) -> dict[str, dict[str, str]]:
+    """Artefakty ``mutacje-zmiany-<k>`` części k (``czesc_k``) z ostatnią linią i przeżytymi mutacjami."""
+
+    return {
+        f"mutacje-zmiany-{part.removeprefix('czesc_')}": {"czesc.json": json.dumps({"czesc": f"{part.removeprefix('czesc_')}/3", "wynik": result, "przezyte": names})}
+        for part, (result, names) in survivors.items()
+    }
+
+
+NO_RECORDS = f"artefakt mutacje-zmiany-* runu {RUN} nie do pobrania: no valid artifacts found to download"
+PLAN_FIX = "odtwórz go przez „Re-run all jobs” tego runu albo nowy push (samo „Re-run failed jobs” planu nie odtworzy)"
+NO_PLAN = f"artefakt plan runu {RUN} nie do pobrania: no valid artifacts found to download; {PLAN_FIX}"
+ALL_PARTS = (_part(2), _part(3))
+
+
+@pytest.mark.parametrize(
+    ("planned", "parts", "records", "approval", "reason"),
+    [
+        (9, [_part(1, "FAILURE"), *ALL_PARTS], _records(czesc_1=(SURVIVED, [SURVIVOR])), "", UNDISCUSSED + SURVIVOR),
+        (9, [_part(1, "FAILURE"), *ALL_PARTS], _records(czesc_1=(SURVIVED, [SURVIVOR])), f"MUTACJA {SURVIVOR} | nie warto, bo log tylko dla diagnozy", None),
+        (9, [_part(1, "FAILURE"), *ALL_PARTS], _records(czesc_1=(SURVIVED, [SURVIVOR])), f"  MUTACJA {SURVIVOR} | test dodany  ", None),
+        (9, [_part(1, "FAILURE"), *ALL_PARTS], _records(czesc_1=(SURVIVED, [SURVIVOR])), f"MUTACJA {OTHER} | nie warto, bo log", UNDISCUSSED + SURVIVOR),
+        (9, [_part(1, "FAILURE"), *ALL_PARTS], _records(czesc_1=(SURVIVED, [SURVIVOR])), f"MUTACJA {SURVIVOR} | nie warto, bo ", UNDISCUSSED + SURVIVOR),
+        (9, [_part(1, "FAILURE"), *ALL_PARTS], _records(czesc_1=(SURVIVED, [SURVIVOR])), f"MUTACJA {SURVIVOR}", UNDISCUSSED + SURVIVOR),
+        (9, [_part(1, "FAILURE"), *ALL_PARTS], _records(czesc_1=(SURVIVED, [SURVIVOR])), f"- MUTACJA {SURVIVOR} | test dodany", UNDISCUSSED + SURVIVOR),
+        (
+            9,
+            [_part(1, "FAILURE"), _part(2, "FAILURE"), _part(3)],
+            _records(czesc_1=(SURVIVED, [SURVIVOR]), czesc_2=(SURVIVED, [OTHER])),
+            f"MUTACJA {SURVIVOR} | test dodany",
+            UNDISCUSSED + OTHER,
+        ),
+        (
+            9,
+            [_part(1, None, "IN_PROGRESS"), _part(2, None, "QUEUED"), _part(3)],
+            {},
+            "",
+            "Change mutations w toku: Change mutations (1/3) IN_PROGRESS, Change mutations (2/3) QUEUED",
+        ),
+        (9, [], {}, "", f"Change mutations w toku: run {RUN} nie ma jeszcze ich checku"),
+        (0, [], {}, "", f"Change mutations w toku: run {RUN} nie ma jeszcze ich checku"),
+        (9, [_part(1), _part(2)], {}, "", f"Change mutations w toku: plan runu {RUN} ma 9 mutacji, a nie ma checku Change mutations (3/3)"),
+        (0, [_check_run("COMPLETED", "SKIPPED", name=TEMPLATE)], {}, "", None),
+        (0, [_part(1, "SKIPPED"), _part(2, "SKIPPED"), _part(3, "SKIPPED")], {}, "", None),
+        (
+            9,
+            [_check_run("COMPLETED", "SKIPPED", name=TEMPLATE)],
+            {},
+            "",
+            f"Change mutations w toku: plan runu {RUN} ma 9 mutacji, a nie ma checku "
+            "Change mutations (1/3), Change mutations (2/3), Change mutations (3/3)",
+        ),
+        (
+            9,
+            [_part(1, "SKIPPED"), _part(2, "SKIPPED"), _part(3, "SKIPPED")],
+            {},
+            "",
+            "; ".join(f"Change mutations ({number}/3) SKIPPED: {NO_RECORDS}" for number in (1, 2, 3)),
+        ),
+        (9, [_part(1, "FAILURE"), *ALL_PARTS], _records(czesc_1=(TESTS_FAIL, [])), "", f"Change mutations (1/3) FAILURE: {TESTS_FAIL}"),
+        (9, [_part(1, "FAILURE"), *ALL_PARTS], {}, "", f"Change mutations (1/3) FAILURE: {NO_RECORDS}"),
+        (9, [_part(1, "CANCELLED"), *ALL_PARTS], {}, "", f"Change mutations (1/3) CANCELLED: {NO_RECORDS}"),
+        (None, [], {}, "", f"Change mutations w toku: run {RUN} nie ma jeszcze ich checku"),
+        (None, [_check_run("COMPLETED", "SKIPPED", name=TEMPLATE)], {}, "", NO_PLAN),
+        (None, [_part(1), *ALL_PARTS], {}, "", NO_PLAN),
+        (None, [_part(1), *ALL_PARTS], {"plan": {"plan.json": "{}"}}, "", f"plan runu {RUN} bez liczby mutacji; {PLAN_FIX}"),
+    ],
+    ids=[
+        "przezyta-bez-linii",
+        "przezyta-z-nie-warto-bo",
+        "przezyta-z-test-dodany-i-odstepami",
+        "linia-innej-mutacji",
+        "nie-warto-bez-powodu",
+        "linia-bez-omowienia",
+        "linia-w-liscie-markdown",
+        "omowiona-tylko-jedna-z-dwoch-czesci",
+        "w-toku",
+        "plan-z-mutacjami-a-zadnego-checku",
+        "plan-bez-mutacji-a-zadnego-checku",
+        "plan-z-mutacjami-bez-jednej-czesci",
+        "plan-bez-mutacji-i-pominiete-zadanie",
+        "plan-bez-mutacji-i-pominiete-czesci",
+        "plan-z-mutacjami-a-tylko-pominiete-zadanie",
+        "plan-z-mutacjami-a-pominiete-czesci",
+        "porazka-bez-przezytych",
+        "porazka-bez-zapisu",
+        "anulowane",
+        "plan-nie-do-pobrania-i-zadnego-checku",
+        "plan-nie-do-pobrania-a-pominiete-zadanie",
+        "plan-nie-do-pobrania-a-czesci-skonczone",
+        "plan-bez-liczby-mutacji",
+    ],
+)
+def test_change_mutations_po_zielonym_required_musza_sie_skonczyc_a_pass_omawia_kazda_przezyta(
+    tmp_path: Path, planned: int | None, parts: list[dict[str, str | None]], records: dict[str, dict[str, str]], approval: str, reason: str | None
+) -> None:
+    github = FakeGitHub(tmp_path, {"kod/__init__.py": SUM})
+    head = github.open_pull(1, {"kod/inne.py": "INNE: int = 1\n"})
+    github.update(1, statusCheckRollup=[*GREEN[:2], *parts])
+    plan = {} if planned is None else {"plan": {"plan.json": _plan(planned)}}
+    github.artifacts(RUN, {**plan, **records})
+    github.comment(1, f"WERDYKT: PASS {head}\n{approval}")
+
+    answered = github.run("1", "--bez-merge")
+
+    if reason is None:
+        assert answered.returncode == 0, answered.stdout + answered.stderr
+        assert _last_line(answered).startswith(f"SCAL OK | #1 {head[:7]} | gotowy do merge'a")
+    else:
+        assert answered.returncode == 1, answered.stdout + answered.stderr
+        assert _last_line(answered) == f"SCAL ODMOWA | #1 {head[:7]} | {reason}"
+
+
+def test_przezyta_mutacja_bez_pass_daje_obie_przyczyny_a_przy_czerwonym_required_change_mutations_nie_sa_czytane(tmp_path: Path) -> None:
+    github = FakeGitHub(tmp_path, {"kod/__init__.py": SUM})
+    head = github.open_pull(1, {"kod/inne.py": "INNE: int = 1\n"})
+    github.artifacts(RUN, {"plan": {"plan.json": _plan(9)}, **_records(czesc_1=(SURVIVED, [SURVIVOR]))})
+    github.update(1, statusCheckRollup=[*GREEN[:2], _part(1, "FAILURE"), *ALL_PARTS])
+
+    without_pass = github.run("1", "--bez-merge")
+    github.update(1, statusCheckRollup=[_check_run("COMPLETED", "FAILURE"), _part(1, "FAILURE")])
+    red = github.run("1", "--bez-merge")
+
+    assert _last_line(without_pass) == f"SCAL ODMOWA | #1 {head[:7]} | {NO_PASS.format(head=head)}; {UNDISCUSSED}{SURVIVOR}"
+    assert _last_line(red) == f"SCAL ODMOWA | #1 {head[:7]} | CI: „Required CI status” FAILURE; {NO_PASS.format(head=head)}"

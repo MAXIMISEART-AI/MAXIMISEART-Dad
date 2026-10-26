@@ -78,7 +78,8 @@ A rule that a check enforces sits in its section's table, one line per rule, bes
 - Prove that a new test or check fails on the broken code it guards with `tools/mutacje.py`, the repository's one mutation engine: use it rather than writing another; to check every commit of a branch use `tools/ci_lokalnie.py --kazdy-commit`, not `git rebase --exec`.
   Run it once for each test or check added or changed in a round of work.
   A rebase, or a fix that leaves the test unchanged, does not need a new run.
-- A line that `tools/mutacje_zmiany.py` reports as `NIEWYKRYTA` is behaviour without a test: add the test that catches it.
+- A mutation that `tools/mutacje_zmiany.py` reports as `NIEWYKRYTA` is behaviour without a test: add the test that catches it, unless the reviewer judges that a test is not worth it.
+  The reviewer's `PASS` discusses each surviving mutation in its own line, `MUTACJA <id> | test dodany` or `MUTACJA <id> | nie warto, bo <reason>`, and `tools/scal_pr.py` merges only then.
   Only a mutation that leaves the behaviour unchanged gets `# mutacje-zmiany: <reason> | do YYYY-MM-DD | zgoda <who>` on its line, with Maks's approval.
 - A PR that adds or changes a check (a structure test, a lint rule, a CI job, a checking tool) shows its result on real history in the PR body, from `tools/na_scalonych_pr.py`.
   On the commits of the PRs whose review found the mistake (`--commit <SHA>`), it finds what the review found.
@@ -87,7 +88,7 @@ A rule that a check enforces sits in its section's table, one line per rule, bes
 
 | Rule | Guard |
 |---|---|
-| Every changed line of `src/` has a test that fails when the line is broken, and the PR body promises only what the mutations confirm. | `tools/mutacje_zmiany.py` (CI job `Change mutations`) |
+| Every changed line of `src/` has a test that fails when the line is broken, or the reviewer's `PASS` says in a `MUTACJA` line why the test is not worth it („nie warto, bo …”), and the PR body promises only what the mutations confirm. | `tools/mutacje_zmiany.py` (CI job `Change mutations`), `tools/scal_pr.py` |
 | A test module imports helpers only from `tests/fixtures`. | `tests/test_struktura_testow.py` |
 | A test waits for a state of Centrum rozliczeń or measures time with the test's clock, and checks the time of the code under test by equality on the fake clock `ManualClock` (`tests/fixtures/clock.py`), never by a fixed number of milliseconds. | `tests/test_struktura_testow.py` |
 | Git in tests has one configuration, the same on every computer: a test builds `env=` from `os.environ` and leaves `GIT_CONFIG_GLOBAL`/`GIT_CONFIG_NOSYSTEM` alone, sets a computer configuration with something more through `computer_git_config` (`tests/fixtures/git_config.py`), and a process of the tool's code (`src/`) has an empty `user.name` and `user.email`, so its `git commit` fails as it does at Dad's. | fixture `git_bez_konfiguracji_komputera` in `tests/conftest.py`, `tests/test_git_w_testach.py` |
