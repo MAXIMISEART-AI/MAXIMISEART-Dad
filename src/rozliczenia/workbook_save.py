@@ -32,11 +32,15 @@ class ExternalLinksError(WorkbookSaveError):
     """Nie można przygotować ani przywrócić części ``xl/externalLinks/*``."""
 
 
-def write_atomically(target: Path, write: Callable[[Path], None]) -> None:
+def write_atomically(
+    target: Path, write: Callable[[Path], None], *, replace: Callable[[Path, Path], None] | None = None
+) -> None:
     """``write`` zapisuje skoroszyt do pliku tymczasowego obok ``target``; dopiero potem ``target`` jest podmieniany.
 
-    Nieudany zapis to ``WorkbookSaveError`` (albo błąd zapisu zgłoszony przez ``write``); plik tymczasowy
-    nigdy nie zostaje, a ``target`` zmienia się tylko po udanym zapisie całości.
+    Podmienia ``replace``, a bez niego ``os.replace``.
+
+    Nieudany zapis to ``WorkbookSaveError`` (albo błąd zapisu zgłoszony przez ``write`` albo inny niż ``OSError``
+    błąd ``replace``); plik tymczasowy nigdy nie zostaje, a ``target`` zmienia się tylko po udanym zapisie całości.
     """
 
     try:
@@ -50,7 +54,7 @@ def write_atomically(target: Path, write: Callable[[Path], None]) -> None:
     try:
         write(temporary_path)
         try:
-            os.replace(temporary_path, target)
+            (os.replace if replace is None else replace)(temporary_path, target)
         except OSError as exc:
             raise WorkbookSaveError(f"Nie można zapisać skoroszytu: {target.name}") from exc
     finally:
