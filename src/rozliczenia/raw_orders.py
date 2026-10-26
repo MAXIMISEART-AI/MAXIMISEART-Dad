@@ -24,15 +24,21 @@ wiersza wcześniejszego dnia: zlecenie na jutro wpisane w dzisiejszym dniu nie c
 Plan dnia (``plan_day``) z bloku wyznacza docelowe wiersze zleceń: jeden pusty wiersz pod żółtym wierszem albo
 10 pustych pod ostatnim uporządkowanym zleceniem, segmenty Wykonawców w kolejności alfabetycznej z jednym
 pustym wierszem między nimi, w segmencie od najwcześniejszej godziny, a przy tej samej godzinie w kolejności z
-aplikacji. Fakty nie zawierają treści wierszy poza datą i Wykonawcą potrzebnymi do kolejności.
+aplikacji. Każde zlecenie dostaje Kolor operatora z tabeli ``_OPERATOR_COLORS`` po nazwie operatora w
+``CZYNNOŚCI`` bez względu na wielkość liter, spacje i myślniki, a usterka (``URZĄDZENIA``) różowe ``URZĄDZENIA``.
+Plan wyznacza też wiersz widoku po otwarciu: pierwsze zlecenie dzisiejszego dnia, a bez zleceń dziś pierwsze
+zlecenie ostatniego wcześniejszego dnia ze zleceniami, szukane od dołu tak jak przegląd nad blokiem. Fakty nie
+zawierają treści wierszy poza datą i Wykonawcą potrzebnymi do kolejności oraz nazwą operatora i usterką.
 """
 
 from __future__ import annotations
 
+import re
 from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass
 from datetime import date, datetime
 from itertools import chain, groupby
+from types import MappingProxyType
 from typing import Final
 
 from .worker_config import normalize_text
@@ -47,12 +53,44 @@ _EARLIER_ROWS: Final = 10
 
 @dataclass(frozen=True)
 class OrderColumns:
-    """Kolumny arkusza zleceń (od 1) po nagłówkach z wiersza 1: kolumny zlecenia od ``first`` do ``last`` (UWAGI)."""
+    """Kolumny arkusza zleceń (od 1) po nagłówkach z wiersza 1: kolumny zlecenia od ``first`` do ``last`` (UWAGI).
+
+    ``devices``, ``activities`` i ``contract_number`` to ``URZĄDZENIA``, ``CZYNNOŚCI`` i ``NUMER UMOWY``, w których
+    staje Kolor operatora.
+    """
 
     first: int
     date: int
     worker: int
     last: int
+    devices: int
+    activities: int
+    contract_number: int
+
+
+@dataclass(frozen=True)
+class OperatorColor:
+    """Kolor operatora zlecenia: wypełnienie (RGB) ``CZYNNOŚCI``, ``NUMER UMOWY`` i ``URZĄDZENIA``; ``None``: bez."""
+
+    activities: str | None = None
+    contract_number: str | None = None
+    devices: str | None = None
+
+
+_OPERATOR_COLORS: Final[Mapping[str | None, OperatorColor]] = MappingProxyType(
+    {
+        "tmobile": OperatorColor("99FF66", "99FF66"),
+        "orange": OperatorColor("FFC000", "FFC000"),
+        "netia": OperatorColor("69D8FF", "00FFFF"),
+        "inea": OperatorColor(),
+        None: OperatorColor(),
+    }
+)
+"""Operator z ``CZYNNOŚCI`` (``_name``; ``None``: puste) → Kolor operatora; każdy inny to ``_OTHER_OPERATOR``."""
+_OTHER_OPERATOR: Final = OperatorColor("00FFFF", "00FFFF")
+_FAULTS: Final = frozenset({"usterka", "usterkahurt"})
+"""Rodzaje zleceń w ``URZĄDZENIA`` (``_name``), które dostają ``_FAULT`` zamiast koloru operatora."""
+_FAULT: Final = OperatorColor(devices="E89CA7")
 
 
 @dataclass(frozen=True)
@@ -83,12 +121,18 @@ class RowFacts:
 
 @dataclass(frozen=True)
 class RawOrder:
-    """Surowe zlecenie: wiersz arkusza, przesunięcie pierwszego wiersza, data z godziną i Wykonawca."""
+    """Surowe zlecenie: wiersz arkusza, przesunięcie pierwszego wiersza, data z godziną, Wykonawca, operator i usterka.
+
+    ``operator`` to nazwa z ``CZYNNOŚCI`` bez wielkości liter, spacji i myślników (``None``: puste), a ``fault``
+    mówi, czy ``URZĄDZENIA`` to usterka albo usterka hurt.
+    """
 
     row: int
     shifted: bool
     when: datetime
     worker: str
+    operator: str | None = None
+    fault: bool = False
 
 
 @dataclass(frozen=True)
@@ -155,19 +199,24 @@ Obstacle = AboveOrdered | Undated | WithoutWorker | SeveralDays | DayOrdered
 
 @dataclass(frozen=True)
 class Placement:
-    """Surowe zlecenie na docelowym wierszu dnia."""
+    """Surowe zlecenie na docelowym wierszu dnia z Kolorem operatora."""
 
     order: RawOrder
     row: int
+    color: OperatorColor
 
 
 @dataclass(frozen=True)
 class DayPlan:
-    """Uporządkowany dzień: zlecenia na docelowych wierszach, po kolei; reszta wierszy pod ``anchor`` jest pusta."""
+    """Uporządkowany dzień: zlecenia na docelowych wierszach, po kolei; reszta wierszy pod ``anchor`` jest pusta.
+
+    ``view_row`` to wiersz, na którym INTERMAX otwiera się po zapisie (górny wiersz widoku i zaznaczenie).
+    """
 
     day: date
     placements: tuple[Placement, ...]
     worker_count: int
+    view_row: int
 
 
 def recognize(rows_from_bottom: Iterable[RowFacts], columns: OrderColumns) -> RawBlock | Obstacle | None:
@@ -234,8 +283,12 @@ def _pasted(raw: list[RowFacts], columns: OrderColumns) -> list[RawOrder | Undat
     return [_order(row, columns, index == 0 and not _is_date(row.value(columns.date))) for index, row in enumerate(raw)]
 
 
-def plan_day(block: RawBlock) -> DayPlan:
-    """Docelowe wiersze dnia: segmenty Wykonawców alfabetycznie, w segmencie po godzinie, z jednym pustym między nimi."""
+def plan_day(block: RawBlock, rows_from_bottom: Iterable[RowFacts], columns: OrderColumns, today: date) -> DayPlan:
+    """Docelowe wiersze dnia: segmenty Wykonawców alfabetycznie, w segmencie po godzinie, z jednym pustym między nimi.
+
+    ``rows_from_bottom`` to wiersze arkusza od ostatniego w górę, jak dla ``recognize``: z wierszy nad ``anchor`` i
+    z nowego dnia plan wyznacza wiersz widoku na dzień ``today`` (``_view_row``).
+    """
 
     def worker_key(order: RawOrder) -> str:
         return normalize_text(order.worker)
@@ -249,9 +302,50 @@ def plan_day(block: RawBlock) -> DayPlan:
             row += 1
         segments += 1
         for order in segment:
-            placements.append(Placement(order, row))
+            placements.append(Placement(order, row, _operator_color(order)))
             row += 1
-    return DayPlan(min(order.when for order in block.orders).date(), tuple(placements), segments)
+    view_row = _view_row(placements, rows_from_bottom, columns, block.anchor, today)
+    return DayPlan(min(order.when for order in block.orders).date(), tuple(placements), segments, view_row)
+
+
+def _operator_color(order: RawOrder) -> OperatorColor:
+    return _FAULT if order.fault else _OPERATOR_COLORS.get(order.operator, _OTHER_OPERATOR)
+
+
+def _view_row(
+    placements: list[Placement], rows_from_bottom: Iterable[RowFacts], columns: OrderColumns, anchor: int, today: date
+) -> int:
+    """Pierwsze zlecenie dnia ``today``, a bez niego ostatniego wcześniejszego dnia ze zleceniami.
+
+    Od dołu nowego dnia w górę: dzień widoku to najpóźniejszy dzień nie późniejszy niż ``today``, a jego pierwsze
+    zlecenie to najwyższy wiersz z jego datą, zanim ``_EARLIER_ROWS`` kolejnych wierszy ma dzień wcześniejszy.
+    Zlecenia na późniejsze dni (nowy dzień na jutro) pomija. Bez żadnego dnia do ``today`` to pierwsze zlecenie
+    nowego dnia.
+    """
+
+    dated = chain(((placement.row, placement.order.when) for placement in reversed(placements)), _dated(rows_from_bottom, columns, anchor))
+    day: date | None = None
+    first = placements[0].row
+    earlier = 0
+    for number, when in dated:
+        if when.date() > today:
+            continue
+        if day is None or when.date() >= day:
+            day, first, earlier = when.date(), number, 0
+        else:
+            earlier += 1
+            if earlier == _EARLIER_ROWS:
+                break
+    return first
+
+
+def _dated(rows_from_bottom: Iterable[RowFacts], columns: OrderColumns, anchor: int) -> Iterator[tuple[int, datetime]]:
+    """Wiersze nad ``anchor`` z datą z godziną, od dołu: numer i data."""
+
+    for row in rows_from_bottom:
+        when = row.value(columns.date)
+        if row.number <= anchor and isinstance(when, datetime):
+            yield row.number, when
 
 
 def _order(row: RowFacts, columns: OrderColumns, shifted: bool) -> RawOrder | Undated | WithoutWorker:
@@ -262,7 +356,15 @@ def _order(row: RowFacts, columns: OrderColumns, shifted: bool) -> RawOrder | Un
     worker = row.value(columns.worker - offset)
     if worker is None:
         return WithoutWorker(row.number, columns.worker - offset)
-    return RawOrder(row.number, shifted, when, str(worker))
+    operator = row.value(columns.activities - offset)
+    fault = _name(row.value(columns.devices - offset)) in _FAULTS
+    return RawOrder(row.number, shifted, when, str(worker), None if operator is None else _name(operator), fault)
+
+
+def _name(value: object) -> str:
+    """Nazwa bez wielkości liter, spacji i myślników: ``T-Mobile`` i ``TMOBILE`` to ``tmobile``."""
+
+    return re.sub(r"[\W_]+", "", str(value).casefold())
 
 
 def _above(
