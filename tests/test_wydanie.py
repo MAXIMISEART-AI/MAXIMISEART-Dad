@@ -28,8 +28,11 @@ SUMMARY = "Przygotowanie pliku zbiorczego samo wpisuje ilości usług. Centrum p
 SECRET = "TREŚĆ-SPRAWY-TATY"
 # Chwila każdego commitu w testach; sprawy taty zamyka się przed nią albo po niej.
 COMMITTED = "2026-10-10T10:00:00+00:00"
+QUARANTINE_FILE = "tests/fixtures/kwarantanna.py"
+EMPTY = "KWARANTANNA: dict[str, Kwarantanna] = {}\n"
+QUARANTINED = 'KWARANTANNA: dict[str, Kwarantanna] = {"tests/test_x.py::test_niestabilny": Kwarantanna(1, date(2026, 10, 30))}\n'
 FAKE_GH = """\
-import json, pathlib, sys, urllib.parse
+import io, json, pathlib, sys, urllib.parse, zipfile
 
 state_file = pathlib.Path(sys.argv[0]).with_name("github.json")
 state = json.loads(state_file.read_text(encoding="utf-8"))
@@ -50,6 +53,16 @@ if arguments[:2] != ["api", "--method"]:
 if method == "GET" and parts[0] == "commits" and parts[2] == "check-runs" and query["check_name"] == "Required CI status":
     runs = state["checks"].get(parts[1], [])
     answer({"total_count": len(runs), "check_runs": runs})
+if method == "GET" and parts[:2] == ["actions", "runs"] and parts[3:] == ["artifacts"]:
+    listed = state["artifacts"].get(parts[2], [])
+    answer({"total_count": len(listed), "artifacts": [{key: value for key, value in found.items() if key != "record"} for found in listed]})
+if method == "GET" and parts[:2] == ["actions", "artifacts"] and parts[3:] == ["zip"]:
+    [found] = [found for listed in state["artifacts"].values() for found in listed if str(found["id"]) == parts[2]]
+    packed = io.BytesIO()
+    with zipfile.ZipFile(packed, "w") as archive:
+        archive.writestr("kwarantanna.json", json.dumps(found["record"]))
+    sys.stdout.buffer.write(packed.getvalue())
+    sys.exit(0)
 if method == "GET" and parts[:2] == ["releases", "tags"]:
     found = state["releases"].get(parts[2])
     if found is None:
@@ -102,7 +115,7 @@ class Releasing:
         gh = self.bin / "gh"
         gh.write_text(f"#!{sys.executable}\n{FAKE_GH}", encoding="utf-8")
         gh.chmod(0o755)
-        self.state: dict[str, Any] = {"checks": {}, "releases": {}, "issues": [], "posted": [], "now": "2026-10-23T12:00:00Z"}
+        self.state: dict[str, Any] = {"checks": {}, "artifacts": {}, "releases": {}, "issues": [], "posted": [], "now": "2026-10-23T12:00:00Z"}
         self._save()
         self.plan_file = tmp_path / "notatki" / "plan.json"
         self.summary_file = tmp_path / "co-nowego.txt"
@@ -143,14 +156,40 @@ class Releasing:
 
         self._edit(lambda state: state.__setitem__(flag, True))
 
-    def ci(self, commit: str, conclusion: str) -> None:
-        """``conclusion``: wynik zakończonego ``Required CI status``, ``in_progress`` albo ``brak`` (CI się nie zaczęło)."""
+    def ci(self, commit: str, conclusion: str, quarantine: str = "przeszedł") -> None:
+        """``conclusion``: wynik zakończonego ``Required CI status``, ``in_progress`` albo ``brak`` (CI się nie zaczęło).
 
+        Run commitu ma zapis kwarantanny z jednym testem w kwarantannie i jego wynikiem ``quarantine`` (``przeszedł``
+        albo ``padł``) w jednym zadaniu i pusty zapis drugiego zadania; ``brak`` to run bez artefaktów kwarantanny.
+        """
+
+        run = str(int(commit[:8], 16))
+        url = f"https://github.com/MAXIMISEART-AI/MAXIMISEART-Dad/actions/runs/{run}/job/1"
         runs = {
             "brak": [],
-            "in_progress": [{"name": "Required CI status", "status": "in_progress", "conclusion": None}],
-        }.get(conclusion, [{"name": "Required CI status", "status": "completed", "conclusion": conclusion}])
-        self._edit(lambda state: state["checks"].__setitem__(commit, runs))
+            "in_progress": [{"name": "Required CI status", "status": "in_progress", "conclusion": None, "details_url": url}],
+        }.get(conclusion, [{"name": "Required CI status", "status": "completed", "conclusion": conclusion, "details_url": url}])
+        test = "tests/test_x.py::test_niestabilny"
+        records = [
+            {"zadanie": job, "proba": 1, "sha": commit, "wyniki": results}
+            for job, results in (("windows-3.14-1", {test: quarantine}), ("linux-3.14-1", {}))
+        ]
+        artifacts = [] if quarantine == "brak" else [
+            {"id": int(run) * 10 + index, "name": f"kwarantanna-{record['zadanie']}-1", "expired": False, "record": record}
+            for index, record in enumerate(records)
+        ]
+        # Wygasły zapis kwarantanny z porażką: GitHub już go nie oddaje, więc się nie liczy.
+        expired = {"zadanie": "linux-3.14-2", "proba": 1, "sha": commit, "wyniki": {test: "padł"}}
+        artifacts += [
+            {"id": int(run) * 10 + 8, "name": "kwarantanna-linux-3.14-2-1", "expired": True, "record": expired},
+            {"id": int(run) * 10 + 9, "name": "czasy-ci", "expired": False, "record": {}},
+        ]
+
+        def change(state: dict[str, Any]) -> None:
+            state["checks"][commit] = runs
+            state["artifacts"][run] = artifacts
+
+        self._edit(change)
 
     def released(self, tag: str, commit: str, cases: tuple[DadCase, ...] = (), *, release: bool = True) -> None:
         """Wcześniejsze Wydanie: tag z opisem w ``origin`` i, gdy ``release``, jego Release z notką wymieniającą ``cases``."""
@@ -244,6 +283,78 @@ def test_plan_bierze_najnowszy_commit_main_z_zielonym_ci_i_pomija_czerwone_i_nie
         {"commit": running, "ci": "w toku"},
         {"commit": red, "ci": "czerwone"},
     ]
+
+
+@pytest.mark.parametrize(("quarantine", "state"), [("padł", "kwarantanna czerwona"), ("brak", "bez zapisu kwarantanny")])
+def test_plan_pomija_zielony_commit_na_ktorym_test_z_kwarantanny_padl_albo_nie_ma_zapisu(releasing: Releasing, quarantine: str, state: str) -> None:
+    passed = releasing.merge(1, "fix: pierwsza naprawa", {"src/a.py": "a = 1\n"})
+    skipped = releasing.merge(2, "fix: druga", {"src/b.py": "b = 1\n", QUARANTINE_FILE: QUARANTINED})
+    releasing.ci(skipped, "success", quarantine)
+
+    planned = releasing.planned()
+
+    assert planned["commit"] == passed
+    assert planned["skipped"] == [{"commit": skipped, "ci": state}]
+
+
+@pytest.mark.parametrize(
+    "files",
+    [{}, {QUARANTINE_FILE: EMPTY}],
+    ids=["sprzed kwarantanny", "pusta kwarantanna"],
+)
+def test_commit_bez_wpisow_kwarantanny_jest_do_wydania_bez_jej_zapisu(releasing: Releasing, files: dict[str, str]) -> None:
+    merged = releasing.merge(1, "fix: naprawa", {"src/a.py": "a = 1\n", **files})
+    releasing.ci(merged, "success", "brak")
+
+    assert releasing.planned()["commit"] == merged
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "KWARANTANNA: dict[str, Kwarantanna] = dict(WPISY)\n",
+        "KWARANTANNA = {\n",
+        "WPISY = {}\n",
+        EMPTY + 'KWARANTANNA["tests/test_x.py::test_niestabilny"] = Kwarantanna(1, date(2026, 10, 30))\n',
+        EMPTY + "KWARANTANNA.update(WPISY)\n",
+        EMPTY + "KWARANTANNA |= WPISY\n",
+        EMPTY + 'KWARANTANNA = {"tests/test_x.py::test_niestabilny": Kwarantanna(1, date(2026, 10, 30))}\n',
+        EMPTY + "KWARANTANNA: dict[str, Kwarantanna] = dict(WPISY)\n",
+        EMPTY + 'globals()["KWARANTANNA"].update(WPISY)\n',
+    ],
+    ids=[
+        "nie dosłowny słownik",
+        "błąd składni",
+        "bez słownika",
+        "dopisany klucz",
+        "update",
+        "|=",
+        "drugie przypisanie",
+        "drugie przypisanie z adnotacją",
+        "przez globals()",
+    ],
+)
+def test_kwarantanna_inna_niz_jedno_puste_przypisanie_wymaga_zapisu(releasing: Releasing, source: str) -> None:
+    passed = releasing.merge(1, "fix: pierwsza naprawa", {"src/a.py": "a = 1\n"})
+    skipped = releasing.merge(2, "fix: druga", {QUARANTINE_FILE: source})
+    releasing.ci(skipped, "success", "brak")
+
+    planned = releasing.planned()
+
+    assert planned["commit"] == passed
+    assert planned["skipped"] == [{"commit": skipped, "ci": "bez zapisu kwarantanny"}]
+
+
+def test_wydanie_odmawia_gdy_test_z_kwarantanny_padl_w_ponowionym_runie_commitu(releasing: Releasing) -> None:
+    merged = releasing.merge(1, "feat: ilości usług", {"src/a.py": "a = 1\n", QUARANTINE_FILE: QUARANTINED})
+    releasing.planned()
+    releasing.ci(merged, "success", "padł")
+
+    result = releasing.publish("--potwierdzone-przez-maksa")
+
+    assert result.returncode == 1
+    assert result.stdout.splitlines()[-1] == f"WYDANIE ODMOWA | CI commitu {merged} nie jest już zielone (kwarantanna czerwona)."
+    assert releasing.remote_tags() == {}
 
 
 def test_bez_potwierdzenia_maksa_nie_powstaje_tag_ani_release(releasing: Releasing) -> None:

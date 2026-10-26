@@ -86,6 +86,7 @@ STRUCTURE = (
     "tests/test_granice_wyjatkow.py",
     "tests/test_jeden_odczyt_skoroszytu.py",
     "tests/test_jeden_zapis_skoroszytu.py",
+    "tests/test_kwarantanna.py",
     "tests/test_mapy_funkcji.py",
     "tests/test_miejsce_skilli.py",
     "tests/test_potomne.py::test_drzewa_procesow_i_kopie_commitow_narzedzi_buduje_tylko_potomne",
