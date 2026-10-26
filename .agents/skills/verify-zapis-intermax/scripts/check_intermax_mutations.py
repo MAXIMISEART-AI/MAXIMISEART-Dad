@@ -15,6 +15,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "tools"))
 from mutacje import Edit, Mutation, check_all
 
 ORDERING = Path("src/rozliczenia/intermax_ordering.py")
+COPIES = Path("src/rozliczenia/intermax_copies.py")
+FILE = Path("src/rozliczenia/intermax_file.py")
 SAVE = Path("src/rozliczenia/workbook_save.py")
 EXPLORER = (".agents/skills/verify-zapis-intermax/scripts/explore_intermax.py",)
 NEW = "INTERMAX: NOWE NARUSZENIE"
@@ -83,6 +85,58 @@ MUTATIONS = (
         ),
         EXPLORER,
         "obok INTERMAX w OneDrive zostaje plik tymczasowy",
+        NEW,
+    ),
+    Mutation(
+        "stare Kopie sortowane odwrotnie",
+        (
+            Edit(
+                COPIES,
+                "    copies = sorted(path for path in directory.iterdir() if _NAME.fullmatch(path.name))\n",
+                "    copies = sorted((path for path in directory.iterdir() if _NAME.fullmatch(path.name)), reverse=True)\n",
+            ),
+        ),
+        EXPLORER,
+        "od 11. Uporządkowania keep_newest usuwa świeżą Kopię zaraz po podmianie",
+        NEW,
+    ),
+    Mutation(
+        "zostaje jedna Kopia zamiast KEPT",
+        (
+            Edit(
+                COPIES,
+                "    for path in copies[:-KEPT]:\n",
+                "    for path in copies[:-1]:\n",
+            ),
+        ),
+        EXPLORER,
+        "tata ma jedną Kopię INTERMAX zamiast dziesięciu",
+        NEW,
+    ),
+    Mutation(
+        "nieudana podmiana usuwa wszystkie Kopie",
+        (
+            Edit(
+                ORDERING,
+                "                for copy in copies:\n                    copy.unlink()\n",
+                "                for copy in list(copies_directory.iterdir()):\n                    copy.unlink()\n",
+            ),
+        ),
+        EXPLORER,
+        "Zatrzymanie przy INTERMAX otwartym w Excelu usuwa wcześniejsze Kopie taty",
+        NEW,
+    ),
+    Mutation(
+        "Kopia przed sprawdzeniem zapisu",
+        (
+            Edit(
+                FILE,
+                "        temporary.write_bytes(content)\n        try:\n",
+                "        temporary.write_bytes(content)\n        before_replace()\n        try:\n",
+            ),
+        ),
+        EXPLORER,
+        "Zatrzymanie po niezgodnym zapisie zostawia Kopię INTERMAX",
         NEW,
     ),
 )
