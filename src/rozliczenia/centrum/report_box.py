@@ -9,16 +9,16 @@ gotowy tekst i klucz taty, a zwraca wynik bez wyjątków. Klucz nie trafia do
 wyniku, dziennika ani issue.
 
 Każda operacja zwraca wynik albo jedną z dwóch porażek: ``Refused`` (skrzynka
-odmówiła: klucz wygasł albo jest nieważny) albo ``Unreachable`` (brak sieci
-albo skrzynka nie odpowiedziała jak zwykle). Zakładanie issue i komentarz mają
+odmówiła: klucz wygasł albo jest nieważny) albo ``Unreachable`` (brak sieci,
+limit zapytań GitHuba albo skrzynka nie odpowiedziała jak zwykle). Zakładanie issue i komentarz mają
 trzecią: ``Rejected`` (skrzynka odmówiła tej treści). Klucz, którego nie da się wysłać
 w nagłówku HTTP (np. z BOM albo znakiem spoza ASCII), to ``Refused`` bez
 zapytania: taki klucz nie może być ważny. Nowe issue to ``Sent`` z numerem,
 komentarz ``Commented`` z identyfikatorem i adresem, a pytanie o issue z
 etykietą (``labelled_issues``) daje ich numery, treści i zamknięcie (powód i czas,
-z których Powiadomienia biorą stan sprawy). ``find_issue`` wybiera z nich
+z których Powiadomienia biorą stan sprawy). ``newest_with_line`` wybiera z nich
 najnowsze issue z wierszem rozpoznawczym: odciskiem problemu Zgłoszenia albo
-tokenem okresu Kontroli ilości.
+tokenem okresu Kontroli ilości. Klucz taty podaje adapterowi tylko ``KeyedBox``.
 """
 
 from __future__ import annotations
@@ -89,7 +89,7 @@ class Rejected:
 
 @dataclass(frozen=True)
 class Unreachable:
-    """Skrzynka nie odpowiedziała jak zwykle: brak sieci, przekroczony czas albo awaria po stronie GitHuba."""
+    """Skrzynka nie odpowiedziała jak zwykle: brak sieci, przekroczony czas, limit zapytań albo awaria GitHuba."""
 
 
 SendOutcome = Sent | Refused | Rejected | Unreachable
@@ -134,6 +134,9 @@ REPOSITORY: Final = "MAXIMISEART-AI/MAXIMISEART-Dad-zgloszenia"
 _API: Final = "https://api.github.com"
 _TIMEOUT_S: Final = 15.0
 _REFUSALS: Final = frozenset({401, 403, 404})
+# GitHub odpowiada na przekroczony limit zapytań (podstawowy i „secondary”) kodem 403 z „rate limit” w ``message``
+# (429 nie jest odmową, więc i tak jest ``Unreachable``); ``HttpResponse`` nie niesie nagłówków, a treść to mówi.
+_RATE_LIMIT: Final = b"rate limit"
 # Odpowiedzi na treść wysyłki (zła albo za długa), nie na klucz ani sieć.
 _REJECTIONS: Final = frozenset({400, 413, 422})
 # Issue z etykietą przegląda się stronami po 100; dziesięć stron to więcej, niż jedna etykieta kiedykolwiek będzie miała.
@@ -142,12 +145,9 @@ _MAX_PAGES: Final = 10
 _CLOSE_REASONS: Final[Mapping[str, CloseReason]] = {reason: reason for reason in get_args(CloseReason)}
 
 
-def find_issue(box: ReportBox, label: Label, line: str, *, include_closed: bool, key: str) -> FindOutcome:
-    """Najnowsze (o najwyższym numerze) issue z etykietą ``label`` i dokładnie wierszem ``line`` w treści."""
+def newest_with_line(issues: tuple[Issue, ...], line: str) -> int | None:
+    """Najnowsze (o najwyższym numerze) z ``issues`` z dokładnie wierszem ``line`` w treści."""
 
-    issues = box.labelled_issues(label, include_closed=include_closed, key=key)
-    if isinstance(issues, Refused | Unreachable):
-        return issues
     return max((issue.number for issue in issues if line in issue.body.splitlines()), default=None)
 
 
@@ -224,14 +224,19 @@ class GitHubReportBox:
         return Rejected() if isinstance(answer, HttpResponse) and answer.status in _REJECTIONS else answer
 
     def _exchange(self, request: HttpRequest) -> HttpResponse | Refused | Unreachable:
-        """Odpowiedź skrzynki na ``request``; brak sieci to ``Unreachable``, odmowa autoryzacji ``Refused``."""
+        """Odpowiedź skrzynki na ``request``; brak sieci to ``Unreachable``, odmowa autoryzacji ``Refused``.
+
+        Limit zapytań GitHuba to ``Unreachable``: klucz działa, a skrzynka każe poczekać jak bez sieci.
+        """
 
         transport = self._transport or urllib_transport  # odczyt przy każdym żądaniu: testy blokują go w conftest
         try:
             response = transport(request)
         except (OSError, http.client.HTTPException):
             return Unreachable()
-        return Refused() if response.status in _REFUSALS else response
+        if response.status in _REFUSALS and _RATE_LIMIT not in response.body:
+            return Refused()
+        return response
 
 
 def _sendable(key: str) -> bool:
