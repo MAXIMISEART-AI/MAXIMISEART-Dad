@@ -118,7 +118,7 @@ export function DadNoteForm({ openedFrom, close }: { openedFrom: string | null; 
             onChange={(event) => setBody(event.target.value)}
           />
         </Field>
-        <Field className="has-data-[slot=radio-group]:min-h-32 has-[>p+[data-slot=radio-group]]:min-h-38">
+        <Field className="has-data-[slot=radio-group]:min-h-32 has-[>p+[data-slot=radio-group]]:min-h-44">
           <FieldTitle>Dotyczy</FieldTitle>
           <SegmentedFilter label="Dotyczy" options={SCOPES} value={scope} onChange={setScope} />
           {scope === "run" ? (

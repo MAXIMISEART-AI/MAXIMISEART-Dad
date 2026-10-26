@@ -108,6 +108,29 @@ KEPT = """figure => new Promise(measured => requestAnimationFrame(() => requestA
     })
 })))"""
 
+# Whether the fields scroll, and how high „Maks dostanie” and „Dotyczy” with the list are against their least: the
+# caption and the first line of the preview, the switch (with the sentence above the list) and one row of the list.
+# `step` is one Tailwind spacing step, which the minimum of „Dotyczy” rounds up to. Measured as painted, like KEPT.
+LEAST = """dialog => new Promise(measured => requestAnimationFrame(() => requestAnimationFrame(() => {
+    const figure = dialog.querySelector("figure")
+    const fields = figure.parentElement
+    const height = element => element.getBoundingClientRect().height
+    const round = value => Math.round(value * 10) / 10
+    const style = getComputedStyle(figure)
+    const line = parseFloat(getComputedStyle(figure.querySelector("p")).lineHeight)
+    const list = dialog.querySelector("[role=radiogroup]")
+    const field = list && list.closest("[data-slot=field]")
+    const top = field && list.getBoundingClientRect().top - field.getBoundingClientRect().top
+    measured({
+        scrolls: fields.scrollHeight > fields.clientHeight + 1,
+        preview: round(height(figure)),
+        previewLeast: round(parseFloat(style.paddingTop) + height(figure.querySelector("figcaption")) + parseFloat(style.rowGap) + line + parseFloat(style.paddingBottom)),
+        dotyczy: field && round(height(field)),
+        dotyczyLeast: field && round(top + list.offsetHeight - list.clientHeight + height(list.querySelector("label"))),
+        step: parseFloat(getComputedStyle(document.documentElement).fontSize) / 4,
+    })
+})))"""
+
 
 def _server_time(started_at: str) -> str:
     """The date text the server writes (``06.10.2026, 08:21``): in the computer's time zone, Dad's own at his."""
@@ -273,6 +296,21 @@ def _send_misplaced(page: Page, dialog: Locator) -> list[str]:
     return wrong
 
 
+def _scrolls_at_least(run: Run, dialog: Locator, where: str) -> bool:
+    """Checks that the fields scroll only once „Maks dostanie” and „Dotyczy” with the list are at their least, and that
+    they are not held above it then; returns whether the fields scroll."""
+
+    least = dialog.evaluate(LEAST)
+    preview_least = abs(least["preview"] - least["previewLeast"]) <= 1
+    dotyczy_least = least["dotyczy"] is None or -1 <= least["dotyczy"] - least["dotyczyLeast"] <= least["step"] + 1
+    run.check(
+        not least["scrolls"] or (preview_least and dotyczy_least),
+        f"at {where} the fields scroll only with „Maks dostanie” at its caption and first line and „Dotyczy” with the"
+        f" list at its switch and one row ({least})",
+    )
+    return bool(least["scrolls"])
+
+
 def _drive_low_windows(run: Run, page: Page) -> None:
     run.step(FEATURE, "uwaga-niskie-okno")
     screen = page.viewport_size
@@ -297,6 +335,10 @@ def _drive_low_windows(run: Run, page: Page) -> None:
                 if window == LOW_WINDOW:
                     shot = "177b-uwaga-niskie-okno-drugi-motyw" if second_theme else "177-uwaga-niskie-okno"
                     run.capture(page, shot, full_page=False)
+                where = f"{window['width']}×{window['height']} ({kind}, motyw {theme})"
+                scrolls = _scrolls_at_least(run, dialog, where)
+                if window in (screen, LOW_WINDOW):
+                    run.check(scrolls == (window == LOW_WINDOW), f"at {where} the fields scroll only in the low window")
                 wrong = _send_misplaced(page, dialog)
                 run.check(
                     wrong == [],
@@ -309,6 +351,29 @@ def _drive_low_windows(run: Run, page: Page) -> None:
         page.set_viewport_size(screen)
     page.locator("header").get_by_role("button", name="Włącz motyw", exact=False).click()
     run.check(sorted(themes) == ["ciemny", "jasny"], "the low windows were checked in both themes")
+
+
+def _low_with_list(run: Run, page: Page, dialog: Locator, choices: Locator, what: str) -> None:
+    """In the low window the fields scroll with „Dotyczy” at its switch and one row of the list, and the checked row,
+    scrolled into view, is wholly shown."""
+
+    screen = page.viewport_size
+    assert screen is not None
+    try:
+        page.set_viewport_size(LOW_WINDOW)
+        where = f"{LOW_WINDOW['width']}×{LOW_WINDOW['height']} {what}"
+        run.wait_for(
+            lambda: (box := dialog.bounding_box()) is not None and box["y"] >= 0
+            and box["y"] + box["height"] <= LOW_WINDOW["height"],
+            f"at {where} the open dialog fits the window",
+        )
+        run.check(_scrolls_at_least(run, dialog, where), f"at {where} the fields scroll")
+        row = choices.locator('label:has([role="radio"][aria-checked="true"])')
+        row.scroll_into_view_if_needed()
+        shown = row.evaluate(WHOLLY_SHOWN)
+        run.check(shown["shown"], f"at {where} the checked row scrolled into view is wholly shown ({shown})")
+    finally:
+        page.set_viewport_size(screen)
 
 
 def _drive_full_window_list(run: Run, page: Page) -> None:
@@ -341,9 +406,13 @@ def _drive_full_window_list(run: Run, page: Page) -> None:
         figure = dialog.get_by_role("figure", name="Co dostanie Maks", exact=True)
         kept = figure.evaluate(KEPT)
         run.check(
-            kept["list"] < kept["listNatural"] - 1 and kept["dotyczy"] >= kept["figure"] - 0.01,
-            "at the full window the list gives up height and „Dotyczy” with it keeps at least the share of its height"
-            f" that „Maks dostanie” keeps, as on main ({kept})",
+            kept["list"] < kept["listNatural"] - 1 and abs(kept["dotyczy"] - kept["figure"]) <= 0.01,
+            "at the full window the list gives up height and „Dotyczy” with it keeps the same share of its height"
+            f" as „Maks dostanie”, as on main ({kept})",
+        )
+        run.check(
+            not _scrolls_at_least(run, dialog, "the full window with the list"),
+            "at the full window with the list the fields do not scroll",
         )
         parts = {
             "the checked row": choices.locator('label:has([role="radio"][aria-checked="true"])'),
@@ -354,6 +423,7 @@ def _drive_full_window_list(run: Run, page: Page) -> None:
         hidden = {name: shown for name, part in parts.items() if not (shown := part.evaluate(WHOLLY_SHOWN))["shown"]}
         run.check(hidden == {}, f"at the full window the fields do not scroll: all of {list(parts)} are on screen ({hidden})")
         run.capture(page, "179-uwaga-pelne-okno-lista", full_page=False)
+        _low_with_list(run, page, dialog, choices, "with the list")
         page.keyboard.press("Escape")
         expect(dialog).to_have_count(0)
     finally:
@@ -870,6 +940,7 @@ def _not_in_history(run: Run, page: Page, period: str) -> None:
         "the figure shows the draft pinned to the newest Uruchomienie of the list",
     )
     expect(send).to_be_enabled()
+    _low_with_list(run, page, dialog, choices, "with the sentence above the list")
     page.keyboard.press("Escape")
     expect(dialog).to_have_count(0)
 
