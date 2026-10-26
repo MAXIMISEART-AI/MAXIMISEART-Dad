@@ -1,0 +1,284 @@
+"""Wyrocznia hooka ``tools/hooks/zgoda.py``: czy zainstalowany Claude Code oddaje temu hookowi pytanie o zgodę na ``rm``.
+
+Hook działa, dopóki Claude Code uruchamia hooki ``PermissionRequest`` przy pytaniu o zgodę, więc po aktualizacji
+Claude Code ta wyrocznia uruchamia go tak jak T3 (``stream-json`` na wejściu i wyjściu, ``--permission-prompt-tool
+stdio``, ``--permission-mode bypassPermissions``), w katalogu tego checkoutu, czyli z jego ``.claude/settings.json``.
+Modelu nie ma: lokalne fałszywe API (``ANTHROPIC_BASE_URL``) każe wysłać polecenie przypadku z
+``tools/wyrocznia_zgody.jsonl`` bajt w bajt narzędziem Bash i odbiera wynik narzędzia, a wtedy wyrocznia kończy
+Claude Code. Polecenia nie biegną: prefiks powłoki ``tools/wyrocznia_zgody_prefiks.sh`` wykonuje tylko polecenie
+równe co do znaku poleceniu hooka zgody z ``.claude/settings.json``.
+Host, czyli T3 z człowiekiem, nigdy nie odpowiada na pytanie o zgodę i zamyka wejście po ``--host-s`` sekundach bez
+wyniku narzędzia. Ścieżki ``@WS@``, ``@FAR@`` i ``@TFAR@`` (ta sama co ``@FAR@``, ale przez ``~``) prowadzą do
+katalogu tymczasowego w ``~/.cache``, który narzędzie usuwa na końcu.
+
+Wiersz na przypadek: ``ZGODNE`` (polecenie z ``pyta_o_zgode`` dostało odmowę hooka, a pozostałe doszły do powłoki),
+``PRZESTÓJ`` (wynik narzędzia przyszedł dopiero po zamknięciu wejścia przez hosta, czyli w T3 agent stałby do powrotu
+człowieka) albo ``ZMIANA`` (inny wynik, np. Claude Code już nie pyta o polecenie z pliku albo pyta o polecenie
+kontrolne). Ostatnia linia to ``WYROCZNIA OK | …`` (kod 0) tylko wtedy, gdy każdy przypadek jest ``ZGODNE``, a hook
+choć raz odmówił; inaczej ``WYROCZNIA PRZESTÓJ | …`` albo ``WYROCZNIA ZMIANA | …`` (kod 1). Bez ``claude`` na PATH
+albo na Windows kończy się kodem 2.
+
+    .venv/bin/python tools/wyrocznia_zgody.py                  # wszystkie przypadki, ok. 5 min
+    .venv/bin/python tools/wyrocznia_zgody.py k-sam-doslowny  # wybrane przypadki
+"""
+
+from __future__ import annotations
+
+import argparse
+from collections.abc import Sequence
+from dataclasses import dataclass
+import http.server
+import json
+import os
+from pathlib import Path
+import shutil
+import sys
+import tempfile
+import threading
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools/hooks"))
+
+import potomne
+import zgoda
+
+ROOT = Path(__file__).resolve().parents[1]
+CASES = ROOT / "tools" / "wyrocznia_zgody.jsonl"
+PREFIX = ROOT / "tools" / "wyrocznia_zgody_prefiks.sh"
+SETTINGS = ROOT / ".claude" / "settings.json"
+NOT_RUN = "WYROCZNIA-ZGODY-NIE-WYKONANO"
+HOST_S = 30.0
+# Flagi wyjścia, wejścia i uprawnień, z którymi T3 uruchamia Claude Code (ps na komputerze Maksa, 26.10.2026).
+T3_FLAGS = (
+    "--output-format",
+    "stream-json",
+    "--verbose",
+    "--input-format",
+    "stream-json",
+    "--permission-prompt-tool",
+    "stdio",
+    "--tools",
+    "default",
+    "--permission-mode",
+    "bypassPermissions",
+    "--allow-dangerously-skip-permissions",
+)
+DENIED = "odmowa hooka"
+SHELL = "powłoka"
+WAITED = "czekał na hosta"
+
+
+@dataclass(frozen=True)
+class Case:
+    name: str
+    command: str
+    asks: bool
+
+
+@dataclass(frozen=True)
+class Outcome:
+    # Wynik narzędzia Bash, który Claude Code oddał modelowi, i czy host zamknął wejście, zanim go oddał.
+    result: str | None
+    host_gave_up: bool
+
+
+class _Api(http.server.BaseHTTPRequestHandler):
+    """Fałszywe Messages API: każda odpowiedź to ``tool_use`` Bash z poleceniem przypadku; zapamiętuje wynik narzędzia."""
+
+    command = ""
+    result: str | None = None
+    answered = threading.Event()
+
+    def log_message(self, format: str, *args: object) -> None:
+        pass
+
+    def do_POST(self) -> None:
+        # Claude Code 2.1.310 woła tu tylko POST /v1/messages (1737 zapytań w pomiarach rundy 3 #496).
+        body = json.loads(self.rfile.read(int(self.headers.get("content-length") or 0)))
+        stream = reply(type(self).command)
+        self.send_response(200)
+        self.send_header("content-type", "text/event-stream")
+        self.send_header("content-length", str(len(stream)))
+        self.end_headers()
+        self.wfile.write(stream)
+        result = tool_result(body)
+        if result is not None:
+            type(self).result = result
+            type(self).answered.set()
+
+
+def tool_result(body: dict[str, object]) -> str | None:
+    """Tekst wyniku narzędzia w ostatniej wiadomości zapytania albo ``None``, gdy model go jeszcze nie dostał."""
+
+    messages = body.get("messages")
+    last = messages[-1] if isinstance(messages, list) and messages else {}
+    content = last.get("content") if isinstance(last, dict) else None
+    for part in content if isinstance(content, list) else []:
+        if isinstance(part, dict) and part.get("type") == "tool_result":
+            inner = part.get("content")
+            return inner if isinstance(inner, str) else json.dumps(inner, ensure_ascii=False)
+    return None
+
+
+def reply(command: str) -> bytes:
+    """Strumień odpowiedzi API z jednym ``tool_use`` Bash z ``command``; wyrocznia kończy Claude Code po jego wyniku."""
+
+    block = {"type": "tool_use", "id": "toolu_wyrocznia", "name": "Bash", "input": {}}
+    message: dict[str, object] = {
+        "id": "msg_wyrocznia",
+        "type": "message",
+        "role": "assistant",
+        "model": "claude-haiku-5-5",
+        "content": [],
+        "stop_reason": None,
+        "stop_sequence": None,
+        "usage": {"input_tokens": 1, "output_tokens": 1},
+    }
+    delta = {"type": "input_json_delta", "partial_json": json.dumps({"command": command})}
+    events = [
+        ("message_start", {"type": "message_start", "message": message}),
+        ("content_block_start", {"type": "content_block_start", "index": 0, "content_block": block}),
+        ("content_block_delta", {"type": "content_block_delta", "index": 0, "delta": delta}),
+        ("content_block_stop", {"type": "content_block_stop", "index": 0}),
+        (
+            "message_delta",
+            {"type": "message_delta", "delta": {"stop_reason": "tool_use", "stop_sequence": None}, "usage": {"output_tokens": 1}},
+        ),
+        ("message_stop", {"type": "message_stop"}),
+    ]
+    return "".join(f"event: {name}\ndata: {json.dumps(data)}\n\n" for name, data in events).encode()
+
+
+def cases(path: Path) -> list[Case]:
+    rows = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    return [Case(row["nazwa"], row["polecenie"], row["pyta_o_zgode"]) for row in rows]
+
+
+def placed(command: str, sandbox: Path) -> str:
+    far = sandbox / "far"
+    tilde = "~/" + far.relative_to(Path.home()).as_posix()
+    return command.replace("@WS@", str(sandbox / "ws")).replace("@FAR@", str(far)).replace("@TFAR@", tilde)
+
+
+def what(got: Outcome) -> str:
+    if got.result is not None and zgoda.MESSAGE in got.result:
+        return DENIED
+    if got.result is not None and NOT_RUN in got.result:
+        return SHELL
+    if got.host_gave_up:
+        return WAITED
+    return f"inny wynik: {(got.result or 'brak wyniku narzędzia')[:120]!r}"
+
+
+def verdict(case: Case, seen: str) -> str:
+    if seen == (DENIED if case.asks else SHELL):
+        return "ZGODNE"
+    return "PRZESTÓJ" if seen == WAITED else "ZMIANA"
+
+
+def hook_command() -> str:
+    """Jedyne polecenie hooka ``PermissionRequest`` z ustawień checkoutu, dosłownie tak, jak Claude Code podaje je prefiksowi."""
+
+    entries = json.loads(SETTINGS.read_text(encoding="utf-8"))["hooks"]["PermissionRequest"]
+    (command,) = [str(hook["command"]) for entry in entries for hook in entry["hooks"]]
+    return command
+
+
+def environment(port: int) -> dict[str, str]:
+    """Środowisko ``claude``: bez zmiennych sesji Claude Code, w której biegnie wyrocznia, z fałszywym API i prefiksem."""
+
+    kept = {name: value for name, value in os.environ.items() if not name.startswith("CLAUDE_CODE_") and name != "CLAUDECODE"}
+    return {
+        **kept,
+        "ANTHROPIC_BASE_URL": f"http://127.0.0.1:{port}",
+        "ANTHROPIC_API_KEY": "sk-ant-wyrocznia-zgody",
+        "CLAUDE_CODE_SHELL_PREFIX": str(PREFIX),
+        "WYROCZNIA_ZGODY_HOOK": hook_command(),
+    }
+
+
+def ask(command: str, sandbox: Path, port: int, host_s: float) -> Outcome:
+    """Jedno uruchomienie Claude Code z poleceniem ``command`` aż do wyniku narzędzia; host nie odpowiada na zgodę."""
+
+    if sys.platform == "win32":
+        raise NotImplementedError("host wyroczni to potok nazwany, którego Windows nie ma")
+    _Api.command = command
+    _Api.result = None
+    _Api.answered.clear()
+    gave_up = threading.Event()
+    pipe = sandbox / "wejscie"
+    os.mkfifo(pipe)
+    lines = [
+        {"type": "control_request", "request_id": "init", "request": {"subtype": "initialize", "hooks": None}},
+        {"type": "user", "message": {"role": "user", "content": "Run the command."}, "parent_tool_use_id": None, "session_id": ""},
+    ]
+
+    def host() -> None:
+        with pipe.open("w", encoding="utf-8") as stdin:
+            stdin.write("".join(json.dumps(line) + "\n" for line in lines))
+            stdin.flush()
+            if not _Api.answered.wait(host_s):
+                gave_up.set()
+
+    threading.Thread(target=host, daemon=True).start()
+    command_line = ["claude", *T3_FLAGS, "--model", "claude-haiku-5-5", "--max-turns", "3"]
+    try:
+        # Claude Code w trybie stream-json nie kończy się sam po turze, więc wyrocznia kończy go po wyniku narzędzia.
+        potomne.run(
+            ["/bin/sh", "-c", 'exec "$@" <"$0"', str(pipe), *command_line],
+            cwd=ROOT,
+            env=environment(port),
+            timeout=host_s + 60,
+            stop=_Api.answered,
+        )
+    except potomne.Stopped:
+        pass
+    finally:
+        _Api.answered.set()
+        pipe.unlink()
+    return Outcome(_Api.result, gave_up.is_set())
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("nazwy", nargs="*", help="Nazwy przypadków (pole nazwa); bez nich wszystkie.")
+    parser.add_argument("--przypadki", type=Path, default=CASES, help="Plik przypadków JSONL.")
+    parser.add_argument(
+        "--host-s", type=float, default=HOST_S, help=f"Jak długo host czeka bez odpowiedzi (domyślnie {HOST_S:g} s)."
+    )
+    args = parser.parse_args(argv)
+    chosen = [case for case in cases(args.przypadki) if not args.nazwy or case.name in args.nazwy]
+    if sys.platform == "win32" or shutil.which("claude") is None:
+        print("WYROCZNIA BRAK | potrzebny claude na PATH na macOS albo Linuksie")
+        return 2
+    version = potomne.run(["claude", "--version"], cwd=ROOT, timeout=60).stdout.strip()
+    print(f"Claude Code {version}, przypadki {len(chosen)}", flush=True)
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _Api)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    cache = Path.home() / ".cache"
+    cache.mkdir(exist_ok=True)
+    sandbox = Path(tempfile.mkdtemp(prefix="wyrocznia-zgody-", dir=cache))
+    counts: dict[str, int] = {}
+    denied = 0
+    try:
+        for folder in ("ws", "far/logi"):
+            (sandbox / folder).mkdir(parents=True)
+        for case in chosen:
+            seen = what(ask(placed(case.command, sandbox), sandbox, server.server_address[1], args.host_s))
+            result = verdict(case, seen)
+            counts[result] = counts.get(result, 0) + 1
+            denied += seen == DENIED
+            print(f"{result} {case.name} | {seen}", flush=True)
+    finally:
+        server.shutdown()
+        shutil.rmtree(sandbox, ignore_errors=True)
+    summary = ", ".join(f"{name} {count}" for name, count in sorted(counts.items()))
+    failed = next((name for name in ("PRZESTÓJ", "ZMIANA") if counts.get(name)), None)
+    if failed is None and denied == 0:
+        failed = "ZMIANA"
+        summary += ", hook nie odmówił ani razu"
+    print(f"WYROCZNIA {failed or 'OK'} | Claude Code {version} | {summary}")
+    return 1 if failed else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

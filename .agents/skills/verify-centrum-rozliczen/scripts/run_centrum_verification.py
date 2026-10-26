@@ -154,6 +154,7 @@ REQUIRED_SCREENSHOTS = {
         "45-przebieg-status-okresu.png",
         "46-przebieg-nienadpisywanie.png",
         "47-przebieg-wymaga-sprawdzenia.png",
+        "47b-przebieg-nieznany-wykonawca.png",
         "48-przebieg-odczyt-po-uruchomieniu.png",
     ),
     "kontrola-ilosci": (
@@ -173,6 +174,7 @@ REQUIRED_SCREENSHOTS = {
         "58-diagnoza-nieoczekiwany-wyjatek.png",
         "59-diagnoza-nieoczekiwany-wyjatek-zgloszenie.png",
         "59b-diagnoza-klucz-odrzucony.png",
+        "59c-diagnoza-konfiguracja-wykonawcow.png",
     ),
     "aktualnosc-i-onedrive": (
         "76-aktualnosc-nowsza-wersja.png",

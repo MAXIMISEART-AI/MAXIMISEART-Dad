@@ -21,6 +21,12 @@ robi mutacje, które przeglądy PR-ów robiły ręcznie i które przeżywały te
 - bez jednego elementu krotki, która nie jest samymi stałymi;
 - fragment zmiany (hunk) cofnięty do bazy: test poprawki, który przechodzi bez niej, tu przeżywa.
 
+Biegnie każde cofnięcie fragmentu i najwyżej jedna inna mutacja na linię (``selected``): ta z najgłębszego węzła
+drzewa składni linii, czyli ostatnia, którą daje przejście drzewa wszerz (``ast.walk``), a z kilku na tym samym węźle
+ostatnia z nich. Psuje ona najmniejszy kawałek linii, więc przeżywa test, który sprawdza tylko ogólny skutek linii;
+ogólny skutek fragmentu sprawdza już jego cofnięcie. Cofnięcie, które daje ten sam kod co inna mutacja (bez elementu
+krotki, ``False`` → ``True``), biegnie jako cofnięcie pod jej opisem. Linia mutacji to linia jej wyjątku (``Mutant.line``).
+
 Mutacja, która zmienia tylko docstringi, komentarze, adnotacje argumentów i wyników funkcji, importy albo aliasy
 typów (``Nazwa = Callable[...]``, ``A | B`` czytane tylko w adnotacjach), nie zmienia zachowania, więc jej nie ma.
 Dekoratorów narzędzie nie psuje, a samo usunięcie linii (bez linii dodanej w tym miejscu) nie daje mutacji.
@@ -57,7 +63,9 @@ terminie nie obowiązuje, ale narzędzie widzi go dopiero przy
 następnej zmianie jego pliku, a komentarz ``mutacje-zmiany:`` w innej postaci kończy narzędzie błędem.
 
 Kończy się ``MUTACJE ZMIANY OK | …`` albo ``MUTACJE ZMIANY FAIL | …``. W CI biegnie na Linuksie w trzech częściach
-zadania ``Change mutations``, a ``Required CI status`` wymaga każdej z nich.
+zadania ``Change mutations``, które startuje dopiero po zielonym ``Required CI status`` i go nie blokuje. Z ``--zapis``
+każda część zapisuje swoją ostatnią linię i nazwy przeżytych mutacji (``<plik>:<linia> <opis>``, jak w linii
+``NIEWYKRYTA``), a ``tools/scal_pr.py`` każe recenzentowi omówić każdą z nich w ``PASS``.
 
 Granica: nie zastępuje mutacji z opisu PR. Obietnicę, której żadna z tych mutacji nie psuje (inny klucz
 wyszukiwania, kolejność kroków), samo usunięcie linii, dekoratory, argument pozycyjny, kod poza ``src/`` i ``tools/``
@@ -82,7 +90,7 @@ import argparse
 import ast
 from collections import defaultdict
 from collections.abc import Iterable, Iterator, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 import datetime
 import io
 import itertools
@@ -122,6 +130,7 @@ class Mutant:
     source: str  # cały plik po mutacji
     other_system: bool = False  # kod gałęzi innego systemu niż ten, na którym biegną testy
     shared_state: bool = False  # kod funkcji z ``@cache``: wynik pierwszego wywołania dostają następne testy
+    revert: bool = False  # cofnięcie fragmentu zmiany do bazy
 
 
 @dataclass(frozen=True)
@@ -549,7 +558,11 @@ def mutants(path: str, text: str, hunks: Sequence[Hunk], platform: str = sys.pla
     found: dict[str, Mutant] = {}
     meaning = _meaning(text)
 
-    def add(lines: frozenset[int], line: int, description: str, mutated: str, *, other_system: bool) -> None:
+    def add(lines: frozenset[int], line: int, description: str, mutated: str, *, other_system: bool, revert: bool = False) -> None:
+        if revert and mutated in found:
+            # Cofnięcie, które daje kod innej mutacji, to ta mutacja: biegnie jako cofnięcie.
+            found[mutated] = replace(found[mutated], revert=True)
+            return
         if mutated == text or mutated in found:
             return
         try:
@@ -557,7 +570,7 @@ def mutants(path: str, text: str, hunks: Sequence[Hunk], platform: str = sys.pla
         except (SyntaxError, ValueError):
             return
         if _meaning(mutated) != meaning:
-            found[mutated] = Mutant(path, line, lines, description, mutated, other_system, bool(lines & cached))
+            found[mutated] = Mutant(path, line, lines, description, mutated, other_system, bool(lines & cached), revert)
 
     for node in ast.walk(tree):
         if id(node) in skipped:
@@ -578,8 +591,17 @@ def mutants(path: str, text: str, hunks: Sequence[Hunk], platform: str = sys.pla
         lines = changed_lines([hunk])
         # Komentarz i pusta linia nie biegną na żadnym systemie, więc nie decydują, czyj jest fragment.
         code = {line for line in lines if line <= len(rows) and rows[line - 1].strip() and not rows[line - 1].lstrip().startswith("#")}
-        add(lines, hunk.start, f"zmiana linii {span} cofnięta do bazy", mutated, other_system=bool(code) and code <= other_lines)
-    return sorted(found.values(), key=lambda mutant: (mutant.line, mutant.description))
+        add(lines, hunk.start, f"zmiana linii {span} cofnięta do bazy", mutated, other_system=bool(code) and code <= other_lines, revert=True)
+    # Sortowanie stabilne: w linii zostaje kolejność przejścia drzewa wszerz, z której wybiera ``selected``.
+    return sorted(found.values(), key=lambda mutant: mutant.line)
+
+
+def selected(path: str, text: str, hunks: Sequence[Hunk], platform: str = sys.platform) -> list[Mutant]:
+    """Mutacje, które biegną w CI i liczy plan: każde cofnięcie fragmentu i ostatnia inna mutacja każdej linii."""
+
+    found = mutants(path, text, hunks, platform)
+    last = {mutant.line: mutant for mutant in found if not mutant.revert}
+    return [mutant for mutant in found if mutant.revert or last[mutant.line] is mutant]
 
 
 def exceptions(text: str, path: str) -> dict[int, Allowance]:
@@ -713,17 +735,30 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--rownolegle", type=int, default=WORKERS, help="Ile mutacji biegnie naraz, każda w swojej kopii.")
     parser.add_argument("--limit-s", type=float, default=900, help="Limit czasu testów jednej mutacji w sekundach.")
     parser.add_argument("--czesc", metavar="K/N", type=_part, default=(1, 1), help="Tylko co N-ta mutacja, od K-tej.")
+    parser.add_argument("--zapis", type=Path, help="Plik JSON z ostatnią linią i nazwami przeżytych mutacji (artefakt CI).")
     ciezkie_ci.argument(parser)
     args = parser.parse_args(argv)
     if refusal := ciezkie_ci.refusal({"change-mutations"}, args.odtwarzam, root=ROOT):
         print(refusal)
         return 2
+    survived: list[str] = []
+    code, result = _mutate(args, survived)
+    print(result)
+    if args.zapis is not None:
+        args.zapis.parent.mkdir(parents=True, exist_ok=True)
+        record = {"czesc": "/".join(map(str, args.czesc)), "wynik": result, "przezyte": survived}
+        args.zapis.write_text(json.dumps(record, ensure_ascii=False, indent=1), encoding="utf-8")
+    return code
+
+
+def _mutate(args: argparse.Namespace, survived: list[str]) -> tuple[int, str]:
+    """Kod wyjścia i ostatnia linia; nazwy przeżytych mutacji dopisuje do ``survived``."""
+
     number, count = args.czesc
     try:
         fork = _git("merge-base", "HEAD", args.baza).strip()
     except subprocess.CalledProcessError:
-        print(f"MUTACJE ZMIANY FAIL | nieznana baza {args.baza}")
-        return 1
+        return 1, f"MUTACJE ZMIANY FAIL | nieznana baza {args.baza}"
     replaced, unseen = overlay(fork)
     hunks = {path: found for path, found in changes(fork).items() if path not in replaced}
     for path in unseen:
@@ -732,17 +767,15 @@ def main(argv: list[str] | None = None) -> int:
     try:
         allowed = {path: exceptions(text, path) for path, text in texts.items()}
     except ValueError as error:
-        print(f"MUTACJE ZMIANY FAIL | {error}")
-        return 1
-    every = [mutant for path, text in texts.items() for mutant in mutants(path, text, hunks[path])]
+        return 1, f"MUTACJE ZMIANY FAIL | {error}"
+    every = [mutant for path, text in texts.items() for mutant in selected(path, text, hunks[path])]
     found = every[number - 1 :: count]
     if not found:
         where = f" w części {number}/{count}" if every else ""
-        print(f"MUTACJE ZMIANY OK | brak mutacji zmienionych linii src/ i tools/ od {args.baza}{where}")
-        return 0
+        return 0, f"MUTACJE ZMIANY OK | brak mutacji zmienionych linii src/ i tools/ od {args.baza}{where}"
     paths = {mutant.path for mutant in found}
     by_file = {path: sorted(szybko.select(ROOT, frozenset({path})).fingerprints) for path in paths}
-    tests = sorted({test for selected in by_file.values() for test in selected})
+    tests = sorted({test for chosen in by_file.values() for test in chosen})
     part = f" (część {number}/{count} z {len(every)})" if count > 1 else ""
     print(f"Mutacje: {len(found)}{part} w {len(paths)} plikach src/ i tools/ od {args.baza}. Testy dotknięte zmianą: {len(tests)}.", flush=True)
     near = runners(paths)
@@ -752,12 +785,11 @@ def main(argv: list[str] | None = None) -> int:
         done, coverage = _coverage(tests, {path: changed_lines(hunks[path]) for path in paths})
         if done.returncode != 0:
             print("\n".join((done.stdout + done.stderr).rstrip().splitlines()[-30:]))
-            print("MUTACJE ZMIANY FAIL | testy dotknięte zmianą padają bez mutacji, więc mutacje niczego nie dowiodą")
-            return 2
+            return 2, "MUTACJE ZMIANY FAIL | testy dotknięte zmianą padają bez mutacji, więc mutacje niczego nie dowiodą"
         print(f"Pokrycie: {len(coverage.lines)} testów wykonało zmienione linie, {len(coverage.spawners)} uruchomiło proces.", flush=True)
     today = datetime.datetime.now(datetime.UTC).date()
     narrow: list[tuple[Mutant, mutacje.Mutation, list[str]]] = []  # i testy drugiego przebiegu, gdy pierwszy przeżyje
-    survived = excused = other_system = 0
+    excused = other_system = 0
     for mutant in found:
         name = f"{mutant.path}:{mutant.line} {mutant.description}"
         allowance = _allowance(allowed[mutant.path], mutant, today)
@@ -770,7 +802,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"POMINIĘTA: {name} → kod innego systemu niż {sys.platform}")
             continue
         if not by_file[mutant.path]:
-            survived += 1
+            survived.append(name)
             print(f"NIEWYKRYTA: {name} → żaden test nie zależy od {mutant.path}")
             continue
         # Kod, którego wynik dostają też testy, które go nie wykonały (import, fixture szersza niż test, ``@cache``),
@@ -787,14 +819,16 @@ def main(argv: list[str] | None = None) -> int:
     # Takich jest kilka, a testów pliku tysiące, więc biegną po jednej, każda z workerami xdist.
     wide: list[mutacje.Mutation] = []
     for (_, mutation, second), (verdict, last) in zip(narrow, mutacje.verdicts([m for _, m, _ in narrow], workers=args.rownolegle, limit_s=args.limit_s), strict=True):
+        if verdict != "WYKRYTA" and not second:
+            survived.append(mutation.name)
         if verdict == "WYKRYTA" or not second:
-            survived += verdict != "WYKRYTA"
             print(f"{verdict}: {mutation.name} → {last}", flush=True)
         else:
             wide.append(mutacje.Mutation(mutation.name, mutation.edits, _command(second, args.rownolegle)))
     clock.append(time.monotonic())
     for mutation, (verdict, last) in zip(wide, mutacje.verdicts(wide, workers=1, limit_s=args.limit_s), strict=True):
-        survived += verdict != "WYKRYTA"
+        if verdict != "WYKRYTA":
+            survived.append(mutation.name)
         print(f"{verdict}: {mutation.name} → {last} (testy pliku)", flush=True)
     clock.append(time.monotonic())
     uncovered = sum(not second for _, _, second in narrow)
@@ -806,10 +840,8 @@ def main(argv: list[str] | None = None) -> int:
     )
     summary = f"mutacje={len(found)} | wyjątki={excused} | innego systemu={other_system}"
     if survived:
-        print(f"MUTACJE ZMIANY FAIL | przeżyło {survived} | {summary}")
-        return 1
-    print(f"MUTACJE ZMIANY OK | {summary}")
-    return 0
+        return 1, f"MUTACJE ZMIANY FAIL | przeżyło {len(survived)} | {summary}"
+    return 0, f"MUTACJE ZMIANY OK | {summary}"
 
 
 if __name__ == "__main__":

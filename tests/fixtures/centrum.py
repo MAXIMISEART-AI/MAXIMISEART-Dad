@@ -2,14 +2,18 @@
 
 from __future__ import annotations
 
+import itertools
 import json
 import threading
+import time
+import weakref
 from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from rozliczenia import intermax_process, preparation_process, settlement_process
@@ -53,6 +57,10 @@ ONLINE_ONLY_FILE = 0x400000
 BACKGROUND_NUMBERS = 1001
 # Logi Uruchomienia idą do skrzynki po każdym Uruchomieniu; testy innych wysyłek ich nie oglądają.
 RUN_LOGS_IN_BACKGROUND: frozenset[Label] = frozenset({"logi-uruchomienia"})
+# Najdłuższe czekanie zatrzymania Centrum na koniec jego wątków w tle; tyle, co skrzynka czeka na wysyłkę w tle.
+STOP_S = 30.0
+# Wątek przejścia kolejki Skrzynki (``Outbox.send_in_background``).
+QUEUE_THREAD = "skrzynka-kolejka"
 
 
 @dataclass
@@ -280,9 +288,86 @@ class MetricsPaths:
         )
 
 
+# Numer startu przodka każdego wątku, którego uruchomił wątek testu (pierwszego wątku tej linii).
+_LINE_STARTS: weakref.WeakKeyDictionary[threading.Thread, int] = weakref.WeakKeyDictionary()
+_STARTS = itertools.count()
+_thread_start = threading.Thread.start
+
+
+def _start_in_line(self: threading.Thread) -> None:
+    """Wątek dziedziczy numer startu linii po wątku, który go uruchamia; wątek testu zaczyna nową linię."""
+
+    line = _LINE_STARTS.get(threading.current_thread())
+    _LINE_STARTS[self] = next(_STARTS) if line is None else line
+    _thread_start(self)
+
+
+threading.Thread.start = _start_in_line  # type: ignore[method-assign]
+
+
+def new_line() -> int:
+    """Numer, od którego ``threads_since`` liczy wątki, które wątek testu uruchomi od teraz."""
+
+    return next(_STARTS)
+
+
+def threads_since(since: int, *, named: str | None = None) -> list[threading.Thread]:
+    """Żywe wątki z linii, które wątek testu zaczął od ``since``, także uruchomione później przez wątki tych linii.
+
+    ``named``: tylko wątki o tej nazwie.
+    """
+
+    return [
+        thread
+        for thread in threading.enumerate()
+        if _LINE_STARTS.get(thread, -1) >= since and named in (None, thread.name)
+    ]
+
+
+def join_threads_since(since: int, timeout_s: float = STOP_S, *, named: str | None = None) -> None:
+    """Czeka, aż skończy się każdy wątek z ``threads_since``; wątek żywy po ``timeout_s`` wywraca test z nazwą."""
+
+    deadline = time.monotonic() + timeout_s
+    while alive := threads_since(since, named=named):
+        left = deadline - time.monotonic()
+        assert left > 0, f"Centrum nie zatrzymało się: żyją wątki {', '.join(thread.name for thread in alive)}"
+        alive[0].join(left)
+
+
+class CentrumClient(TestClient):
+    """Klient HTTP Centrum w teście, który zatrzymuje Centrum, zanim test przeczyta albo usunie jego pliki.
+
+    Na Windows pliku, który wątek Centrum w tle w tej chwili pisze albo czyta, nie da się otworzyć ani usunąć
+    (``PermissionError``), więc test dotyka plików Centrum dopiero po ``stop``. Wątki Centrum to wątki z linii, które
+    wątek testu zaczął od ``since``, także uruchomione później przez wątki tej linii. Wątek z linii sprzed ``since``
+    należy do Centrum innego testu, nawet gdy powstał po ``since`` (budzik kolejki z ``SYSTEM_CLOCK`` co
+    ``RETRY_S`` uruchamia następny). Centrum po ponownym starcie dostaje ``since`` poprzedniego, żeby ``stop``
+    czekał też na wątki jego poprzedniej pracy.
+    """
+
+    def __init__(self, app: FastAPI, *, since: int | None = None) -> None:
+        super().__init__(app, base_url=CENTRUM, headers={"Origin": CENTRUM})
+        self.since = new_line() if since is None else since
+
+    def threads(self) -> list[threading.Thread]:
+        """Żywe wątki Centrum: serwera i jego pracy w tle."""
+
+        return threads_since(self.since)
+
+    def stop(self, timeout_s: float = STOP_S) -> None:
+        """Zamyka serwer (``lifespan``) i czeka, aż skończy się każdy wątek Centrum; drugie ``stop`` nic nie robi.
+
+        Wątek, który nie skończy się w ``timeout_s``, wywraca test z nazwą wątku.
+        """
+
+        if self.portal is not None:
+            self.__exit__(None, None, None)
+        join_threads_since(self.since, timeout_s)
+
+
 @dataclass
 class Centrum:
-    client: TestClient
+    client: CentrumClient
     platform: FakePlatform
     settings_path: Path
     metrics: MetricsPaths
@@ -340,7 +425,7 @@ def centrum(tmp_path: Path, *, today: date = date(2026, 10, 19)) -> Centrum:
         clock=clock,
         pause=clock.pause,
     )
-    client = TestClient(app, base_url=CENTRUM, headers={"Origin": CENTRUM})
+    client = CentrumClient(app)
     return Centrum(client, platform, settings_path, metrics, log_path, report_box, clock)
 
 

@@ -1,7 +1,12 @@
 """Plan CI: ile zadań pytest i Mutation checks startuje w runie ``ci.yml``, co biegnie w każdym i czy biegną Change mutations.
 
-Praca pytest to jednostki trzech torów (``TORY``: Windows 3.11, Windows 3.14, Linux 3.14): każdy plik testów
-``tests/`` na każdym torze oraz kroki CI (``KROKI``) na swoich torach: E2E na obu Windows, straż czasu na Windows 3.14.
+Pracę pytest wyznacza ``zakres`` (ADR 0020). Na pushu to pełne CI ``main``: trzy tory (``TORY``: Windows 3.11, Windows
+3.14, Linux 3.14), na każdym każdy plik testów ``tests/``, oraz kroki CI (``KROKI``) na swoich torach: E2E na obu
+Windows, straż czasu na Windows 3.14. Na pull request to bramka PR: tory Windows 3.11 (minimum u taty) i Linux 3.14,
+na każdym pliki z wyboru ``tools/szybko.py`` dla zmiany od bazy, bez jego budżetu, i testy ``szybko.STRUCTURE``
+(węzeł ``plik::test`` biegnie sam, gdy jego pliku nie ma w wyborze). Zmiana pliku z ``szybko.FULL`` albo pod
+``.github/workflows/`` wybiera wszystkie pliki. Na Windows 3.11 E2E biegnie przy zmianie pod ``src/``, a straż czasu
+przy zmianie w domknięciu jej skryptów (``STRAZ``); przy wyborze wszystkich plików oba.
 Praca Mutation checks to tor ``MUTACJE`` (Windows 3.14): kroki skilli z wyboru ``tools/mutacje_skilli.py`` (na pull
 request tylko te, których werdykt mogą zmienić zmiany od bazy, na pushu wszystkie), każda podstawa ``ci:`` i każdy skrypt
 mutacji osobno. Koszt jednostki to ściana, którą dodaje do zadania: plik waży sumę czasów swoich testów przez
@@ -21,7 +26,8 @@ run (``STALE_ZADANIA``, zadania pytest i Mutation checks, ``ZADANIA_ZMIANY``, je
 ``ZADANIA_RUNU``, cel wszystkich torów rośnie co ``KROK_CELU_S``.
 
 Change mutations startują tylko na pull request, który ma mutacje zmiany albo wyjątek ``# mutacje-zmiany:`` w złej
-postaci: plan liczy je tak samo jak ``tools/mutacje_zmiany.py``, bez testów i bez instalacji.
+postaci, i dopiero po zielonym ``Required CI status``, którego nie blokują: plan liczy je tak samo jak
+``tools/mutacje_zmiany.py`` (``selected``), bez testów i bez instalacji.
 
 Plan ma ``digest``: zadanie wykonuje tylko plan, którego treść się z nim zgadza, i zapisuje go w swoim zapisie czasów,
 a ``Required CI status`` (``werdykt``) przyjmuje tylko zapisy tego planu. Werdykt przepuszcza run, gdy każde zadanie
@@ -43,7 +49,7 @@ from __future__ import annotations
 import argparse
 from collections import defaultdict
 from collections.abc import Iterable, Mapping, Sequence
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 import hashlib
 import json
 import math
@@ -60,6 +66,7 @@ import mutacje
 import mutacje_skilli
 import mutacje_zmiany
 import potomne
+import szybko
 
 ROOT = Path(__file__).resolve().parents[1]
 WERSJA = 1
@@ -76,8 +83,8 @@ ZADANIA_RUNU = 19
 # Zadania ci.yml o stałej liczbie (plan, szybkie, Required) i części Change mutations.
 STALE_ZADANIA = 3
 ZADANIA_ZMIANY = 3
-# Zadania ci.yml, które startują tylko z pracą od planu.
-Z_PLANU = ("pytest", "mutations", "change-mutations")
+# Zadania bramki w ci.yml, które startują tylko z pracą od planu; Change mutations biegną po Required.
+Z_PLANU = ("pytest", "mutations")
 
 
 @dataclass(frozen=True)
@@ -132,6 +139,8 @@ TIMING = Krok(
     25.0,
 )
 KROKI = {krok.nazwa: krok for krok in (E2E, TIMING)}
+# Skrypty straży czasu: na pull request biegnie, gdy zmiana sięga ich wykonania (import, czytany plik).
+STRAZ = ("tools/syntetyczne_wzorce.py", "tools/benchmark_przebiegu.py")
 
 
 @dataclass(frozen=True)
@@ -227,7 +236,7 @@ class Wycena:
 
     tor: Tor
     podzielne: Mapping[str, float]  # plik testów albo skrypt mutacji -> ściana całości
-    niepodzielne: Mapping[str, float]  # krok CI albo podstawa skilla
+    niepodzielne: Mapping[str, float]  # węzeł testu, krok CI albo podstawa skilla
     narzut_s: float
     start_s: float
     czesci: Mapping[str, int] = field(default_factory=dict)  # najwięcej części jednostki podzielnej (skrypt: mutacje)
@@ -248,18 +257,45 @@ def pliki_testow(root: Path = ROOT) -> list[str]:
     return sorted({sciezka.relative_to(root).as_posix() for wzorzec in PLIKI_TESTOW for sciezka in (root / "tests").rglob(wzorzec)})
 
 
+@dataclass(frozen=True)
+class Zakres:
+    """Praca pytest runu: tory z ich krokami CI i pliki testów (albo węzły ``plik::test``), które biegną na każdym."""
+
+    tory: tuple[Tor, ...]
+    pliki: tuple[str, ...]
+    zrodlo: str  # skąd pliki, do linii PLAN CI: ``wszystkie pliki``, ``wybór <n> plików``, ``FULL (<pliki>)``
+
+
+def zakres(zdarzenie: str, zmiana: frozenset[str], root: Path = ROOT) -> Zakres:
+    """Na pushu pełne CI ``main``, na pull request bramka PR dla ``zmiana`` (ścieżki od bazy)."""
+
+    if zdarzenie == "push":
+        return Zakres(TORY, tuple(pliki_testow(root)), "wszystkie pliki")
+    windows, linux = (tor for tor in TORY if tor.nazwa in ("windows-3.11", "linux-3.14"))
+    if full := sorted(sciezka for sciezka in zmiana if sciezka in szybko.FULL or sciezka.startswith(".github/workflows/")):
+        return Zakres((replace(windows, kroki=("e2e", "timing")), linux), tuple(pliki_testow(root)), f"FULL ({', '.join(full)})")
+    wybor = szybko.select(root, zmiana)
+    wybrane = sorted(wybor.fingerprints)
+    struktura = [wezel for wezel in szybko.STRUCTURE if wezel.partition("::")[0] not in wybrane]
+    kroki = ("e2e",) * any(sciezka.startswith("src/") for sciezka in zmiana) + ("timing",) * any(skrypt in wybor.distances for skrypt in STRAZ)
+    return Zakres((replace(windows, kroki=kroki), linux), (*wybrane, *struktura), f"wybór {len(wybrane)} plików")
+
+
 def wycen(tor: Tor, pliki: Sequence[str], czasy: czasy_ci.Czasy) -> Wycena:
+    """Plik testów jest podzielny na udziały, a węzeł ``plik::test`` nie i waży najwyżej tyle, co typowy plik."""
+
     zmierzone = czasy.pliki(tor.pomiary)
     domyslny = statistics.median(zmierzone.values()) if zmierzone else DOMYSLNIE.plik_s
     kroki = {f"krok:{nazwa}": czasy.praca(tor.pomiary, f"krok:{nazwa}") or KROKI[nazwa].domyslnie_s for nazwa in tor.kroki}
+    wezly = {f"pytest:{wezel}": min(zmierzone.get(wezel.partition("::")[0], domyslny), domyslny) / WORKERY for wezel in pliki if "::" in wezel}
     zadania = [z for z in czasy.zadania(tor.pomiary) if f"narzut:{tor.szablon}" in z]
     narzuty = [z[f"narzut:{tor.szablon}"] for z in zadania]
     # Start pytest: ściana pytest zadania ponad sumę jego testów na workerach (start, kolekcja, ogon workerów).
     starty = [z["krok:pytest"] - sum(s for k, s in z.items() if k.startswith("pytest:")) / WORKERY for z in zadania if "krok:pytest" in z]
     return Wycena(
         tor,
-        {f"pytest:{plik}": zmierzone.get(plik, domyslny) / WORKERY for plik in pliki},
-        kroki,
+        {f"pytest:{plik}": zmierzone.get(plik, domyslny) / WORKERY for plik in pliki if "::" not in plik},
+        {**wezly, **kroki},
         statistics.median(narzuty) if narzuty else DOMYSLNIE.narzut_s,
         max(0.0, statistics.median(starty)) if starty else DOMYSLNIE.start_s,
     )
@@ -365,7 +401,7 @@ def liczba_mutacji_zmiany(baza: str) -> int:
 
     fragmenty = mutacje_zmiany.changes(_git("merge-base", "HEAD", baza).strip())
     teksty = {sciezka: (ROOT / sciezka).read_text(encoding="utf-8") for sciezka in fragmenty}
-    liczba = sum(len(mutacje_zmiany.mutants(sciezka, tekst, fragmenty[sciezka])) for sciezka, tekst in teksty.items())
+    liczba = sum(len(mutacje_zmiany.selected(sciezka, tekst, fragmenty[sciezka])) for sciezka, tekst in teksty.items())
     try:
         for sciezka, tekst in teksty.items():
             mutacje_zmiany.exceptions(tekst, sciezka)
@@ -379,10 +415,10 @@ def _katalog_czasow() -> Path:
     return (ROOT / _git("rev-parse", "--git-common-dir").strip() / "czasy-ci").resolve()
 
 
-def _wypisz(plan: Plan, wyceny: Sequence[Wycena], wybor: mutacje_skilli.Selection) -> None:
+def _wypisz(plan: Plan, praca: Zakres, wyceny: Sequence[Wycena], wybor: mutacje_skilli.Selection) -> None:
     run = STALE_ZADANIA + len(plan.zadania) + (ZADANIA_ZMIANY if plan.mutacje_zmiany else 0)
     zrodlo = ", ".join(map(str, plan.runy)) or "brak (wagi domyślne)"
-    print(f"PLAN CI | {plan.zdarzenie} | cel {plan.cel_s:.0f} s | {run} zadań runu (limit {ZADANIA_RUNU}) | mutacje zmiany {plan.mutacje_zmiany} | czasy z runów main: {zrodlo}")
+    print(f"PLAN CI | {plan.zdarzenie} | {praca.zrodlo} | cel {plan.cel_s:.0f} s | {run} zadań runu (limit {ZADANIA_RUNU}) | mutacje zmiany {plan.mutacje_zmiany} | czasy z runów main: {zrodlo}")
     for wycena in wyceny:
         # Najdłuższa jednostka po podziale to dolna granica ściany zadania toru: celu poniżej niej plan nie osiągnie.
         najdluzsza = max(wycena.jednostki(_pojemnosc(wycena, plan.cel_s)), key=lambda j: (j.s, j.klucz), default=None)
@@ -407,13 +443,13 @@ def _plan(args: argparse.Namespace) -> int:
     czasy = czasy_ci.z_mainu(katalog, odswiez_po_s=0 if args.czasy else czasy_ci.ODSWIEZ_S)
     if czasy.blad:
         print(f"CZASY CI | {czasy.blad}; plan waży pracę bez pomiaru domyślnie")
-    pliki = pliki_testow()
+    praca = zakres(args.zdarzenie, szybko.changed_since(args.baza) if args.zdarzenie == "pull_request" else frozenset())
     wybor = mutacje_skilli.wybor(args.baza if args.zdarzenie == "pull_request" else None)
-    wyceny = [*(wycen(tor, pliki, czasy) for tor in TORY), wycen_mutacje([krok for krok, _ in wybor.chosen], czasy)]
+    wyceny = [*(wycen(tor, praca.pliki, czasy) for tor in praca.tory), wycen_mutacje([krok for krok, _ in wybor.chosen], czasy)]
     mutacje = liczba_mutacji_zmiany(args.baza) if args.zdarzenie == "pull_request" else 0
     bledy = tuple(f"{nazwa}: {powod}" for nazwa, powod in sorted(wybor.failed.items()))
     plan = rozplanuj(wyceny, args.zdarzenie, mutacje, czasy.runy, bledy)
-    _wypisz(plan, wyceny, wybor)
+    _wypisz(plan, praca, wyceny, wybor)
     if args.wyjscie:
         args.wyjscie.parent.mkdir(parents=True, exist_ok=True)
         args.wyjscie.write_text(plan.do_json(), encoding="utf-8")
@@ -524,11 +560,11 @@ def werdykt(plan: Plan | None, wyniki_zadan: Mapping[str, str], zapisy: Sequence
 
     przyczyny = []
     if plan is None:
-        przyczyny.append(f"plan CI: {brak_planu or 'brak planu'}; zadania pytest, Mutation checks i Change mutations nie miały pracy")
+        przyczyny.append(f"plan CI: {brak_planu or 'brak planu'}; zadania pytest i Mutation checks nie miały pracy")
     uruchomione = {} if plan is None else {szablon: False for szablon in Z_PLANU}
     if plan is not None:
         tory = {tor.nazwa: tor.szablon for tor in (*TORY, MUTACJE)}
-        uruchomione |= {tory[zadanie.tor]: True for zadanie in plan.zadania} | {"change-mutations": plan.mutacje_zmiany > 0}
+        uruchomione |= {tory[zadanie.tor]: True for zadanie in plan.zadania}
     for nazwa, wynik in wyniki_zadan.items():
         if wynik != "success" and not (wynik == "skipped" and uruchomione.get(nazwa) is False):
             przyczyny.append(f"{nazwa}={wynik}")
@@ -544,8 +580,8 @@ def werdykt(plan: Plan | None, wyniki_zadan: Mapping[str, str], zapisy: Sequence
         if (ostatni := ostatnie.get(zadanie.id)) is None:
             przyczyny.append(f"{zadanie.nazwa}: brak zapisu czasów z tego planu, więc nic nie dowodzi, że jego jednostki biegły")
             continue
-        # Udział pliku zapis czasów zgłasza jako cały plik (junit nie zna udziałów).
-        zaplanowane = {klucz.partition("#")[0] for klucz in zadanie.jednostki}
+        # Udział pliku i węzeł testu zapis czasów zgłasza jako cały plik (junit zna tylko plik testu).
+        zaplanowane = {klucz.partition("#")[0].partition("::")[0] for klucz in zadanie.jednostki}
         if brak := sorted(zaplanowane - {jednostka.klucz for jednostka in ostatni.jednostki}):
             przyczyny.append(f"{zadanie.nazwa}: jednostki bez wyniku: {', '.join(brak)}")
         # Druga linia obrony, gdyby zadanie z porażką skończyło się sukcesem.
@@ -581,7 +617,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     polecenia = parser.add_subparsers(dest="polecenie", required=True)
     plan = polecenia.add_parser("plan", help="Plan runu: zadania pytest, Mutation checks i Change mutations (zadanie plan albo lokalnie).")
     plan.add_argument("--zdarzenie", choices=("pull_request", "push"), default="pull_request")
-    plan.add_argument("--baza", default="origin/main", help="Od czego liczą się mutacje zmiany i wybór kroków skilli (w CI HEAD^1).")
+    plan.add_argument("--baza", default="origin/main", help="Od czego na pull request liczy się zmiana: wybór plików pytest, E2E i straży czasu, mutacje zmiany i wybór kroków skilli (w CI HEAD^1).")
     plan.add_argument("--czasy", type=Path, help="Katalog artefaktów czasy-ci, pobieranych od nowa (domyślnie .git/czasy-ci).")
     plan.add_argument("--wyjscie", type=Path)
     wykonanie = polecenia.add_parser("wykonaj", help="Jednostki jednego zadania planu (w zadaniu pytest albo Mutation checks).")

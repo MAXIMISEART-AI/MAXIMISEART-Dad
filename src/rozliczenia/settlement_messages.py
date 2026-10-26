@@ -191,7 +191,7 @@ def unmapped_worker(source: Path, workers: Sequence[str]) -> Message:
         dad_file="collective_file",
         what=f"W Pliku zbiorczym {subject} spoza konfiguracji wykonawców: {', '.join(workers)}. {_NOTHING_CREATED}",
         where=f"{file_label(source)}, kolumna {WORKER_HEADER.column}",
-        action=f"{_PREVIEW_PROBLEMS} {_FIX_UNMAPPED_WORKER} {_SAVE_AND_RETRY}",
+        action=f"{_FIX_UNMAPPED_WORKER} {_SAVE_AND_RETRY}",
     )
 
 

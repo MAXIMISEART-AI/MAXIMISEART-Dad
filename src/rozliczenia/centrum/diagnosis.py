@@ -39,7 +39,7 @@ from rozliczenia.centrum.keyed_box import KeyJudgement
 from rozliczenia.centrum.log import CentrumLog, event_of
 from rozliczenia.centrum.tool_freshness import ToolFreshness, offers_update
 from rozliczenia.centrum.version import short_commit
-from rozliczenia.input_checks import Readers
+from rozliczenia.input_checks import Readers, WorkerConfigExplanation
 from rozliczenia.message import Message
 from rozliczenia.period_folder import (
     PeriodFolder,
@@ -369,9 +369,17 @@ def _template_check(template: Template) -> _CheckRun:
     return check
 
 
+_WORKER_CONFIG_EXPLANATIONS: Final[Mapping[contract.ProcessKey, WorkerConfigExplanation]] = {
+    "preparation": preparation_messages.worker_config_problem,
+    "settlement": settlement_messages.worker_config_problem,
+}
+
+
 @_check("Konfiguracja wykonawców")
 def _worker_config(computer: _Computer, label: str) -> list[CheckResult]:
-    problem = workers_problem(computer.configuration.worker_config)
+    """Konfiguracja wykonawców tym samym Komunikatem, którym zatrzymał się proces Uruchomienia."""
+
+    problem = workers_problem(computer.configuration.worker_config, _WORKER_CONFIG_EXPLANATIONS[computer.process])
     return [CheckResult.passed(label, "Wczytuje się.") if problem is None else CheckResult.failed(label, problem)]
 
 

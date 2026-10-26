@@ -349,7 +349,7 @@ def test_zatrzymanie_do_maksa_bez_wzorca_wyjasnia_brak_wzorca(tmp_path: Path) ->
         (
             lambda centrum: centrum.fixture.config_path.write_text("workers: [", encoding="utf-8"),
             "Konfiguracja wykonawców",
-            "Konfiguracja wykonawców jest niepoprawna. Plik nie jest poprawnym YAML.",
+            "Nie można odczytać konfiguracji wykonawców. Plik nie jest poprawnym YAML.",
         ),
         (
             lambda centrum: (month_periods_folder(centrum.fixture.periods_directory, "09_Wrzesień_2026") / PERIOD).mkdir(),
@@ -376,6 +376,32 @@ def test_diagnoza_wyjasnia_pierwszym_sprawdzeniem_ktore_nie_przeszlo(
     else:
         assert (diagnosis["explanation"]["what"], check_states(diagnosis)[label]) == (what, "failed")
         assert next(check["detail"] for check in diagnosis["checks"] if check["label"] == label) == what
+
+
+@pytest.mark.parametrize(
+    "make_centrum",
+    [lambda tmp_path: preparing_centrum(tmp_path), lambda tmp_path: settling_centrum(tmp_path)],
+    ids=["przygotowanie", "przebieg"],
+)
+@pytest.mark.parametrize(
+    "broken_config",
+    [b"\xff\xfe\x00 nie utf-8", "schema_version: 2\nworkers:\n  a: Wykonawca Testowy\n".encode()],
+    ids=["spoza-utf-8", "zly-schemat"],
+)
+def test_diagnoza_potwierdza_zatrzymanie_procesu_na_uszkodzonej_konfiguracji_wykonawcow(
+    tmp_path: Path, make_centrum: Callable[[Path], PreparingCentrum | SettlingCentrum], broken_config: bytes
+) -> None:
+    centrum = make_centrum(tmp_path)
+    if isinstance(centrum, PreparingCentrum):
+        centrum.fixture.config_path.write_bytes(broken_config)
+    else:
+        centrum.configuration.worker_config.write_bytes(broken_config)
+    stopped = run_to_end(centrum, dry_run=True)
+
+    diagnosis = diagnose(centrum, stopped["run"]["id"])
+
+    assert (diagnosis["explanation"], diagnosis["confirms_stop"]) == (stopped["result"]["stops"][0], True)
+    assert check_states(diagnosis)["Konfiguracja wykonawców"] == "failed"
 
 
 def test_folder_okresu_w_kilku_miesiacach_wyjasnia_ktory_zostawic(tmp_path: Path) -> None:

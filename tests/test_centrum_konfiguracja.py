@@ -288,6 +288,39 @@ def test_nieczytelny_wzorzec_trzeba_przekazac_osobie_utrzymujacej_narzedzie(
     }
 
 
+def set_worker_template_cell(path: Path, cell: str, value: str | None) -> None:
+    workbook = load_workbook(path)
+    try:
+        workbook["Sheet1"][cell].value = value
+        workbook.save(path)
+    finally:
+        workbook.close()
+
+
+@pytest.mark.parametrize(
+    ("cell", "value", "detail"),
+    [
+        ("H17", None, "Wzorzec rozliczenia pracownika nie ma nagłówka WYKONAWCA w H:17."),
+        ("A18", "dane", "Wzorzec rozliczenia pracownika zawiera dane i nie może być użyty jako wzór."),
+    ],
+    ids=["bez-naglowka-wykonawca", "z-danymi"],
+)
+def test_wzorzec_rozliczenia_pracownika_bez_naglowka_wykonawca_albo_z_danymi_trzeba_przekazac_osobie_utrzymujacej_narzedzie(
+    tmp_path: Path, cell: str, value: str | None, detail: str
+) -> None:
+    app = configured(tmp_path)
+    set_worker_template_cell(tmp_path / "config" / WORKER, cell, value)
+
+    template = templates_by_file(read_configuration(app))[WORKER]
+
+    assert template["problem"] == "unreadable"
+    assert template["message"] == {
+        "what": f"{WORKER_TEMPLATE_STOP} {detail}",
+        "where": f"plik {WORKER}, folder config",
+        "action": WORKER_TEMPLATE_ACTION,
+    }
+
+
 def test_wzorzec_pliku_zbiorczego_z_wykonawca_poza_h_nie_przechodzi_sprawdzania(tmp_path: Path) -> None:
     app = configured(tmp_path)
     template_path = tmp_path / "config" / COLLECTIVE

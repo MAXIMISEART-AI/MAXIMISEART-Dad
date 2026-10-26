@@ -28,6 +28,7 @@ stop and problem has three parts.
 - `przebieg-status-okresu`: Tablica okresów shows `Rozliczenia pracowników gotowe` and `Następny krok` shows `Okres zamknięty`.
 - `przebieg-nienadpisywanie`: a second RUN of the closed period (started through the API, since the Okres list no longer offers it) stops in three parts without a full path and leaves the files byte-identical.
 - `przebieg-wymaga-sprawdzenia`: `Podgląd bez zapisu` of `29_05_10_2026`, whose Plik zbiorczy has a Wykonawca missing from the konfiguracja wykonawców, ends `Podgląd wymaga sprawdzenia · nic nie zapisano` with an amber icon, the problem in three parts, and `Uruchom ponownie` instead of `Uruchom`.
+- `przebieg-nieznany-wykonawca`: `Uruchom` for the same period stops on that Wykonawca, writes nothing, and its `Co zrobić` starts with the advice on column H without sending Dad to `Podgląd bez zapisu` for rows, since the preview's problem names none.
 
 ## How to get to it (user POV)
 
@@ -57,7 +58,8 @@ Preconditions:
 - **Status okresu.** On Okresy the row `06_12_10_2026` shows `Rozliczenia pracowników gotowe`, region `Następny krok` shows `Okres zamknięty`, and `/api/periods` has `worker_settlement_count: 4`.
 - **Nienadpisywanie.** `POST /api/runs` RUN for `06_12_10_2026` (`api/przebieg-nienadpisywanie-start.json`), then `#/uruchomienia`: label `Zatrzymanie` shows `Folder rozliczeń pracowników tego okresu już istnieje, więc nie został nadpisany.` and `folder 06_12_10_2026\Rozliczenie pracowników 06_12_10_2026`; the result holds no run-root path; the four files keep their bytes.
 - **Needs checking.** Click `Nowe Uruchomienie procesu`, radio `Przebieg rozliczeń` (combobox `Okres` now shows `29_05_10_2026`), and `Podgląd bez zapisu`. Label `Wynik` shows `Podgląd wymaga sprawdzenia · nic nie zapisano` with button `Uruchom ponownie`; label `Ostrzeżenie` shows `Nieznany identyfikator WYKONAWCA`; the result is `WYMAGA_SPRAWDZENIA` with `next_action: rerun`; nothing is written.
-- **Proof.** Screenshots `40`–`49`, `4a`, `4b` and `155`, `api/przebieg-*.json`, checks in `drive.txt`. `scripts/check_centrum_przebieg_rozliczen_mutations.py` shows the drive fails when the main action after the RUN opens the Plik zbiorczy and when the empty Szablon pracownika is not marked.
+- **Unknown Wykonawca stops the RUN.** Click `Nowe Uruchomienie procesu`, radio `Przebieg rozliczeń` (combobox `Okres` shows `29_05_10_2026`), button `Uruchom` and the alertdialog's `Uruchom`. Label `Zatrzymanie` shows `W Pliku zbiorczym jest WYKONAWCA spoza konfiguracji wykonawców` and exactly the `Co zrobić` `Popraw WYKONAWCĘ w kolumnie H albo poproś osobę utrzymującą narzędzie o dopisanie Wykonawcy do konfiguracji wykonawców. Potem zapisz i zamknij Plik zbiorczy w Excelu i uruchom ponownie.`, without `lista problemów pokaże wiersze`: no warning of the preview before names a `Wiersz`. `api/przebieg-nieznany-wykonawca.json`; nothing is written. Screenshot `47b`.
+- **Proof.** Screenshots `40`–`49`, `47b`, `4a`, `4b` and `155`, `api/przebieg-*.json`, checks in `drive.txt`. `scripts/check_centrum_przebieg_rozliczen_mutations.py` shows the drive fails when the main action after the RUN opens the Plik zbiorczy, when the empty Szablon pracownika is not marked, and when the Zatrzymanie on an unknown Wykonawca sends Dad to the preview for rows.
 
 ## Gotchas
 

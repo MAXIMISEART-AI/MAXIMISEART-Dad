@@ -67,7 +67,10 @@ zamiast każdej naprawy z osobna.
   Wydań po kolei). Pytanie to porównanie z `<czubek>~k` (`compare` ze stroną
   bez commitów i plików, kilkanaście kB) dla czubka `main` ustalonego raz na
   sprawdzenie (`git/ref/heads/main`) i k wybranego wyszukiwaniem binarnym:
-  Wydanie leży na linii, gdy jest jednym z `<czubek>~k`. Odpowiedź dla
+  Wydanie leży na linii, gdy jest jednym z `<czubek>~k`. Wyszukiwanie zaczyna
+  się dopiero wtedy, gdy commit Wydania, przodek czubka, nie jest commitem
+  scalenia PR do `main` (`commits/<sha>/pulls`, `merge_commit_sha` PR z bazą
+  `main`): taki commit był czubkiem `main`, więc leży na linii. Odpowiedź dla
   Wydania, które jest przodkiem `main`, Centrum pamięta do końca swojego
   działania, bo `main` rośnie tylko o nowe commity. Narzędzie jest
   `Aktualna`, gdy jego commit zawiera commit najnowszego Wydania: sprawdza to
@@ -79,13 +82,19 @@ zamiast każdej naprawy z osobna.
   a brak odpowiedzi przez minutę: zwykle dwa pytania co 10 minut przy limicie
   60 na godzinę bez logowania.
 
-  Koszt: nowe Wydanie to raz na działanie Centrum około log2 z liczby commitów
-  `main` od Wydania pytań (kilkanaście przy tygodniu zmian), potem tylko lista
-  tagów. Do 25.10 Aktualność sprawdzała tylko osiągalność (jedno pytanie), więc
-  przy uśpionym tagu wciągniętym do `main` merge'em pokazywała `Jest nowsza
-  wersja`, a aktualizacja odpowiadała `Masz najnowszą wersję.`. Linię
-  pierwszych rodziców przez `<czubek>~k` przyjął Maks w przeglądzie z 25.10
-  (Q21).
+  Koszt: nowe Wydanie to raz na działanie Centrum cztery pytania (lista tagów,
+  czubek, porównanie z nim, PR-y commitu), jak daleko by `main` od niego nie
+  odszedł, potem tylko lista tagów. Wydanie bez scalenia PR kosztuje około log2
+  z liczby commitów `main` od Wydania pytań więcej. Samo wyszukiwanie przy 239
+  commitach `main` od `v0.1.1` (26.10) to 11 pytań w 5,38–5,55 s, ponad
+  limit 3 s, więc tata po starcie Centrum widział `Nie sprawdzono`. Na
+  prawdziwym repozytorium 26.10 każdy ze 139 commitów linii pierwszych rodziców
+  `main` od `v0.1.0` był commitem scalenia PR, a żaden ze 173 sprawdzonych
+  commitów spoza linii nim nie był. Do 25.10 Aktualność sprawdzała tylko
+  osiągalność (jedno pytanie), więc przy uśpionym tagu wciągniętym do `main`
+  merge'em pokazywała `Jest nowsza wersja`, a aktualizacja odpowiadała `Masz
+  najnowszą wersję.`. Linię pierwszych rodziców przez `<czubek>~k` przyjął Maks
+  w przeglądzie z 25.10 (Q21).
 - **Tworzenie Wydania** (osobna zmiana, #316) sprawdza, że commit leży na
   `main` i ma zielone `Required CI status`, i dopiero wtedy zakłada tag i
   Wydanie na GitHubie z notką „Co nowego”. Notkę pokazuje Powiadomienie o

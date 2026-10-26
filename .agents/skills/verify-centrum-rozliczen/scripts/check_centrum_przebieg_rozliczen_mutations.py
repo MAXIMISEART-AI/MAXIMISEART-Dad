@@ -13,7 +13,7 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "tools"))
 sys.path.insert(0, str(Path(__file__).resolve().parents[4] / ".agents/skills/verify-centrum-rozliczen/scripts"))
 
-from cele_mutacji_centrum import PRZEBIEG, RUN_VIEW
+from cele_mutacji_centrum import PRZEBIEG, RUN_VIEW, SETTLEMENT_MESSAGES
 from mutacje import Edit, Mutation, check_all
 
 MUTATIONS = (
@@ -28,6 +28,19 @@ MUTATIONS = (
         (Edit(RUN_VIEW, '                empty=result.status == "PUSTY_SZABLON",\n', "                empty=False,\n"),),
         PRZEBIEG,
         "Rozliczenie pracownika bez zleceń wygląda jak zapisane, bez oznaczenia „pusty”",
+    ),
+    Mutation(
+        "Zatrzymanie na nieznanym Wykonawcy odsyła do Podglądu po wiersze",
+        (
+            Edit(
+                SETTLEMENT_MESSAGES,
+                '        action=f"{_FIX_UNMAPPED_WORKER} {_SAVE_AND_RETRY}",\n    )\n\n\ndef rows_without_worker(',
+                '        action=f"{_PREVIEW_PROBLEMS} {_FIX_UNMAPPED_WORKER} {_SAVE_AND_RETRY}",\n    )\n\n\n'
+                "def rows_without_worker(",
+            ),
+        ),
+        PRZEBIEG,
+        "„Co zrobić” przy Wykonawcy spoza konfiguracji obiecuje wiersze, których Podgląd bez zapisu nie podaje",
     ),
 )
 

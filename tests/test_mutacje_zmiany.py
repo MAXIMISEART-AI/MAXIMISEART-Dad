@@ -21,7 +21,7 @@ from tests.fixtures.git_repo import commit, git, repository
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
 
-from mutacje_zmiany import Hunk, exceptions, mutants  # noqa: E402
+from mutacje_zmiany import Hunk, exceptions, mutants, selected  # noqa: E402
 import pokrycie_procesu  # noqa: E402
 
 MODULE = "src/rozliczenia/warunek.py"
@@ -77,14 +77,17 @@ def _run(repo: Path, *arguments: str, trial: bool = False, log: Path | None = No
         )
 
 
-def test_zmiana_bez_testu_ktory_ja_widzi_konczy_sie_fail_z_nazwa_mutacji(tmp_path: Path) -> None:
-    done = _run(_repo(tmp_path, ONE_CASE))
+def test_zmiana_bez_testu_ktory_ja_widzi_konczy_sie_fail_z_nazwa_mutacji_takze_w_zapisie_dla_scal_pr(tmp_path: Path) -> None:
+    record = tmp_path / "zapis" / "czesc.json"
+
+    done = _run(_repo(tmp_path / "repo", ONE_CASE), "--zapis", str(record))
 
     assert done.returncode == 1, done.stdout + done.stderr
-    survived = [line for line in done.stdout.splitlines() if line.startswith("NIEWYKRYTA")]
-    assert any("warunek.py:2 bez `b` w `and`" in line for line in survived), done.stdout
-    assert any("warunek.py:2 zmiana linii 2 cofnięta do bazy" in line for line in survived), done.stdout
-    assert done.stdout.splitlines()[-1].startswith("MUTACJE ZMIANY FAIL | przeżyło")
+    survived = [line.removeprefix("NIEWYKRYTA: ").partition(" → ")[0] for line in done.stdout.splitlines() if line.startswith("NIEWYKRYTA")]
+    assert sorted(survived) == ["src/rozliczenia/warunek.py:2 bez `b` w `and`", "src/rozliczenia/warunek.py:2 zmiana linii 2 cofnięta do bazy"]
+    assert done.stdout.splitlines()[-1].startswith("MUTACJE ZMIANY FAIL | przeżyło 2")
+    written = json.loads(record.read_text(encoding="utf-8"))
+    assert (written["czesc"], written["wynik"], sorted(written["przezyte"])) == ("1/1", done.stdout.splitlines()[-1], sorted(survived))
 
 
 def test_zmiana_z_testami_ktore_widza_kazda_mutacje_konczy_sie_ok(tmp_path: Path) -> None:
@@ -92,12 +95,12 @@ def test_zmiana_z_testami_ktore_widza_kazda_mutacje_konczy_sie_ok(tmp_path: Path
 
     assert done.returncode == 0, done.stdout + done.stderr
     assert "NIEWYKRYTA" not in done.stdout
-    assert done.stdout.splitlines()[-1] == "MUTACJE ZMIANY OK | mutacje=4 | wyjątki=0 | innego systemu=0"
+    assert done.stdout.splitlines()[-1] == "MUTACJE ZMIANY OK | mutacje=2 | wyjątki=0 | innego systemu=0"
 
 
 def test_liczbe_mutacji_widac_w_logu_ci_zanim_pobiegna_testy(tmp_path: Path) -> None:
     # Log CI to plik, więc linia bez ``flush`` czekałaby w buforze przez cały pierwszy przebieg testów.
-    line = "Mutacje: 4 w 1 plikach src/ i tools/ od baza. Testy dotknięte zmianą: 1."
+    line = "Mutacje: 2 w 1 plikach src/ i tools/ od baza. Testy dotknięte zmianą: 1."
     reads_log = f"\n\ndef test_log() -> None:\n    assert {line!r} in Path(os.environ['LOG_NARZEDZIA']).read_text(encoding='utf-8')\n"
     log = tmp_path / "log.txt"
 
@@ -112,7 +115,7 @@ def test_czesci_dziela_mutacje_miedzy_siebie(tmp_path: Path) -> None:
     parts = [_run(repo, "--czesc", f"{number}/2") for number in (1, 2)]
 
     names = [{line.split(" → ")[0].split(": ", 1)[1] for line in done.stdout.splitlines() if "WYKRYTA: " in line} for done in parts]
-    assert len(names[0]) == len(names[1]) == 2, [done.stdout for done in parts]
+    assert len(names[0]) == len(names[1]) == 1, [done.stdout for done in parts]
     assert not names[0] & names[1]
 
 
@@ -324,17 +327,17 @@ def test_nowy_niesledzony_plik_dostaje_mutacje(tmp_path: Path) -> None:
     done = _run(repo)
 
     assert done.returncode == 1, done.stdout + done.stderr
-    assert "NIEWYKRYTA: src/rozliczenia/nowy.py:2 bez `a` w `or` → żaden test nie zależy od src/rozliczenia/nowy.py" in done.stdout
+    assert "NIEWYKRYTA: src/rozliczenia/nowy.py:2 `False` → `True` → żaden test nie zależy od src/rozliczenia/nowy.py" in done.stdout
 
 
 def test_wyjatek_obowiazuje_jeszcze_w_dniu_terminu(tmp_path: Path) -> None:
     today = datetime.datetime.now(datetime.UTC).date()
     changed = CHANGED.replace("a and b\n", f"a and b  # mutacje-zmiany: tylko na próbę | do {today} | zgoda Maks\n")
 
-    done = _run(_repo(tmp_path, ALL_CASES.replace("    assert oba(False, True) is False\n", ""), changed))
+    done = _run(_repo(tmp_path, ALL_CASES.replace("    assert oba(True, False) is False\n", ""), changed))
 
     assert done.returncode == 0, done.stdout + done.stderr
-    assert f"WYJĄTEK: src/rozliczenia/warunek.py:2 bez `a` w `and` (tylko na próbę, do {today}, zgoda Maks)" in done.stdout
+    assert f"WYJĄTEK: src/rozliczenia/warunek.py:2 bez `b` w `and` (tylko na próbę, do {today}, zgoda Maks)" in done.stdout
 
 
 def test_galaz_innego_systemu_jest_pominieta_a_nie_niewykryta(tmp_path: Path) -> None:
@@ -359,19 +362,21 @@ def test_testy_ktore_padaja_bez_mutacji_koncza_sie_bez_werdyktu_mutacji(tmp_path
 
 def test_zmieniona_linia_narzedzia_dostaje_mutacje_jak_linia_src(tmp_path: Path) -> None:
     repo = _repo(tmp_path, ONE_CASE, BASE)
-    (repo / "tools" / "inne.py").write_text("def oba(a: bool, b: bool) -> bool:\n    return a and b\n", encoding="utf-8")
+    (repo / "tools" / "inne.py").write_text(
+        "def oba(a: bool, b: bool) -> bool:\n    return a and b\n\n\ndef jedno(a: bool, b: bool) -> bool:\n    return a or b\n", encoding="utf-8"
+    )
     (repo / "tests" / "test_inne.py").write_text(
         "from pathlib import Path\nimport sys\n\nsys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'tools'))\n\n"
-        "from inne import oba  # noqa: E402\n\n\n"
-        "def test_oba() -> None:\n    assert oba(True, True) is True\n    assert oba(False, True) is False\n",
+        "from inne import jedno, oba  # noqa: E402\n\n\n"
+        "def test_inne() -> None:\n    assert oba(True, False) is False\n    assert jedno(True, False) is True\n",
         encoding="utf-8",
     )
 
     done = _run(repo)
 
     assert done.returncode == 1, done.stdout + done.stderr
-    assert "WYKRYTA: tools/inne.py:2 bez `a` w `and`" in done.stdout
-    assert "NIEWYKRYTA: tools/inne.py:2 bez `b` w `and`" in done.stdout
+    assert "WYKRYTA: tools/inne.py:2 bez `b` w `and`" in done.stdout
+    assert "NIEWYKRYTA: tools/inne.py:6 bez `b` w `or`" in done.stdout
 
 
 def test_narzedzia_podstawione_przez_probe_na_scalonych_pr_nie_sa_zmiana(tmp_path: Path) -> None:
@@ -520,6 +525,37 @@ def test_liczba_zwracana_poza_sys_exit_dostaje_none() -> None:
     code = "import sys\n\nimport cli\n\n\ndef policz() -> int:\n    return 0\n\n\nprint(policz())\nsys.exit(cli.main())\nraise SystemExit(1)\n"
 
     assert _returns(code) == {"`return 0` → `return None`"}
+
+
+def test_biegnie_kazde_cofniecie_fragmentu_i_jedna_mutacja_linii_z_jej_najglebszego_wezla() -> None:
+    code = "def f(a, b, c):\n    if a and b:\n        return c > 1\n    zapisz(a)\n    return (a, b)\n"
+    hunks = [Hunk(2, 2, ("    if a:", "        return c")), Hunk(5, 1, ("    return a",))]
+
+    every = mutants("m.py", code, hunks)
+    chosen = [(mutant.line, mutant.description) for mutant in selected("m.py", code, hunks)]
+
+    assert chosen == [
+        (2, "bez `b` w `and`"),
+        (2, "zmiana linii 2–3 cofnięta do bazy"),
+        (3, "granica `c > 1` → `>=`"),
+        (5, "krotka bez `b`"),
+        (5, "zmiana linii 5 cofnięta do bazy"),
+    ]
+    assert len(every) > len(chosen)
+    assert {mutant.line for mutant in every if not mutant.revert} == {line for line, description in chosen if "cofnięta" not in description}
+
+
+def test_biegnie_cofniecie_rowne_innej_mutacji_linii() -> None:
+    # #523, src/rozliczenia/intermax_file.py:476: dodany element krotki, a jej cofnięcie to „krotka bez” tego elementu.
+    code = "def xf(number_format, font, fill_id, border):\n    return FORMAT % (number_format, font, fill_id, border)\n"
+    base = "def xf(number_format, font, fill_id, border):\n    return FORMAT % (number_format, font, border)\n"
+
+    chosen = selected("m.py", code, [Hunk(2, 1, ("    return FORMAT % (number_format, font, border)",))])
+
+    assert [(mutant.description, mutant.revert, mutant.source == base) for mutant in chosen] == [
+        ("krotka bez `fill_id`", True, True),
+        ("krotka bez `border`", False, False),
+    ]
 
 
 def test_niezmieniona_linia_nie_dostaje_mutacji() -> None:
