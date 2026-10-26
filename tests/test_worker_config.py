@@ -10,11 +10,12 @@ from __future__ import annotations
 import errno
 from pathlib import Path
 import sys
+from typing import get_args
 
 import pytest
 import yaml
 
-from rozliczenia.worker_config import WorkerConfigError, load_worker_mapping, normalize_text
+from rozliczenia.worker_config import WorkerConfigError, WorkerConfigProblem, load_worker_mapping, normalize_text
 
 
 def write_config(tmp_path: Path, content: str) -> Path:
@@ -96,6 +97,11 @@ def test_plik_konfiguracji_wykonawcow_w_folderze_bez_dostepu_jest_niedostepny(tm
         tmp_path.chmod(0o755)
 
     assert (raised.value.reason, raised.value.detail) == INACCESSIBLE
+
+
+def test_typ_powodu_wymienia_dokladnie_powody_ktore_daje_wczytanie_konfiguracji() -> None:
+    # Katalogi Komunikatów wybierają Komunikat po powodzie, więc typ jest umową: powód spoza niego nie ma Komunikatu.
+    assert set(get_args(WorkerConfigProblem)) == {"missing", "inaccessible", "not_utf8", "not_yaml", "invalid"}
 
 
 @pytest.mark.parametrize("encoding", ["cp1250", "utf-16"], ids=["ansi-notatnik", "powershell-5"])
