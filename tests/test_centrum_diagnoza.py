@@ -11,10 +11,11 @@ from typing import Any, NoReturn
 
 import pytest
 
+from rozliczenia.centrum.report_box import Refused, Unreachable
 from rozliczenia.input_checks import FILE_READERS
 from rozliczenia.template_file import TemplateFile
 
-from tests.fixtures.centrum import NO_RELEASE, FakeGitHub, finished_view, phase_states, view_timing, views_until
+from tests.fixtures.centrum import NO_RELEASE, FakeGitHub, FakeReportBox, finished_view, phase_states, view_timing, views_until
 from tests.fixtures.centrum_processes import (
     PreparingCentrum,
     SettlingCentrum,
@@ -201,8 +202,13 @@ def check_states(diagnosis: dict[str, Any]) -> dict[str, str]:
     return {check["label"]: check["state"] for check in diagnosis["checks"]}
 
 
+def with_key(centrum: PreparingCentrum) -> None:
+    (centrum.tmp_path / "config" / "zgloszenia-klucz.txt").write_text("github_pat_SYNTETYCZNY\n", encoding="utf-8")
+
+
 def test_diagnoza_bez_przyczyny_na_komputerze_kaze_wyslac_do_maksa(tmp_path: Path) -> None:
     centrum = preparing_centrum(tmp_path)
+    with_key(centrum)
     run_id = stopped_for_maks(centrum)
 
     diagnosis = diagnose(centrum, run_id)
@@ -279,6 +285,7 @@ def test_diagnoza_przygotowania_sprawdza_po_kolei_ustawienia_onedrive_rejestr_wz
         ("Folder okresu", "Folderu 08_14_09_2026 jeszcze nie ma."),
         ("Pliki okresu w Excelu", "Żaden plik okresu nie jest otwarty w Excelu."),
         ("Aktualność narzędzia", "Najnowsza wersja z GitHuba, commit 3c1d0a9."),
+        ("Token do Zgłoszeń", "Na tym komputerze nie ma Tokenu do Zgłoszeń. Zgłoszenie poczeka, aż Maks go wpisze."),
         ("Dziennik Centrum rozliczeń", "Ostatnie wpisy od startu Centrum: 4."),
     ]
 
@@ -342,7 +349,7 @@ def test_zatrzymanie_do_maksa_bez_wzorca_wyjasnia_brak_wzorca(tmp_path: Path) ->
         (
             lambda centrum: centrum.fixture.config_path.write_text("workers: [", encoding="utf-8"),
             "Konfiguracja wykonawców",
-            "Konfiguracja wykonawców jest niepoprawna. Plik nie jest poprawnym YAML.",
+            "Nie można odczytać konfiguracji wykonawców. Plik nie jest poprawnym YAML.",
         ),
         (
             lambda centrum: (month_periods_folder(centrum.fixture.periods_directory, "09_Wrzesień_2026") / PERIOD).mkdir(),
@@ -369,6 +376,32 @@ def test_diagnoza_wyjasnia_pierwszym_sprawdzeniem_ktore_nie_przeszlo(
     else:
         assert (diagnosis["explanation"]["what"], check_states(diagnosis)[label]) == (what, "failed")
         assert next(check["detail"] for check in diagnosis["checks"] if check["label"] == label) == what
+
+
+@pytest.mark.parametrize(
+    "make_centrum",
+    [lambda tmp_path: preparing_centrum(tmp_path), lambda tmp_path: settling_centrum(tmp_path)],
+    ids=["przygotowanie", "przebieg"],
+)
+@pytest.mark.parametrize(
+    "broken_config",
+    [b"\xff\xfe\x00 nie utf-8", "schema_version: 2\nworkers:\n  a: Wykonawca Testowy\n".encode()],
+    ids=["spoza-utf-8", "zly-schemat"],
+)
+def test_diagnoza_potwierdza_zatrzymanie_procesu_na_uszkodzonej_konfiguracji_wykonawcow(
+    tmp_path: Path, make_centrum: Callable[[Path], PreparingCentrum | SettlingCentrum], broken_config: bytes
+) -> None:
+    centrum = make_centrum(tmp_path)
+    if isinstance(centrum, PreparingCentrum):
+        centrum.fixture.config_path.write_bytes(broken_config)
+    else:
+        centrum.configuration.worker_config.write_bytes(broken_config)
+    stopped = run_to_end(centrum, dry_run=True)
+
+    diagnosis = diagnose(centrum, stopped["run"]["id"])
+
+    assert (diagnosis["explanation"], diagnosis["confirms_stop"]) == (stopped["result"]["stops"][0], True)
+    assert check_states(diagnosis)["Konfiguracja wykonawców"] == "failed"
 
 
 def test_folder_okresu_w_kilku_miesiacach_wyjasnia_ktory_zostawic(tmp_path: Path) -> None:
@@ -463,7 +496,7 @@ def test_nieoczekiwany_wyjatek_ktory_wraca_w_diagnozie_zostawia_sprawdzenie_nies
     assert check_states(diagnosis)["Dziennik Centrum rozliczeń"] == "passed"
     assert (diagnosis["explanation"], diagnosis["next_action"]) == (NOT_FOUND, "report")
     assert 'nieoczekiwany-wyjatek typ=RuntimeError miejsce="Diagnoza: Rejestr zleceń"' in diagnosis["report"]["body"]
-    assert (report.status_code, report.json()["state"]) == (200, "saved")
+    assert (report.status_code, report.json()["state"]) == (200, "queued")
 
 
 def test_nieoczekiwany_wyjatek_czytnika_wzorca_w_przebiegu_wraca_w_jego_diagnozie(tmp_path: Path) -> None:
@@ -572,6 +605,7 @@ def test_diagnoza_przebiegu_sprawdza_wzorzec_pracownika_i_plik_zbiorczy(tmp_path
         ("Folder okresu", "passed"),
         ("Pliki okresu w Excelu", "passed"),
         ("Aktualność narzędzia", "passed"),
+        ("Token do Zgłoszeń", "failed"),
         ("Dziennik Centrum rozliczeń", "passed"),
     ]
     assert check(passing, "Folder okresu") == ("passed", "Pliki okresu: Plik zbiorczy.")
@@ -619,6 +653,67 @@ def files_of(root: Path) -> dict[str, bytes]:
 def check(diagnosis: dict[str, Any], label: str) -> tuple[str, str]:
     found = next(check for check in diagnosis["checks"] if check["label"] == label)
     return found["state"], found["detail"]
+
+
+REFUSED_KEY = ("failed", "Skrzynka Zgłoszeń odrzuca Token do Zgłoszeń. Zgłoszenie poczeka, aż Maks go wymieni.")
+
+
+def box_now_answers(centrum: PreparingCentrum, failure: Refused | Unreachable) -> None:
+    """Skrzynka od teraz odpowiada ``failure``; przyjęcie klucza przez Logi Uruchomienia z tej pracy Centrum wygasa."""
+
+    centrum.surroundings.report_box.search_failure = failure
+    centrum.surroundings.clock.advance(minutes=10)
+
+
+def test_diagnoza_pokazuje_odrzucony_klucz_jako_sprawdzenie_a_wyjasnieniem_zostaje_brak_wzorca(tmp_path: Path) -> None:
+    centrum = preparing_centrum(tmp_path)
+    with_key(centrum)
+    centrum.fixture.collective_template_path.unlink()
+    stopped = run_to_end(centrum, dry_run=True)
+    box_now_answers(centrum, Refused())
+
+    diagnosis = diagnose(centrum, stopped["run"]["id"])
+
+    assert check(diagnosis, "Token do Zgłoszeń") == REFUSED_KEY
+    assert diagnosis["explanation"] == stopped["result"]["stops"][0]
+    assert f"| Token do Zgłoszeń | nie przeszło | {REFUSED_KEY[1]} |" in diagnosis["report"]["body"]
+
+
+def test_diagnoza_bez_innej_przyczyny_i_z_odrzuconym_kluczem_nie_znajduje_przyczyny(tmp_path: Path) -> None:
+    centrum = preparing_centrum(tmp_path)
+    with_key(centrum)
+    run_id = stopped_for_maks(centrum)
+    box_now_answers(centrum, Refused())
+
+    diagnosis = diagnose(centrum, run_id)
+
+    assert check(diagnosis, "Token do Zgłoszeń") == REFUSED_KEY
+    assert (diagnosis["explanation"], diagnosis["next_action"]) == (NOT_FOUND, "report")
+
+
+def test_diagnoza_z_tokenem_przyjetym_przez_skrzynke_mowi_ze_skrzynka_go_przyjmuje(tmp_path: Path) -> None:
+    centrum = preparing_centrum(tmp_path)
+    with_key(centrum)
+    run_id = stopped_for_maks(centrum)
+
+    diagnosis = diagnose(centrum, run_id)
+
+    assert check(diagnosis, "Token do Zgłoszeń") == ("passed", "Skrzynka Zgłoszeń przyjmuje Token do Zgłoszeń.")
+
+
+def test_diagnoza_z_kluczem_bez_sieci_go_nie_sprawdzila(tmp_path: Path) -> None:
+    offline = FakeReportBox(search_failure=Unreachable())  # także Logi Uruchomienia nie dochodzą do skrzynki
+    centrum = preparing_centrum(tmp_path, surroundings=Surroundings(report_box=offline))
+    with_key(centrum)
+    run_id = stopped_for_maks(centrum)
+
+    diagnosis = diagnose(centrum, run_id)
+
+    assert check(diagnosis, "Token do Zgłoszeń") == (
+        "not_checked",
+        "Nie sprawdzono: brak połączenia ze Skrzynką Zgłoszeń.",
+    )
+    assert (diagnosis["explanation"], diagnosis["next_action"]) == (NOT_FOUND, "report")
 
 
 NEWER_MAIN = "9a8b7c6d5e4f3a2b1c0d9e8f7a6b5c4d3e2f1a0b"
@@ -780,6 +875,20 @@ def test_plik_folderu_okresu_tylko_w_chmurze_jest_przyczyna(tmp_path: Path) -> N
     assert check(passing, "Pliki w OneDrive") == ("passed", "Sprawdzone pliki są na tym komputerze: 2.")
     assert diagnosis["explanation"]["what"] == "Plik jest tylko w OneDrive w chmurze, bez kopii na tym komputerze."
     assert diagnosis["explanation"]["where"] == f"plik Rozliczenie {PERIOD} - zbiorcze.xlsx, folder {PERIOD}"
+
+
+def test_rejestr_zlecen_tylko_w_chmurze_nie_jest_przyczyna_zatrzymania_przebiegu(tmp_path: Path) -> None:
+    # Przebieg rozliczeń nie czyta Rejestru zleceń, więc jego Diagnoza nie wskazuje Rejestru w OneDrive.
+    register = tmp_path / "Rejestr zleceń.xlsx"
+    register.write_bytes(b"tylko w chmurze")
+    centrum = settling_centrum(tmp_path, register=register)
+    run_id = stopped_for_maks(centrum)
+    online_only(centrum, register)
+
+    diagnosis = diagnose(centrum, run_id)
+
+    assert check(diagnosis, "Pliki w OneDrive") == ("passed", "Sprawdzone pliki są na tym komputerze: 2.")
+    assert check(diagnosis, "Ustawienia taty") == ("passed", "Folder okresów jest na miejscu.")
 
 
 def test_pliki_tylko_w_chmurze_sprawdza_tylko_windows(tmp_path: Path) -> None:
