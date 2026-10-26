@@ -6,11 +6,12 @@ Wspólne dane i pomocniki są w ``tests.fixtures``.
 from __future__ import annotations
 
 import ast
-from collections.abc import Iterable, Iterator
+from collections.abc import Callable, Iterator
 from itertools import pairwise
-from operator import add, mul, sub, truediv
+from operator import add, floordiv, mod, mul, neg, pos, sub, truediv
 from pathlib import Path
 import re
+from typing import Any
 
 import pytest
 
@@ -200,15 +201,15 @@ def _unpacked(target: ast.expr, value: ast.expr | None) -> Iterator[tuple[str, a
             yield name.id, None
 
 
-def _bindings(nodes: Iterable[ast.AST]) -> dict[str, list[ast.expr | None]]:
-    """Każda wartość przypisana nazwie w tych węzłach; ``None``, gdy nazwę wiąże coś innego niż przypisanie.
+def _bindings(tree: ast.Module) -> dict[str, list[ast.expr | None]]:
+    """Każda wartość przypisana nazwie w module; ``None``, gdy nazwę wiąże coś innego niż przypisanie.
 
     ``took += x`` to ``took = took + x``: dla ``_constant`` nazwa zależy od siebie, więc nie jest stałą, a dla
     ``_measured`` niesie odczyt zegara z ``x``.
     """
 
     bound: dict[str, list[ast.expr | None]] = {}
-    for node in nodes:
+    for node in ast.walk(tree):
         if isinstance(node, ast.Assign):
             for target in node.targets:
                 for bound_name, value in _unpacked(target, node.value):
@@ -287,7 +288,7 @@ def _constant_time_bounds(tree: ast.Module) -> Iterator[tuple[ast.Compare, str]]
     """
 
     names = imports(tree)
-    bound = _bindings(ast.walk(tree))
+    bound = _bindings(tree)
     parents = {child: node for node in ast.walk(tree) for child in ast.iter_child_nodes(node)}
     for statement in ast.walk(tree):
         if not isinstance(statement, ast.Assert):
@@ -367,151 +368,124 @@ SHORT_TIMEOUTS = {
         "test sprawdza sam limit: dziecko śpi 60 s, więc limit 5 s kończy polecenie zawsze"
     ),
 }
-FUNCTION_SCOPES = (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)
-ARITHMETIC = {ast.Add: add, ast.Sub: sub, ast.Mult: mul, ast.Div: truediv}
-Scope = dict[str, list[ast.expr | None]]
+ARITHMETIC: dict[type[ast.AST], Callable[..., float]] = {
+    ast.Add: add, ast.Sub: sub, ast.Mult: mul, ast.Div: truediv, ast.FloorDiv: floordiv, ast.Mod: mod, ast.Pow: pow,
+    ast.UAdd: pos, ast.USub: neg,
+}
+NOT_BINDING = (ast.Attribute, ast.keyword, ast.Constant)
 
 
-def _scope(scope: ast.AST) -> Iterator[ast.AST]:
-    """Węzły zasięgu nazw (modułu albo funkcji z jej parametrami) bez funkcji zagnieżdżonych, które mają własny."""
+def _seconds(expression: ast.expr | None) -> float | None:
+    """Liczba sekund wyrażenia z literałów liczbowych, ``float(…)`` albo ``int(…)`` z jednym argumentem i działań
+    ``+``, ``-``, ``*``, ``/``, ``//``, ``%``, ``**`` oraz jednoargumentowych ``+`` i ``-`` na nich; ``None`` dla
+    czegoś innego i dla działania, które się nie liczy. Liczy na liczbach zmiennoprzecinkowych, więc ``9 ** 9 ** 9``
+    przepełnia się od razu, a ``int(2.5)`` daje 2,5, który jest krótszy od 10 s tak samo jak 2."""
 
-    for child in ast.iter_child_nodes(scope):
-        yield child
-        if not isinstance(child, FUNCTION_SCOPES):
-            yield from _scope(child)
-
-
-def _manual_clocks(nodes: list[ast.AST], names: dict[str, str]) -> set[str]:
-    """Nazwy podróbki zegara w zasięgu: przypisane ``ManualClock(...)`` albo parametry z adnotacją ``ManualClock``."""
-
-    if MANUAL_CLOCK not in names.values():
-        return set()
-
-    def made(value: ast.expr | None) -> bool:
-        return isinstance(value, ast.Call) and dotted(value.func, names, "") == MANUAL_CLOCK
-
-    annotated = {
-        node.arg
-        for node in nodes
-        if isinstance(node, ast.arg) and node.annotation is not None and dotted(node.annotation, names, "") == MANUAL_CLOCK
-    }
-    return annotated | {name for name, values in _bindings(nodes).items() if any(made(value) for value in values)}
-
-
-def _visible(name: str, scopes: list[Scope]) -> list[ast.expr | None]:
-    """Wartości nazwy z najbliższego zasięgu, który ją wiąże; ``[None]``, gdy żaden."""
-
-    return next((scope[name] for scope in scopes if name in scope), [None])
-
-
-def _seconds(
-    expression: ast.expr, scopes: list[Scope], names: dict[str, str], seen: frozenset[str] = frozenset()
-) -> float | None:
-    """Liczba sekund znana przed uruchomieniem: literał, ``+``, ``-``, ``*`` albo ``/`` na takich liczbach,
-    ``float(...)`` albo ``int(...)`` z takiej liczby albo z napisu i nazwa, którą najbliższy zasięg wiąże tylko z takimi
-    liczbami (najmniejsza z nich)."""
-
-    if isinstance(expression, ast.Constant):
-        value = expression.value
-        return value if isinstance(value, (int, float)) and not isinstance(value, bool) else None
-    if isinstance(expression, ast.BinOp) and type(expression.op) in ARITHMETIC:
-        left = _seconds(expression.left, scopes, names, seen)
-        right = _seconds(expression.right, scopes, names, seen)
-        if left is None or right is None or (isinstance(expression.op, ast.Div) and right == 0):
+    parts: list[Any]
+    apply: Callable[..., object]
+    match expression:
+        case ast.Constant(value=int() | float() as number) if not isinstance(number, bool):
+            parts, apply = [number], float
+        case ast.Call(func=ast.Name(id="float" | "int"), args=[argument]):
+            parts, apply = [argument.value if isinstance(argument, ast.Constant) else _seconds(argument)], float
+        case ast.UnaryOp(op=operator, operand=operand) if type(operator) in ARITHMETIC:
+            parts, apply = [_seconds(operand)], ARITHMETIC[type(operator)]
+        case ast.BinOp(left=left, op=operator, right=right) if type(operator) in ARITHMETIC:
+            parts, apply = [_seconds(left), _seconds(right)], ARITHMETIC[type(operator)]
+        case _:
             return None
-        return float(ARITHMETIC[type(expression.op)](left, right))
-    if (
-        isinstance(expression, ast.Call)
-        and dotted(expression.func, names, "") in {".float", ".int"}
-        and len(expression.args) == 1
-        and not expression.keywords
-    ):
-        (argument,) = expression.args
-        if isinstance(argument, ast.Constant) and isinstance(argument.value, str):
-            try:
-                return float(argument.value)
-            except ValueError:
-                return None
-        return _seconds(argument, scopes, names, seen)
-    if isinstance(expression, ast.Name) and expression.id not in seen:
-        found = [
-            None if value is None else _seconds(value, scopes, names, seen | {expression.id})
-            for value in _visible(expression.id, scopes)
-        ]
-        known = [seconds for seconds in found if seconds is not None]
-        return min(known) if len(known) == len(found) else None
-    return None
+    try:
+        value = apply(*parts)
+    except (ArithmeticError, TypeError, ValueError):
+        return None
+    return value if isinstance(value, float) else None
 
 
-def _named(
-    keywords: list[ast.keyword], scopes: list[Scope], names: dict[str, str], seen: frozenset[str] = frozenset()
-) -> Iterator[tuple[str, ast.expr]]:
-    """Argumenty nazwane, także rozpakowane ``**`` ze słownika: literału, ``dict(...)`` albo nazwy, którą najbliższy
-    zasięg wiąże z jednym z nich."""
+def _own(definition: ast.AST) -> Iterator[ast.AST]:
+    """Węzły definicji bez wnętrza definicji w niej (funkcji, lambdy, klasy), bo te wiążą nazwy u siebie."""
 
-    for keyword in keywords:
-        if keyword.arg is not None:
-            yield keyword.arg, keyword.value
-            continue
-        unpacked = keyword.value
-        if isinstance(unpacked, ast.Dict):
-            for key, value in zip(unpacked.keys, unpacked.values, strict=True):
+    for child in ast.iter_child_nodes(definition):
+        yield child
+        if not isinstance(child, Definition):
+            yield from _own(child)
+
+
+def _assigned(expression: ast.expr, definition: ast.AST | None) -> ast.expr | None:
+    """Wyrażenie, a dla nazwy wartość jej ``nazwa = …`` w najbliższej definicji wokół wywołania (funkcji, lambdzie,
+    klasie), gdy to jedyne, co ją tam wiąże, przed wywołaniem albo po nim; ``None`` dla innej nazwy. Wiąże ją każdy węzeł z tą nazwą w polu (poza
+    odczytem, atrybutem, argumentem nazwanym i napisem), więc parametr, ``import … as``, ``except … as``, ``def``,
+    ``case``, pętla i ``global`` ją przesłaniają."""
+
+    if not isinstance(expression, ast.Name):
+        return expression
+    own = list(_own(definition)) if definition is not None else []
+    binding = [
+        node
+        for node in own
+        if not (isinstance(node, NOT_BINDING) or (isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load)))
+        and expression.id
+        in {
+            item.partition(".")[0]
+            for _, field in ast.iter_fields(node)
+            for item in (field if isinstance(field, list) else [field])
+            if isinstance(item, str)
+        }
+    ]
+    return next((node.value for node in own if isinstance(node, ast.Assign) and node.targets == binding), None)
+
+
+def _named(call: ast.Call) -> Iterator[tuple[str, ast.expr]]:
+    """Argumenty nazwane wywołania, także z literału słownika w ``**{…}`` i w ``kwargs={…}`` (``threading.Thread``)."""
+
+    for keyword in call.keywords:
+        yield keyword.arg or "", keyword.value
+        if keyword.arg in {None, "kwargs"} and isinstance(keyword.value, ast.Dict):
+            for key, value in zip(keyword.value.keys, keyword.value.values, strict=True):
                 if isinstance(key, ast.Constant) and isinstance(key.value, str):
                     yield key.value, value
-        elif isinstance(unpacked, ast.Call) and dotted(unpacked.func, names, "") == ".dict":
-            yield from _named(unpacked.keywords, scopes, names, seen)
-        elif isinstance(unpacked, ast.Name) and unpacked.id not in seen:
-            for binding in _visible(unpacked.id, scopes):
-                if binding is not None:
-                    yield from _named([ast.keyword(value=binding)], scopes, names, seen | {unpacked.id})
+
+
+def _clocked(enclosing: list[ast.AST], names: dict[str, str]) -> bool:
+    """Wywołanie stoi w definicji (funkcji, lambdzie, klasie), która ma w sobie ``ManualClock`` (wywołanie, adnotację,
+    atrybut zaimportowanego modułu), choćby w definicji zagnieżdżonej: czas przesuwa wtedy test."""
+
+    return any(
+        isinstance(node, ast.expr) and dotted(node, names, "") == MANUAL_CLOCK
+        for definition in enclosing
+        if isinstance(definition, Definition)
+        for node in ast.walk(definition)
+    )
 
 
 def _short_timeouts(tree: ast.Module) -> Iterator[tuple[ast.Call, float, str]]:
     """Wywołanie z limitem czasu krótszym niż ``SHORT_TIMEOUT_S`` w argumencie nazwanym ``timeout``, ``timeout_s``
-    albo ``*_timeout*`` (bez względu na wielkość liter), z tym limitem i nazwą funkcji, w której jest.
+    albo ``*_timeout*`` (bez względu na wielkość liter, także z ``_named``), z tym limitem i nazwą funkcji, w której
+    jest.
 
-    Limit to liczba, którą ``_seconds`` zna przed uruchomieniem, a argument nazwany przychodzi też z ``**`` (``_named``).
-    Limit nie liczy się, gdy to samo wywołanie dostaje podróbkę zegara (``ManualClock(...)`` albo nazwę, którą zasięg
-    wywołania wiąże z nią, także parametr z adnotacją), bo czas przesuwa wtedy test, i gdy stoi w pętli, która pyta
-    zegar o termin, bo kończy wtedy tylko jedną próbę. Znana granica, bo wymaga analizy przepływu danych: limit z
-    innego modułu, z atrybutu albo z wywołania innego niż ``float``/``int``, argument pozycyjny (``thread.join(2)``),
-    wartość domyślna parametru pomocnika (``def _get(port, timeout=1)``), ``**`` z czegoś innego niż słownik z
-    literału, ``dict(...)`` i nazwy oraz pętla, która woła zegar, ale nie porównuje go z terminem.
+    Limit to ``_seconds`` wartości argumentu, a dla nazwy jej jedynego przypisania z ``_assigned``. Nie liczy się w
+    definicji z ``ManualClock`` (``_clocked``) i w pętli, która pyta zegar o termin (``_polling``), bo kończy wtedy
+    tylko jedną próbę. Znana granica: nazwa z modułu, z funkcji zewnętrznej albo z innego modułu, nazwa przypisana
+    inaczej niż jednym ``nazwa = …`` (dwa przypisania, ``+=``, ``:=``, z adnotacją, krotką) albo innej nazwie, nazwa
+    w działaniu (``limit * 2``), atrybut, wywołanie inne niż ``float``/``int`` z jednym argumentem, działanie bitowe,
+    argument pozycyjny (``thread.join(2)``), wartość domyślna parametru pomocnika (``def _get(port, timeout=1)``),
+    ``**`` i ``kwargs=`` z czegoś innego niż literał słownika (także słownik rozpakowany w tym literale),
+    ``ManualClock`` spoza funkcji testu albo tylko w adnotacji-napisie i pętla, która woła zegar, ale nie porównuje go z
+    terminem.
     """
 
     names = imports(tree)
     parents = {child: node for node in ast.walk(tree) for child in ast.iter_child_nodes(node)}
-    bound: dict[ast.AST, Scope] = {}
-    clocks: dict[ast.AST, set[str]] = {}
     for call in ast.walk(tree):
-        if not (
-            isinstance(call, ast.Call)
-            and any(keyword.arg is None or "timeout" in keyword.arg.lower() for keyword in call.keywords)
-            and dotted(call.func, names, "") != ".dict"
-        ):
+        if not isinstance(call, ast.Call):
             continue
         enclosing = _enclosing(call, parents)
-        within = [node for node in enclosing if isinstance(node, (*FUNCTION_SCOPES, ast.Module))]
-        for scope in within:
-            if scope not in bound:
-                nodes = list(_scope(scope))
-                bound[scope], clocks[scope] = _bindings(nodes), _manual_clocks(nodes, names)
-        scopes = [bound[scope] for scope in within]
-        named = list(_named(call.keywords, scopes, names))
+        definition = next((node for node in enclosing if isinstance(node, Definition)), None)
         limits = [
             seconds
-            for argument, value in named
-            if "timeout" in argument.lower() and (seconds := _seconds(value, scopes, names)) is not None
+            for argument, value in _named(call)
+            if "timeout" in argument.lower() and (seconds := _seconds(_assigned(value, definition))) is not None
         ]
-        clocked = any(
-            (isinstance(value, ast.Call) and dotted(value.func, names, "") == MANUAL_CLOCK)
-            or (
-                isinstance(value, ast.Name)
-                and value.id in next((clocks[scope] for scope in within if value.id in bound[scope]), set())
-            )
-            for value in [*call.args, *(value for _, value in named)]
-        )
-        if limits and min(limits) < SHORT_TIMEOUT_S and not (clocked or _polling(enclosing, names)):
+        if limits and min(limits) < SHORT_TIMEOUT_S and not (_clocked(enclosing, names) or _polling(enclosing, names)):
             yield call, min(limits), _function(enclosing)
 
 
@@ -526,7 +500,7 @@ def _short_timeout_findings(trees: dict[str, ast.Module], exceptions: dict[str, 
             if key in exceptions and key not in excepted:
                 excepted.add(key)
             else:
-                found.append(f"tests/{name}:{call.lineno}: {ast.unparse(call)} czeka najwyżej {limit} s ({key})")
+                found.append(f"tests/{name}:{call.lineno}: {ast.unparse(call)} czeka najwyżej {limit:g} s ({key})")
     return found + [
         f"SHORT_TIMEOUTS: {key} nie ma już krótkiego limitu, usuń wpis" for key in sorted(exceptions.keys() - excepted)
     ]
@@ -543,8 +517,8 @@ def test_odpowiedz_nie_ma_krotszego_limitu_czasu_niz_10_s() -> None:
         [
             *found,
             f"Na wolnym runnerze odpowiedź przychodzi po krótkim limicie. Gdy ktoś odpowie, daj limit co najmniej "
-            f"{SHORT_TIMEOUT_S} s (dłuższy wydłuża tylko porażkę); gdy limit liczy zegar kodu pod testem, daj temu "
-            "wywołaniu ManualClock z tests/fixtures/clock.py; gdy test sprawdza sam limit, bo nikt nie odpowie przed "
+            f"{SHORT_TIMEOUT_S} s (dłuższy wydłuża tylko porażkę); gdy limit liczy zegar kodu pod testem, daj testowi "
+            "ManualClock z tests/fixtures/clock.py; gdy test sprawdza sam limit, bo nikt nie odpowie przed "
             "nim, wpisz wywołanie do SHORT_TIMEOUTS pod kluczem z nawiasu, z powodem.",
         ]
     )
@@ -559,46 +533,66 @@ ZEGAR = f"from {MANUAL_CLOCK.rpartition('.')[0]} import ManualClock\n"
         ("releases_from(api, timeout_s=2)", ["releases_from(api, timeout_s=2)"]),
         ("urlopen(url, connect_timeout=0.3)", ["urlopen(url, connect_timeout=0.3)"]),
         ("connect(api, connectTimeout=2)", ["connect(api, connectTimeout=2)"]),
-        ("functools.partial(urlopen, timeout=2)", ["functools.partial(urlopen, timeout=2)"]),
         ("run(command, timeout=30, read_timeout=2)", ["run(command, timeout=30, read_timeout=2)"]),
+        ("releases_from(api, timeout_s=30)\nask(api, timeout=10)\nrun(command, timeout=True)", []),
         (
-            "a(timeout=2 * 1)\nb(timeout=0.5 + 0)\nc(timeout=12 - 5)\nd(timeout=20 / 4)",
-            ["a(timeout=2 * 1)", "b(timeout=0.5 + 0)", "c(timeout=12 - 5)", "d(timeout=20 / 4)"],
+            "a(api, **{'timeout_s': 2})\nb(api, **{**base, 1: 0, 'timeout': 2})\n"
+            "threading.Thread(target=urlopen, kwargs={'timeout': 2})\nc(api, **dict(timeout=2))\n"
+            "d(api, **options)\nthreading.Thread(target=urlopen, kwargs=options)\ne(api, options={'timeout': 2})",
+            [
+                "a(api, **{'timeout_s': 2})",
+                "b(api, **{**base, 1: 0, 'timeout': 2})",
+                "threading.Thread(target=urlopen, kwargs={'timeout': 2})",
+                "dict(timeout=2)",
+            ],
+        ),
+        ("def test_a():\n    limit = 2 * 1\n    ask(timeout_s=limit)", ["ask(timeout_s=limit)"]),
+        (
+            "def test_a():\n    limit = 2\n    x.limit\n    f(limit=1)\n    d['limit']\n    ask(timeout_s=limit)",
+            ["ask(timeout_s=limit)"],
         ),
         (
-            "a(timeout=float('2'))\nb(timeout=int(2))\nc(timeout=float('dwa'))\nd(timeout=1 / 0)",
-            ["a(timeout=float('2'))", "b(timeout=int(2))"],
+            "def test_a():\n    limit = 2\n    g = lambda limit: 0\n    class C:\n        limit = 30\n"
+            "    def inner():\n        limit = 30\n    ask(timeout_s=limit)",
+            ["ask(timeout_s=limit)"],
         ),
         (
-            "def test_a():\n    limit = 2\n    a(timeout_s=limit)\n"
-            "def test_b():\n    limit = 30\n    limit = 3\n    b(timeout_s=limit)\n"
-            "def test_c():\n    limit = 2\n    limit = wylicz()\n    c(timeout_s=limit)\n"
-            "def test_d():\n    limit = 2\n    limit += 1\n    d(timeout_s=limit)",
-            ["a(timeout_s=limit)", "b(timeout_s=limit)"],
-        ),
-        ("LIMIT = 2\ndef test_a():\n    ask(timeout_s=LIMIT)", ["ask(timeout_s=LIMIT)"]),
-        (
-            "limit = 2\ndef test_a(limit):\n    ask(timeout_s=limit)\ndef test_b():\n    limit = 30\n    ask(timeout_s=limit)",
+            "def test_a(limit):\n    limit = 2\n    ask(timeout_s=limit)\n"
+            "def test_b():\n    limit = 2\n    limit = 3\n    ask(timeout_s=limit)\n"
+            "def test_c():\n    limit = 2\n    from math import tau as limit\n    ask(timeout_s=limit)\n"
+            "def test_d():\n    limit = 2\n    import limit.sub\n    ask(timeout_s=limit)\n"
+            "def test_e():\n    limit = 2\n    try:\n        pass\n    except OSError as limit:\n        pass\n    ask(timeout_s=limit)\n"
+            "def test_f():\n    limit = 2\n    def limit():\n        pass\n    ask(timeout_s=limit)\n"
+            "def test_g():\n    limit = 2\n    match x:\n        case limit:\n            pass\n    ask(timeout_s=limit)\n"
+            "def test_h():\n    global limit\n    limit = 2\n    ask(timeout_s=limit)\n"
+            "def test_i():\n    limit = 2\n    for limit in x:\n        pass\n    ask(timeout_s=limit)\n"
+            "def test_j():\n    limit = wylicz()\n    ask(timeout_s=limit)",
             [],
         ),
         (
-            "a(api, **{'timeout_s': 2})\nb(api, **dict(timeout=2))\noptions = {'timeout': 2}\nc(url, **options)",
-            ["a(api, **{'timeout_s': 2})", "b(api, **dict(timeout=2))", "c(url, **options)"],
+            "LIMIT = 2\nask(timeout_s=LIMIT)\ndef test_a():\n    ask(timeout_s=LIMIT)\n"
+            "def test_b():\n    limit = 2\n    def inner():\n        ask(timeout_s=limit)\n    cb = lambda: ask(timeout_s=limit)",
+            [],
         ),
-        ("def test_a(options):\n    a(url, **options)\ndef test_b():\n    options = options\n    b(url, **options)", []),
-        ("releases_from(api, timeout_s=30)", []),
-        ("run(command, timeout=True)", []),
-        (f"{ZEGAR}watch(clock=ManualClock(), timeout_s=2)", []),
-        (f"{ZEGAR}def test_a():\n    clock = ManualClock()\n    watch(clock, timeout_s=2)", []),
-        (f"{ZEGAR}def test_a(clock: ManualClock) -> None:\n    watch(clock=clock, timeout_s=2)", []),
-        (f"{ZEGAR}def test_a(clock: ManualClock, port: int) -> None:\n    watch(port, timeout_s=2)", ["watch(port, timeout_s=2)"]),
         (
-            f"{ZEGAR}def test_a(clock: ManualClock) -> None:\n    watch(clock, timeout_s=2)\n"
-            "def test_b(clock) -> None:\n    ask(clock, timeout_s=2)\n"
-            "def test_c() -> None:\n    pytaj(clock, timeout_s=2)",
-            ["ask(clock, timeout_s=2)", "pytaj(clock, timeout_s=2)"],
+            f"{ZEGAR}def test_a():\n    watch(ManualClock(), timeout_s=2)\n"
+            "def test_b(clock: ManualClock) -> None:\n    urlopen(url, timeout=2)\n"
+            "def test_c():\n    clock = ManualClock()\n    def inner():\n        watch(clock, timeout_s=2)\n"
+            "    cb = lambda: watch(clock, timeout_s=2)\n"
+            "def test_d():\n    def make():\n        return ManualClock()\n    watch(make(), timeout_s=2)",
+            [],
         ),
-        (f"{ZEGAR}clock = ManualClock()\ndef test_a(clock) -> None:\n    ask(clock, timeout_s=2)", ["ask(clock, timeout_s=2)"]),
+        (
+            "from tests.fixtures import clock\ndef test_a():\n    c = clock.ManualClock()\n    watch(c, timeout_s=2)",
+            [],
+        ),
+        (
+            f"{ZEGAR}clock = ManualClock()\nwatch(clock, timeout_s=2)\n"
+            "def test_a(clock: ManualClock) -> None:\n    watch(clock, timeout_s=2)\n"
+            "def test_b(clock) -> None:\n    ask(clock, timeout_s=2)\n"
+            "def test_c(clock: FakeClock) -> None:\n    pytaj(clock, timeout_s=2)",
+            ["watch(clock, timeout_s=2)", "ask(clock, timeout_s=2)", "pytaj(clock, timeout_s=2)"],
+        ),
         ("import time\nwhile time.monotonic() < deadline:\n    urlopen(url, timeout=1)", []),
         ("import time\nfor _ in range(9):\n    if time.monotonic() > deadline:\n        break\n    urlopen(url, timeout=1)", []),
     ],
@@ -606,29 +600,60 @@ ZEGAR = f"from {MANUAL_CLOCK.rpartition('.')[0]} import ManualClock\n"
         "literal",
         "nazwa-z-timeout",
         "wielka-litera",
-        "partial",
         "drugi-argument",
-        "dzialania",
-        "float-int",
+        "dlugi-albo-nie-liczba",
+        "slownik",
         "zmienna",
-        "stala-modulu",
-        "parametr-i-inny-zasieg",
-        "rozpakowanie",
-        "rozpakowanie-parametru",
-        "dlugi",
-        "nie-liczba",
-        "zegar",
-        "zegar-z-nazwy",
-        "zegar-z-parametru",
-        "inny-parametr-z-adnotacja",
-        "zegar-innego-testu",
-        "zegar-przesloniety-parametrem",
+        "nazwa-w-polu-ktore-nie-wiaze",
+        "definicje-wewnatrz-nie-przeslaniaja",
+        "przeslonienia-i-wartosc-nie-z-literalow",
+        "nazwa-spoza-funkcji",
+        "zegar-w-funkcji",
+        "zegar-z-modulu",
+        "zegar-spoza-funkcji-i-innego-testu",
         "petla-while",
         "petla-for",
     ],
 )
 def test_regula_krotkiego_limitu_czasu(source: str, flagged: list[str]) -> None:
     assert [ast.unparse(call) for call, _, _ in _short_timeouts(ast.parse(source))] == flagged
+
+
+def test_limit_to_wartosc_literalow_i_dzialan_arytmetycznych_na_nich() -> None:
+    seconds = {
+        "2": 2.0,
+        "0.5": 0.5,
+        "3 + 2": 5.0,
+        "9 - 2": 7.0,
+        "3 * 2": 6.0,
+        "9 / 2": 4.5,
+        "9 // 2": 4.0,
+        "9 % 2": 1.0,
+        "3 ** 2": 9.0,
+        "-1": -1.0,
+        "+2": 2.0,
+        "float('2')": 2.0,
+        "int(2)": 2.0,
+        "float(2 * 1)": 2.0,
+        "True": None,
+        "None": None,
+        "'2'": None,
+        "2j": None,
+        "x": None,
+        "2 * x": None,
+        "float(x)": None,
+        "wylicz(2)": None,
+        "int('2', 16)": None,
+        "float('dwa')": None,
+        "float(None)": None,
+        "1 / 0": None,
+        "9 ** 9 ** 9": None,
+        "(-8) ** 0.5": None,
+        "~2": None,
+        "1 << 1": None,
+    }
+
+    assert {expression: _seconds(ast.parse(expression, mode="eval").body) for expression in seconds} == seconds
 
 
 def test_wyjatek_krotkiego_limitu_obejmuje_jedno_wywolanie_w_funkcji_w_ktorej_stoi() -> None:
