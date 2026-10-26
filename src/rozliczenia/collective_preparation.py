@@ -7,7 +7,8 @@ zatrzymuje się po odmowie. Zatrzymania zgłasza jako ``StopError`` z
 Komunikatem dla taty, a wynik nie zawiera danych klientów.
 
 Ten moduł sekwencjonuje cztery etapy i jako jedyny tłumaczy fakty planu na ostrzeżenia, fakt wyniku
-(``quantities_to_complete``) i Decyzję taty o niepełnym okresie, o którą pyta między Planowaniem a Zapisywaniem.
+(``quantities_to_complete``) i Decyzję taty o niepełnym okresie, o którą pyta między Planowaniem a Zapisywaniem,
+a fakt Sprawdzania o Surowych zleceniach w okresie na Zatrzymanie przed odczytem i zapisem.
 Sprawdzanie i odczyt Rejestru zleceń przez czytniki są w ``input_checks``, wybór zleceń okresu i reguły zleceń w ``preparation_plan``,
 Ilości usług zleceń w ``quantity_rules`` (wyznaczane w Planowaniu, więc podgląd bez zapisu ma te same ostrzeżenia
 ilości co zapis), a wzorce i zapis plików okresu w ``preparation_files``.
@@ -27,7 +28,7 @@ from . import preparation_messages as messages
 from .decision import Conversation, Decision, Declined
 from .domain import ProgressObserver, ProgressPhase
 from .input_checks import FILE_READERS, Readers
-from .message import Message
+from .message import Message, StopError
 from .phase_runner import PhaseRunner
 from .preparation_files import CollectiveFilePlan
 from .preparation_plan import IncompletePeriod, Plan
@@ -172,8 +173,8 @@ def prepare_collective_file(
     internal_template = (internal_template_path or default_internal_template_path()).expanduser().resolve()
     collective_template = (collective_template_path or default_collective_template_path()).expanduser().resolve()
 
-    files, worker_mapping = phases.check(
-        lambda: input_checks.check_preparation(
+    def check() -> tuple[preparation_files.PeriodFiles, dict[str, str]]:
+        checked = input_checks.check_preparation(
             register_path,
             periods_directory,
             period,
@@ -182,7 +183,12 @@ def prepare_collective_file(
             collective_template=collective_template,
             readers=readers,
         )
-    )
+        raw = input_checks.raw_orders_in_period(register_path, checked[0].folder.period)
+        if raw is not None:
+            raise StopError(messages.raw_orders_not_ordered(register_path, raw.sheet, raw.first_row, raw.last_row))
+        return checked
+
+    files, worker_mapping = phases.check(check)
     folder = files.folder
     register = phases.read(lambda: input_checks.read_register(register_path, folder.period, readers))
 

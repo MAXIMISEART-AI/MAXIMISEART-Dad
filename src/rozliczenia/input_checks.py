@@ -4,6 +4,10 @@ Rejestr zleceń i Wzorce czytają czytniki (``Readers``), które proces i Centru
 czytnika (``WorkbookError``, ``PeriodFolderError``, ``WorkerConfigError``) moduł sam tłumaczy na Komunikat
 procesu, który z tego pliku korzysta: proces zatrzymuje się nim (``StopError``), a Diagnoza i Konfiguracja
 pokazują go jako przyczynę albo problem pliku.
+
+Sprawdzanie Przygotowania pliku zbiorczego szuka też Surowych zleceń (``raw_orders_in_period``) tym samym
+rozpoznaniem i odczytem arkusza zleceń co Uporządkowanie INTERMAX (``raw_orders.recognize`` na
+``intermax_file.Register``) i oddaje je jako fakt, który Przygotowanie tłumaczy na Zatrzymanie.
 """
 
 from __future__ import annotations
@@ -11,11 +15,13 @@ from __future__ import annotations
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
+from datetime import date
 from pathlib import Path
 from typing import Final
 
-from . import preparation_files, preparation_register, settlement_files, settlement_messages, workbook_files
+from . import preparation_files, preparation_register, raw_orders, settlement_files, settlement_messages, workbook_files
 from . import preparation_messages as messages
+from .intermax_file import Register, UnsupportedShape
 from .message import Message, StopError
 from .period_folder import (
     PeriodFolder,
@@ -26,6 +32,7 @@ from .period_folder import (
 )
 from .preparation_files import PeriodFiles
 from .preparation_register import RegisterSheet
+from .raw_orders import AboveOrdered, DayOrdered, RawBlock, SeveralDays, Undated, WithoutWorker
 from .settlement_period import SettlementPeriod, parse_period_token
 from .template_file import TemplateFile
 from .workbook_files import Problem, WorkbookError
@@ -126,6 +133,53 @@ def read_register(register: Path, period: SettlementPeriod | None, readers: Read
 
     with _stops(messages.register_unusable):
         return readers.register(register, period)
+
+
+@dataclass(frozen=True)
+class RawOrders:
+    """Surowe zlecenia, które mogą należeć do okresu: arkusz zleceń i jego wiersze od ``first_row`` do ``last_row``."""
+
+    sheet: str
+    first_row: int
+    last_row: int
+
+
+def raw_orders_in_period(register: Path, period: SettlementPeriod) -> RawOrders | None:
+    """Surowe zlecenia z dniem w ``period`` albo z dniem, którego nie da się ustalić; zatrzymanie przy nieczytelnym Rejestrze.
+
+    Dzień nie daje się ustalić, gdy Surowe zlecenie nie ma daty albo Wykonawcy albo wiersz z wyglądem z aplikacji
+    stoi nad uporządkowanym: wtedy to Uporządkowanie INTERMAX mówi, co poprawić.
+    """
+
+    with _stops(messages.register_unusable), workbook_files.unreadable_as_error(register):
+        intermax = Register.read(register)
+        for sheet in intermax.order_sheets:
+            try:
+                recognized = raw_orders.recognize(sheet.rows_from_bottom(), sheet.columns)
+            except UnsupportedShape as error:
+                raise WorkbookError(register, Problem.UNREADABLE) from error
+            found = _raw_rows_in_period(recognized, period)
+            if found is not None:
+                return RawOrders(sheet.name, *found)
+    return None
+
+
+def _raw_rows_in_period(
+    recognized: raw_orders.RawBlock | raw_orders.Obstacle | None, period: SettlementPeriod
+) -> tuple[int, int] | None:
+    days: set[date]
+    match recognized:
+        case None:
+            return None
+        case RawBlock(orders):
+            days, rows = {order.when.date() for order in orders}, (orders[0].row, orders[-1].row)
+        case SeveralDays(several, first_row, last_row):
+            days, rows = set(several), (first_row, last_row)
+        case DayOrdered(day, first_row, last_row):
+            days, rows = {day}, (first_row, last_row)
+        case AboveOrdered(row, _) | Undated(row, _) | WithoutWorker(row, _):
+            return row, row
+    return rows if any(period.tuesday <= day <= period.monday for day in days) else None
 
 
 def register_problem(register: Path, readers: Readers) -> Message | None:
