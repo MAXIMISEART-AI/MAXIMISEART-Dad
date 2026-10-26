@@ -906,7 +906,7 @@ def test_wklejony_dzien_uporzadkowany_nad_nowszymi_dniami_jest_juz_uporzadkowany
     )
 
 
-def test_zlecenie_na_jutro_wpisane_w_dzisiejszym_dniu_nie_czyni_jutra_uporzadkowanym(tmp_path: Path) -> None:
+def test_zlecenie_na_jutro_w_srodku_dzisiejszego_dnia_z_jego_wierszami_pod_nim_nie_czyni_jutra_uporzadkowanym(tmp_path: Path) -> None:
     def day(number: int, count: int, first: int) -> tuple[Order, ...]:
         return tuple(Order(datetime(2026, 10, number, 7 + index), "anna.kowalska", first + index) for index in range(count))
 
