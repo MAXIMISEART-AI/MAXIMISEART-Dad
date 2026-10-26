@@ -22,7 +22,8 @@ komórek), to ``UnsupportedShape``. Wynik trafia do pliku tymczasowego obok INTE
 raz i porównany z oryginałem; różnica to ``WriteMismatch``, a INTERMAX zostaje nietknięty. Dopiero po zgodnym
 sprawdzeniu ``before_replace`` (Kopia INTERMAX) i atomowa podmiana. Podmianę, której system odmawia, gdy Excel nie
 trzyma INTERMAX (OneDrive go synchronizuje), ``save`` ponawia przez ``_RETRY_S`` sekund zegara procesu (``Waiting``),
-a potem zgłasza ``HeldByOneDrive``.
+a potem zgłasza ``HeldByOneDrive``. Przed każdą ponowną próbą czyta INTERMAX jeszcze raz: gdy OneDrive wgrał w
+przerwie inną wersję, to też ``HeldByOneDrive``, bez podmiany.
 """
 
 from __future__ import annotations
@@ -53,7 +54,7 @@ from .raw_orders import SHIFT, CellFacts, DayPlan, OrderColumns, RawBlock, RowFa
 from .row_look import BORDER
 from .workbook_files import WorkbookError, header_columns, is_blank
 from .workbook_parts import MAIN, OFFICE_REL, IrregularSheetData, SheetData, SheetRow, office_document, relationships
-from .workbook_save import write_atomically
+from .workbook_save import WorkbookSaveError, write_atomically
 from .worker_config import normalize_text
 
 __all__ = ["OrderSheet", "Register", "UnsupportedShape", "WriteMismatch", "save"]
@@ -97,7 +98,8 @@ class WriteMismatch(Exception):
 
 
 class HeldByOneDrive(Exception):
-    """System odmawia podmiany INTERMAX dłużej niż krótka ponowna próba, a Excel go nie trzyma."""
+    """System odmawia podmiany INTERMAX dłużej niż krótka ponowna próba, a Excel go nie trzyma, albo OneDrive wgrał
+    w przerwie między próbami inną wersję INTERMAX."""
 
 
 @dataclass(frozen=True)
@@ -626,7 +628,9 @@ def save(
 
     ``WriteMismatch``, ``UnsupportedShape`` albo wyjątek z ``before_replace`` zostawiają INTERMAX nietknięty i bez
     pliku tymczasowego. Nieudana podmiana to ``WorkbookSaveError``, a odmowa podmiany bez pliku blokady Excela po
-    ponownych próbach przez ``_RETRY_S`` sekund zegara ``waiting`` to ``HeldByOneDrive``.
+    ponownych próbach przez ``_RETRY_S`` sekund zegara ``waiting`` to ``HeldByOneDrive``. Ponowna próba podmienia
+    tylko INTERMAX, który ma wciąż bajty ``register``: inne bajty albo plik, którego nie da się przeczytać, to
+    ``HeldByOneDrive``, a plik blokady Excela to ``WorkbookSaveError``.
     """
 
     content = register.ordered(sheet, block, plan)
@@ -653,5 +657,13 @@ def save(
                 if waiting.clock() >= deadline:
                     raise HeldByOneDrive(target.name) from error
             waiting.pause(_PAUSE_S)
+            try:
+                unchanged = workbook_files.workbook_content(target) == register.content
+            except WorkbookError as error:
+                if error.problem is workbook_files.Problem.OPEN_IN_EXCEL:
+                    raise WorkbookSaveError(target.name) from error
+                raise HeldByOneDrive(target.name) from error
+            if not unchanged:
+                raise HeldByOneDrive(target.name)
 
     write_atomically(register.path, write, replace=replace)

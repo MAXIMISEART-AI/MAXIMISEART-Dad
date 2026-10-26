@@ -88,6 +88,19 @@ MUTATIONS = (
         NEW,
     ),
     Mutation(
+        "ponowna próba podmiany bez ponownego odczytu INTERMAX",
+        (
+            Edit(
+                FILE,
+                "            if not unchanged:\n                raise HeldByOneDrive(target.name)\n",
+                "",
+            ),
+        ),
+        EXPLORER,
+        "zmiana pracownika, którą OneDrive wgrał, gdy odmówił podmiany, przepada przy ponownej próbie",
+        NEW,
+    ),
+    Mutation(
         "stare Kopie sortowane odwrotnie",
         (
             Edit(

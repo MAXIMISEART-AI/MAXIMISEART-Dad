@@ -1250,6 +1250,74 @@ def test_podmiana_po_chwilowej_odmowie_onedrive_porzadkuje_intermax(tmp_path: Pa
     assert (tmp_path / "Kopie INTERMAX" / COPY_NAME).read_bytes() == original
 
 
+class _PauseThen(ManualClock):
+    """Zegar procesu, w którego przerwie przed ponowną próbą podmiany dzieje się ``meanwhile``."""
+
+    def __init__(self, meanwhile: Callable[[], object]) -> None:
+        super().__init__()
+        self._meanwhile = meanwhile
+
+    def pause(self, seconds: float) -> None:
+        super().pause(seconds)
+        self._meanwhile()
+
+
+def test_wersja_pracownika_wgrana_przez_onedrive_miedzy_probami_podmiany_zostaje_a_tata_slyszy_o_synchronizacji(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path, _ = _register(tmp_path)
+    worker = Intermax()
+    worker.ordered = (*worker.ordered, Order(datetime(2026, 10, 20, 11), "jan.nowak", 4))
+    attempts = _refused(monkeypatch, 1)
+
+    stop = _stop(_run(tmp_path, clock=_PauseThen(lambda: worker.write(path))))
+
+    assert (stop.message.code, stop.stop_kind) == ("INTERMAX_SYNCHRONIZOWANY", "for_tata")
+    assert len(attempts) == 1
+    written = tmp_path / "pracownik.xlsx"
+    worker.write(written)
+    assert path.read_bytes() == written.read_bytes()
+    assert [entry.name for entry in path.parent.iterdir()] == [REGISTER_NAME]
+    assert _copies(tmp_path) == set()
+
+
+def _unreadable(path: Path, patch: pytest.MonkeyPatch) -> None:
+    """System nie oddaje bajtów ``path`` (OneDrive trzyma plik w trakcie synchronizacji)."""
+
+    read_bytes = Path.read_bytes
+
+    def refused(target: Path) -> bytes:
+        if target == path:
+            raise PermissionError(errno.EACCES, os.strerror(errno.EACCES))
+        return read_bytes(target)
+
+    patch.setattr(Path, "read_bytes", refused)
+
+
+@pytest.mark.parametrize(
+    ("meanwhile", "code"),
+    [
+        (lambda path, _patch: path.with_name(f"~${REGISTER_NAME}").write_bytes(b""), "INTERMAX_OTWARTY"),
+        (_unreadable, "INTERMAX_SYNCHRONIZOWANY"),
+    ],
+    ids=["tata otwiera INTERMAX w Excelu", "INTERMAX niedostępny"],
+)
+def test_intermax_nieczytelny_w_przerwie_miedzy_probami_podmiany_to_zatrzymanie_dla_taty_bez_zapisu(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    meanwhile: Callable[[Path, pytest.MonkeyPatch], object],
+    code: str,
+) -> None:
+    path, _ = _register(tmp_path)
+    attempts = _refused(monkeypatch, 1)
+
+    with _nothing_written(tmp_path, path), monkeypatch.context() as during:
+        stop = _stop(_run(tmp_path, clock=_PauseThen(lambda: meanwhile(path, during))))
+
+    assert (stop.message.code, stop.stop_kind) == (code, "for_tata")
+    assert len(attempts) == 1
+
+
 def test_odmowa_podmiany_przy_otwartym_excelu_to_zatrzymanie_dla_taty_bez_czekania(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
