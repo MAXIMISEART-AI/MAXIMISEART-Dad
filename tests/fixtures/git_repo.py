@@ -98,8 +98,12 @@ def built_once(directory: Path, build: Callable[[Path], object], *key: Hashable)
 
 
 def _rewrite(path: Path, line_of: Callable[[str], str]) -> None:
-    lines = path.read_text(encoding="utf-8").splitlines(keepends=True)
-    path.write_text("".join(map(line_of, lines)), encoding="utf-8")
+    # Git na Windows ukrywa plik .git worktree, a Windows nie pozwala otworzyć ukrytego pliku do zapisu od nowa ("w").
+    with path.open("r+", encoding="utf-8", newline="") as file:
+        lines = file.read().splitlines(keepends=True)
+        file.seek(0)
+        file.write("".join(map(line_of, lines)))
+        file.truncate()
 
 
 def _config_url(line: str, moved: Callable[[str], str | None]) -> str | None:
