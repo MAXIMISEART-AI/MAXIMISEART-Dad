@@ -460,6 +460,24 @@ def test_zlecenie_na_dzis_wpisane_we_wczesniejszym_dniu_jest_poczatkiem_widoku_t
     assert _view(path).top_row == top_row
 
 
+def test_zlecenie_na_dzis_wsrod_wczesniejszych_zaczyna_widok_gdy_10_wczesniejszych_nie_stoi_pod_rzad(tmp_path: Path) -> None:
+    """Granica 10 wierszy liczy wcześniejsze dni pod rząd, jak przegląd nad wklejeniem: zlecenie na dziś ją zeruje."""
+
+    earlier = tuple(Order(datetime(2026, 10, 19, 8 + hour), "anna.kowalska", 10 + hour) for hour in range(10))
+    ordered = (
+        Order(datetime(2026, 10, 20, 7), "anna.kowalska", 1),
+        *earlier[:9],
+        Order(datetime(2026, 10, 20, 8), "anna.kowalska", 2),
+        earlier[9],
+        Order(datetime(2026, 10, 20, 9), "jan.nowak", 3),
+    )
+    path, _ = _register(tmp_path, Intermax(ordered=ordered))
+
+    _ordered(_run(tmp_path, now=datetime(2026, 10, 20, 7)))
+
+    assert _view(path).top_row == 2
+
+
 def test_dzien_bez_zoltego_wiersza_z_jedynym_zleceniem_dzisiaj_w_ostatnim_uporzadkowanym_wierszu_jest_widokiem(
     tmp_path: Path,
 ) -> None:
@@ -485,6 +503,45 @@ def test_intermax_zapisany_z_innym_aktywnym_arkuszem_otwiera_sie_na_arkuszu_zlec
         "xl/workbook.xml",
         "xl/worksheets/sheet3.xml",
     }
+
+
+def test_karta_zaznaczona_jako_true_w_innym_arkuszu_przestaje_byc_zaznaczona(tmp_path: Path) -> None:
+    path, _ = _register(tmp_path, Intermax(ordered=_VIEW_DAYS, active_sheet="LISTA OD 08.11.2021."))
+    rewrite_parts(
+        path, lambda name, data: data.replace(b'tabSelected="1"', b'tabSelected="true"') if name == _LIST_SHEET else data
+    )
+
+    _ordered(_run(tmp_path, now=datetime(2026, 10, 20, 7)))
+
+    assert _view(path).selected == (ORDER_SHEET,)
+    assert b"tabSelected" not in parts(path)[_LIST_SHEET]
+
+
+def test_w_drugim_oknie_excela_intermax_tez_otwiera_sie_na_arkuszu_zlecen_i_dzisiejszym_dniu(tmp_path: Path) -> None:
+    """Każde okno skoroszytu ma własny ``<workbookView>`` i własny ``<sheetView>`` w każdym arkuszu."""
+
+    path, _ = _register(tmp_path, Intermax(ordered=_VIEW_DAYS, active_sheet="LISTA OD 08.11.2021."))
+
+    def second_window(name: str, data: bytes) -> bytes:
+        if name == "xl/workbook.xml":
+            return re.sub(rb"(<workbookView\b[^>]*/>)", rb"\1\1", data)
+        if name == _SHEET:
+            view = re.search(rb"<sheetView\b.*?</sheetView>", data, re.S)
+            assert view is not None
+            second = view.group(0).replace(b'workbookViewId="0"', b'workbookViewId="1"')
+            return data.replace(view.group(0), view.group(0) + second)
+        return data
+
+    rewrite_parts(path, second_window)
+
+    _ordered(_run(tmp_path, now=datetime(2026, 10, 20, 7)))
+
+    after = parts(path)
+    assert re.findall(rb'<workbookView\b[^>]*\sactiveTab="(\d+)"', after["xl/workbook.xml"]) == [b"1", b"1"]
+    views = re.findall(rb"<sheetView\b.*?</sheetView>", after[_SHEET], re.S)
+    assert len(views) == 2
+    for view in views:
+        assert b'tabSelected="1"' in view and b'topLeftCell="A3"' in view and b'activeCell="B3"' in view
 
 
 def test_intermax_zapisany_na_pierwszym_arkuszu_bez_activetab_otwiera_sie_na_arkuszu_zlecen(tmp_path: Path) -> None:
@@ -567,6 +624,8 @@ def _parts_reordered(content: bytes) -> bytes:
 
 
 _SHEET, _STYLES = "xl/worksheets/sheet2.xml", "xl/styles.xml"
+_LIST_SHEET = "xl/worksheets/sheet3.xml"
+"""Arkusz ``LISTA OD 08.11.2021.`` fixture'u, za arkuszem zleceń."""
 
 
 def _in_sheet(change: Callable[[bytes], bytes]) -> Callable[[bytes, Layout], bytes]:
@@ -618,7 +677,13 @@ CORRUPTIONS: dict[str, Callable[[bytes, Layout], bytes]] = {
         content, "xl/workbook.xml", lambda xml: xml.replace(b'tabRatio="600"', b'tabRatio="601"', 1)
     ),
     "inny arkusz poza zaznaczeniem karty": lambda content, _layout: _part_changed(
-        content, "xl/worksheets/sheet3.xml", lambda xml: xml.replace(b'activeCell="A1" sqref="A1"', b'activeCell="A2" sqref="A2"', 1)
+        content, _LIST_SHEET, lambda xml: xml.replace(b'activeCell="A1" sqref="A1"', b'activeCell="A2" sqref="A2"', 1)
+    ),
+    "inna aktywna karta": lambda content, _layout: _part_changed(
+        content, "xl/workbook.xml", lambda xml: xml.replace(b'activeTab="1"', b'activeTab="2"', 1)
+    ),
+    "inny arkusz zaznaczony": lambda content, _layout: _part_changed(
+        content, _LIST_SHEET, lambda xml: xml.replace(b"<sheetView ", b'<sheetView tabSelected="true" ', 1)
     ),
     "istniejący styl": lambda content, _layout: _part_changed(
         content, _STYLES, lambda xml: xml.replace(b'<sz val="11"', b'<sz val="12"', 1)
