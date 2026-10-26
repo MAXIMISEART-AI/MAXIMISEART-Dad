@@ -229,7 +229,9 @@ def closing_action(file_name: str) -> str:
         (
             WORKER,
             f"{WORKER_TEMPLATE_STOP} Wzorzec rozliczenia pracownika jest otwarty lub zablokowany.",
-            WORKER_TEMPLATE_ACTION,
+            "Jeśli Wzorzec jest otwarty w Excelu, zamknij go bez zapisywania zmian i uruchom ponownie. "
+            "Jeśli Excel jest zamknięty, a komunikat wraca, usuń z tego samego folderu "
+            f"pozostawiony plik ~${WORKER} i uruchom ponownie.",
         ),
     ],
 )

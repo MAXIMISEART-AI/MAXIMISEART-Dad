@@ -372,12 +372,12 @@ def test_karta_startu_mowi_ktore_pliki_przebiegu_sa_otwarte_w_excelu_az_do_ich_z
     assert open_in_excel() == {PERIOD: [], "01_07_09_2026": []}
 
 
-def test_rada_karty_startu_i_zatrzymania_nazywa_ten_sam_pozostawiony_plik_blokady_pliku_zbiorczego(
-    tmp_path: Path,
-) -> None:
+@pytest.mark.parametrize("workbook", ["collective_file", "worker_template"])
+def test_rada_karty_startu_i_zatrzymania_nazywa_ten_sam_pozostawiony_plik_blokady(tmp_path: Path, workbook: str) -> None:
     centrum = settling_centrum(tmp_path)
-    leftover = f"pozostawiony plik ~${centrum.collective_file.name}"
-    centrum.collective_file.with_name(f"~${centrum.collective_file.name}").touch()
+    path = {"collective_file": centrum.collective_file, "worker_template": centrum.configuration.worker_template}[workbook]
+    leftover = f"pozostawiony plik ~${path.name}"
+    path.with_name(f"~${path.name}").touch()
     [card] = [choice["open_in_excel"] for choice in settlement_setup(centrum.client)["periods"]]
 
     [stop] = run_to_end(centrum, dry_run=True)["result"]["stops"]
