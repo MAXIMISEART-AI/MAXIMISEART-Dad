@@ -7,7 +7,8 @@ zatrzymuje się po odmowie. Zatrzymania zgłasza jako ``StopError`` z
 Komunikatem dla taty, a wynik nie zawiera danych klientów.
 
 Ten moduł sekwencjonuje cztery etapy i jako jedyny tłumaczy fakty planu na ostrzeżenia i Decyzję taty o niepełnym
-okresie, o którą pyta między Planowaniem a Zapisywaniem.
+okresie, o którą pyta między Planowaniem a Zapisywaniem, a fakt Sprawdzania o Surowych zleceniach w okresie na
+Zatrzymanie przed odczytem i zapisem.
 Sprawdzanie i odczyt Rejestru zleceń przez czytniki są w ``input_checks``, wybór zleceń okresu i reguły zleceń w ``preparation_plan``,
 Ilości usług zleceń w ``quantity_rules`` (wyznaczane w Planowaniu, więc podgląd bez zapisu ma te same ostrzeżenia
 ilości co zapis), a wzorce i zapis plików okresu w ``preparation_files``.
@@ -27,11 +28,12 @@ from . import preparation_messages as messages
 from .decision import Conversation, Decision, Declined
 from .domain import ProgressObserver, ProgressPhase
 from .input_checks import FILE_READERS, Readers
-from .message import Message
+from .message import Message, StopError
 from .phase_runner import PhaseRunner
 from .preparation_files import CollectiveFilePlan
 from .preparation_plan import IncompletePeriod, Plan
 from .quantity_rules import DESCRIPTION_COLUMNS, WEEKDAY_LABELS
+from .template_file import RouteCounts
 
 __all__ = [
     "PreparationSummary",
@@ -49,7 +51,7 @@ class PreparationSummary:
     ``orders_per_day`` ma dokładnie siedem kluczy, każdy dzień okresu od wtorku
     do poniedziałku w kolejności dat, także dni bez zleceń (wartość ``0``).
     ``skipped_empty_rows`` to całkowicie puste wiersze Rejestru od pierwszego do
-    ostatniego zlecenia okresu.
+    ostatniego zlecenia okresu. ``routes``: ile zapisanych plików okresu każdego rodzaju powstało każdą drogą zapisu (ADR 0008).
     """
 
     internal_settlement_file: Path
@@ -60,6 +62,7 @@ class PreparationSummary:
     orders_per_day: dict[date, int] = field(default_factory=dict)
     warnings: list[Message] = field(default_factory=list)
     phase_durations_ms: Mapping[ProgressPhase, int] = field(default_factory=lambda: MappingProxyType({}))
+    routes: RouteCounts = field(default_factory=lambda: MappingProxyType({}))
 
     def labeled_orders_per_day(self) -> list[tuple[str, int]]:
         """``Zlecenia na dzień`` z etykietami dni dla taty, np. ``("wt 08.09.2026", 1)``, w kolejności dat."""
@@ -169,8 +172,8 @@ def prepare_collective_file(
     internal_template = (internal_template_path or default_internal_template_path()).expanduser().resolve()
     collective_template = (collective_template_path or default_collective_template_path()).expanduser().resolve()
 
-    files, worker_mapping = phases.check(
-        lambda: input_checks.check_preparation(
+    def check() -> tuple[preparation_files.PeriodFiles, dict[str, str]]:
+        checked = input_checks.check_preparation(
             register_path,
             periods_directory,
             period,
@@ -179,7 +182,12 @@ def prepare_collective_file(
             collective_template=collective_template,
             readers=readers,
         )
-    )
+        raw = input_checks.raw_orders_in_period(register_path, checked[0].folder.period)
+        if raw is not None:
+            raise StopError(messages.raw_orders_not_ordered(register_path, raw.sheet, raw.first_row, raw.last_row))
+        return checked
+
+    files, worker_mapping = phases.check(check)
     folder = files.folder
     register = phases.read(lambda: input_checks.read_register(register_path, folder.period, readers))
 
@@ -206,9 +214,10 @@ def prepare_collective_file(
             if not consent:
                 raise Declined(messages.incomplete_period_refused(period, conversation.continue_hint))
 
-    def save_both() -> None:
-        if not dry_run:
-            preparation_files.write_period_files(files, plan.orders, plan.collective_rows)
+    def save_both() -> RouteCounts:
+        if dry_run:
+            return {}
+        return preparation_files.write_period_files(files, plan.orders, plan.collective_rows)
 
-    phases.save(save_both)
-    return replace(summary, phase_durations_ms=phases.durations_ms())
+    routes = phases.save(save_both)
+    return replace(summary, phase_durations_ms=phases.durations_ms(), routes=routes)
