@@ -136,7 +136,7 @@ Covered files: `src/rozliczenia/centrum/tool_update.py`,
 `src/rozliczenia/centrum/restart_guardian.py`,
 `src/rozliczenia/centrum/launcher.py`.
 
-Sync commit: `7acf755b` (2026-10-26, `main` after #540 merged into #534). Since
+Sync commit: `06fefb63` (2026-10-26, `main` after #540 merged into #534). Since
 `7acf755b` the covered files changed only in `tool_update.GITHUB_REPOSITORY`,
 the repository address after the move to the `maximiseartai` organization
 (#540), which the model does not describe, and in the docstring and one comment
