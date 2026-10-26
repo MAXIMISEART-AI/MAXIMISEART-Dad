@@ -15,7 +15,7 @@ import time
 
 import pytest
 
-from tests.fixtures.git_repo import commit, git
+from tests.fixtures.git_repo import built_once, commit, git
 
 TOOL = Path(__file__).resolve().parents[1] / "tools" / "praca_w_toku.py"
 
@@ -74,14 +74,19 @@ def _report(cwd: Path, *args: str, path: str | None = None) -> str:
 def checkouts(tmp_path: Path) -> dict[str, Path]:
     """Repo z originem i trzema worktree: inna sesja z pracą, sesja bez pracy i bieżący checkout."""
 
-    origin, main = tmp_path / "origin.git", tmp_path / "main"
-    _git(tmp_path, "init", "--bare", "-b", "main", str(origin))
-    _git(tmp_path, "clone", str(origin), str(main))
+    built_once(tmp_path, _checkouts)
+    return {"other": tmp_path / "inna-sesja", "current": tmp_path / "biezacy"}
+
+
+def _checkouts(directory: Path) -> None:
+    origin, main = directory / "origin.git", directory / "main"
+    _git(directory, "init", "--bare", "-b", "main", str(origin))
+    _git(directory, "clone", str(origin), str(main))
     _commit(main, "wspolny.py", "a = 1\n", "start")
     _commit(main, "inny.py", "b = 1\n", "drugi plik")
     _git(main, "push", "-u", "origin", "main")
 
-    other, idle, current = tmp_path / "inna-sesja", tmp_path / "bez-pracy", tmp_path / "biezacy"
+    other, idle, current = directory / "inna-sesja", directory / "bez-pracy", directory / "biezacy"
     _git(main, "worktree", "add", "-b", "fix/opiekun", str(other))
     _commit(other, "wspolny.py", "a = 2\n", "fix(centrum): opiekun nie cofa bez startu (#7)")
     (other / "szkic.py").write_text("c = 1\n", encoding="utf-8")
@@ -90,7 +95,6 @@ def checkouts(tmp_path: Path) -> dict[str, Path]:
     _commit(current, "wspolny.py", "a = 3\n", "feat: moje")
     (current / "szkic.py").write_text("c = 2\n", encoding="utf-8")
     (current / "inny.py").write_text("b = 2\n", encoding="utf-8")
-    return {"other": other, "current": current}
 
 
 def test_raport_wymienia_inna_prace_w_toku_i_pliki_zmieniane_tez_tutaj(checkouts: dict[str, Path]) -> None:
@@ -186,14 +190,34 @@ NIEPOTRZEBNA = "AKTUALIZACJA: niepotrzebna (bez konfliktu, bez wspólnych plikó
 def _branch_from_main(tmp_path: Path) -> tuple[Path, Path]:
     """Origin z ``main``, jego klon i worktree gałęzi ``feat/galaz`` z ``origin/main``; zwraca klon i worktree."""
 
-    origin, main, branch = tmp_path / "origin.git", tmp_path / "main", tmp_path / "galaz"
-    _git(tmp_path, "init", "--bare", "-b", "main", str(origin))
-    _git(tmp_path, "clone", str(origin), str(main))
+    built_once(tmp_path, _build_branch_from_main)
+    return tmp_path / "main", tmp_path / "galaz"
+
+
+def _build_branch_from_main(directory: Path) -> None:
+    origin, main, branch = directory / "origin.git", directory / "main", directory / "galaz"
+    _git(directory, "init", "--bare", "-b", "main", str(origin))
+    _git(directory, "clone", str(origin), str(main))
     _commit(main, "wspolny.py", WSPOLNY, "start")
     _commit(main, "inny.py", "x = 1\n", "drugi plik")
     _git(main, "push", "-u", "origin", "main")
     _git(main, "worktree", "add", "-b", "feat/galaz", str(branch), "origin/main")
-    return main, branch
+
+
+def test_kazdy_test_ma_wlasne_repozytorium_z_worktree_choc_proces_buduje_je_raz(tmp_path: Path) -> None:
+    changed_main, changed = _branch_from_main(tmp_path / "zmieniany")
+    untouched = _branch_from_main(tmp_path / "nietkniety")
+    _commit(changed, "inny.py", "x = 2\n", "tylko w zmienianym")
+    _git(changed_main, "worktree", "add", "-b", "feat/tylko-tu", str(tmp_path / "zmieniany" / "nowy"))
+
+    for main, branch in (untouched, _branch_from_main(tmp_path / "pozniejszy")):
+        worktrees = git(main, "worktree", "list", "--porcelain").splitlines()
+        assert [Path(line.removeprefix("worktree ")) for line in worktrees if line.startswith("worktree ")] == [
+            main.resolve(),
+            branch.resolve(),
+        ]
+        assert git(branch, "log", "-1", "--format=%s") == "drugi plik"
+        assert (git(main, "diff-files", "--name-only"), git(branch, "diff-files", "--name-only")) == ("", "")
 
 
 def _compared(checkout: Path) -> str:

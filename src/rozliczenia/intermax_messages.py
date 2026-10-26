@@ -7,6 +7,8 @@ numerów zleceń, numerów umów i loginów Wykonawców.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+from datetime import date
 from pathlib import Path
 
 from .message import REPORT_TO_MAINTAINER, Message, file_label, folder_label
@@ -21,7 +23,7 @@ def register_unusable(error: WorkbookError) -> Message:
 
     match error.problem:
         case Problem.MISSING:
-            return _register_missing(error.path)
+            return register_missing(error.path)
         case Problem.OPEN_IN_EXCEL:
             return register_open(error.path)
         case Problem.INACCESSIBLE:
@@ -30,7 +32,9 @@ def register_unusable(error: WorkbookError) -> Message:
             return _register_unreadable(error.path)
 
 
-def _register_missing(register: Path) -> Message:
+def register_missing(register: Path) -> Message:
+    """Nie ma INTERMAX pod ścieżką z Ustawień taty."""
+
     return Message(
         code="BRAK_INTERMAX",
         what=f"Nie znaleziono INTERMAX. {_UNCHANGED}",
@@ -107,6 +111,84 @@ def no_raw_orders(register: Path, sheet: str) -> Message:
     )
 
 
+def raw_orders_in_several_sheets(register: Path, sheets: Sequence[str]) -> Message:
+    """Wklejone zlecenia są w więcej niż jednym arkuszu zleceń, więc narzędzie nie wybiera, który porządkować."""
+
+    return Message(
+        code="SUROWE_ZLECENIA_W_KILKU_ARKUSZACH",
+        dad_file="order_register",
+        what=f"Wklejone zlecenia są w więcej niż jednym arkuszu zleceń. {_UNCHANGED}",
+        where=f"{file_label(register)}, arkusze {', '.join(sheets)}",
+        action=(
+            "Zostaw wklejone zlecenia tylko na dole jednego arkusza zleceń, a z pozostałych je usuń. Zapisz i zamknij "
+            "INTERMAX i uruchom ponownie."
+        ),
+    )
+
+
+def raw_order_above_ordered(register: Path, sheet: str, row: int, ordered_row: int) -> Message:
+    """Wiersz z wyglądem wklejonego zlecenia stoi nad uporządkowanym wierszem, więc nie jest na dole arkusza."""
+
+    return Message(
+        code="SUROWE_ZLECENIA_NAD_UPORZADKOWANYMI",
+        dad_file="order_register",
+        what=(
+            f"Wiersz {row} wygląda jak wklejone zlecenie, ale stoi nad uporządkowanym wierszem {ordered_row}. "
+            f"{_UNCHANGED}"
+        ),
+        where=f"{file_label(register)}, arkusz {sheet}, wiersz {row}",
+        action=(
+            "Przenieś wklejone zlecenia na dół arkusza zleceń, pod ostatni uporządkowany wiersz. Jeśli wiersz "
+            f"{row} jest już uporządkowany, nadaj mu czcionkę Calibri 8. Zapisz i zamknij INTERMAX i uruchom ponownie."
+        ),
+    )
+
+
+def raw_order_without_value(register: Path, sheet: str, row: int, column: str, *, worker: bool) -> Message:
+    """Wklejone zlecenie bez daty z godziną albo bez Wykonawcy (``worker``) w komórce ``column`` wiersza ``row``."""
+
+    missing = "Wykonawcy" if worker else "daty z godziną"
+    entered = "Wykonawcę" if worker else "datę z godziną"
+    return Message(
+        code="SUROWE_ZLECENIE_BEZ_WYKONAWCY" if worker else "SUROWE_ZLECENIE_BEZ_DATY",
+        dad_file="order_register",
+        what=f"Wklejone zlecenie w wierszu {row} nie ma {missing} w kolumnie {column}. {_UNCHANGED}",
+        where=f"{file_label(register)}, arkusz {sheet}, komórka {column}{row}",
+        action=f"Wpisz {entered} w komórce {column}{row}, zapisz i zamknij INTERMAX i uruchom ponownie.",
+    )
+
+
+def several_days(register: Path, sheet: str, days: Sequence[date], first_row: int, last_row: int) -> Message:
+    """Wklejone zlecenia są z więcej niż jednego dnia."""
+
+    return Message(
+        code="WKLEJENIE_Z_KILKU_DNI",
+        dad_file="order_register",
+        what=f"Wklejone zlecenia są z więcej niż jednego dnia: {', '.join(map(_day, days))}. {_UNCHANGED}",
+        where=f"{file_label(register)}, arkusz {sheet}, wiersze {first_row}–{last_row}",
+        action=(
+            "Zostaw na dole arkusza zleceń zlecenia jednego dnia, a pozostałe usuń. Zapisz i zamknij INTERMAX i "
+            "uruchom ponownie, a następny dzień wklej i uporządkuj osobno."
+        ),
+    )
+
+
+def day_already_ordered(register: Path, sheet: str, day: date, first_row: int, last_row: int) -> Message:
+    """Wklejone zlecenia są z dnia, który już jest uporządkowany; drugie wklejenie nie dubluje dnia."""
+
+    return Message(
+        code="DZIEN_JUZ_UPORZADKOWANY",
+        dad_file="order_register",
+        what=f"Dzień {_day(day)} jest już uporządkowany. {_UNCHANGED}",
+        where=f"{file_label(register)}, arkusz {sheet}, wklejone wiersze {first_row}–{last_row}",
+        action="Nowe zlecenia na ten dzień dopisz ręcznie, a wklejone usuń.",
+    )
+
+
+def _day(day: date) -> str:
+    return day.strftime("%d.%m.%Y")
+
+
 def unsupported_shape(register: Path, sheet: str) -> Message:
     """Wklejone zlecenia mają kształt, którego zapis nie przenosi (formuła, scalenie, zakres)."""
 
@@ -115,6 +197,17 @@ def unsupported_shape(register: Path, sheet: str) -> Message:
         what=f"Wklejone zlecenia mają układ, którego narzędzie nie porządkuje. {_UNCHANGED}",
         where=f"{file_label(register)}, arkusz {sheet}",
         action=REPORT_TO_MAINTAINER,
+    )
+
+
+def register_syncing(register: Path) -> Message:
+    """System odmawia podmiany INTERMAX po krótkiej ponownej próbie, a Excel go nie trzyma: OneDrive synchronizuje."""
+
+    return Message(
+        code="INTERMAX_SYNCHRONIZOWANY",
+        what=f"OneDrive jeszcze synchronizuje INTERMAX. {_UNCHANGED}",
+        where=file_label(register),
+        action="Spróbuj za chwilę: poczekaj, aż OneDrive skończy synchronizację, i uruchom ponownie.",
     )
 
 

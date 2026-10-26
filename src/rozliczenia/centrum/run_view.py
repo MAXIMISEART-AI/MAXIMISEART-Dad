@@ -81,16 +81,33 @@ class ProcessView(ResultView[InputsT, SummaryT]):
     """Widok Uruchomienia procesu na karcie Centrum: deklaracja procesu obok liczb i wyniku.
 
     Deklaracja procesu: ``reminder`` to przypomnienie przed uruchomieniem, ``confirms_readiness``
-    mówi, czy „Uruchom” potwierdza Gotowość Pliku zbiorczego, ``preview_hint`` to podpowiedź
-    „Podgląd bez zapisu”, ``done`` to tytuł wyniku po zapisie, a ``result_action`` otwiera to, co proces
-    zapisał, jako akcja po wyniku.
+    mówi, czy „Uruchom” potwierdza Gotowość Pliku zbiorczego, ``done`` to tytuł wyniku po zapisie,
+    ``result_action`` otwiera to, co proces zapisał, jako akcja po wyniku, a ``register_name`` to nazwa
+    Rejestru zleceń z Komunikatów procesu, pod którą karta proponuje go otworzyć.
     """
 
     reminder: str
     confirms_readiness: bool
-    preview_hint: str
     done: str
     result_action: contract.ResultAction
+    register_name: str = "Rejestr zleceń"
+
+    @property
+    def modes(self) -> tuple[contract.RunMode, ...]:
+        """Tryby Uruchomienia procesu: bez Podglądu bez zapisu tylko zapis."""
+
+        return ("RUN",)
+
+
+@dataclass(frozen=True, kw_only=True)
+class PeriodProcessView(ProcessView[InputsT, SummaryT]):
+    """Widok procesu, który tata uruchamia z okresem: ``preview_hint`` to podpowiedź „Podgląd bez zapisu”."""
+
+    preview_hint: str
+
+    @property
+    def modes(self) -> tuple[contract.RunMode, ...]:
+        return ("RUN", "DRY-RUN")
 
 
 def _count(label: str, value: int) -> contract.Figure:
@@ -171,7 +188,7 @@ def _preparation_summary(summary: PreparationSummary, _dry_run: bool) -> contrac
     )
 
 
-SETTLEMENT: Final[ProcessView[SettlementInputs, SettlementSummary]] = ProcessView(
+SETTLEMENT: Final[PeriodProcessView[SettlementInputs, SettlementSummary]] = PeriodProcessView(
     reminder="Zapisz i zamknij Plik zbiorczy w Excelu",
     confirms_readiness=True,
     preview_hint="Nic nie zostanie zapisane. Zobaczysz plan plików każdego Wykonawcy.",
@@ -180,7 +197,7 @@ SETTLEMENT: Final[ProcessView[SettlementInputs, SettlementSummary]] = ProcessVie
     _figures=_settlement_figures,
     _summary=_settlement_summary,
 )
-PREPARATION: Final[ProcessView[PreparationInputs, PreparationSummary]] = ProcessView(
+PREPARATION: Final[PeriodProcessView[PreparationInputs, PreparationSummary]] = PeriodProcessView(
     reminder="Zapisz i zamknij Rejestr zleceń w Excelu",
     confirms_readiness=False,
     preview_hint="Nic nie zostanie zapisane. Zobaczysz plan i nazwy obu plików.",
@@ -202,10 +219,16 @@ def _ordering_summary(summary: OrderingSummary, _dry_run: bool) -> contract.RunS
         counts=contract.CountGroup(title="Uporządkowany dzień", counts=[contract.Count(label=day, count=summary.order_count)]),
         files=[],
         worker_settlements=None,
+        intermax_copy=summary.copy_name,
     )
 
 
-# Karta Uporządkowania INTERMAX w Centrum dostaje deklarację procesu osobno (#470).
-INTERMAX: Final[ResultView[OrderingInputs, OrderingSummary]] = ResultView(
-    _figures=_ordering_figures, _summary=_ordering_summary
+INTERMAX: Final[ProcessView[OrderingInputs, OrderingSummary]] = ProcessView(
+    reminder="Zapisz i zamknij INTERMAX w Excelu",
+    confirms_readiness=False,
+    done="INTERMAX uporządkowany",
+    result_action="open_order_register",
+    register_name="INTERMAX",
+    _figures=_ordering_figures,
+    _summary=_ordering_summary,
 )

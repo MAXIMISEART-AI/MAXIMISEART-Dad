@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import datetime
 import json
 from pathlib import Path
 from typing import Any
@@ -11,6 +12,7 @@ from typing import Any
 import pytest
 
 from rozliczenia import preparation_process, settlement_process
+from rozliczenia.collective_preparation import PreparationSummary
 from rozliczenia.preparation_process import PreparationInputs
 from rozliczenia.process_run import Outcome, Process, ProcessInputs, Stop, run_process
 from rozliczenia.settlement_process import SettlementInputs
@@ -18,7 +20,7 @@ from rozliczenia.telemetry import MetricsStore
 
 from tests.fixtures.fake_process import fail
 from tests.fixtures.interlocutor import Tata
-from tests.fixtures.preparation import PreparationFixture, incomplete_period_fixture, make_preparation_fixture
+from tests.fixtures.preparation import PreparationFixture, incomplete_period_fixture, make_preparation_fixture, register_order
 from tests.fixtures.settlement import NOT_A_PERIOD, PERIOD, make_fixture, make_preview_fixture
 
 PHASES = {"Sprawdzanie", "Odczyt danych", "Planowanie", "Zapisywanie"}
@@ -205,3 +207,16 @@ def test_nieudany_zapis_metryk_jest_ostrzezeniem_procesu_bez_zmiany_wyniku(tmp_p
     outcome = run(CASES[name](tmp_path), not_a_directory / "metrics.jsonl", dry_run=True)
 
     assert (outcome.result, outcome.metrics_saved, outcome.technical_notes) == ("OK", False, (METRICS_NOT_SAVED[name],))
+
+
+def test_zapisane_przygotowanie_okresu_z_samymi_zleceniami_nieskutecznymi_wymaga_sprawdzenia(tmp_path: Path) -> None:
+    rows: list[dict[str, object] | None] = [
+        register_order(number, datetime(2026, 9, 14, 8, number), successful="nie") for number in (1, 2)
+    ]
+    case = preparation(tmp_path, fixture=make_preparation_fixture(tmp_path, rows))
+
+    outcome = run(case, tmp_path / "metrics.jsonl")
+
+    assert outcome.result == "WYMAGA_SPRAWDZENIA"
+    assert isinstance(outcome.view, PreparationSummary)
+    assert "KOLUMNY_Z_OPISU" in [warning.code for warning in outcome.view.warnings]

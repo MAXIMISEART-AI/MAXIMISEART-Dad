@@ -55,6 +55,23 @@ def update(repository: ToolRepository) -> UpdateResult:
     return ToolClone(repository.clone, origin=str(repository.origin)).update()
 
 
+def test_kazdy_test_ma_wlasne_repozytoria_narzedzia_choc_proces_buduje_pierwsza_wersje_raz(tmp_path: Path) -> None:
+    changed, untouched = tool_repository(tmp_path / "zmieniane"), tool_repository(tmp_path / "nietkniete")
+    first = untouched.head()
+
+    published = changed.publish({"src/narzedzie.py": "WERSJA = 2\n"})
+    changed.in_clone("pull", "--quiet", "--ff-only")
+    later = tool_repository(tmp_path / "pozniejsze")
+
+    assert (changed.head(), git(changed.origin, "rev-parse", "main")) == (published, published)
+    assert changed.read("src/narzedzie.py") == "WERSJA = 2\n"
+    for repository in (untouched, later):
+        repository.in_clone("fetch", "--quiet", "--tags")
+        assert git(repository.origin, "tag") == "v0.1.0"
+        assert (repository.head(), repository.in_clone("rev-parse", "origin/main")) == (first, first)
+        assert (repository.in_clone("diff-files", "--name-only"), git(repository.publisher, "diff-files", "--name-only")) == ("", "")
+
+
 def test_aktualizacja_przesuwa_klon_do_przodu_na_najnowsze_wydanie(repository: ToolRepository, tmp_path: Path) -> None:
     before = repository.head()
     newest = repository.publish({"src/narzedzie.py": "WERSJA = 2\n"})

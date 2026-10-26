@@ -53,12 +53,25 @@ MUTATIONS = (
         (
             Edit(
                 ORDERING,
-                "                for copy in copies:\n                    copy.unlink()\n",
-                "                pass\n",
+                "            except WorkbookSaveError as error:\n                for copy in copies:\n                    copy.unlink()\n",
+                "            except WorkbookSaveError as error:\n                pass\n",
             ),
         ),
         EXPLORER,
         "Zatrzymanie przy INTERMAX otwartym w Excelu zostawia Kopię, choć INTERMAX się nie zmienił",
+        NEW,
+    ),
+    Mutation(
+        "Kopia zostaje po odmowie OneDrive",
+        (
+            Edit(
+                ORDERING,
+                "            except HeldByOneDrive as error:\n                for copy in copies:\n                    copy.unlink()\n",
+                "            except HeldByOneDrive as error:\n                pass\n",
+            ),
+        ),
+        EXPLORER,
+        "Zatrzymanie, bo OneDrive synchronizuje INTERMAX, zostawia Kopię, choć INTERMAX się nie zmienił",
         NEW,
     ),
     Mutation(
@@ -85,6 +98,33 @@ MUTATIONS = (
         ),
         EXPLORER,
         "obok INTERMAX w OneDrive zostaje plik tymczasowy",
+        NEW,
+    ),
+    Mutation(
+        "ponowna próba podmiany bez ponownego odczytu INTERMAX",
+        (
+            Edit(
+                FILE,
+                "            if not unchanged:\n                raise HeldByOneDrive(target.name)\n",
+                "",
+            ),
+        ),
+        EXPLORER,
+        "zmiana pracownika, którą OneDrive wgrał, gdy odmówił podmiany, przepada przy ponownej próbie",
+        NEW,
+    ),
+    Mutation(
+        "ponowny odczyt INTERMAX przed przerwą zamiast po niej",
+        (
+            Edit(FILE, "            waiting.pause(_PAUSE_S)\n            try:\n", "            try:\n"),
+            Edit(
+                FILE,
+                "            if not unchanged:\n                raise HeldByOneDrive(target.name)\n",
+                "            if not unchanged:\n                raise HeldByOneDrive(target.name)\n            waiting.pause(_PAUSE_S)\n",
+            ),
+        ),
+        EXPLORER,
+        "zmiana pracownika, którą OneDrive wgrał w przerwie przed ponowną próbą, przepada przy tej próbie",
         NEW,
     ),
     Mutation(
@@ -118,8 +158,8 @@ MUTATIONS = (
         (
             Edit(
                 ORDERING,
-                "                for copy in copies:\n                    copy.unlink()\n",
-                "                for copy in list(copies_directory.iterdir()):\n                    copy.unlink()\n",
+                "            except WorkbookSaveError as error:\n                for copy in copies:\n                    copy.unlink()\n",
+                "            except WorkbookSaveError as error:\n                for copy in list(copies_directory.iterdir()):\n                    copy.unlink()\n",
             ),
         ),
         EXPLORER,

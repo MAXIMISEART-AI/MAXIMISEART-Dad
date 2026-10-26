@@ -259,7 +259,8 @@ def period_status_label(status: PeriodStatus) -> str:
 def _month_periods_folders(periods_directory: Path) -> list[Path]:
     """Foldery ``INEA`` miesięcy w ``Rozliczenia {rok}``, w kolejności lat i miesięcy.
 
-    Puste w układzie płaskim i gdy folderu okresów nie ma.
+    Puste w układzie płaskim i gdy folderu okresów nie ma. Folder miesiąca bez
+    dostępu to ``PeriodFolderInaccessible`` z tym folderem.
     """
 
     years = sorted(
@@ -271,7 +272,9 @@ def _month_periods_folders(periods_directory: Path) -> list[Path]:
         month / _MONTH_PERIODS_FOLDER
         for year in years
         for month in sorted(Path(entry.path) for entry in _listing(year) or () if entry.is_dir())
-        if (month / _MONTH_PERIODS_FOLDER).is_dir()
+        if _exists(
+            {entry.name: entry for entry in _listing(month) or ()}, month / _MONTH_PERIODS_FOLDER, directory=True
+        )
     ]
 
 

@@ -1,7 +1,7 @@
 import * as React from "react"
-import { EyeIcon, FileSpreadsheetIcon, FolderIcon, InfoIcon, ListOrderedIcon, TriangleAlertIcon, UsersIcon } from "lucide-react"
+import { EyeIcon, FileSpreadsheetIcon, FolderIcon, InfoIcon, TriangleAlertIcon, UsersIcon } from "lucide-react"
 
-import type { PathSetting, PeriodChoice, Process, ProcessSetup } from "@/api/centrum"
+import type { PathSetting, PeriodChoice, PeriodProcess, ProcessSetup } from "@/api/centrum"
 import { Alert, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
@@ -47,10 +47,9 @@ function PeriodLabel({ choice }: { choice: PeriodChoice }) {
   )
 }
 
-const PROCESS_ICONS: Record<Process, React.ReactNode> = {
+const PROCESS_ICONS: Record<PeriodProcess, React.ReactNode> = {
   preparation: <FileSpreadsheetIcon aria-hidden />,
   settlement: <UsersIcon aria-hidden />,
-  intermax: <ListOrderedIcon aria-hidden />,
 }
 
 /**
@@ -260,7 +259,7 @@ function CollectiveFile({ choice }: { choice: PeriodChoice | undefined }) {
   )
 }
 
-function SettingPath({
+export function SettingPath({
   label,
   icon,
   setting,
