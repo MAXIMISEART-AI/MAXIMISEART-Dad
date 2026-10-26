@@ -17,6 +17,7 @@ from uuid import uuid4
 from openpyxl import Workbook, load_workbook
 import pytest
 
+from rozliczenia import intermax_copies
 from rozliczenia.centrum.run_logs import RunLog
 
 from tests.fixtures.centrum import phase_states, views_until
@@ -111,6 +112,21 @@ def test_uporzadkuj_porzadkuje_intermax_z_ustawien_taty_i_pokazuje_liczby_dzien_
     assert copies(centrum) == [COPY]
     assert (centrum.copies / COPY).read_bytes() == original
     assert centrum.register.read_bytes() != original
+
+
+def test_centrum_bez_wskazanego_folderu_kopii_kladzie_kopie_intermax_w_folderze_narzedzia(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    tool = tmp_path / "narzędzie"
+    tool.mkdir()
+    monkeypatch.setattr(intermax_copies, "TOOL_ROOT", tool)
+    centrum = ordering_centrum(tmp_path, tool_copies=True)
+    original = centrum.register.read_bytes()
+
+    view = centrum.run_to_end()
+
+    assert view["result"]["headline"] == "INTERMAX uporządkowany"
+    assert (tool / "Kopie INTERMAX" / COPY).read_bytes() == original
 
 
 def _replace_refused(monkeypatch: pytest.MonkeyPatch, times: int | None) -> list[int]:
@@ -413,6 +429,19 @@ def test_karta_bierze_ostatnie_uporzadkowanie_a_nie_pozniejsze_uruchomienie_inne
     _logs_like(centrum, ordered, timedelta(hours=1), process="preparation")
 
     assert centrum.setup()["last"]["run"]["id"] == ordered
+
+
+def test_bez_logow_uporzadkowania_karta_nie_ma_ostatniego_choc_sa_logi_innego_procesu(tmp_path: Path) -> None:
+    centrum = ordering_centrum(tmp_path)
+    ordered = centrum.run_to_end()["run"]["id"]
+    _logs_like(centrum, ordered, timedelta(hours=1), process="preparation")
+    [intermax_logs] = (centrum.tmp_path / "logs" / "uruchomienia").glob(f"*-{ordered}.json")
+    intermax_logs.unlink()
+    centrum.restart()
+
+    setup = centrum.client.get("/api/intermax")
+
+    assert (setup.status_code, setup.json()["last"]) == (200, None)
 
 
 @pytest.mark.parametrize(

@@ -83,8 +83,24 @@ def order_register(
     phases = PhaseRunner(observer, clock=clock)
     register_path = register_path.expanduser().resolve()
 
-    phases.check(lambda: _check(register_path))
-    register = phases.read(lambda: _read(register_path))
+    def check() -> None:
+        try:
+            workbook_files.ensure_available(register_path)
+        except WorkbookError as error:
+            raise StopError(messages.register_unusable(error)) from error
+
+    phases.check(check)
+
+    def read() -> Register:
+        try:
+            register = Register.read(register_path)
+        except WorkbookError as error:
+            raise StopError(messages.register_unusable(error)) from error
+        if not register.order_sheets:
+            raise StopError(messages.no_order_sheet(register_path))
+        return register
+
+    register = phases.read(read)
 
     def plan() -> tuple[OrderSheet, RawBlock, DayPlan]:
         found: list[tuple[OrderSheet, RawBlock | Obstacle]] = []
@@ -154,29 +170,12 @@ def _obstacle(register: Path, sheet: str, obstacle: Obstacle) -> Message:
 def register_problem(register_path: Path) -> Message | None:
     """Komunikat, którym Sprawdzanie albo Odczyt danych zatrzymałyby Uporządkowanie INTERMAX; ``None``, gdy przechodzą.
 
-    Tylko czyta, więc Diagnoza sprawdza INTERMAX tą samą regułą co proces. Odczyt sprawdza najpierw to samo co
-    Sprawdzanie i daje ten sam Komunikat, więc wystarcza sam.
+    Tylko czyta, więc Diagnoza sprawdza INTERMAX tą samą regułą co proces. ``Register.read`` sprawdza najpierw to
+    samo co Sprawdzanie i daje ten sam Komunikat, więc wystarcza sam.
     """
 
     try:
-        _read(register_path)
-    except StopError as stop:
-        return stop.message
-    return None
-
-
-def _check(register_path: Path) -> None:
-    try:
-        workbook_files.ensure_available(register_path)
-    except WorkbookError as error:
-        raise StopError(messages.register_unusable(error)) from error
-
-
-def _read(register_path: Path) -> Register:
-    try:
         register = Register.read(register_path)
     except WorkbookError as error:
-        raise StopError(messages.register_unusable(error)) from error
-    if not register.order_sheets:
-        raise StopError(messages.no_order_sheet(register_path))
-    return register
+        return messages.register_unusable(error)
+    return None if register.order_sheets else messages.no_order_sheet(register_path)

@@ -59,7 +59,7 @@ class StartedRun(BaseModel):
 class RunCards:
     """Karty Uruchomień z dysku: ostatnie Uruchomienie sprzed startu Centrum i karta po identyfikatorze.
 
-    ``logs`` to katalog Logów Uruchomienia, ``last_started`` plik ostatniego startu, a ``entries`` procesy Centrum,
+    ``logs`` to katalog Logów Uruchomienia, ``last_started`` plik ostatniego startu, a ``processes`` procesy Centrum,
     z których karta bierze tytuł procesu i deklarację procesu (Gotowość, tytuł wyniku po zapisie), jak przy starcie.
     """
 
@@ -67,11 +67,11 @@ class RunCards:
         self,
         logs: Path,
         last_started: Path,
-        entries: Mapping[contract.ProcessKey, PreparationEntry | SettlementEntry | IntermaxEntry],
+        processes: Mapping[contract.ProcessKey, PreparationEntry | SettlementEntry | IntermaxEntry],
     ) -> None:
         self._logs = logs
         self._last_started = last_started
-        self._entries = entries
+        self._entries = processes
 
     def run_started(self, info: contract.RunInfo, started_at: datetime) -> None:
         started = StartedRun(
