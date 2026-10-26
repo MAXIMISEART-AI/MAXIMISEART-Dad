@@ -415,8 +415,8 @@ Komunikat. Niczego nie zmienia ani nie naprawia.
 Komunikat Zatrzymania razem z wynikiem Diagnozy, wysłany z Centrum rozliczeń
 do Maksa. Jeden odcisk problemu ma najwyżej jedno otwarte Zgłoszenie; gdy Maks
 je zamknie, a problem wraca, powstaje nowe z odnośnikiem do poprzedniego.
-Zgłoszenie, które nie może od razu wyjść (brak internetu albo klucza), czeka na
-komputerze taty i wychodzi samo.
+Zgłoszenie, które nie może od razu wyjść (brak internetu albo Tokenu do
+Zgłoszeń), czeka w Kolejce wysyłki i wychodzi samo.
 
 ## Logi Uruchomienia
 
@@ -456,8 +456,25 @@ Miejsce, do którego trafiają Zgłoszenia, Kontrole ilości, Logi Uruchomienia 
 Uwagi taty i w którym Maks je zamyka: prywatne repozytorium Zgłoszeń. Centrum
 pyta ją o otwarte Zgłoszenie odcisku problemu, o otwarte issue Kontroli ilości
 okresu, o issue Logów Uruchomienia okresu (także zamknięte) i o stan wysłanych
-Zgłoszeń. Z jej odpowiedzi Centrum wie, czy przyjmuje klucz taty.
+Zgłoszeń. Z jej odpowiedzi Centrum wie, czy przyjmuje Token do Zgłoszeń.
 _Avoid_: issue tracker, publiczne issue
+
+## Token do Zgłoszeń
+
+Token, którym Centrum rozliczeń wysyła do Skrzynki Zgłoszeń. Wpisuje go Maks na
+komputerze taty, a tata go nie widzi. Może go brakować albo Skrzynka może go
+odrzucić; wtedy nic nie wychodzi, dopóki Maks go nie naprawi, a tata widzi, że
+Token do Zgłoszeń nie działa i ma skontaktować się z Maksem.
+_Avoid_: klucz, hasło
+
+## Kolejka wysyłki
+
+Miejsce na komputerze taty, w którym Zgłoszenia, Uwagi taty, Logi Uruchomienia
+i Kontrole ilości czekają, aż przyjmie je Skrzynka Zgłoszeń. Bez internetu
+wychodzą same, gdy sieć wróci, a bez działającego Tokenu do Zgłoszeń, gdy Maks
+go naprawi. Treść, którą Skrzynka odrzuciła, zostaje w niej do następnego
+startu Centrum rozliczeń; tata ma wtedy skontaktować się z Maksem.
+_Avoid_: outbox, bufor
 
 ## Kontrola ilości
 

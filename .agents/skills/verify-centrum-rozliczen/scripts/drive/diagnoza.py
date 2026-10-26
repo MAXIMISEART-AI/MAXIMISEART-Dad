@@ -34,10 +34,10 @@ NOT_CHECKED_UNEXPECTED = "Nie udało się sprawdzić: nieoczekiwany błąd."
 # The Centrum log entry of a check that failed itself: the exception type and the check, never its text.
 UNEXPECTED_IN_DIAGNOSIS = 'nieoczekiwany-wyjatek typ=RuntimeError miejsce="Diagnoza: Rejestr zleceń"'
 UNEXPECTED_CODE = "BLAD_NIEOCZEKIWANY"
-FOR_KEY = "Zgłoszenie czeka na klucz do Zgłoszeń. Daj znać Maksowi."
-KEY_CHECK = "Klucz do Zgłoszeń"
-NO_KEY = "Na tym komputerze nie ma klucza do Zgłoszeń. Zgłoszenie poczeka, aż Maks go wpisze."
-KEY_REFUSED = "Skrzynka Zgłoszeń odrzuca klucz. Zgłoszenie poczeka, aż Maks go wymieni."
+FOR_KEY = "Token do Zgłoszeń nie działa. Skontaktuj się z Maksem."
+KEY_CHECK = "Token do Zgłoszeń"
+NO_KEY = "Na tym komputerze nie ma Tokenu do Zgłoszeń. Zgłoszenie poczeka, aż Maks go wpisze."
+KEY_REFUSED = "Skrzynka Zgłoszeń odrzuca Token do Zgłoszeń. Zgłoszenie poczeka, aż Maks go wymieni."
 # A key of its own: the skrzynka refuses it here, and Centrum remembers that refusal per key for a quarter of an hour.
 REFUSED_KEY = "github_pat_VERIFY_DIAGNOZA_ODRZUCONY"
 PROPOSAL = "Jest też nowsza wersja narzędzia."
