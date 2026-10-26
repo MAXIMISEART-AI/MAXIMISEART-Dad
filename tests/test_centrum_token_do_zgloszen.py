@@ -63,7 +63,8 @@ def test_uwaga_odrzucona_przez_skrzynke_nie_czeka_na_internet_a_nastepna_wychodz
     [sent] = started.report_box.issues_with("uwaga-taty")
     assert sent.title == "Druga"
     assert wait_for(lambda: note_states(started) == {"Pierwsza": "odrzucona", "Druga": "wyslana"})
-    assert len(queued(tmp_path, "uwaga-taty")) == 1
+    # Kolejka usuwa plik dostarczonej Uwagi po zapisaniu jej stanu, a na Windows chwilę później.
+    assert wait_for(lambda: len(queued(tmp_path, "uwaga-taty")) == 1)
     assert "przyczyna=odmowa-tresci" in started.log_path.read_text(encoding="utf-8")
 
 
