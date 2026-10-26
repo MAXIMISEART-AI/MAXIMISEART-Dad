@@ -443,8 +443,9 @@ def _plan(args: argparse.Namespace) -> int:
     czasy = czasy_ci.z_mainu(katalog, odswiez_po_s=0 if args.czasy else czasy_ci.ODSWIEZ_S)
     if czasy.blad:
         print(f"CZASY CI | {czasy.blad}; plan waży pracę bez pomiaru domyślnie")
-    praca = zakres(args.zdarzenie, szybko.changed_since(args.baza) if args.zdarzenie == "pull_request" else frozenset())
-    wybor = mutacje_skilli.wybor(args.baza if args.zdarzenie == "pull_request" else None)
+    zmiana = szybko.changed_since(args.baza) if args.zdarzenie == "pull_request" else None
+    praca = zakres(args.zdarzenie, zmiana or frozenset())
+    wybor = mutacje_skilli.wybor(zmiana)
     wyceny = [*(wycen(tor, praca.pliki, czasy) for tor in praca.tory), wycen_mutacje([krok for krok, _ in wybor.chosen], czasy)]
     mutacje = liczba_mutacji_zmiany(args.baza) if args.zdarzenie == "pull_request" else 0
     bledy = tuple(f"{nazwa}: {powod}" for nazwa, powod in sorted(wybor.failed.items()))

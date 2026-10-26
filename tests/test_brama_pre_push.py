@@ -21,7 +21,7 @@ from tests.fixtures.potomne import wait_for
 
 HOOK = Path(__file__).resolve().parents[1] / "tools" / "hooks" / "pre-push"
 WORK_IN_PROGRESS = HOOK.parents[1] / "praca_w_toku.py"
-SKILLS_FOR_CHANGE = ("skille_dla_zmiany.py", "mutacje_skilli.py", "szybko.py", "ci_lokalnie.py", "mutacje.py", "sciezki_w_kodzie.py")
+SKILLS_FOR_CHANGE = ("skille_dla_zmiany.py", "mutacje_skilli.py", "plan_ci.py", "mutacje_zmiany.py", "pokrycie_procesu.py", "szybko.py", "ci_lokalnie.py", "mutacje.py", "sciezki_w_kodzie.py")
 SKILL = "---\nname: verify-kod\ndescription: kod\npilnuje:\n  - kod/*\n---\n"
 BRANCH = "refs/heads/zmiana"
 AGENT_MARKERS = ("AI_AGENT", "CLAUDECODE")
@@ -262,7 +262,7 @@ def test_push_agenta_bez_origin_main_drukuje_powod_nieznanych_skilli(checkout: P
 
     [line] = _skills_lines(checkout, "kod/nowy.py")
 
-    assert line.startswith("SKILLE VERIFY: nieznane (git diff: fatal: "), line
+    assert line.startswith("SKILLE VERIFY: nieznane (git merge-base: fatal: "), line
 
 
 BROKEN_SKILLS = {

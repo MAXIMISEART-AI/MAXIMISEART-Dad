@@ -2,7 +2,32 @@
 name: verify-rozliczenia
 description: Verify MAXIMISEART-Dad's processes (Przebieg rozliczeń, Przygotowanie pliku zbiorczego) through the machine script `tools/uruchom_proces.py`, each alone and chained from Rejestr zleceń to Rozliczenia pracowników, with synthetic Excel files, workbook side-effect checks, and retained evidence; use after process, workbook, or safety-rule changes.
 pilnuje:
-  - src/*.py
+  - src/rozliczenia/__init__.py
+  - src/rozliczenia/call_trace.py
+  - src/rozliczenia/collective_*.py
+  - src/rozliczenia/decision.py
+  - src/rozliczenia/domain.py
+  - src/rozliczenia/engine.py
+  - src/rozliczenia/highlights.py
+  - src/rozliczenia/hyperlinks.py
+  - src/rozliczenia/inea_only_quantities.py
+  - src/rozliczenia/input_checks.py
+  - src/rozliczenia/intermax_*.py
+  - src/rozliczenia/message.py
+  - src/rozliczenia/order_facts.py
+  - src/rozliczenia/period_folder.py
+  - src/rozliczenia/phase_runner.py
+  - src/rozliczenia/preparation_*.py
+  - src/rozliczenia/process_run.py
+  - src/rozliczenia/progress.py
+  - src/rozliczenia/quantit*.py
+  - src/rozliczenia/raw_orders.py
+  - src/rozliczenia/row_look.py
+  - src/rozliczenia/settlement_*.py
+  - src/rozliczenia/telemetry.py
+  - src/rozliczenia/template_*.py
+  - src/rozliczenia/workbook_*.py
+  - src/rozliczenia/worker_config.py
   - tools/uruchom_proces.py
 ci: .agents/skills/verify-rozliczenia/scripts/quantity_rules_conformance.py
 ---

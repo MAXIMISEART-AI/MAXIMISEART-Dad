@@ -11,17 +11,15 @@ wydrukował na końcu ``MUTACJE OK``. Skrypt biegnie przez ``tools/potomne.py``:
 potomne giną po jego końcu i po limicie, a cały skrypt ginie razem z runnerem, choćby zabitym
 przez SIGKILL. Kończy się ``MUTACJE SKILLI OK`` albo ``MUTACJE SKILLI FAIL | <skrypty>``.
 
-Z ``--zmiany-od REF`` biegnie tylko skrypt, którego werdykt mogą zmienić zmiany od ``REF`` (jak
-w ``git diff REF...HEAD``, z niezacommitowanymi). Skill deklaruje we frontmatterze ``SKILL.md`` klucz
-``pilnuje:``, listę globów ścieżek względem korzenia repozytorium (``*`` obejmuje też ``/``). Skill
-bez tego klucza biegnie zawsze. Skrypt skilla z kluczem biegnie, gdy zmieniony jest plik z
-``pilnuje``, plik w folderze skilla albo plik, który skrypt czyta: on sam, sprawdzenia z poleceń
-jego mutacji, pliki, które mutacje zmieniają, ich importy z repozytorium (każdy ``import`` w kodzie,
-także w funkcji), skrypty ``.py``, które pliki spoza ``src/`` uruchamiają ścieżką z ``/`` (``executed``, ten sam
-wybór co w ``tools/skille_dla_zmiany.py``), oraz infrastruktura mutacji: ten runner z importami i ``INFRASTRUCTURE``.
-Pliki czytane liczy runner, więc lista ``pilnuje`` nie musi ich powtarzać i nie zawęża selekcji poniżej nich. Skrypt,
-którego plików nie da się tak wyznaczyć (polecenie mutacji nie jest skryptem z repozytorium, kod się nie parsuje),
-biegnie zawsze. Pominięty skrypt dostaje linię ``POMINIĘTY``.
+Z ``--zmiany-od REF`` biegnie tylko krok, którego werdykt może zmienić zmiana od ``REF`` (``szybko.changed_since``, z
+niezacommitowanymi), jak na pull request w CI (ADR 0020). Skill deklaruje we frontmatterze ``SKILL.md`` klucz ``pilnuje:``,
+listę globów ścieżek względem korzenia repozytorium (``*`` obejmuje też ``/``). Podstawa skilla biegnie, gdy zmieniony jest
+plik z ``pilnuje`` albo plik w folderze skilla; ten sam wybór (``hits``) wskazuje skille ``verify-*`` w
+``tools/skille_dla_zmiany.py``. Skrypt mutacji biegnie, gdy zmieniony jest plik w folderze skilla, runner mutacji
+(``RUNNER``) albo sprawdzenie, które uruchamiają jego mutacje. Importów ani plików, które krok czyta, wybór nie liczy: każdy
+krok uruchamia pełne CI ``main``. Zmiana ``INFRASTRUCTURE`` uruchamia każdy krok, a
+skill bez klucza ``pilnuje`` albo z kluczem, którego nie da się odczytać, biegnie zawsze. Pominięty krok dostaje linię
+``POMINIĘTY``.
 
 Krok to podstawa skilla albo jeden jego skrypt mutacji. W CI kroki dzieli między zadania Mutation checks plan runu
 (``tools/plan_ci.py``): bierze ten sam wybór (``wybor``), waży kroki czasami z ``czasy-ci``, a skrypt mutacji dłuższy niż
@@ -30,8 +28,8 @@ klucz ``ci:`` plan zgłasza w ``Required CI status``.
 
 Skill może zadeklarować we frontmatterze klucz ``ci:``: polecenie (skrypt ``.py`` z repozytorium, ścieżka od korzenia,
 i jego argumenty), którym CI sprawdza skill na niezmienionym kodzie. Runner uruchamia je jako krok ``PODSTAWA``
-(przed skryptami mutacji skilla, gdy biegną w tym samym zadaniu), z tym samym wyborem co skrypt mutacji, także w skillu bez skryptu mutacji. Polecenie, które skrypt
-mutacji i tak uruchamia bez mutacji (podstawa ``check_all``), nie biegnie drugi raz. Podstawa przechodzi z kodem 0.
+(przed skryptami mutacji skilla, gdy biegną w tym samym zadaniu), także w skillu bez skryptu mutacji. Polecenie, które wybrany
+skrypt mutacji i tak uruchamia bez mutacji (podstawa ``check_all``), nie biegnie drugi raz. Podstawa przechodzi z kodem 0.
 
     py -3 tools/mutacje_skilli.py                  # Windows
     .venv/bin/python tools/mutacje_skilli.py       # macOS i Linux
@@ -55,11 +53,10 @@ import time
 from typing import Any, NamedTuple
 
 import potomne
-from sciezki_w_kodzie import references
+import szybko
 
 ROOT = Path(__file__).resolve().parents[1]
 SKILLS = ROOT / ".agents" / "skills"
-SRC = ROOT / "src"
 PATTERN = "check_*_mutations.py"
 # Wywołanie skryptu mutacji w SKILL.md; ścieżka bez ``.agents`` na początku liczy się od folderu skilla.
 MENTION = re.compile(r"[\w.\\/-]*scripts[\\/]check_\w+_mutations\.py")
@@ -67,104 +64,16 @@ VERDICT = "MUTACJE OK"
 BASELINE = "PODSTAWA"
 # Najdłuższy skrypt trwał w CI na Windows 770 s; limit łapie zawieszenie, a nie wolny runner.
 LIMIT_S = 30 * 60
-# Pliki spoza Pythona, od których zależy przebieg mutacji w CI: biblioteki, zadanie CI, końce linii kopii.
+# Zmiana, po której na pull request biegnie każdy krok każdego skilla: biblioteki, zadanie CI, końce linii kopii.
 INFRASTRUCTURE = ("requirements.txt", ".github/workflows/ci.yml", ".gitattributes")
-# Katalogi, w których skrypty i sprawdzenia szukają importów (sys.path), poza katalogiem importującego pliku.
-IMPORT_ROOTS = (ROOT / "src", ROOT / "tools", ROOT)
+# Runner mutacji: jego zmiana może zmienić werdykt każdego skryptu mutacji.
+RUNNER = ("tools/mutacje.py", "tools/mutacje_skilli.py")
+# Powód w ``Hits`` dla pliku w folderze skilla.
+FOLDER = "folder skilla"
 
 
 def _name(path: Path) -> str:
     return path.relative_to(ROOT).as_posix() if path.is_relative_to(ROOT) else path.as_posix()
-
-
-def _git(*arguments: str) -> list[str]:
-    out = subprocess.run(["git", *arguments], cwd=ROOT, capture_output=True, check=True).stdout.decode("utf-8")
-    return [name for name in out.split("\0") if name]
-
-
-def _changed(base: str) -> set[str]:
-    return {
-        *_git("diff", "--name-only", "--no-renames", "-z", f"{base}...HEAD"),
-        *_git("diff", "--name-only", "--no-renames", "-z", "HEAD"),
-        *_git("ls-files", "-z", "--others", "--exclude-standard"),
-    }
-
-
-def _modules(name: str, roots: Iterable[Path]) -> set[Path]:
-    """Pliki, które może wykonać import ``name``: pakiety po drodze i sam moduł.
-
-    Także te, których nie ma: usunięty plik zmienia, co wykona import w niezmienionym pliku.
-    """
-
-    parts = name.split(".")
-    return {
-        candidate
-        for root in roots
-        for depth in range(1, len(parts) + 1)
-        for candidate in (root.joinpath(*parts[:depth], "__init__.py"), root.joinpath(*parts[:depth]).with_suffix(".py"))
-    }
-
-
-@cache
-def _imports(path: Path) -> set[Path]:
-    roots = (*IMPORT_ROOTS, path.parent)
-    found = set()
-    for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"), filename=str(path))):
-        if isinstance(node, ast.Import):
-            for alias in node.names:
-                found |= _modules(alias.name, roots)
-        elif isinstance(node, ast.ImportFrom):
-            bases = (path.parents[node.level - 1],) if node.level else roots
-            module = node.module or ""
-            names = [module] if module else []
-            names += [f"{module}.{alias.name}" if module else alias.name for alias in node.names]
-            for name in names:
-                found |= _modules(name, bases)
-    return found
-
-
-def closure(starts: Iterable[Path]) -> set[Path]:
-    """Pliki, które wykonuje uruchomienie ``starts``: one same i ich importy, przechodnio, także te, których nie ma."""
-
-    seen: set[Path] = set()
-    # Importy już są bezwzględne i bez ``..``: ``resolve`` setek tysięcy kandydatów trwałby sekundy.
-    todo = [path.resolve() for path in starts]
-    while todo:
-        path = todo.pop()
-        if path in seen:
-            continue
-        seen.add(path)
-        if path.suffix == ".py" and path.is_file():
-            todo += _imports(path)
-    return seen
-
-
-@cache
-def launched(path: Path) -> set[Path]:
-    """Skrypty ``.py`` z repozytorium, które plik uruchamia ścieżką z ``/`` (``"tools/x.py"``, ``ROOT / "tools" / "x.py"``)."""
-
-    texts = references(ast.parse(path.read_bytes(), filename=str(path)))[0]
-    return {ROOT / text for text in texts if "/" in text and text.endswith(".py") and (ROOT / text).is_file()}
-
-
-def executed(starts: Iterable[Path]) -> set[Path]:
-    """Pliki, które wykonuje uruchomienie ``starts``: ``closure`` razem ze skryptami, które uruchamiają ścieżką, przechodnio.
-
-    Uruchomień szuka tylko poza ``src/``: produkt nie uruchamia skryptów repozytorium, a skill może pilnować go ``pilnuje``.
-    """
-
-    seen = closure(starts)
-    todo = seen
-    while todo:
-        found = {
-            script
-            for path in todo
-            if path.suffix == ".py" and path.is_file() and not path.is_relative_to(SRC)
-            for script in launched(path)
-        }
-        todo = closure(found) - seen
-        seen |= todo
-    return seen
 
 
 @cache
@@ -175,18 +84,6 @@ def _mutations(script: Path) -> tuple[Any, ...]:
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return tuple(module.MUTATIONS)
-
-
-def reads(script: Path) -> set[str]:
-    """Pliki repozytorium, których zmiana może zmienić werdykt skryptu."""
-
-    starts = {script, Path(__file__), *(ROOT / name for name in INFRASTRUCTURE)}
-    for mutation in _mutations(script):
-        checker = ROOT / mutation.command[0]
-        if checker.suffix != ".py" or not checker.is_file():
-            raise ValueError(f"polecenie mutacji {mutation.name!r} nie zaczyna się skryptem z repozytorium")
-        starts |= {checker, *(ROOT / edit.file for edit in mutation.edits)}
-    return {_name(path) for path in executed(starts) if path.is_relative_to(ROOT)}
 
 
 def _front(skill_md: Path) -> list[str]:
@@ -244,42 +141,32 @@ def ci_command(skill_md: Path) -> tuple[str, ...] | None:
     return command
 
 
-def skill_scripts(skill: Path) -> list[Path]:
-    """Skrypty skilla bez skryptów mutacji: te uruchamia jego workflow i polecenie ``ci``."""
+class Hits(NamedTuple):
+    """Zmienione pliki, przy których skill obowiązuje: plik → glob ``pilnuje``, który go obejmuje, albo ``FOLDER``.
 
-    return [path for path in skill.glob("scripts/**/*.py") if not fnmatchcase(path.name, PATTERN)]
+    ``always`` to powód, gdy skill obowiązuje przy każdej zmianie: nie ma klucza ``pilnuje`` albo nie da się go odczytać.
+    """
 
-
-def read_in_ci(skill: Path, scripts: list[Path]) -> set[str]:
-    """Pliki repozytorium, których zmiana może zmienić werdykt podstawy ``ci`` skilla albo jego skryptów mutacji ``scripts``."""
-
-    command = ci_command(skill / "SKILL.md")
-    # Polecenie ``ci`` uruchamia też skrypty skilla ścieżką od ``__file__``, której ``launched`` nie nazwie, więc liczą się
-    # wszystkie, jak w ``tools/skille_dla_zmiany.py``.
-    ran = [ROOT / command[0], *skill_scripts(skill)] if command else []
-    starts = {Path(__file__), *(ROOT / name for name in INFRASTRUCTURE), *ran}
-    return {_name(path) for path in executed(starts) if path.is_relative_to(ROOT)}.union(*map(reads, scripts))
+    files: dict[str, str]
+    always: str | None
 
 
-def _why_run(skill: Path, scripts: list[Path], changed: set[str]) -> tuple[bool, str]:
-    """Czy podstawa i skrypty mutacji skilla biegną przy tych zmianach, i dlaczego."""
+def hits(skill: Path, changed: Iterable[str]) -> Hits:
+    """Pliki ``changed``, przy których skill obowiązuje, a na pull request biegnie jego podstawa ``ci``."""
 
     try:
         globs = guarded(skill / "SKILL.md")
-        if globs is None:
-            return True, f"{_name(skill)}/SKILL.md nie ma klucza pilnuje"
-        read = read_in_ci(skill, scripts)
-    except Exception as error:  # noqa: BLE001 - skill, którego plików nie da się wyznaczyć, biegnie i pokazuje swój błąd
-        return True, f"nie da się wyznaczyć plików, które czyta: {error}"
-    touched = sorted(
-        name
-        for name in changed
-        if name.startswith(f"{_name(skill)}/") or name in read or any(fnmatchcase(name, glob) for glob in globs)
-    )
-    if touched:
-        return True, f"zmienione: {', '.join(touched[:3])}" + (f" i {len(touched) - 3} innych" if len(touched) > 3 else "")
-    files = sum((ROOT / name).is_file() for name in read)
-    return False, f"zmiany nie dotykają pilnuje, folderu skilla ani {files} plików repozytorium, które skill czyta w CI"
+    except ValueError as error:
+        return Hits({}, str(error))
+    if globs is None:
+        return Hits({}, f"{_name(skill)}/SKILL.md nie ma klucza pilnuje")
+    own = f"{_name(skill)}/"
+    found = {}
+    for name in sorted(changed):
+        glob = FOLDER if name.startswith(own) else next((glob for glob in globs if fnmatchcase(name, glob)), None)
+        if glob is not None:
+            found[name] = glob
+    return Hits(found, None)
 
 
 class Step(NamedTuple):
@@ -328,7 +215,7 @@ def run(step: Step, limit_s: float = LIMIT_S, env: Mapping[str, str] | None = No
     """Uruchamia krok z echem wyjścia i zmiennymi ``env``; zwraca powód porażki albo ``None``.
 
     Skrypt mutacji kończy się linią ``VERDICT``, podstawie wystarczy kod 0. Plan CI daje części skryptu
-    ``MUTACJE_CZESC`` przez ``env``, bez importu ``tools/mutacje.py`` tutaj: import poszerzyłby pliki, które czyta każdy skill.
+    ``MUTACJE_CZESC`` przez ``env``.
     """
 
     command = step.command
@@ -347,19 +234,6 @@ def run(step: Step, limit_s: float = LIMIT_S, env: Mapping[str, str] | None = No
     if step.verdict is not None and [line.strip() for line in done.stdout.splitlines() if line.strip()][-1:] != [step.verdict]:
         return f"brak końcowej linii {step.verdict}"
     return None
-
-
-def _baseline(skill: Path, scripts: list[Path]) -> tuple[str, ...] | None:
-    """Polecenie ``ci`` skilla, gdy żaden jego skrypt mutacji nie uruchamia go sam bez mutacji; ``ValueError``, gdy zły klucz."""
-
-    command = ci_command(skill / "SKILL.md")
-    if command is None:
-        return None
-    try:
-        repeated = any(command == tuple(mutation.command) for script in scripts for mutation in _mutations(script))
-    except Exception:  # noqa: BLE001 - tabeli, której nie da się wczytać, podstawa nie zastąpi: biegnie polecenie ci
-        repeated = False
-    return None if repeated else command
 
 
 @cache
@@ -389,7 +263,7 @@ def _count(script: Path) -> int:
 
 
 def steps(failed: dict[str, str]) -> list[Step]:
-    """Kroki wszystkich skilli; zły klucz ``ci`` trafia do ``failed``."""
+    """Kroki wszystkich skilli, podstawa każdego skilla z kluczem ``ci`` przed jego skryptami; zły klucz ``ci`` trafia do ``failed``."""
 
     skills: dict[Path, list[Path]] = {skill_md.parent: [] for skill_md in SKILLS.glob("*/SKILL.md") if _values(skill_md, "ci")}
     for script in sorted(SKILLS.glob(f"*/scripts/{PATTERN}")):
@@ -397,7 +271,7 @@ def steps(failed: dict[str, str]) -> list[Step]:
     found = []
     for skill, scripts in sorted(skills.items()):
         try:
-            command = _baseline(skill, scripts)
+            command = ci_command(skill / "SKILL.md")
         except ValueError as error:
             failed[f"{BASELINE} {skill.name}"] = str(error)
             command = None
@@ -410,31 +284,69 @@ def steps(failed: dict[str, str]) -> list[Step]:
     return found
 
 
-def wybor(changed_from: str | None) -> Selection:
-    """Kroki, które biegną przy zmianach od ``changed_from`` (``None``: wszystkie), pominięte i FAIL-e znalezienia."""
+def _changes(names: Iterable[str]) -> str:
+    names = sorted(names)
+    return f"zmienione: {', '.join(names[:3])}" + (f" i {len(names) - 3} innych" if len(names) > 3 else "")
+
+
+def _why_run(step: Step, changed: frozenset[str]) -> tuple[bool, str]:
+    """Czy krok biegnie na pull request ze zmianą ``changed``, i dlaczego.
+
+    Podstawa biegnie przy trafieniu w ``pilnuje`` albo w folder skilla, skrypt mutacji przy zmianie folderu skilla,
+    ``RUNNER`` albo sprawdzenia, które uruchamiają jego mutacje. Zmiana ``INFRASTRUCTURE`` uruchamia każdy krok.
+    """
+
+    found = hits(step.skill, changed)
+    if found.always:
+        return True, found.always
+    if infrastructure := changed.intersection(INFRASTRUCTURE):
+        return True, _changes(infrastructure)
+    if step.verdict is None:
+        if found.files:
+            return True, _changes(found.files)
+        return False, "zmiany nie trafiają w pilnuje ani w folder skilla"
+    script = ROOT / step.command[0]
+    try:
+        checkers = {mutation.command[0] for mutation in _mutations(script)}
+    except Exception as error:  # noqa: BLE001 - skrypt, którego tabeli nie da się wczytać, biegnie i pokazuje swój błąd
+        return True, f"nie da się wczytać tabeli mutacji: {error}"
+    touched = {name for name in changed if name.startswith(f"{_name(step.skill)}/") or name in RUNNER or name in checkers}
+    if touched:
+        return True, _changes(touched)
+    return False, "zmiany nie dotykają folderu skilla, runnera mutacji ani sprawdzeń, które uruchamiają mutacje skryptu"
+
+
+def _repeats(step: Step, chosen: Iterable[Step]) -> bool:
+    """Podstawę uruchamia bez mutacji (podstawa ``check_all``) wybrany skrypt mutacji jej skilla."""
+
+    scripts = [ROOT / other.command[0] for other in chosen if other.skill == step.skill and other.verdict]
+    try:
+        return any(step.command == tuple(mutation.command) for script in scripts for mutation in _mutations(script))
+    except Exception:  # noqa: BLE001 - tabeli, której nie da się wczytać, podstawa nie zastąpi: biegnie polecenie ci
+        return False
+
+
+def wybor(changed: frozenset[str] | None) -> Selection:
+    """Kroki, które biegną przy zmianie ``changed`` (``None``: push, wszystkie), pominięte i FAIL-e znalezienia."""
 
     scripts = sorted(SKILLS.glob(f"*/scripts/{PATTERN}"))
     failed = _lost(scripts)
-    # Przed krokami: wczytanie tabel mutacji zostawia w skillach __pycache__, a to nie jest zmiana od bazy.
-    changed = None if changed_from is None else _changed(changed_from)
     found = steps(failed)
     if not scripts and not failed:
         failed[f"scripts/{PATTERN}"] = f"brak skryptów .agents/skills/*/scripts/{PATTERN}"
-    why: dict[Path, tuple[bool, str]] = {}
-    for skill in dict.fromkeys(step.skill for step in found):
-        mutations = [ROOT / step.command[0] for step in found if step.skill == skill and step.verdict]
-        why[skill] = (True, "") if changed is None else _why_run(skill, mutations, changed)
-    chosen = [(step, why[step.skill][1]) for step in found if why[step.skill][0]]
-    skipped = [(step, why[step.skill][1]) for step in found if not why[step.skill][0]]
+    why = {step: (True, "") if changed is None else _why_run(step, changed) for step in found}
+    running = [step for step in found if why[step][0]]
+    chosen = [(step, why[step][1]) for step in running if step.verdict or not _repeats(step, running)]
+    skipped = [(step, why[step][1]) for step in found if not why[step][0]]
     return Selection(chosen, skipped, failed)
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--limit-s", type=float, default=LIMIT_S, help="Limit czasu jednego skryptu w sekundach.")
-    parser.add_argument("--zmiany-od", metavar="REF", help="Tylko skrypty, których werdykt mogą zmienić zmiany od REF.")
+    parser.add_argument("--zmiany-od", metavar="REF", help="Tylko kroki, których werdykt może zmienić zmiana od REF.")
     args = parser.parse_args(argv)
-    selection = wybor(args.zmiany_od)
+    selection = wybor(None if args.zmiany_od is None else szybko.changed_since(args.zmiany_od))
     failed = dict(selection.failed)
     for name, why in sorted(failed.items()):
         print(f"FAIL {name}: {why}", flush=True)
