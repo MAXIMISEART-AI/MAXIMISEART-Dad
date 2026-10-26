@@ -185,16 +185,16 @@ def _write_register(path: Path) -> None:
             for column, header in columns:
                 cell = target.cell(row_number, column)
                 cell.value = order[header]
-                cell.font = Font(name="Arial", size=8)
+                cell.font = Font(name="Calibri", size=8)  # uporządkowane zlecenia taty, nie Surowe zlecenia
                 if header == "DATA GODZ. POCZ.":
                     cell.number_format = REGISTER_DATE_FORMAT
     adres_column = REGISTER_HEADERS.index("ADRES") + 1
     highlighted = sheet.cell(4, adres_column)
-    highlighted.font = Font(name="Arial", size=8, color=HIGHLIGHT_COLOR, bold=True)
+    highlighted.font = Font(name="Calibri", size=8, color=HIGHLIGHT_COLOR, bold=True)
     highlighted.fill = PatternFill(fill_type="solid", fgColor=HIGHLIGHT_FILL)
     sheet.cell(9, adres_column).fill = PatternFill(fill_type="solid", fgColor=ADDRESS_FILL)
     worker_column = REGISTER_HEADERS.index("WYKONAWCA") + 1
-    sheet.cell(9, worker_column).font = Font(name="Arial", size=8, italic=True)
+    sheet.cell(9, worker_column).font = Font(name="Calibri", size=8, italic=True)
     order_column = REGISTER_HEADERS.index("NUMER ZL.") + 1
     for row_number in REGISTER_ROWS:
         sheet.cell(row_number, order_column).hyperlink = f"{ORDER_LINK}{row_number}"
