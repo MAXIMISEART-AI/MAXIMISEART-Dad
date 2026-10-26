@@ -58,7 +58,7 @@ import tempfile
 import time
 from typing import IO, Final, Literal, TypeGuard
 
-GITHUB_REPOSITORY: Final = "https://github.com/MAXIMISEART-AI/MAXIMISEART-Dad.git"
+GITHUB_REPOSITORY: Final = "https://github.com/maximiseartai/MAXIMISEART-Dad.git"
 BRANCH: Final = "main"
 
 UPDATED: Final = "ok"
