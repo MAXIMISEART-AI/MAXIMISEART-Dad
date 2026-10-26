@@ -72,10 +72,11 @@ def _tool(root: Path) -> list[str]:
     return [sys.executable, str(root / "tools" / TOOL.name)]
 
 
-def _run(root: Path, *args: str) -> subprocess.CompletedProcess[str]:
+def _run(root: Path, *args: str, hash_seed: int | None = None) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         [*_tool(root), *args],
         cwd=root,
+        env=None if hash_seed is None else {**os.environ, "PYTHONHASHSEED": str(hash_seed)},
         stdin=subprocess.DEVNULL,
         capture_output=True,
         text=True,
@@ -386,6 +387,57 @@ def test_czesci_uruchamiaja_kazdy_skrypt_dokladnie_raz(tmp_path: Path) -> None:
     ran = [line.split()[1] for part in parts for line in part.stdout.splitlines() if line.startswith("OK   ")]
     assert [part.stdout.splitlines()[-1] for part in parts] == ["MUTACJE SKILLI OK"] * 2
     assert sorted(ran) == [f".agents/skills/verify-{name}/scripts/check_{name}_mutations.py" for name in "abc"]
+
+
+def _scripts_guarding_own_docs(root: Path, names: str, changed: str) -> str:
+    """Skille ``verify-<nazwa>`` z jednym skryptem mutacji spoza tabeli czasów i ``pilnuje`` na ``docs/<nazwa>.md``.
+
+    Commit bazy, potem commit, który zmienia dokumenty skilli ``changed``; zwraca commit bazy. Jak w repozytorium,
+    Git pomija ``__pycache__``, które zostawia w skillach wczytanie tabel mutacji przez poprzednią część.
+    """
+
+    (root / ".gitignore").write_text("__pycache__/\n", encoding="utf-8")
+    (root / "docs").mkdir()
+    for name in names:
+        (root / f"docs/{name}.md").write_text("opis\n", encoding="utf-8")
+        script = f"MUTATIONS = ()\n{PASSING}"
+        _skill(root, f"verify-{name}", {f"check_{name}_mutations.py": script}, f"---\nname: verify-{name}\npilnuje:\n  - docs/{name}.md\n---\n")
+    _tool(root)
+    git(root, "init", "--quiet")
+    base = commit(root, "baza")
+    for name in changed:
+        (root / f"docs/{name}.md").write_text("zmieniony opis\n", encoding="utf-8")
+    commit(root, "zmiana")
+    return base
+
+
+def _ran_skills(result: subprocess.CompletedProcess[str]) -> list[str]:
+    assert result.stdout.splitlines()[-1] == "MUTACJE SKILLI OK", result.stdout + result.stderr
+    return [line.split("/")[2].removeprefix("verify-") for line in result.stdout.splitlines() if line.startswith("OK   ")]
+
+
+@pytest.mark.parametrize("count", [1, 2, 3, 4])
+def test_czesci_uruchamiaja_kazdy_wybrany_krok_dokladnie_raz_a_pominiety_nigdzie(tmp_path: Path, count: int) -> None:
+    base = _scripts_guarding_own_docs(tmp_path, "abcde", changed="ace")
+
+    # Każda część to osobny proces CI, który sam liczy podział: inne ziarno haszowania zmienia kolejność zbiorów.
+    parts = [_run(tmp_path, "--czesc", f"{number}/{count}", "--zmiany-od", base, hash_seed=number) for number in range(1, count + 1)]
+
+    assert sorted(name for part in parts for name in _ran_skills(part)) == ["a", "c", "e"]
+    for part in parts:
+        assert [line.split(":")[0] for line in part.stdout.splitlines() if line.startswith("POMINIĘTY")] == [
+            f"POMINIĘTY .agents/skills/verify-{name}/scripts/check_{name}_mutations.py" for name in "bd"
+        ]
+
+
+def test_czesci_dziela_tylko_wybrane_kroki(tmp_path: Path) -> None:
+    # Kroki spoza tabeli ważą po równo; podział wszystkich sześciu dałby a i c tej samej części.
+    base = _scripts_guarding_own_docs(tmp_path, "abcdef", changed="ac")
+
+    parts = [_run(tmp_path, "--czesc", f"{number}/2", "--zmiany-od", base) for number in (1, 2)]
+
+    assert [_ran_skills(part) for part in parts] == [["a"], ["c"]]
+    assert "== .agents/skills/verify-c/scripts/check_c_mutations.py (zmienione: docs/c.md)" in parts[1].stdout.splitlines()
 
 
 def _steps(tool: ModuleType, keys: str) -> list[object]:

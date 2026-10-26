@@ -1,7 +1,7 @@
 """Exhaustively check how Uporządkowanie INTERMAX replaces the Rejestr zleceń and keeps its Kopie INTERMAX.
 
 The checker runs the real ``intermax_ordering.order_register()`` on a synthetic INTERMAX (``tests/fixtures/intermax.py``)
-in a real folder, next to a Kopie folder that already holds ``KEPT`` older Kopie. Seven steps of the code are points
+in a real folder, next to a Kopie folder that already holds ``KEPT`` older Kopie. Eight steps of the code are points
 where the checker picks what happens first:
 
 - after ``Register.read`` has read INTERMAX;
@@ -9,8 +9,10 @@ where the checker picks what happens first:
 - the write of the temporary file next to INTERMAX (``intermax_file.save``), which may raise ``OSError``;
 - the check of that file (``Register.check``), which may find it does not match (``WriteMismatch``);
 - ``intermax_copies.make_copy``, which may raise ``OSError``;
-- ``os.replace`` of the temporary file over INTERMAX (``workbook_save.write_atomically``), which may raise ``OSError``,
-  and always raises ``PermissionError`` while Excel has INTERMAX open, as on Windows;
+- ``os.replace`` of the temporary file over INTERMAX (the ``replace`` that ``intermax_file.save`` gives
+  ``workbook_save.write_atomically``), which may raise ``OSError``, may be refused by OneDrive (``PermissionError``
+  without the ``~$`` lock file), and always raises ``PermissionError`` while Excel has INTERMAX open, as on Windows;
+- the pause between two attempts of that replace (``Waiting.pause``), which may last the whole retry time;
 - ``intermax_copies.keep_newest``, which may raise ``OSError``.
 
 At each point a worker may first save a change to INTERMAX on another computer, which OneDrive puts in place as a new
@@ -22,8 +24,8 @@ bounds and checks:
   Surowe zlecenia”, and every other part and row „zostają bajt w bajt”.
 - KOPIA_ZASTAPIONEGO: when the run replaces INTERMAX, a Kopia INTERMAX holds exactly the bytes it replaced
   (ADR 0019: „Przed każdą podmianą powstaje Kopia INTERMAX”).
-- ZATRZYMANIE_BEZ_SLADU: a run that stops (``StopError``), or raises any other exception, leaves INTERMAX as it was,
-  no temporary file next to it, and
+- ZATRZYMANIE_BEZ_SLADU: a run that stops (``StopError``), or raises any other exception before the replace, leaves
+  INTERMAX as it was, no temporary file next to it, and
   the Kopie folder with the same Kopie, names and bytes, as before (docstring of ``order_register``).
 - SUKCES: a run that returns a summary has replaced INTERMAX and left no temporary file.
 - KOPIE_NAJNOWSZE: after a summary, the Kopie folder holds the ``KEPT`` newest Kopie by name, the new one among them,
@@ -37,6 +39,7 @@ is a ``BaseException`` raised at a point, so ``finally`` blocks still run, which
 from __future__ import annotations
 
 import argparse
+import errno
 import os
 import pathlib
 import shutil
@@ -65,9 +68,11 @@ NAME = "INTERMAX.xlsx"
 TEMPORARY = f".{Path(NAME).stem}."
 AFTER_READ = "pracownik po odczycie, przed podmianą"
 INJECTED = "plik zablokowany"
+REPLACE = "os.replace pliku tymczasowego na INTERMAX"
+PAUSE = "przerwa przed ponowną próbą podmiany"
 
 Actor = Literal["pracownik", "excel"]
-Choice = Literal["ok", "pracownik", "excel", "oserror", "niezgodny", "kill"]
+Choice = Literal["ok", "pracownik", "excel", "oserror", "niezgodny", "kill", "onedrive", "dluga"]
 
 
 class Crash(BaseException):
@@ -81,6 +86,8 @@ class Bounds:
     oserror: int = 1
     mismatch: int = 1
     kills: int = 1
+    refusals: int = 2
+    long_pauses: int = 1
 
 
 class Scheduler:
@@ -104,9 +111,12 @@ class Scheduler:
             "oserror": bounds.oserror,
             "niezgodny": bounds.mismatch,
             "kill": bounds.kills,
+            "onedrive": bounds.refusals,
+            "dluga": bounds.long_pauses,
         }
         self.trace: list[str] = []
         self.faults: list[tuple[str, str]] = []
+        self.step = ""
 
     def say(self, line: str) -> None:
         self.trace.append(line)
@@ -124,9 +134,17 @@ class Scheduler:
         return chosen
 
     def point(
-        self, step: str, *, fails: Literal["oserror", "niezgodny"] | None = None
-    ) -> None:
-        """Before ``step``: actors may act first (each at most once), then the step may fail or the process die."""
+        self,
+        step: str,
+        *,
+        fails: Literal["oserror", "niezgodny"] | None = None,
+        error: type[OSError] = PermissionError,
+        extra: Sequence[Choice] = (),
+    ) -> Choice:
+        """Before ``step``: actors may act first (each at most once), then the step may fail or the process die.
+
+        ``extra`` are outcomes of the step itself that the caller plays out; the chosen one (or ``ok``) is returned.
+        """
 
         while True:
             offered: list[Choice] = ["ok", "excel", "kill"]
@@ -134,19 +152,22 @@ class Scheduler:
                 offered.insert(1, "pracownik")
             if fails is not None:
                 offered.insert(-1, fails)
+            offered[-1:-1] = extra
+            self.step = step
             chosen = self._pick(offered, step)
             if chosen == "kill":
                 self.say(f"proces ginie przed: {step}")
                 raise Crash
             if chosen == "oserror":
                 self.say(f"{step}: OSError")
-                raise PermissionError(INJECTED)
+                raise error(INJECTED)
             if chosen == "niezgodny":
                 self.say(f"{step}: zapis się nie zgadza (WriteMismatch)")
                 raise WriteMismatch("syntetyczna niezgodność")
-            if chosen == "ok":
-                return
-            self._act(chosen)
+            if chosen in ("pracownik", "excel"):
+                self._act(chosen)
+                continue
+            return chosen
 
 
 @dataclass
@@ -163,6 +184,11 @@ class World:
     written: bytes | None = None
     keep_failed: bool = False
     failure: str = ""
+    seconds: float = 0.0
+    """The process clock that ``Waiting`` reads; only the checker's pause moves it."""
+    changed_at: int | None = None
+    """The number of OneDrive refusals when a worker's change arrived after the read."""
+    refused: int = 0
 
     @property
     def register(self) -> Path:
@@ -182,7 +208,7 @@ class World:
 
 @contextmanager
 def _points(world: World, scheduler: Scheduler) -> Iterator[None]:
-    """Wraps the seven steps; restores them afterwards."""
+    """Wraps the eight steps; restores them afterwards."""
 
     real_read: Callable[
         [type[intermax_file.Register], Path], intermax_file.Register
@@ -193,6 +219,7 @@ def _points(world: World, scheduler: Scheduler) -> Iterator[None]:
     real_keep = intermax_copies.keep_newest
     real_write_bytes = pathlib.Path.write_bytes
     save_names = vars(workbook_save)
+    file_names = vars(intermax_file)
     real_os = save_names["os"]
 
     def read(cls: type[intermax_file.Register], path: Path) -> intermax_file.Register:
@@ -235,7 +262,10 @@ def _points(world: World, scheduler: Scheduler) -> Iterator[None]:
         if Path(target) != world.register:
             real_os.replace(source, target)
             return
-        scheduler.point("os.replace pliku tymczasowego na INTERMAX", fails="oserror")
+        if scheduler.point(REPLACE, fails="oserror", error=OSError, extra=("onedrive",)) == "onedrive":
+            world.refused += 1
+            scheduler.say("os.replace: PermissionError, OneDrive trzyma INTERMAX")
+            raise PermissionError(errno.EACCES, "OneDrive trzyma INTERMAX")
         if world.lock.exists():
             scheduler.say(
                 "os.replace: PermissionError, Excel trzyma INTERMAX (Windows)"
@@ -253,6 +283,7 @@ def _points(world: World, scheduler: Scheduler) -> Iterator[None]:
     intermax_copies.keep_newest = keep_newest
     pathlib.Path.write_bytes = write_bytes  # type: ignore[method-assign,assignment]
     save_names["os"] = SimpleNamespace(replace=replace, close=real_os.close)
+    file_names["os"] = SimpleNamespace(replace=replace)
     try:
         yield
     finally:
@@ -263,6 +294,21 @@ def _points(world: World, scheduler: Scheduler) -> Iterator[None]:
         intermax_copies.keep_newest = real_keep
         pathlib.Path.write_bytes = real_write_bytes  # type: ignore[method-assign]
         save_names["os"] = real_os
+        file_names["os"] = real_os
+
+
+def _waiting(world: World, scheduler: Scheduler) -> intermax_file.Waiting:
+    """The process clock and the pause of the retried replace; the pause only moves the clock, never sleeps."""
+
+    def pause(seconds: float) -> None:
+        if scheduler.point(PAUSE, extra=("dluga",)) == "dluga":
+            scheduler.say("przerwa trwa cały czas ponownych prób")
+            world.seconds += intermax_file._RETRY_S
+        else:
+            world.seconds += seconds
+        scheduler.say("ponowna próba podmiany")
+
+    return intermax_file.Waiting(lambda: world.seconds, pause)
 
 
 def _synthetic(work: Path) -> tuple[bytes, bytes]:
@@ -322,7 +368,7 @@ def _check(world: World, outcome: Outcome, failure: str) -> list[tuple[str, str]
                     "żadna Kopia INTERMAX nie ma bajtów, które podmiana zastąpiła",
                 )
             )
-    if outcome in ("zatrzymanie", "wyjatek"):
+    if outcome == "zatrzymanie" or (outcome == "wyjatek" and world.replaced is None):
         who = "Zatrzymanie" if outcome == "zatrzymanie" else "Wyjątek"
         if world.register.read_bytes() != world.current:
             broken.append(
@@ -363,10 +409,17 @@ def _check(world: World, outcome: Outcome, failure: str) -> list[tuple[str, str]
 
 
 def _worker_change_lost(world: World, faults: Sequence[tuple[str, str]]) -> bool:
-    """A worker's change arrived after the read and before the replace, and the replace put the run's file over it."""
+    """A worker's change arrived after the read and before the replace, and the replace put the run's file over it.
+
+    Not when OneDrive refused a replace after the change arrived, nor when the change arrived in the pause before a
+    retry: the run reads INTERMAX again after that pause, so the worker's change it puts the run's file over is one it
+    had time to see.
+    """
 
     return (
         any(kind == AFTER_READ for kind, _ in faults)
+        and all(step != PAUSE for kind, step in faults if kind == AFTER_READ)
+        and world.changed_at == world.refused
         and world.read == world.original
         and world.replaced == world.worker_bytes
     )
@@ -393,8 +446,9 @@ KNOWN_FINDINGS: dict[
     str, tuple[str, Callable[[World, Sequence[tuple[str, str]]], bool]]
 ] = {
     "BEZ_UTRATY_ZMIAN": (
-        "Uporządkowanie nie sprawdza przed os.replace, czy INTERMAX ma wciąż bajty, które przeczytało: zmiana "
-        "pracownika z innego komputera, którą OneDrive wgrał w trakcie, przepada",
+        "Uporządkowanie nie sprawdza tuż przed os.replace, czy INTERMAX ma wciąż bajty, które przeczytało (przed "
+        "pierwszą próbą wcale, przed ponowną po przerwie): zmiana pracownika z innego komputera, którą OneDrive wgrał "
+        "w trakcie, przepada",
         _worker_change_lost,
     ),
     "KOPIA_ZASTAPIONEGO": (
@@ -404,9 +458,9 @@ KNOWN_FINDINGS: dict[
     ),
     "BEZ_WYJATKU": (
         "OSError z zapisu pliku tymczasowego (pełny dysk, plik zablokowany przez OneDrive albo antywirus) wychodzi z "
-        "order_register jako nieoczekiwany wyjątek: write_atomically łapie OSError z utworzenia pliku tymczasowego i z os.replace, ale nie z zapisu "
-        "jego treści, a "
-        "order_register tylko WriteMismatch, UnsupportedShape i WorkbookSaveError",
+        "order_register jako nieoczekiwany wyjątek: write_atomically łapie OSError z utworzenia pliku tymczasowego "
+        "i z os.replace, ale nie z zapisu jego treści, a order_register tylko WriteMismatch, UnsupportedShape i "
+        "WorkbookSaveError",
         _temporary_write_failed,
     ),
 }
@@ -437,7 +491,8 @@ def execute(
             os.replace(incoming, world.register)
             world.current = world.worker_bytes
             if world.read is not None and world.replaced is None:
-                scheduler.faults.append((AFTER_READ, ""))
+                scheduler.faults.append((AFTER_READ, scheduler.step))
+                world.changed_at = world.refused
         else:
             scheduler.say("tata otwiera INTERMAX w Excelu (plik ~$)")
             world.lock.write_bytes(b"tata")
@@ -447,7 +502,9 @@ def execute(
     failure = ""
     with _points(world, scheduler):
         try:
-            order_register(world.register, world.copies, now=lambda: NOW)
+            order_register(
+                world.register, world.copies, now=lambda: NOW, waiting=_waiting(world, scheduler)
+            )
             scheduler.say("order_register zwraca podsumowanie")
         except StopError as stop:
             outcome = "zatrzymanie"
