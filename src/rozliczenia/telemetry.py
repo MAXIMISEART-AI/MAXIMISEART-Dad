@@ -126,9 +126,8 @@ def _is_valid_record(record: object, counter_names: frozenset[str] = COUNTER_NAM
     version = record.get("schema_version")
     if type(version) is not int or _FIELDS_BY_VERSION.get(version) != frozenset(record):
         return False
-    if version != 1 and not _is_valid_stop(record["stop"], record["result"]):
-        return False
-    if version == METRICS_SCHEMA_VERSION and not _are_valid_routes(record["routes"]):
+    routes_valid = version != METRICS_SCHEMA_VERSION or _are_valid_routes(record["routes"])
+    if not routes_valid or (version != 1 and not _is_valid_stop(record["stop"], record["result"])):
         return False
     started_at = record["started_at"]
     if not isinstance(started_at, str):
