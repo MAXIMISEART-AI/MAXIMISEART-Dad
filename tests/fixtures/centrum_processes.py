@@ -37,9 +37,11 @@ from tests.fixtures.centrum import (
     FakeOneDrive,
     FakePlatform,
     FakeReportBox,
+    QUEUE_THREAD,
     RUN_LOGS_IN_BACKGROUND,
     MetricsPaths,
     finished_view,
+    join_threads_since,
 )
 from tests.fixtures.clock import ManualClock
 from tests.fixtures.potomne import wait_for
@@ -224,8 +226,14 @@ class PreparingCentrum:
         return [json.loads(line) for line in text.splitlines()]
 
     def restart(self) -> None:
-        """Nowe Centrum na tych samych plikach i Ustawieniach taty."""
+        """Nowe Centrum na tych samych plikach i Ustawieniach taty, gdy skończy się przejście kolejki poprzedniego.
 
+        Kolejka, która zastałaby przejście poprzedniej na tym samym folderze, oddałaby jej swoje (``outbox._claimed``),
+        a w nowym procesie kolejki poprzedniego już nie ma. Inne wątki poprzedniego Centrum mogą dalej żyć, np.
+        Uruchomienie, które test trzyma (``HeldRegister``).
+        """
+
+        join_threads_since(self.client.since, named=QUEUE_THREAD)
         self.client = _preparation_client(
             self.tmp_path,
             self.fixture,
@@ -320,8 +328,14 @@ class SettlingCentrum:
         return [json.loads(line) for line in text.splitlines()]
 
     def restart(self) -> None:
-        """Nowe Centrum na tych samych plikach i Ustawieniach taty."""
+        """Nowe Centrum na tych samych plikach i Ustawieniach taty, gdy skończy się przejście kolejki poprzedniego.
 
+        Kolejka, która zastałaby przejście poprzedniej na tym samym folderze, oddałaby jej swoje (``outbox._claimed``),
+        a w nowym procesie kolejki poprzedniego już nie ma. Inne wątki poprzedniego Centrum mogą dalej żyć, np.
+        Uruchomienie, które test trzyma (``HeldRegister``).
+        """
+
+        join_threads_since(self.client.since, named=QUEUE_THREAD)
         self.client = _client(
             self.tmp_path,
             FakePlatform(),

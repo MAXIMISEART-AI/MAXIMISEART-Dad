@@ -70,7 +70,7 @@ def diagnose(centrum: PreparingCentrum | SettlingCentrum, run_id: str) -> dict[s
     return diagnosis
 
 
-def send(centrum: PreparingCentrum, run_id: str) -> dict[str, Any]:
+def send(centrum: PreparingCentrum | SettlingCentrum, run_id: str) -> dict[str, Any]:
     response = centrum.client.post(f"/api/runs/{run_id}/report")
     assert response.status_code == 200, response.json()
     state: dict[str, Any] = response.json()
@@ -403,6 +403,26 @@ def test_zatrzymanie_centrum_czeka_na_kazdy_jego_watek_takze_sprzed_ponownego_st
 
     assert {"zgloszenie-skrzynka", "skrzynka-klucz"} <= {thread.name for thread in running}
     assert [thread.name for thread in running if thread.is_alive()] == []
+
+
+@pytest.mark.parametrize("started", [preparing_centrum, settling_centrum], ids=["przygotowanie", "przebieg"])
+def test_ponowny_start_centrum_zaczyna_sie_po_koncu_przejscia_kolejki_poprzedniego_jak_nowy_proces(
+    tmp_path: Path, started: Callable[[Path], PreparingCentrum | SettlingCentrum], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    centrum = started(tmp_path)
+    with_key(centrum)
+    run_id = stopped_for_maks(centrum)
+    diagnose(centrum, run_id)
+    box = centrum.surroundings.report_box
+    hold = box.open_hold = threading.Event()
+    monkeypatch.setattr("rozliczenia.centrum.reports.DELIVERY_WAIT_S", 0.01)
+    queued = send(centrum, run_id)
+    release = threading.Timer(0.2, hold.set)
+    release.start()
+
+    centrum.restart()
+
+    assert (queued, len(box.sent)) == (FOR_INTERNET, 1)
 
 
 def test_zatrzymanie_centrum_nie_czeka_na_budzik_centrum_poprzedniego_testu_nastawiony_po_jego_starcie(

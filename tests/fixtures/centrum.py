@@ -59,6 +59,8 @@ BACKGROUND_NUMBERS = 1001
 RUN_LOGS_IN_BACKGROUND: frozenset[Label] = frozenset({"logi-uruchomienia"})
 # Najdłuższe czekanie zatrzymania Centrum na koniec jego wątków w tle; tyle, co skrzynka czeka na wysyłkę w tle.
 STOP_S = 30.0
+# Wątek przejścia kolejki Skrzynki (``Outbox.send_in_background``).
+QUEUE_THREAD = "skrzynka-kolejka"
 
 
 @dataclass
@@ -303,6 +305,35 @@ def _start_in_line(self: threading.Thread) -> None:
 threading.Thread.start = _start_in_line  # type: ignore[method-assign]
 
 
+def new_line() -> int:
+    """Numer, od którego ``threads_since`` liczy wątki, które wątek testu uruchomi od teraz."""
+
+    return next(_STARTS)
+
+
+def threads_since(since: int, *, named: str | None = None) -> list[threading.Thread]:
+    """Żywe wątki z linii, które wątek testu zaczął od ``since``, także uruchomione później przez wątki tych linii.
+
+    ``named``: tylko wątki o tej nazwie.
+    """
+
+    return [
+        thread
+        for thread in threading.enumerate()
+        if _LINE_STARTS.get(thread, -1) >= since and named in (None, thread.name)
+    ]
+
+
+def join_threads_since(since: int, timeout_s: float = STOP_S, *, named: str | None = None) -> None:
+    """Czeka, aż skończy się każdy wątek z ``threads_since``; wątek żywy po ``timeout_s`` wywraca test z nazwą."""
+
+    deadline = time.monotonic() + timeout_s
+    while alive := threads_since(since, named=named):
+        left = deadline - time.monotonic()
+        assert left > 0, f"Centrum nie zatrzymało się: żyją wątki {', '.join(thread.name for thread in alive)}"
+        alive[0].join(left)
+
+
 class CentrumClient(TestClient):
     """Klient HTTP Centrum w teście, który zatrzymuje Centrum, zanim test przeczyta albo usunie jego pliki.
 
@@ -316,12 +347,12 @@ class CentrumClient(TestClient):
 
     def __init__(self, app: FastAPI, *, since: int | None = None) -> None:
         super().__init__(app, base_url=CENTRUM, headers={"Origin": CENTRUM})
-        self.since = next(_STARTS) if since is None else since
+        self.since = new_line() if since is None else since
 
     def threads(self) -> list[threading.Thread]:
         """Żywe wątki Centrum: serwera i jego pracy w tle."""
 
-        return [thread for thread in threading.enumerate() if _LINE_STARTS.get(thread, -1) >= self.since]
+        return threads_since(self.since)
 
     def stop(self, timeout_s: float = STOP_S) -> None:
         """Zamyka serwer (``lifespan``) i czeka, aż skończy się każdy wątek Centrum; drugie ``stop`` nic nie robi.
@@ -331,11 +362,7 @@ class CentrumClient(TestClient):
 
         if self.portal is not None:
             self.__exit__(None, None, None)
-        deadline = time.monotonic() + timeout_s
-        while alive := self.threads():
-            left = deadline - time.monotonic()
-            assert left > 0, f"Centrum nie zatrzymało się: żyją wątki {', '.join(thread.name for thread in alive)}"
-            alive[0].join(left)
+        join_threads_since(self.since, timeout_s)
 
 
 @dataclass
