@@ -269,6 +269,93 @@
         }
       }
     },
+    "/api/intermax/copies": {
+      "get": {
+        "tags": [
+          "konfiguracja"
+        ],
+        "summary": "Copies",
+        "operationId": "getIntermaxCopies",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntermaxCopies"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/intermax/copies/restore": {
+      "post": {
+        "tags": [
+          "konfiguracja"
+        ],
+        "summary": "Restore",
+        "operationId": "restoreIntermaxCopy",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IntermaxRestoreRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/IntermaxRestored"
+                    },
+                    {
+                      "$ref": "#/components/schemas/IntermaxRestoreRefused"
+                    }
+                  ],
+                  "title": "Response Restoreintermaxcopy",
+                  "discriminator": {
+                    "propertyName": "state",
+                    "mapping": {
+                      "restored": "#/components/schemas/IntermaxRestored",
+                      "refused": "#/components/schemas/IntermaxRestoreRefused"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/intermax/run": {
       "post": {
         "tags": [
@@ -1791,6 +1878,8 @@
               "startRun",
               "getIntermaxSetup",
               "startIntermax",
+              "getIntermaxCopies",
+              "restoreIntermaxCopy",
               "decideRun",
               "diagnoseRun",
               "reportRun",
@@ -2580,6 +2669,132 @@
         ],
         "title": "Health",
         "description": "Tożsamość działającego Centrum.\n\n``commit`` to skrócony commit narzędzia, z którego Centrum wystartowało, jak na Konfiguracji (``None`` poza\nklonem Gita); po nim launcher i opiekun ponownego startu rozpoznają wersję działającego Centrum, a karta\npokazuje go w „Zaktualizowano”. ``instance`` to losowy identyfikator tego startu Centrum: po ponownym starcie\njest inny, także gdy commit się nie zmienił."
+      },
+      "IntermaxCopies": {
+        "properties": {
+          "copies": {
+            "items": {
+              "$ref": "#/components/schemas/IntermaxCopy"
+            },
+            "type": "array",
+            "title": "Copies"
+          },
+          "problem": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Message"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "copies",
+          "problem"
+        ],
+        "title": "IntermaxCopies",
+        "description": "Kopie INTERMAX w Konfiguracji, od najnowszej.\n\n``problem`` to Komunikat, gdy folderu Kopii nie da się odczytać; ``copies`` jest wtedy puste."
+      },
+      "IntermaxCopy": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "taken_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Taken At"
+          },
+          "before": {
+            "type": "string",
+            "enum": [
+              "ordering",
+              "restore"
+            ],
+            "title": "Before"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "name",
+          "taken_at",
+          "before"
+        ],
+        "title": "IntermaxCopy",
+        "description": "Kopia INTERMAX w folderze Kopii: nazwa pliku, chwila z nazwy i to, przed czym powstała."
+      },
+      "IntermaxRestoreRefused": {
+        "properties": {
+          "state": {
+            "type": "string",
+            "const": "refused",
+            "title": "State"
+          },
+          "message": {
+            "$ref": "#/components/schemas/Message"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "state",
+          "message"
+        ],
+        "title": "IntermaxRestoreRefused",
+        "description": "Przywrócenie odmówiło z Komunikatem; INTERMAX i Kopie zostały takie, jak były."
+      },
+      "IntermaxRestoreRequest": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "title": "IntermaxRestoreRequest",
+        "description": "Przywrócenie Kopii INTERMAX ``name``, którą wymieniła lista Kopii."
+      },
+      "IntermaxRestored": {
+        "properties": {
+          "state": {
+            "type": "string",
+            "const": "restored",
+            "title": "State"
+          },
+          "restored": {
+            "$ref": "#/components/schemas/IntermaxCopy"
+          },
+          "previous": {
+            "$ref": "#/components/schemas/IntermaxCopy"
+          },
+          "warnings": {
+            "items": {
+              "$ref": "#/components/schemas/Message"
+            },
+            "type": "array",
+            "title": "Warnings"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "state",
+          "restored",
+          "previous",
+          "warnings"
+        ],
+        "title": "IntermaxRestored",
+        "description": "INTERMAX ma bajty Kopii ``restored``, a jego stan sprzed przywrócenia leży jako Kopia ``previous``.\n\n``warnings``: Komunikaty o tym, czego przywrócenie nie dokończyło (starsze Kopie zostały)."
       },
       "IntermaxSetup": {
         "properties": {

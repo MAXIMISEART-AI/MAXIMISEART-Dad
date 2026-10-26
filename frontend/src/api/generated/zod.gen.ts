@@ -26,6 +26,8 @@ export const zApiTiming = z.object({
         'startRun',
         'getIntermaxSetup',
         'startIntermax',
+        'getIntermaxCopies',
+        'restoreIntermaxCopy',
         'decideRun',
         'diagnoseRun',
         'reportRun',
@@ -282,6 +284,26 @@ export const zHealth = z.object({
 });
 
 /**
+ * IntermaxCopy
+ *
+ * Kopia INTERMAX w folderze Kopii: nazwa pliku, chwila z nazwy i to, przed czym powstała.
+ */
+export const zIntermaxCopy = z.object({
+    name: z.string(),
+    taken_at: z.iso.datetime(),
+    before: z.enum(['ordering', 'restore'])
+});
+
+/**
+ * IntermaxRestoreRequest
+ *
+ * Przywrócenie Kopii INTERMAX ``name``, którą wymieniła lista Kopii.
+ */
+export const zIntermaxRestoreRequest = z.object({
+    name: z.string()
+});
+
+/**
  * KindTableCell
  *
  * Komórka N:AP wiersza na stronie rodzaju: wartość z pliku w kolumnie narzędzia, wpis taty, który robi wiersz, albo nic (0).
@@ -315,6 +337,42 @@ export const zDecision = z.object({
     title: z.string(),
     message: zMessage,
     counts: zCountGroup
+});
+
+/**
+ * IntermaxCopies
+ *
+ * Kopie INTERMAX w Konfiguracji, od najnowszej.
+ *
+ * ``problem`` to Komunikat, gdy folderu Kopii nie da się odczytać; ``copies`` jest wtedy puste.
+ */
+export const zIntermaxCopies = z.object({
+    copies: z.array(zIntermaxCopy),
+    problem: zMessage.nullable()
+});
+
+/**
+ * IntermaxRestoreRefused
+ *
+ * Przywrócenie odmówiło z Komunikatem; INTERMAX i Kopie zostały takie, jak były.
+ */
+export const zIntermaxRestoreRefused = z.object({
+    state: z.literal('refused'),
+    message: zMessage
+});
+
+/**
+ * IntermaxRestored
+ *
+ * INTERMAX ma bajty Kopii ``restored``, a jego stan sprzed przywrócenia leży jako Kopia ``previous``.
+ *
+ * ``warnings``: Komunikaty o tym, czego przywrócenie nie dokończyło (starsze Kopie zostały).
+ */
+export const zIntermaxRestored = z.object({
+    state: z.literal('restored'),
+    restored: zIntermaxCopy,
+    previous: zIntermaxCopy,
+    warnings: z.array(zMessage)
 });
 
 /**
@@ -1505,6 +1563,23 @@ export const zGetHealthResponse = zHealth;
  * Successful Response
  */
 export const zGetIntermaxSetupResponse = zIntermaxSetup;
+
+/**
+ * Successful Response
+ */
+export const zGetIntermaxCopiesResponse = zIntermaxCopies;
+
+export const zRestoreIntermaxCopyBody = zIntermaxRestoreRequest;
+
+/**
+ * Response Restoreintermaxcopy
+ *
+ * Successful Response
+ */
+export const zRestoreIntermaxCopyResponse = z.discriminatedUnion('state', [
+    zIntermaxRestored,
+    zIntermaxRestoreRefused
+]);
 
 /**
  * Response Startintermax
