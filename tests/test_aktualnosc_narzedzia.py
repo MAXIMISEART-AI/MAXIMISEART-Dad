@@ -61,6 +61,17 @@ _STATUS = {
     (FIRST_COMMIT, MAIN): "ahead",
     (FIRST_COMMIT, f"{MAIN}~1"): "identical",
 }
+# Odpowiedzi GitHuba w innym kształcie niż w API: czubek `main` i porównanie (``None``: zerwane połączenie).
+_ODD_REFS = {
+    "czubek-nie-obiektem": json.dumps({"object": "main"}),
+    "czubek-bez-napisu": json.dumps({"object": {"sha": 5}}),
+}
+_ODD_COMPARES: dict[str, str | None] = {
+    "porownanie-nie-obiektem": json.dumps([]),
+    "porownanie-bez-napisu": json.dumps({"status": 5, "ahead_by": 1}),
+    "porownanie-nie-json": "<html>GitHub ma awarię</html>",
+    "porownanie-zerwane": None,
+}
 _AHEAD_BY = {FIRST_COMMIT: 3, FAR_ON_LINE: 1000}
 # ``FAR_ON_LINE`` to ``MAIN~700``, a `main` ma 1000 commitów spoza niego: tydzień zmian z wciągniętymi gałęziami.
 _FAR_DEPTH = 700
@@ -99,6 +110,12 @@ _PAGES = {
     "/odmowa-w-wyszukiwaniu/tags?per_page=100": (_tags(("v0.1.0", REFUSED_MIDWAY)), None),
     "/od-pierwszego-commitu/tags?per_page=100": (_tags(("v0.1.0", FIRST_COMMIT)), None),
     "/daleko/tags?per_page=100": (_tags(("v0.1.0", FAR_ON_LINE)), None),
+    "/czubek-nie-obiektem/tags?per_page=100": (_tags(("v0.1.0", NEWEST)), None),
+    "/czubek-bez-napisu/tags?per_page=100": (_tags(("v0.1.0", NEWEST)), None),
+    "/porownanie-nie-obiektem/tags?per_page=100": (_tags(("v0.1.0", NEWEST)), None),
+    "/porownanie-bez-napisu/tags?per_page=100": (_tags(("v0.1.0", NEWEST)), None),
+    "/porownanie-nie-json/tags?per_page=100": (_tags(("v0.1.0", NEWEST)), None),
+    "/porownanie-zerwane/tags?per_page=100": (_tags(("v0.1.0", NEWEST)), None),
 }
 
 NOTES = "Plik zbiorczy ma kolumnę z kilometrami.\n\n## Rozwiązane sprawy taty\n\n- Uwaga taty #12: Kilometry\n"
@@ -148,6 +165,15 @@ class _GitHub(BaseHTTPRequestHandler):
                 self.send_header("Link", f'<http://{host}{following}>; rel="next", <http://{host}/tagi>; rel="last"')
             self.end_headers()
             self.wfile.write(body.encode("ascii"))
+        elif rest == "git/ref/heads/main" and repository in _ODD_REFS:
+            self._answer(200, _ODD_REFS[repository])
+        elif rest.startswith("compare/") and repository in _ODD_COMPARES:
+            answer = _ODD_COMPARES[repository]
+            if answer is None:  # połączenie zerwane w trakcie odpowiedzi
+                self.close_connection = True
+                self.connection.shutdown(socket.SHUT_RDWR)
+            else:
+                self._answer(200, answer)
         elif rest == "git/ref/heads/main" and repository != "limit":
             self._answer(200, json.dumps({"ref": "refs/heads/main", "object": {"sha": MAIN, "type": "commit"}}))
         elif rest.startswith("compare/") and rest.endswith("?per_page=1&page=2"):
@@ -247,6 +273,20 @@ def test_odmowa_githuba_w_polowie_wyszukiwania_to_nie_wiadomo_i_nic_nie_zostaje_
 
     assert releases_from(f"{github}/odmowa-w-wyszukiwaniu", timeout_s=2, known=known) is None
     assert known == {}
+
+
+# Wyjątek w wątku pytania też kończy się ``None`` (``deadline.within``), ale jako ślad wywołań na stderr Centrum:
+# odpowiedź w innym kształcie ma być „nie wiadomo” bez wyjątku.
+@pytest.mark.filterwarnings("error::pytest.PytestUnhandledThreadExceptionWarning")
+@pytest.mark.parametrize("repository", [*_ODD_REFS, *_ODD_COMPARES])
+def test_czubek_main_albo_porownanie_w_innym_ksztalcie_to_nie_wiadomo(github: str, repository: str) -> None:
+    assert releases_from(f"{github}/{repository}", timeout_s=2) is None
+
+
+def test_jedno_sprawdzenie_pyta_o_czubek_main_raz_dla_wszystkich_kandydatow(github: str) -> None:
+    assert releases_from(f"{github}/spoza-main", timeout_s=2) == GitHubReleases(OLDER, "v0.2.0")
+    assert _comparisons() >= 3
+    assert sum(path.endswith("/git/ref/heads/main") for path in _ASKED) == 1
 
 
 def test_milczacy_serwer_nie_wydluza_diagnozy_ponad_limit_czasu() -> None:
