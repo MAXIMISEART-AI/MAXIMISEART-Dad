@@ -18,10 +18,13 @@ import time
 
 import pytest
 
+from rozliczenia.centrum import tool_freshness
 from rozliczenia.centrum.tool_freshness import GitHubReleases, PublishedRelease, published_from, releases_from
 from rozliczenia.centrum.tool_update import Release
 from rozliczenia.centrum.version import tool_commit
 
+# Prawdziwe ``github_releases`` z chwili importu: autouse ``bez_githuba`` (``tests/conftest.py``) podmienia je w module.
+GITHUB_RELEASES = tool_freshness.github_releases
 MAIN = "9a8b7c6d5e4f3a2b1c0d9e8f7a6b5c4d3e2f1a0b"
 BRANCH = "3c1d0a9e5b7f4c2d8e6a1b0f9c8d7e6a5b4c3d2e"
 OLDER = "1111111111111111111111111111111111111111"
@@ -33,6 +36,7 @@ UNCOUNTED = "6666666666666666666666666666666666666666"
 MERGED_BRANCH = "7777777777777777777777777777777777777777"
 REFUSED_MIDWAY = "8888888888888888888888888888888888888888"
 FIRST_COMMIT = "9999999999999999999999999999999999999999"
+FAR_ON_LINE = "abababababababababababababababababababab"
 NOT_A_COMMIT = "nie-commit"
 # Odpowiedź porównania commitu tagu z czubkiem `main` ``MAIN`` albo jego pierwszym rodzicem (``compare``); brak wpisu
 # to odmowa GitHuba. ``OLDER`` jest pierwszym rodzicem ``MAIN``.
@@ -53,10 +57,20 @@ _STATUS = {
     (NEWEST, NOT_A_COMMIT): "identical",
     # Pierwszy commit repozytorium jest pierwszym rodzicem `main`, a `main` ma jeszcze dwa commity z wciągniętej
     # gałęzi (``ahead_by`` 3): ``MAIN~2`` i dalej nie istnieją (404).
+    (FAR_ON_LINE, MAIN): "ahead",
     (FIRST_COMMIT, MAIN): "ahead",
     (FIRST_COMMIT, f"{MAIN}~1"): "identical",
 }
-_AHEAD_BY = {FIRST_COMMIT: 3}
+_AHEAD_BY = {FIRST_COMMIT: 3, FAR_ON_LINE: 1000}
+# ``FAR_ON_LINE`` to ``MAIN~700``, a `main` ma 1000 commitów spoza niego: tydzień zmian z wciągniętymi gałęziami.
+_FAR_DEPTH = 700
+
+
+def _far_status(base: str, head: str) -> str | None:
+    if base != FAR_ON_LINE or not head.startswith(f"{MAIN}~"):
+        return None
+    depth = int(head.removeprefix(f"{MAIN}~"))
+    return "ahead" if depth < _FAR_DEPTH else "identical" if depth == _FAR_DEPTH else "behind"
 _NOT_FOUND = {(FIRST_COMMIT, f"{MAIN}~2"), (FIRST_COMMIT, f"{MAIN}~3")}
 
 
@@ -84,6 +98,7 @@ _PAGES = {
     "/z-galezi/tags?per_page=100": (_tags(("v0.1.0", MERGED_BRANCH)), None),
     "/odmowa-w-wyszukiwaniu/tags?per_page=100": (_tags(("v0.1.0", REFUSED_MIDWAY)), None),
     "/od-pierwszego-commitu/tags?per_page=100": (_tags(("v0.1.0", FIRST_COMMIT)), None),
+    "/daleko/tags?per_page=100": (_tags(("v0.1.0", FAR_ON_LINE)), None),
 }
 
 NOTES = "Plik zbiorczy ma kolumnę z kilometrami.\n\n## Rozwiązane sprawy taty\n\n- Uwaga taty #12: Kilometry\n"
@@ -113,8 +128,17 @@ _PAGES["/wydania/releases?per_page=30"] = (
 )
 
 
+# Ścieżki pytań do atrapy GitHuba, w kolejności; ``github`` czyści listę przed testem.
+_ASKED: list[str] = []
+
+
+def _comparisons() -> int:
+    return sum("/compare/" in path for path in _ASKED)
+
+
 class _GitHub(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
+        _ASKED.append(self.path)
         repository, _, rest = self.path[1:].partition("/")
         if self.path in _PAGES:
             body, following = _PAGES[self.path]
@@ -128,7 +152,7 @@ class _GitHub(BaseHTTPRequestHandler):
             self._answer(200, json.dumps({"ref": "refs/heads/main", "object": {"sha": MAIN, "type": "commit"}}))
         elif rest.startswith("compare/") and rest.endswith("?per_page=1&page=2"):
             base, _, head = rest.removeprefix("compare/").removesuffix("?per_page=1&page=2").partition("...")
-            status = _STATUS.get((base, head))
+            status = _STATUS.get((base, head)) or _far_status(base, head)
             if (base, head) in _NOT_FOUND:
                 self._answer(404, '{"message": "Not Found"}')
             elif status is None:
@@ -152,6 +176,7 @@ class _GitHub(BaseHTTPRequestHandler):
 
 @pytest.fixture
 def github() -> Iterator[str]:
+    _ASKED.clear()
     server = ThreadingHTTPServer(("127.0.0.1", 0), _GitHub)
     thread = threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True)
     thread.start()
@@ -191,6 +216,26 @@ def test_wydanie_z_galezi_wciagnietej_mergem_nie_jest_na_main_i_ta_odpowiedz_zos
 
     assert releases_from(f"{github}/z-galezi", timeout_s=2, known=known) == GitHubReleases(None, None)
     assert known == {MERGED_BRANCH: False}
+    _ASKED.clear()
+    assert releases_from(f"{github}/z-galezi", timeout_s=2, known=known) == GitHubReleases(None, None)
+    assert _comparisons() == 0
+
+
+def test_wydanie_daleko_na_linii_main_kosztuje_tylko_logarytm_porownan(github: str) -> None:
+    assert releases_from(f"{github}/daleko", timeout_s=2) == GitHubReleases(FAR_ON_LINE, "v0.1.0")
+    assert _comparisons() <= 12  # log2(1001) + 2
+
+
+def test_aktualnosc_w_centrum_pamieta_linie_main_miedzy_sprawdzeniami(
+    github: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(tool_freshness, "REPOSITORY_API", f"{github}/z-galezi")
+    monkeypatch.setattr(tool_freshness, "_GITHUB_LINE", {})
+
+    assert GITHUB_RELEASES() == GitHubReleases(None, None)
+    _ASKED.clear()
+    assert GITHUB_RELEASES() == GitHubReleases(None, None)
+    assert _comparisons() == 0
 
 
 def test_wydanie_na_pierwszym_commicie_repozytorium_jest_na_main(github: str) -> None:

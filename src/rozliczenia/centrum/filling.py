@@ -36,27 +36,20 @@ from rozliczenia.workbook_files import WorkbookError, excel_lock_file
 
 
 class FillingReads:
-    """Ostatnie dobre odczyty Plików zbiorczych okresów dla stron Uzupełnienia i działanie po wyniku Uruchomienia.
+    """Ostatnie dobre odczyty Plików zbiorczych dla stron Uzupełnienia i działanie po wyniku Uruchomienia.
 
     Uruchomienie, które zmieniło pliki okresu (``files_unchanged`` fałszywe), mogło podmienić jego Plik zbiorczy, więc
-    ostatni dobry odczyt sprzed niego nie zastępuje już nieudanego odczytu: ``run_ended`` (``runs.AfterRun``) go
-    zapomina, zanim karta wyniku dostanie wynik.
+    ostatni dobry odczyt sprzed niego nie zastępuje już nieudanego odczytu: ``run_ended`` (``runs.AfterRun``) zapomina
+    odczyty wszystkich plików, zanim karta wyniku dostanie wynik. Pliki innych okresów tracą przez to tylko minutę
+    pokazywania ostatniego dobrego odczytu podczas porażki.
     """
 
     def __init__(self, *, clock: Callable[[], float]) -> None:
-        self._reads: LastGoodReads[NumberedOrders] = LastGoodReads(clock=clock)
-        self._paths: dict[str, Path] = {}
-
-    def of_period(self, token: str, path: Path) -> LastGoodReads[NumberedOrders]:
-        """Odczyty Plików zbiorczych, gdy ``path`` to Plik zbiorczy okresu ``token``."""
-
-        self._paths[token] = path
-        return self._reads
+        self.reads: LastGoodReads[NumberedOrders] = LastGoodReads(clock=clock)
 
     def run_ended(self, run: EndedRun) -> None:
-        path = None if run.files_unchanged else self._paths.get(run.info.period)
-        if path is not None:
-            self._reads.forget(path)
+        if not run.files_unchanged:
+            self.reads.forget_all()
 
 
 def filling_router(store: SettingsStore, log: CentrumLog, cloud_files: CloudFiles, filling: FillingReads) -> APIRouter:
@@ -69,7 +62,7 @@ def filling_router(store: SettingsStore, log: CentrumLog, cloud_files: CloudFile
         return located_period_folder(periods_directory, requested_period(token))
 
     def read(token: str, path: Path) -> GoodRead[NumberedOrders] | contract.QuantitiesToFillProblem:
-        reads = filling.of_period(token, path)
+        reads = filling.reads
         attempt = reads.attempt(path)
         found = _attempt(path, cloud_files)
         if not isinstance(found, _Unreadable):

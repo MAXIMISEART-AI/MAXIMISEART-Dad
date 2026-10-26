@@ -362,3 +362,19 @@ def test_podglad_bez_zapisu_zostawia_ostatni_dobry_odczyt(tmp_path: Path) -> Non
     path.write_bytes(b"Excel zapisuje")
 
     assert _get(centrum, VIEW) == {**good, "read": {**good["read"], "retrying": True}}
+
+
+def test_po_uruchomieniu_ktore_zmienilo_pliki_okresu_porazka_trafia_do_dziennika_od_nowa(tmp_path: Path) -> None:
+    centrum = _prepared(tmp_path)
+    path = centrum.fixture.collective_file_path
+    _get(centrum, VIEW)
+    path.write_bytes(b"Excel zapisuje")
+    _get(centrum, VIEW)
+    assert len(_log_lines(centrum)) == 1
+    shutil.rmtree(path.parent)
+    assert run_to_end(centrum, dry_run=False)["result"]["result"] == "WYMAGA_SPRAWDZENIA"
+    path.write_bytes(b"OneDrive synchronizuje")
+
+    _get(centrum, VIEW)
+
+    assert len(_log_lines(centrum)) == 2
