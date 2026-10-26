@@ -14,8 +14,7 @@ class ManualClock:
     """Podróbka ``time.perf_counter`` i zegara Centrum (``Clock``); stoi, dopóki test go nie przesunie.
 
     ``advance`` woła w wątku testu, po kolei, każde ``wake`` z ``after``, którego chwila minęła, także ustawione w
-    trakcie budzenia. ``pause`` tylko przesuwa czas: przerwę bierze kod pod testem, często pod własną blokadą, więc
-    budzenia, których chwila minęła, woła dopiero następne ``advance``.
+    trakcie budzenia.
     """
 
     seconds: float = 0.0
@@ -29,10 +28,6 @@ class ManualClock:
     def after(self, seconds: float, wake: Callable[[], None]) -> None:
         with self._lock:
             heapq.heappush(self._wakes, (self.seconds + seconds, next(self._order), wake))
-
-    def pause(self, seconds: float) -> None:
-        with self._lock:
-            self.seconds += seconds
 
     @property
     def wakes(self) -> int:
