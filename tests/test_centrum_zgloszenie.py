@@ -38,7 +38,6 @@ from tests.fixtures.centrum import (
     dad_cases,
 )
 from tests.fixtures.clock import ManualClock
-from tests.fixtures.locked_file import lock_file
 from tests.fixtures.centrum_processes import (
     PreparingCentrum,
     Surroundings,
@@ -304,27 +303,6 @@ def test_zgloszenie_z_kolejki_wychodzi_po_restarcie_centrum_z_numerem_w_stanie_w
         assert centrum.surroundings.report_box.wait_until(lambda box: len(box.sent) == 1)
         assert wait_for(lambda: case_states(centrum.client, "zgloszenie") == ["wyslana"])
 
-    assert [case["number"] for case in cases(centrum)] == [1]
-    assert queued_reports(centrum) == []
-
-
-def test_numer_zgloszenia_z_kolejki_zostaje_po_restarcie_gdy_windows_na_chwile_blokuje_plik_spraw(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    centrum = preparing_centrum(tmp_path)
-    run_id = stopped_for_maks(centrum)
-    diagnose(centrum, run_id)
-    assert send(centrum, run_id) == FOR_KEY
-    with_key(centrum)
-    lock_file(monkeypatch, DAD_CASES_FILE, failures=2)
-
-    centrum.restart()
-    with centrum.client:
-        assert centrum.surroundings.report_box.wait_until(lambda box: len(box.sent) == 1)
-        assert wait_for(lambda: case_states(centrum.client, "zgloszenie") == ["wyslana"])
-    centrum.restart()
-
-    assert case_states(centrum.client, "zgloszenie") == ["wyslana"]
     assert [case["number"] for case in cases(centrum)] == [1]
     assert queued_reports(centrum) == []
 

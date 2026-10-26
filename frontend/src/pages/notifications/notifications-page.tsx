@@ -15,7 +15,6 @@ import {
 import type { Notification } from "@/api/centrum"
 import { LoadFailure } from "@/components/load-failure"
 import { PageHeader } from "@/components/page-header"
-import { ThreePartMessage } from "@/components/three-part-message"
 import { ToolUpdateButton, ToolUpdateStatus } from "@/components/tool-update"
 import { Card } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -68,7 +67,6 @@ const STATES: Record<CaseState, { text: Record<Case["kind"], string>; icon: Luci
  * Widok Powiadomienia, otwierany dzwonkiem. Wejście oznacza wszystkie jako przeczytane, więc kropka na dzwonku
  * gaśnie od razu; wiersze, które były nowe, zachowują kropkę i jasne tło do wyjścia z widoku. Nowa wersja, do której
  * Centrum proponuje aktualizację, stoi w osobnej karcie nad listą; po aktualizacji wraca do listy jako historia.
- * Komunikat o pliku stanu, którego Centrum nie może zapisać, stoi nad wszystkim i znika po udanym zapisie.
  */
 export function NotificationsPage() {
   const { notifications, markRead, reload } = useNotifications()
@@ -103,7 +101,6 @@ export function NotificationsPage() {
       {notifications.state === "failed" ? (
         <LoadFailure what="Powiadomień" message={notifications.message} reload={reload} />
       ) : null}
-      {data?.message ? <ThreePartMessage message={data.message} kind="notice" /> : null}
       {pinned === undefined ? null : (
         <Card className={cn(entrance, "gap-0 p-0")} role="region" aria-label={title(pinned)}>
           <Row notification={pinned} fresh={fresh.has(pinned.id)} />
