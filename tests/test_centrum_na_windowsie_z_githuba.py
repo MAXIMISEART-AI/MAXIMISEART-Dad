@@ -153,5 +153,7 @@ def test_dispatch_bez_dostepu_do_origin_konczy_sie_werdyktem(tmp_path: Path) -> 
     done = checkout.run()
 
     assert done.returncode == 1, done.stdout + done.stderr
-    assert done.stderr.strip().splitlines()[-1].startswith("VERIFY FAIL | git fetch --quiet origin praca:")
+    verdict = done.stderr.strip().splitlines()[-1]
+    assert verdict.startswith("VERIFY FAIL | git fetch --quiet origin praca:"), verdict
+    assert "nie-ma.git" in verdict, "linia werdyktu ma przyczynę od gita"
     assert not any(call.startswith("workflow run") for call in checkout.calls())

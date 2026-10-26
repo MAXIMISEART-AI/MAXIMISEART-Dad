@@ -85,18 +85,44 @@ def test_w_ci_brak_commitu_synchronizacji_konczy_sprawdzenie_porazka(tmp_path: P
     assert f"commitu synchronizacji {'0' * 40} nie ma w tej historii" in done.stdout
 
 
-def test_poza_ci_rozjazd_tylko_ostrzega_i_sprawdzenie_modelu_biegnie_dalej(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_poza_ci_rozjazd_tylko_ostrzega_i_sprawdzenie_modelu_biegnie_dalej(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     module = _load()
     monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
     monkeypatch.setattr(module, "_drift", lambda root, skill_md: "pokryty kod zmienił się")
+    (tmp_path / "oczekiwane.json").write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(module, "MODEL", tmp_path)  # model bez konfiguracji: sprawdzenie biegnie do końca bez TLC
+    monkeypatch.setattr(module, "_java", lambda: "java")
+    monkeypatch.setattr(module, "_tla_tools", lambda: tmp_path / "tla2tools.jar")
 
-    def model_check() -> str:
-        raise SystemExit("sprawdzenie modelu")
+    module.main([])
 
-    monkeypatch.setattr(module, "_java", model_check)
+    printed = capsys.readouterr().out
+    assert "UWAGA: pokryty kod zmienił się" in printed
+    assert DRIFT not in printed
 
-    with pytest.raises(SystemExit, match="sprawdzenie modelu"):
-        module.main([])
+
+def test_skill_md_bez_commitu_synchronizacji_albo_tabeli_pokrycia_jest_rozjazdem(tmp_path: Path) -> None:
+    drift = _load()._drift
+
+    assert drift(tmp_path, "Brak linii synchronizacji.") == "SKILL.md nie ma commitu synchronizacji albo tabeli pokrycia."
+    assert drift(tmp_path, "Sync commit: `abcdef1`") == "SKILL.md nie ma commitu synchronizacji albo tabeli pokrycia."
+
+
+def test_dopobranie_historii_ma_limit_czasu(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    module = _load()
+    asked: list[tuple[tuple[str, ...], float | None]] = []
+
+    def git(root: Path, *arguments: str, timeout_s: float | None = None) -> str | None:
+        asked.append((arguments, timeout_s))
+        return None
+
+    monkeypatch.setattr(module, "_git", git)
+
+    module._drift(tmp_path, _skill_md("abcdef1"))
+
+    assert [timeout for arguments, timeout in asked if arguments[0] == "fetch"] == [module.FETCH_TIMEOUT_S]
 
 
 def test_plytki_klon_bez_sieci_mowi_ze_nie_dopobral_historii(tmp_path: Path) -> None:
