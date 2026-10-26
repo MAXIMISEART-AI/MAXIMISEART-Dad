@@ -632,7 +632,7 @@ def test_odmowa_przy_wysylce_uwagi_odrzuca_klucz_w_konfiguracji_bez_osobnego_pyt
 
     sent = centrum.client.post("/api/dad-notes", json={"title": "Excel myśli minutę"})
 
-    assert sent.json() == {"state": "waiting"}
+    assert sent.json() == {"state": "waiting", "waits_for": "key"}
     assert key_state(centrum) == "refused_key"
     assert box.listed == []
 

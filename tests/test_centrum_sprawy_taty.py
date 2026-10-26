@@ -424,7 +424,7 @@ def test_sprawy_ze_starych_plikow_daja_te_same_powiadomienia(tmp_path: Path) -> 
 
     assert notifications(tmp_path) == [
         ("uwaga", "uwaga-5e1f0c2d3b4a49e8b7c6d5e4f3a2b1c0-przeczytana", True, "Plik zbiorczy otwiera się długo"),
-        ("uwaga", f"uwaga-{QUEUED_NOTE}-czeka_na_internet", False, "Wiersz zniknął"),
+        ("uwaga", f"uwaga-{QUEUED_NOTE}-czeka_na_token", False, "Wiersz zniknął"),
         ("uwaga", "uwaga-0a9b8c7d6e5f4a3b2c1d0e9f8a7b6c5d-wyslana", False, "Brakuje ilości przy montażu"),
         ("zgloszenie", "zgloszenie-7-rozwiazana", True, "Nie znaleziono Wzorca pliku zbiorczego."),
         ("zgloszenie", "zgloszenie-9-wyslana", False, "Brak połączenia z GitHubem."),
