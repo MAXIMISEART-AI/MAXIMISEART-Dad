@@ -105,6 +105,16 @@ def _raw_row(order: Order) -> Callable[[Worksheet, int], None]:
     return write
 
 
+def _in_other_font(number: int) -> Callable[[Worksheet], None]:
+    """Uporządkowany wiersz ``number`` przepisany czcionką inną niż Calibri 8, jak wiersz z wyglądem z aplikacji."""
+
+    def edit(sheet: Worksheet) -> None:
+        for column in range(FIRST, LAST + 1):
+            sheet.cell(number, column).font = Font(name="Arial", sz=10)
+
+    return edit
+
+
 def _ordered_row(order: Order) -> Callable[[Worksheet, int], None]:
     """Wiersz ``order`` z wyglądem uporządkowanego zlecenia (Calibri 8) wpisany w wiersz arkusza."""
 
@@ -763,8 +773,9 @@ def test_surowe_zlecenia_nad_uporzadkowanym_wierszem_to_zatrzymanie_dla_taty(tmp
 
     def typed_below(sheet: Worksheet) -> None:
         _ordered_row(typed)(sheet, last_raw + 2)
+        _ordered_row(replace(typed, number=303))(sheet, last_raw + 3)
         if raw_below:
-            _raw_row(Order(datetime(2026, 10, 26, 7), "jan.nowak", 302))(sheet, last_raw + 4)
+            _raw_row(Order(datetime(2026, 10, 26, 7), "jan.nowak", 302))(sheet, last_raw + 5)
 
     _edited(path, typed_below)
 
@@ -776,7 +787,32 @@ def test_surowe_zlecenia_nad_uporzadkowanym_wierszem_to_zatrzymanie_dla_taty(tmp
         stop.message.what
     )
     assert stop.message.where.endswith(f"arkusz {ORDER_SHEET}, wiersz {last_raw}")
-    _without_order_data(stop.message, [*layout.raw, typed])
+    _without_order_data(stop.message, [*layout.raw, typed, replace(typed, number=303)])
+
+
+def test_bez_wklejenia_wiersz_z_wygladem_z_aplikacji_w_starszym_dniu_nie_zatrzymuje(tmp_path: Path) -> None:
+    ordered = tuple(
+        Order(datetime(2026, 10, 19 if index < 12 else 20, 7 + index % 12), "anna.kowalska", index + 1) for index in range(14)
+    )
+    path, _ = _register(tmp_path, Intermax(ordered=ordered, raw=()))
+    _edited(path, _in_other_font(2))
+
+    with _nothing_written(tmp_path, path):
+        stop = _stop(_run(tmp_path))
+
+    assert stop.message.code == "BRAK_SUROWYCH_ZLECEN"
+
+
+def test_pojedyncze_wiersze_wczesniejszych_dni_miedzy_dniami_nie_koncza_przegladu(tmp_path: Path) -> None:
+    def day(number: int, count: int, first: int) -> tuple[Order, ...]:
+        return tuple(Order(datetime(2026, 10, number, 7 + index), "anna.kowalska", first + index) for index in range(count))
+
+    path, _ = _register(tmp_path, Intermax(ordered=(*day(26, 1, 1), *day(25, 6, 2), *day(27, 1, 8), *day(25, 6, 9))))
+
+    with _nothing_written(tmp_path, path):
+        stop = _stop(_run(tmp_path))
+
+    assert stop.message.code == "DZIEN_JUZ_UPORZADKOWANY"
 
 
 @pytest.mark.parametrize(("above", "stops"), [(9, True), (10, False)])
@@ -786,12 +822,7 @@ def test_wiersz_z_wygladem_z_aplikacji_w_poprzednim_dniu_zatrzymuje_tylko_tuz_na
     ordered = tuple(Order(datetime(2026, 10, 19, 7 + index), "anna.kowalska", index + 1) for index in range(12))
     path, layout = _register(tmp_path, Intermax(ordered=ordered))
     strange = layout.last_ordered - above
-
-    def other_font(sheet: Worksheet) -> None:
-        for column in range(FIRST, LAST + 1):
-            sheet.cell(strange, column).font = Font(name="Arial", sz=10)
-
-    _edited(path, other_font)
+    _edited(path, _in_other_font(strange))
 
     outcome = _run(tmp_path)
 
@@ -816,6 +847,29 @@ def test_drugie_wklejenie_tego_samego_dnia_mowi_ze_dzien_jest_uporzadkowany_i_ni
     assert stop.message.action == "Nowe zlecenia na ten dzień dopisz ręcznie, a wklejone usuń."
     assert stop.message.where.endswith(f"wklejone wiersze {first_raw}–{first_raw + len(layout.raw) - 1}")
     _without_order_data(stop.message, layout.raw)
+
+
+def test_wklejony_dzien_uporzadkowany_nad_nowszymi_dniami_jest_juz_uporzadkowany(tmp_path: Path) -> None:
+    ordered = (
+        Order(datetime(2026, 10, 26, 8), "anna.kowalska", 1),
+        *(Order(datetime(2026, 10, 27, 7 + index), "jan.nowak", index + 2) for index in range(12)),
+    )
+    path, _ = _register(tmp_path, Intermax(ordered=ordered))
+
+    with _nothing_written(tmp_path, path):
+        stop = _stop(_run(tmp_path))
+
+    assert (stop.message.code, stop.message.what) == (
+        "DZIEN_JUZ_UPORZADKOWANY",
+        "Dzień 26.10.2026 jest już uporządkowany. INTERMAX nie został zmieniony.",
+    )
+
+
+def test_uporzadkowany_wiersz_bez_daty_nad_wklejeniem_nie_zatrzymuje(tmp_path: Path) -> None:
+    path, layout = _register(tmp_path)
+    _edited(path, lambda sheet: setattr(sheet.cell(layout.last_ordered, DATE), "value", None))
+
+    assert _ordered(_run(tmp_path)).order_count == len(layout.raw)
 
 
 def test_dzien_jest_uporzadkowany_takze_z_usterka_poprzedniego_dnia_dopisana_pod_nim(tmp_path: Path) -> None:
@@ -1101,6 +1155,7 @@ def _refused(monkeypatch: pytest.MonkeyPatch, times: int | None, *, excel: bool 
     def refused(source: str | os.PathLike[str], target: str | os.PathLike[str]) -> None:
         if Path(target).name == REGISTER_NAME:
             attempts.append(1)
+            assert len(attempts) < 100, "ponowna próba bez przerwy na zegarze procesu"
             if excel:
                 Path(target).with_name(f"~${REGISTER_NAME}").write_bytes(b"")
             if times is None or len(attempts) <= times:
