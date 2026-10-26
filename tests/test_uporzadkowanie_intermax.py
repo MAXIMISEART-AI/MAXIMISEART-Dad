@@ -1269,14 +1269,17 @@ def test_wersja_pracownika_wgrana_przez_onedrive_miedzy_probami_podmiany_zostaje
     worker = Intermax()
     worker.ordered = (*worker.ordered, Order(datetime(2026, 10, 20, 11), "jan.nowak", 4))
     attempts = _refused(monkeypatch, 1)
+    uploaded: list[bytes] = []
 
-    stop = _stop(_run(tmp_path, clock=_PauseThen(lambda: worker.write(path))))
+    def upload() -> None:
+        worker.write(path)
+        uploaded.append(path.read_bytes())
+
+    stop = _stop(_run(tmp_path, clock=_PauseThen(upload)))
 
     assert (stop.message.code, stop.stop_kind) == ("INTERMAX_SYNCHRONIZOWANY", "for_tata")
     assert len(attempts) == 1
-    written = tmp_path / "pracownik.xlsx"
-    worker.write(written)
-    assert path.read_bytes() == written.read_bytes()
+    assert uploaded == [path.read_bytes()]
     assert [entry.name for entry in path.parent.iterdir()] == [REGISTER_NAME]
     assert _copies(tmp_path) == set()
 
