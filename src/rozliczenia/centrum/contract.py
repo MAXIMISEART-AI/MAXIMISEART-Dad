@@ -1036,10 +1036,12 @@ Notification = Annotated[DadNoteNotification | ReportNotification | ReleaseNotif
 
 
 class Notifications(_Model):
-    """Powiadomienia od najnowszego i liczba nieprzeczytanych (kropka na dzwonku)."""
+    """Powiadomienia od najnowszego, liczba nieprzeczytanych (kropka na dzwonku) i Komunikat o pliku stanu, którego
+    Centrum nie może zapisać (``None``: wszystko zapisane)."""
 
     unread: int
     items: list[Notification]
+    message: Message | None
 
 
 class NotificationsRead(_Model):

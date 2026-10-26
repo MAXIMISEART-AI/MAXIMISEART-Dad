@@ -990,7 +990,8 @@ export const zReleaseNotification = z.object({
 /**
  * Notifications
  *
- * Powiadomienia od najnowszego i liczba nieprzeczytanych (kropka na dzwonku).
+ * Powiadomienia od najnowszego, liczba nieprzeczytanych (kropka na dzwonku) i Komunikat o pliku stanu, którego
+ * Centrum nie może zapisać (``None``: wszystko zapisane).
  */
 export const zNotifications = z.object({
     unread: z.int(),
@@ -998,7 +999,8 @@ export const zNotifications = z.object({
         zDadNoteNotification,
         zReportNotification,
         zReleaseNotification
-    ]))
+    ])),
+    message: zMessage.nullable()
 });
 
 /**

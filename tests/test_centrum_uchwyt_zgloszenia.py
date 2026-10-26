@@ -102,7 +102,7 @@ class Computer:
             clock=self.clock,
             on_delivered=lambda post, number: reports.delivered(post, number),
         )
-        stored = DadCases(self.config, self.log)
+        stored = DadCases(self.config, self.log, pause=self.clock.pause)
         reports = Reports(keyed, outbox, lambda: TOOL_COMMIT, stored, search_deadline_s=self.search_deadline_s)
         self.outbox, self.keyed, self.stored = outbox, keyed, stored
         return reports
@@ -453,7 +453,7 @@ def test_uwaga_taty_o_identyfikatorze_rownym_odciskowi_nie_jest_poprzednim_zglos
     computer.with_key()
     fingerprint = source(computer).fingerprint.digest
     note = Case(NOTE, fingerprint, "Uwaga o tym samym identyfikatorze", None, datetime.now(timezone.utc), 4)
-    DadCases(computer.config, computer.log).add(note)
+    DadCases(computer.config, computer.log, pause=ManualClock().pause).add(note)
 
     _, _, body = prepared(computer.reports(), computer)
 

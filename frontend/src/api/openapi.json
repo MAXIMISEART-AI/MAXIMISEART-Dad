@@ -3030,16 +3030,27 @@
             },
             "type": "array",
             "title": "Items"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Message"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "additionalProperties": false,
         "type": "object",
         "required": [
           "unread",
-          "items"
+          "items",
+          "message"
         ],
         "title": "Notifications",
-        "description": "Powiadomienia od najnowszego i liczba nieprzeczytanych (kropka na dzwonku)."
+        "description": "Powiadomienia od najnowszego, liczba nieprzeczytanych (kropka na dzwonku) i Komunikat o pliku stanu, którego\nCentrum nie może zapisać (``None``: wszystko zapisane)."
       },
       "NotificationsRead": {
         "properties": {
