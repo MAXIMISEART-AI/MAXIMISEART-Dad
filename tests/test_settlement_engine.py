@@ -1128,8 +1128,12 @@ def test_plik_zbiorczy_z_tokenem_ktory_nie_jest_okresem_zatrzymuje_przebieg_rozl
 
 @pytest.mark.parametrize(
     ("failure", "stopped_as"),
-    [(OSError(errno.EIO, "synthetic failure"), StopError), (RuntimeError("synthetic failure"), RuntimeError)],
-    ids=["blad-zapisu", "nieoczekiwany-blad"],
+    [
+        (OSError(errno.EIO, "synthetic failure"), StopError),
+        (RuntimeError("synthetic failure"), RuntimeError),
+        (KeyError("synthetic failure"), KeyError),
+    ],
+    ids=["blad-zapisu", "nieoczekiwany-blad", "nieoczekiwany-blad-wyszukiwania"],
 )
 def test_failed_przetworzenie_szablonu_pracownika_emits_failure_without_false_completion(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failure: Exception, stopped_as: type[Exception]

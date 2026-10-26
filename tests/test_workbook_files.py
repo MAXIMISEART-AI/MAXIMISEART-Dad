@@ -976,7 +976,9 @@ def test_wykonawca_bez_wierszy_danych_dostaje_plik_ze_scalonego_wzorca_rozliczen
 
 
 @pytest.mark.parametrize(
-    "merged", ["A19:B19", "N19:O19", "AT19:AU19"], ids=["kolumny-opisu", "kolumny-ilosci", "ostatnia-kolumna-zapisu"]
+    "merged",
+    ["A19:B19", "N19:O19", "AT19:AU19", "A18:A19", "N18:N19", "A17:A18"],
+    ids=["kolumny-opisu", "kolumny-ilosci", "ostatnia-kolumna-zapisu", "dwa-wiersze-danych", "dwa-wiersze-ilosci", "z-wiersza-naglowka"],
 )
 @pytest.mark.parametrize("copied", [True, False], ids=["kopia", "openpyxl"])
 def test_wzorzec_rozliczenia_pracownika_ze_scaleniem_w_wierszu_danych_nie_daje_pliku_na_zadnej_drodze(
