@@ -914,3 +914,25 @@ def test_plik_zbiorczy_z_kopii_ma_wymiar_arkusza_z_wpisanymi_iloscami_uslug(tmp_
     assert route is Route.COPY
     assert re.search(r'<dimension ref="A1:AP18"', zip_part(target, "xl/worksheets/sheet1.xml"))
 
+
+
+@pytest.mark.parametrize("copied", [True, False], ids=["kopia", "openpyxl"])
+def test_wzorzec_rozliczenia_pracownika_z_wartoscia_w_wierszu_danych_nie_daje_pliku_na_zadnej_drodze(
+    tmp_path: Path, copied: bool
+) -> None:
+    template_path = tmp_path / "Wzorzec rozliczenia pracownika.xlsx"
+    write_template(template_path)
+    workbook = load_workbook(template_path)
+    try:
+        active_worksheet(workbook)["A19"] = "wpis taty"
+        workbook.save(template_path)
+    finally:
+        workbook.close()
+    (marked_for_copy if copied else refused_by_copy)(template_path)
+    target = tmp_path / "Rozliczenie - Wykonawca.xlsx"
+
+    with pytest.raises(WorkbookError) as raised:
+        TemplateFile.worker_settlement(template_path).create(target, [])
+
+    assert raised.value.problem is Problem.HAS_DATA
+    assert not target.exists()
