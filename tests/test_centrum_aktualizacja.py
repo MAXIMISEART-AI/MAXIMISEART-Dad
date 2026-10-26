@@ -1060,7 +1060,7 @@ def test_urwany_wpis_na_koncu_dziennika_nie_zatrzymuje_startu_z_wynikiem_aktuali
     view = centrum.client.get("/api/tool-update").json()
 
     assert (view["state"], view["message"]["what"]) == ("failed", "Nowa wersja narzędzia nie wystartowała.")
-    assert re.findall(rb" aktualizacja-koniec ([^\n]*)", centrum.log_path.read_bytes()) == [
+    assert re.findall(rb" aktualizacja-koniec ([^\r\n]*)", centrum.log_path.read_bytes()) == [
         f"wynik=NOWA_WERSJA_NIE_WYSTARTOWALA przed={before} po={newest} biblioteki=nie".encode()
     ]
 
