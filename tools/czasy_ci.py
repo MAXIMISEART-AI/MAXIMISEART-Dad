@@ -13,20 +13,20 @@ podziału na zadania, więc para tor i klucz wskazuje tę samą pracę w każdym
 
     pytest:<plik testów>     suma czasów testów pliku, każdy setup + call + teardown (junit pytest, ``junit_family = "xunit1"``
                              w pyproject.toml); to nie ściana pliku, bo workery xdist biegną równolegle
-    krok:pytest              ściana pytest zadania; ``krok:mutacje`` to ściana kroku Mutation checks
+    krok:pytest              ściana pytest zadania
     krok:e2e                 krok E2E (verify-rozliczenia --variant all)
     krok:timing              trzy polecenia straży czasu razem
     krok:praca               ściana kroku, w którym ``tools/plan_ci.py wykonaj`` biegnie przez jednostki zadania
-    skill:<skill>/ci         podstawa skilla, z linii ``OK``/``FAIL`` ``tools/mutacje_skilli.py`` (pełne sekundy)
-    skill:<skill>/<skrypt>   skrypt mutacji skilla, z tej samej linii
+    skill:<skill>/ci         podstawa skilla w zadaniu Mutation checks
+    skill:<skill>/<skrypt>   skrypt mutacji skilla; jego części z różnych zadań runu dają kilka obserwacji klucza
 
 Status jednostki to ``ok`` albo ``fail``; pominięty krok i pominięty skrypt nie są jednostką. Czasy kroków i start zadania
 podaje API zadań runu (``$GITHUB_API_URL/repos/<repo>/actions/runs/<run>/attempts/<próba>/jobs``, token z ``GH_TOKEN``,
 z dokładnością do sekundy), w którym zadanie znajduje się po nazwie swojego runnera. Narzut to sekundy od startu zadania do startu pierwszego kroku jednostki.
 Krok jednostki, który właśnie się skończył, API pokazuje przez chwilę bez wyniku (``conclusion: null``), więc zadanie
 czyta API ponownie, do 5 odczytów co sekundę; krok wciąż bez wyniku to błąd, a nie krok pominięty. Jednostki, które
-mierzy sam ``tools/plan_ci.py wykonaj`` (pytest, E2E, straż czasu), i plan, z którego biegły (``plan`` to jego
-``digest``), zapis bierze z jego pliku ``--wykonanie``.
+mierzy sam ``tools/plan_ci.py wykonaj`` (pytest, E2E, straż czasu, kroki skilli), i plan, z którego biegły (``plan`` to
+jego ``digest``), zapis bierze z jego pliku ``--wykonanie``.
 
 Scalenie. Na pushu do main ``Required CI status`` pobiera zapisy runu i poleceniem ``scal`` tworzy ``czasy-ci.json``
 (artefakt ``czasy-ci``, 30 dni), jedyne źródło czasów CI:
@@ -60,7 +60,6 @@ from datetime import datetime
 import json
 import os
 from pathlib import Path
-import re
 import shutil
 import statistics
 import subprocess
@@ -76,17 +75,7 @@ CZEKANIE_API_S = 1.0
 LIMIT_API_S = 20.0
 Status = Literal["ok", "fail"]
 # Kroki ci.yml, których czas jest jednostką; czasy kroków jednego klucza się sumują.
-KROKI = {
-    "Run the planned units": "krok:praca",
-    "Run each verify skill's baseline check and prove it fails on broken variants": "krok:mutacje",
-}
-# Linia końca kroku ``tools/mutacje_skilli.py``; echo skryptów mutacji jej nie podrobi, bo nazwa kroku ma stałą postać.
-KONIEC_KROKU = re.compile(
-    r"(?P<wynik>OK {3}|FAIL )"
-    r"(?:PODSTAWA (?P<podstawa>[\w.-]+)|\.agents/skills/(?P<skill>[\w.-]+)/scripts/(?P<skrypt>check_\w+_mutations\.py))"
-    r" \((?P<s>\d+) s\)(?::|$)"
-)
-KONIEC_MUTACJI = "MUTACJE SKILLI "
+KROKI = {"Run the planned units": "krok:praca"}
 ARTEFAKT = "czasy-ci"
 ILE_RUNOW = 3
 ODSWIEZ_S = 24 * 3600
@@ -183,18 +172,6 @@ def _junit(plik: Path) -> list[Jednostka]:
     return [Jednostka(f"pytest:{nazwa}", round(s, 3), "fail" if nazwa in porazki else "ok") for nazwa, s in sorted(sekundy.items())]
 
 
-def _mutacje(plik: Path) -> list[Jednostka]:
-    linie = plik.read_text(encoding="utf-8", errors="replace").splitlines()
-    if not any(linia.startswith(KONIEC_MUTACJI) for linia in linie):
-        raise ValueError(f"brak linii {KONIEC_MUTACJI.strip()} OK/FAIL, więc Mutation checks nie skończyły się")
-    jednostki = []
-    for linia in linie:
-        if koniec := KONIEC_KROKU.match(linia):
-            krok = f"{koniec['podstawa']}/ci" if koniec["podstawa"] else f"{koniec['skill']}/{koniec['skrypt']}"
-            jednostki.append(Jednostka(f"skill:{krok}", float(koniec["s"]), "ok" if koniec["wynik"].startswith("OK") else "fail"))
-    return jednostki
-
-
 def _wykonanie(plik: Path) -> tuple[str, str, list[Jednostka]]:
     dane = json.loads(plik.read_text(encoding="utf-8"))
     return dane["plan"], dane["zadanie"], [Jednostka(**jednostka) for jednostka in dane["jednostki"]]
@@ -255,12 +232,11 @@ def _zadanie(args: argparse.Namespace) -> int:
         jednostki += kroki
     except (OSError, ValueError, KeyError, TypeError) as error:
         bledy.append(f"API zadań runu: {error!r}")
-    for plik, czytaj in ((args.junit, _junit), (args.mutacje, _mutacje)):
-        if plik:
-            try:
-                jednostki += czytaj(plik)
-            except (OSError, ValueError) as error:
-                bledy.append(f"{plik.name}: {error!r}")
+    if args.junit:
+        try:
+            jednostki += _junit(args.junit)
+        except (OSError, ValueError) as error:
+            bledy.append(f"{args.junit.name}: {error!r}")
     plan = zadanie_planu = None
     if args.wykonanie:
         try:
@@ -410,7 +386,6 @@ def main(argv: list[str] | None = None) -> int:
     zadanie = polecenia.add_parser("zadanie", help="Zapis czasów jednego zadania runu (w zadaniu CI).")
     zadanie.add_argument("--tor", required=True, help="System runnera i wersja Pythona, np. Windows-3.14.0.")
     zadanie.add_argument("--junit", type=Path, help="Junit pytest (junit_family = xunit1 w pyproject.toml).")
-    zadanie.add_argument("--mutacje", type=Path, help="Wyjście tools/mutacje_skilli.py.")
     zadanie.add_argument("--wykonanie", type=Path, help="Wynik tools/plan_ci.py wykonaj: jego jednostki i plan.")
     zadanie.add_argument("--wyjscie", type=Path, required=True)
     scal = polecenia.add_parser("scal", help="Scalenie zapisów zadań runu w czasy-ci.json (w Required na main).")

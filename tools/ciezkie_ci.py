@@ -1,7 +1,7 @@
 """Ciężkie zadania CI liczy GitHub, a lokalnie biegną tylko do odtworzenia ich konkretnej porażki.
 
 Ciężkie zadania to ``change-mutations`` (``tools/mutacje_zmiany.py``) i ``mutations`` (``tools/mutacje_skilli.py``
-dla wszystkich skilli): trwają kilkanaście minut i dłużej, a CI liczy je po pushu w trzech częściach każde.
+dla wszystkich skilli): trwają kilkanaście minut i dłużej, a CI liczy je po pushu w częściach.
 ``tools/mutacje_zmiany.py`` i ``tools/ci_lokalnie.py`` z jednym z nich (także pełne, bez ``--tylko``) pytają
 ``refusal`` przed startem, a ``tools/mutacje.py`` pyta ``mutations_refusal``, bo lista dłuższa niż ``TARGETED``
 mutacji to ręczne ``change-mutations``. Poza CI odmawiają (kod 2 i linia ``CIĘŻKIE CI ODMOWA``), chyba że:
@@ -75,7 +75,7 @@ def refusal(
     if reproduces is None:
         return (
             f"CIĘŻKIE CI ODMOWA | {named} liczy CI na GitHubie, nie ten komputer. "
-            "Wypchnij gałąź: CI policzy je w trzech częściach, a stan pokaże tools/praca_w_toku.py albo gh pr checks. "
+            "Wypchnij gałąź: CI policzy je w częściach, a stan pokaże tools/praca_w_toku.py albo gh pr checks. "
             "Lokalnie tylko odtworzenie porażki: dodaj --odtwarzam <id albo URL runu Actions tej gałęzi, w którym zadanie padło>."
         )
     try:

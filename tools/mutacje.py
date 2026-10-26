@@ -28,6 +28,11 @@ Lista dłuższa niż ``ciezkie_ci.TARGETED`` mutacji to ręczne ``change-mutatio
 jej startu (kod 2 i linia ``CIĘŻKIE CI ODMOWA``) na zasadach ``tools/ciezkie_ci.py``. Skrypty
 ``check_<co>_mutations.py`` skilli ``verify-*`` używają tego samego silnika przez ``check_all``, który
 takiego limitu nie ma.
+
+Z ``MUTACJE_CZESC=K/N`` w środowisku ``check_all`` sprawdza tylko K-tą z N części tabeli: mutacje w kolejności nazw,
+co N-tą od K-tej, więc część nie zależy od kolejności tabeli, a N części sprawdza każdą mutację dokładnie raz. Podstawa
+części to tylko polecenia jej mutacji, a część bez mutacji kończy się ``MUTACJE OK``. Tak plan CI
+(``tools/plan_ci.py``) dzieli długi skrypt mutacji skilla na zadania bez zmiany skryptu.
 """
 
 from __future__ import annotations
@@ -54,6 +59,7 @@ ROOT = Path(__file__).resolve().parents[1]
 TIMEOUT = 600
 # Tyle mutacji naraz dawał ThreadPoolExecutor (rdzenie + 4) na 4 vCPU runnera CI; na 16 rdzeniach Maca dawał 20.
 PARALLEL = 8
+PART = "MUTACJE_CZESC"
 
 
 @dataclass(frozen=True)
@@ -78,9 +84,11 @@ class Mutation:
 
 def environment(copy: Path, *, concurrent: bool = False) -> dict[str, str]:
     nested = {"PYTEST_XDIST_AUTO_NUM_WORKERS": "1"} if concurrent else {}
+    # Część dzieli tabelę tego skryptu, nie tabele, które sprawdzane polecenie samo uruchamia.
+    inherited = {name: value for name, value in os.environ.items() if name != PART}
     return {
         **nested,
-        **os.environ,
+        **inherited,
         "PYTHONPATH": os.pathsep.join([str(copy / "src"), os.environ.get("PYTHONPATH", "")]).rstrip(os.pathsep),
         "PYTHONDONTWRITEBYTECODE": "1",
         "PYTHONUTF8": "1",
@@ -194,10 +202,28 @@ def verdicts(mutations: Sequence[Mutation], *, workers: int, limit_s: float = TI
         pool.shutdown(cancel_futures=True)
 
 
+def _part(mutations: Sequence[Mutation], part: str) -> list[Mutation]:
+    """Mutacje części ``K/N`` w kolejności tabeli; zła postać to ``ValueError`` z nazwą zmiennej."""
+
+    number, _, count = part.partition("/")
+    if not (number.isdigit() and count.isdigit() and 1 <= int(number) <= int(count)):
+        raise ValueError(f"{PART} to K/N z 1 <= K <= N, nie {part!r}")
+    by_name = sorted(range(len(mutations)), key=lambda index: (mutations[index].name, repr(mutations[index])))
+    chosen = set(by_name[int(number) - 1 :: int(count)])
+    return [mutation for index, mutation in enumerate(mutations) if index in chosen]
+
+
 def check_all(mutations: Sequence[Mutation], *, parallel: bool = True, limit_s: float = TIMEOUT) -> int:
     if not mutations:
         print("MUTACJE: brak mutacji, więc nie ma czego dowieść")
         return 1
+    if part := os.environ.get(PART):
+        total = len(mutations)
+        mutations = _part(mutations, part)
+        print(f"MUTACJE CZĘŚĆ {part}: {len(mutations)} z {total} mutacji", flush=True)
+        if not mutations:
+            print("MUTACJE OK")
+            return 0
     red = _baseline(mutations, limit_s)
     for line in red:
         print(f"PODSTAWA CZERWONA: {line}", flush=True)
