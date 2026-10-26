@@ -43,7 +43,10 @@ SUMMARY: dict[str, Any] = {
     "worker_settlements": None,
     "intermax_copy": COPY,
 }
-OPEN = "INTERMAX jest otwarty w Excelu. Zapisz go i zamknij."
+OPEN = (
+    "INTERMAX jest otwarty w Excelu. Zapisz go i zamknij. Jeśli Excel jest zamknięty, usuń z tego samego folderu "
+    f"pozostawiony plik ~${REGISTER_NAME}."
+)
 
 
 def _stopped(centrum: OrderingCentrum) -> dict[str, Any]:

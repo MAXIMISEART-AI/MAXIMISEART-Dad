@@ -15,7 +15,7 @@ from drive.common import DAD_TIME_ZONE, Run, current_run, ended_run_shown, finis
 FEATURE = "uporzadkowanie-intermax"
 CARD = "Uporządkuj INTERMAX"
 NOT_SET = "Najpierw wskaż INTERMAX."
-OPEN = "INTERMAX jest otwarty w Excelu. Zapisz go i zamknij."
+OPEN = "INTERMAX jest otwarty w Excelu. Zapisz go i zamknij. Jeśli Excel jest zamknięty, usuń z tego samego folderu pozostawiony plik {lock}."
 DONE = "INTERMAX uporządkowany"
 NOTHING_TO_ORDER = "Na dole arkusza zleceń nie ma wklejonych zleceń do uporządkowania. INTERMAX nie został zmieniony."
 # The fixture's "today" is Monday 19.10.2026, so every Uruchomienie of Uporządkowanie INTERMAX has this period.
@@ -102,7 +102,7 @@ def drive_intermax_ordering(run: Run, page: Page) -> None:
     try:
         page.reload()
         _to_card(run, page)
-        expect(_card(page).get_by_text(OPEN, exact=True)).to_be_visible()
+        expect(_card(page).get_by_text(OPEN.format(lock=lock.name), exact=True)).to_be_visible()
         expect(_button(page)).to_be_disabled()
         run.check(True, "INTERMAX open in Excel disables the button with the sentence what to do")
         run.capture(page, "232-intermax-otwarty")
