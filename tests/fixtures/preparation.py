@@ -25,7 +25,7 @@ from rozliczenia.decision import Conversation
 from rozliczenia.domain import ProgressObserver
 from rozliczenia.message import Message
 from tests.fixtures.settlement import write_mapping
-from tests.fixtures.workbooks import active_worksheet, add_external_link_fixture
+from tests.fixtures.workbooks import TEMPLATE_VIEW, View, active_worksheet, add_external_link_fixture, set_view
 
 PERIOD = "08_14_09_2026"
 INTERNAL_SETTLEMENT_NAME = f"Rozliczenie wew. {PERIOD}.xlsx"
@@ -300,8 +300,8 @@ def link_register_order_numbers(path: Path, address: str) -> dict[int, str]:
     return links
 
 
-def _apply_template_layout(sheet: Worksheet, header_row: int, columns: int, *, row_style: bool = False) -> None:
-    """Szerokości kolumn, czcionka kolumn, wysokości wierszy, pogrubiony nagłówek i blokada nagłówka.
+def _apply_template_layout(sheet: Worksheet, header_row: int, columns: int, *, row_style: bool, view: View) -> None:
+    """Szerokości kolumn, czcionka kolumn, wysokości wierszy, pogrubiony nagłówek, blokada nagłówka i widok.
 
     Autofiltr wzorca celowo obejmuje zły zakres, który Przygotowanie ma zignorować.
     Z ``row_style`` wiersze danych mają styl wiersza z czcionką wzorca, a kolumny większą czcionkę.
@@ -316,13 +316,14 @@ def _apply_template_layout(sheet: Worksheet, header_row: int, columns: int, *, r
     sheet.row_dimensions[header_row].height = 30
     sheet.row_dimensions[header_row + 1].height = 14
     sheet.freeze_panes = f"A{header_row + 1}"
+    set_view(sheet, view)
     sheet.auto_filter.ref = f"B{header_row}:C{header_row + 40}"
     if row_style:
         for row in range(header_row + 1, header_row + 1 + TEMPLATE_ROW_STYLED_ROWS):
             sheet.row_dimensions[row].font = Font(name=TEMPLATE_FONT_NAME, size=TEMPLATE_FONT_SIZE)
 
 
-def write_internal_template(path: Path, *, row_style: bool = False) -> Path:
+def write_internal_template(path: Path, *, row_style: bool = False, view: View = TEMPLATE_VIEW) -> Path:
     """Wzorzec rozliczenia wewnętrznego: nagłówki w wierszu 1, bez zleceń."""
 
     workbook = Workbook()
@@ -330,12 +331,12 @@ def write_internal_template(path: Path, *, row_style: bool = False) -> Path:
     sheet.title = "Arkusz1"
     for column, header in enumerate(INTERNAL_TEMPLATE_HEADERS, start=1):
         sheet.cell(1, column).value = header
-    _apply_template_layout(sheet, 1, len(INTERNAL_TEMPLATE_HEADERS), row_style=row_style)
+    _apply_template_layout(sheet, 1, len(INTERNAL_TEMPLATE_HEADERS), row_style=row_style, view=view)
     workbook.save(path)
     return path
 
 
-def write_collective_template(path: Path, *, row_style: bool = False) -> Path:
+def write_collective_template(path: Path, *, row_style: bool = False, view: View = TEMPLATE_VIEW) -> Path:
     """Wzorzec pliku zbiorczego: stawki w wierszach 1–16, nagłówki w 17, zera i formuły, link zewnętrzny.
 
     Z ``row_style`` komórki A:K wierszy danych nie mają własnego stylu, tylko styl wiersza.
@@ -353,7 +354,7 @@ def write_collective_template(path: Path, *, row_style: bool = False) -> Path:
         sheet.cell(17, column).value = header
     sheet["N17"] = "instalacja"
     sheet["AP17"] = "demontaż"
-    _apply_template_layout(sheet, 17, len(COLLECTIVE_TEMPLATE_HEADERS), row_style=row_style)
+    _apply_template_layout(sheet, 17, len(COLLECTIVE_TEMPLATE_HEADERS), row_style=row_style, view=view)
     styled_data_columns = 0 if row_style else len(COLLECTIVE_TEMPLATE_HEADERS)
     for row in range(18, 18 + COLLECTIVE_TEMPLATE_ZERO_ROWS):
         for column in range(1, styled_data_columns + 1):  # A:K, przygotowane we wzorcu
