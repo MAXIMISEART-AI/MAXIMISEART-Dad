@@ -37,7 +37,10 @@ from tests.fixtures.centrum import (
     case_states,
     centrum as plain_centrum,
     dad_cases,
+    join_threads_since,
+    new_line,
 )
+from tests.fixtures.centrum_intermax import OrderingCentrum, ordering_centrum
 from tests.fixtures.clock import ManualClock
 from tests.fixtures.locked_file import lock_file
 from tests.fixtures.centrum_processes import (
@@ -55,7 +58,7 @@ from tests.fixtures.preparation import PERIOD
 KEY = "github_pat_SYNTETYCZNY_KLUCZ_ZGLOSZEN"
 
 
-def with_key(centrum: PreparingCentrum | SettlingCentrum) -> Path:
+def with_key(centrum: PreparingCentrum | SettlingCentrum | OrderingCentrum) -> Path:
     """Klucz do Zgłoszeń w lokalnym pliku obok Ustawień taty, jak go wpisuje Maks."""
 
     key_file = centrum.tmp_path / "config" / "zgloszenia-klucz.txt"
@@ -444,6 +447,30 @@ def test_po_ponownym_starcie_kolejke_ponawia_tylko_budzik_nowego_centrum_jak_w_n
     after_previous_alarm = len(box.background_issues)
     clock.advance(RETRY_S / 2)  # chwila ponowienia nowego Centrum
     centrum.client.stop()
+
+    assert (after_previous_alarm, len(box.background_issues)) == (0, 1)
+
+
+def test_po_ponownym_starcie_uporzadkowania_intermax_kolejke_ponawia_tylko_budzik_nowego_centrum(
+    tmp_path: Path,
+) -> None:
+    since = new_line()  # klient ``OrderingCentrum`` nie ma ``stop``, więc test czeka na wątki Centrum od tej chwili
+    centrum = ordering_centrum(tmp_path)
+    centrum.run_to_end()  # bez klucza Logi Uruchomienia czekają, a kolejka nastawia ponowienie za ``RETRY_S``
+    join_threads_since(since)
+    box, clock = centrum.surroundings.report_box, centrum.surroundings.clock
+    centrum.restart()
+    clock.advance(RETRY_S / 2)
+    with centrum.client:  # nowe Centrum przy starcie przechodzi kolejkę i bez klucza ponowi ją za ``RETRY_S``
+        pass
+    join_threads_since(since)
+    with_key(centrum)
+
+    clock.advance(RETRY_S / 2)  # chwila ponowienia poprzedniego Centrum
+    join_threads_since(since)
+    after_previous_alarm = len(box.background_issues)
+    clock.advance(RETRY_S / 2)  # chwila ponowienia nowego Centrum
+    join_threads_since(since)
 
     assert (after_previous_alarm, len(box.background_issues)) == (0, 1)
 

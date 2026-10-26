@@ -118,7 +118,7 @@ def _client(
         tool_freshness=surroundings.tool_freshness(),
         cloud_files=None if onedrive is None else onedrive.cloud_files(),
         report_box=surroundings.report_box,
-        clock=surroundings.clock,
+        clock=surroundings.started_clock(),
         pause=surroundings.clock.pause,
         readers=surroundings.readers,
         intermax_copies=copies,
