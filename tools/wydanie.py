@@ -2,7 +2,8 @@
 
 ``plan`` pobiera `main` i tagi Wydań tak jak Aktualizacja narzędzia (``tool_update.fetch_main_line``) i zapisuje
 plan Wydania w pliku JSON: najnowszy commit z linii pierwszych rodziców `main` z zielonym ``Required CI status``
-(czerwone, niezakończone i bez CI pomija), poprzednie Wydanie wybrane jak w Centrum, scalone PR-y od niego, sprawy
+i z testami z kwarantanny, które w jego runie przeszły (czerwone, niezakończone, bez CI i z testem z kwarantanny,
+który padł albo nie ma zapisu przejścia, pomija; ADR 0020), poprzednie Wydanie wybrane jak w Centrum, scalone PR-y od niego, sprawy
 taty zamknięte jako rozwiązane w Skrzynce Zgłoszeń od jego publikacji (numer i tytuł, nigdy treść) i proponowany
 numer. Niczego nie tworzy.
 
@@ -26,6 +27,7 @@ from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 import enum
+import io
 import json
 import os
 from pathlib import Path
@@ -34,11 +36,13 @@ import subprocess
 import sys
 from typing import Final, Literal, TypeVar
 import urllib.parse
+import zipfile
 
 from pydantic import BaseModel, TypeAdapter
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
+import niestabilne_testy
 import potomne
 from rozliczenia.centrum import release_notes, tool_update
 from rozliczenia.centrum.release_notes import DadCase, ReleaseNotes
@@ -58,7 +62,14 @@ _PUSH_TIMEOUT_S: Final = 120
 _PAGE_SIZE: Final = 100
 _MAX_PAGES: Final = 10
 
-CiState = Literal["zielone", "czerwone", "w toku", "brak"]
+CiState = Literal["zielone", "czerwone", "w toku", "brak", "kwarantanna czerwona", "bez zapisu kwarantanny"]
+# ``niestabilne_testy.stan_kwarantanny`` → stan CI commitu z zielonym ``Required CI status``.
+_QUARANTINE: Final[Mapping[niestabilne_testy.StanKwarantanny, CiState]] = {
+    "przeszła": "zielone",
+    "padła": "kwarantanna czerwona",
+    "bez zapisu": "bez zapisu kwarantanny",
+}
+_QUARANTINE_ARTIFACT: Final = "kwarantanna-"
 
 
 class Bump(enum.Enum):
@@ -77,6 +88,7 @@ _MERGE: Final = re.compile(r"Merge pull request #(?P<number>[1-9][0-9]*) from \S
 _SQUASH: Final = re.compile(r"(?P<title>.+) \(#(?P<number>[1-9][0-9]*)\)")
 _TYPE: Final = re.compile(r"(?P<type>[a-z]+)(\([^)]*\))?!?:")
 _HTTP_STATUS: Final = re.compile(r"\(HTTP (?P<status>[0-9]{3})\)")
+_RUN: Final = re.compile(r"/actions/runs/(?P<run>[0-9]+)/")
 
 
 class Refused(Exception):
@@ -134,10 +146,21 @@ PLAN: Final = TypeAdapter(ReleasePlan)
 class _CheckRun(BaseModel):
     status: str
     conclusion: str | None
+    details_url: str | None = None
 
 
 class _CheckRuns(BaseModel):
     check_runs: list[_CheckRun]
+
+
+class _Artifact(BaseModel):
+    id: int
+    name: str
+    expired: bool
+
+
+class _Artifacts(BaseModel):
+    artifacts: list[_Artifact]
 
 
 class _Issue(BaseModel):
@@ -154,6 +177,7 @@ class _GitHubRelease(BaseModel):
 
 
 _CHECK_RUNS: Final = TypeAdapter(_CheckRuns)
+_ARTIFACTS: Final = TypeAdapter(_Artifacts)
 _ISSUES: Final = TypeAdapter(list[_Issue])
 _RELEASE: Final = TypeAdapter(_GitHubRelease)
 _Answer = TypeVar("_Answer")
@@ -171,21 +195,28 @@ def _gh(answer: TypeAdapter[_Answer], path: str, body: Mapping[str, object] | No
 def _gh_found(answer: TypeAdapter[_Answer], path: str, body: Mapping[str, object] | None = None) -> _Answer | None:
     """Jak ``_gh``, ale 404 to ``None``."""
 
-    sent = None if body is None else json.dumps(body)
+    sent = None if body is None else json.dumps(body).encode("utf-8")
+    answered = _gh_bytes(path, sent)
+    return None if answered is None else answer.validate_json(answered)
+
+
+def _gh_bytes(path: str, sent: bytes | None = None) -> bytes | None:
+    """Surowa odpowiedź ``gh api`` (także zip artefaktu); 404 to ``None``, inna porażka ``Refused``."""
+
     answered = subprocess.run(
-        ["gh", "api", "--method", "GET" if sent is None else "POST", path, *([] if sent is None else ["--input", "-"])],
+        # Zip artefaktu ma bajty sekwencji terminala, których gh bez tej flagi nie wypisze.
+        ["gh", "api", "--method", "GET" if sent is None else "POST", path, *([] if sent is None else ["--input", "-"]), "--allow-escape-sequences"],
         input=sent,
         capture_output=True,
-        text=True,
-        encoding="utf-8",
         check=False,
     )
     if answered.returncode != 0:
-        status = _HTTP_STATUS.search(answered.stderr)
+        error = answered.stderr.decode("utf-8", errors="replace")
+        status = _HTTP_STATUS.search(error)
         if status is not None and status["status"] == "404":
             return None
-        raise Refused(f"gh api {path}: {answered.stderr.strip() or f'kod {answered.returncode}'}")
-    return answer.validate_json(answered.stdout)
+        raise Refused(f"gh api {path}: {error.strip() or f'kod {answered.returncode}'}")
+    return answered.stdout
 
 
 def _git(root: Path, *arguments: str) -> str:
@@ -193,7 +224,11 @@ def _git(root: Path, *arguments: str) -> str:
 
 
 def ci_state(commit: str) -> CiState:
-    """Stan ``Required CI status`` commitu na GitHubie."""
+    """Stan ``Required CI status`` commitu na GitHubie, a przy zielonym stan testów z kwarantanny z jego runu.
+
+    Test w kwarantannie nie czerwieni Required (ADR 0020), więc zielony commit jest do wydania dopiero wtedy, gdy
+    artefakty ``kwarantanna-*`` runu mówią, że każdy test z kwarantanny przeszedł.
+    """
 
     check = urllib.parse.quote(REQUIRED_CI)
     answer = _gh(_CHECK_RUNS, f"repos/{REPOSITORY}/commits/{commit}/check-runs?check_name={check}&per_page={_PAGE_SIZE}")
@@ -202,7 +237,30 @@ def ci_state(commit: str) -> CiState:
         return "brak"
     if any(run.status != "completed" for run in runs):
         return "w toku"
-    return "zielone" if all(run.conclusion == "success" for run in runs) else "czerwone"
+    if not all(run.conclusion == "success" for run in runs):
+        return "czerwone"
+    ids = {found["run"] for run in runs if run.details_url and (found := _RUN.search(run.details_url))}
+    return _QUARANTINE[niestabilne_testy.stan_kwarantanny(record for run_id in sorted(ids) for record in _quarantine_records(run_id))]
+
+
+def _quarantine_records(run_id: str) -> list[niestabilne_testy.ZapisKwarantanny]:
+    """Zapisy kwarantanny runu z jego artefaktów ``kwarantanna-*``; artefakt wygasły albo nieczytelny nie daje zapisu."""
+
+    records = []
+    for page in range(1, _MAX_PAGES + 1):
+        listed = _gh(_ARTIFACTS, f"repos/{REPOSITORY}/actions/runs/{run_id}/artifacts?per_page={_PAGE_SIZE}&page={page}").artifacts
+        for artifact in listed:
+            if not artifact.name.startswith(_QUARANTINE_ARTIFACT) or artifact.expired:
+                continue
+            packed = _gh_bytes(f"repos/{REPOSITORY}/actions/artifacts/{artifact.id}/zip")
+            try:
+                with zipfile.ZipFile(io.BytesIO(packed or b"")) as archive:
+                    records += [niestabilne_testy.kwarantanna_z_json(archive.read(name).decode("utf-8")) for name in archive.namelist() if name.endswith(".json")]
+            except (zipfile.BadZipFile, ValueError, KeyError, TypeError) as error:
+                print(f"KWARANTANNA | artefakt {artifact.name} runu {run_id} nieczytelny: {error}", flush=True)
+        if len(listed) < _PAGE_SIZE:
+            break
+    return records
 
 
 def plan(root: Path) -> ReleasePlan:
