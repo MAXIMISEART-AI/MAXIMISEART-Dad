@@ -51,16 +51,16 @@ def _free_port() -> int:
 
 
 def _get(port: int, path: str) -> dict[str, object]:
-    with urllib.request.urlopen(f"http://127.0.0.1:{port}{path}", timeout=1) as response:
+    with urllib.request.urlopen(f"http://127.0.0.1:{port}{path}", timeout=30) as response:
         body = json.load(response)
         assert isinstance(body, dict)
         return body
 
 
-def _health(port: int, *, commit: str | None = None, timeout_s: float = 60) -> dict[str, object]:
+def _health(port: int, *, commit: str | None = None) -> dict[str, object]:
     """``health`` Centrum na porcie; z ``commit`` dopiero wtedy, gdy odpowiada Centrum w tym commicie (skróconym)."""
 
-    deadline = time.monotonic() + timeout_s
+    deadline = time.monotonic() + 60
     while True:
         try:
             health = _get(port, "/api/health")
@@ -228,7 +228,7 @@ def test_skrot_klikniety_w_trakcie_ponownego_startu_nie_cofa_nowej_wersji_ktora_
             shortcut.listen()
             time.sleep(3)
         guardian.join(timeout=90)
-        health = _health(port, timeout_s=5)
+        health = _health(port)
     finally:
         _close_if_running(port)
 
@@ -368,7 +368,7 @@ def test_gdy_po_cofnieciu_stara_wersja_ze_skrotu_juz_trzyma_port_opiekun_konczy_
         )
         _health(port, commit=before)
         guardian.join(timeout=90)
-        health = _health(port, timeout_s=5)
+        health = _health(port)
     finally:
         _close_if_running(port)
         if shortcut is not None:
@@ -421,7 +421,7 @@ def test_gdy_skrot_zajmie_port_tuz_po_cofnieciu_opiekun_konczy_bez_okienka(tmp_p
             stderr=subprocess.DEVNULL,
         )
         guardian.join(timeout=90)
-        health = _health(port, timeout_s=5)
+        health = _health(port)
         view = _get(port, "/api/tool-update")
         # Stara wersja od opiekuna kończy się sama, gdy po _SHORTCUT_HOLDS_PORT_S zastanie Centrum ze skrótu.
         while "juz-dziala" not in [line.split(" ", 2)[1] for line in _log_lines(clone)]:
@@ -567,7 +567,7 @@ def test_gdy_dysk_nie_przyjmie_wyniku_ok_opiekun_i_tak_startuje_nowa_wersje(tmp_
             Restart(port, before, newest, clone, clone / "config" / RESULT_FILE, False, work), dialogs
         )
         guardian.join(timeout=90)
-        health = _health(port, commit=newest, timeout_s=5)
+        health = _health(port, commit=newest)
         view = _get(port, "/api/tool-update")
     finally:
         _close_if_running(port)
@@ -599,7 +599,7 @@ def test_gdy_dysk_nie_przyjmie_wyniku_po_cofnieciu_startuje_stara_wersja_a_karta
             Restart(port, before, newest, clone, clone / "config" / RESULT_FILE, False, work), dialogs
         )
         guardian.join(timeout=90)
-        health = _health(port, commit=before, timeout_s=5)
+        health = _health(port, commit=before)
         view = _get(port, "/api/tool-update")
     finally:
         _close_if_running(port)

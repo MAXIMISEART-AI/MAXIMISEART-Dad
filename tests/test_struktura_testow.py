@@ -1,4 +1,4 @@
-"""Struktura testów: moduły niczego nie eksportują, a test czeka na stan i mierzy czas bez stałej liczby sekund.
+"""Struktura testów: moduły niczego nie eksportują, a test czeka na stan, mierzy czas bez stałej liczby sekund i nie daje odpowiedzi krótkiego limitu czasu.
 
 Wspólne dane i pomocniki są w ``tests.fixtures``.
 """
@@ -10,6 +10,8 @@ from collections.abc import Iterator
 from itertools import pairwise
 from pathlib import Path
 import re
+
+import pytest
 
 from tests.fixtures.skladnia import dotted, imports
 
@@ -105,20 +107,33 @@ def _fixed_sleeps(tree: ast.Module) -> Iterator[tuple[ast.Call, str]]:
     for call in ast.walk(tree):
         if not (isinstance(call, ast.Call) and _is_sleep(call, names)):
             continue
-        enclosing: list[ast.AST] = []
-        node: ast.AST = call
-        while node in parents:
-            node = parents[node]
-            enclosing.append(node)
-        polling = any(
-            isinstance(loop, (ast.While, ast.For))
-            and any(isinstance(asked, ast.Call) and dotted(asked.func, names, "") in CLOCKS for asked in ast.walk(loop))
-            for loop in enclosing
-        )
+        enclosing = _enclosing(call, parents)
         faked = any(isinstance(node, Definition) and _handed_over(node, tree, parents) for node in enclosing)
-        if not (polling or faked):
-            functions = [node for node in enclosing if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))]
-            yield call, functions[0].name if functions else "<moduł>"
+        if not (_polling(enclosing, names) or faked):
+            yield call, _function(enclosing)
+
+
+def _enclosing(node: ast.AST, parents: dict[ast.AST, ast.AST]) -> list[ast.AST]:
+    enclosing = []
+    while node in parents:
+        node = parents[node]
+        enclosing.append(node)
+    return enclosing
+
+
+def _polling(enclosing: list[ast.AST], names: dict[str, str]) -> bool:
+    """Wewnątrz pętli (``while`` albo ``for``), która pyta zegar (``time.monotonic()``) o termin."""
+
+    return any(
+        isinstance(loop, (ast.While, ast.For))
+        and any(isinstance(asked, ast.Call) and dotted(asked.func, names, "") in CLOCKS for asked in ast.walk(loop))
+        for loop in enclosing
+    )
+
+
+def _function(enclosing: list[ast.AST]) -> str:
+    functions = [node for node in enclosing if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))]
+    return functions[0].name if functions else "<moduł>"
 
 
 def test_testy_czekaja_na_stan_a_nie_stala_liczbe_sekund() -> None:
@@ -150,10 +165,6 @@ CONSTANT_TIME_BOUNDS = {
     ),
     "test_aktualizacja_narzedzia.py::test_pomocnik_gita_trzymajacy_jego_wyjscie_nie_wstrzymuje_aktualizacji::elapsed < 20": (
         "granica 20 s oddziela koniec od zawieszenia: pomocnik gita trzyma jego wyjście otwarte przez 60 s"
-    ),
-    "test_aktualnosc_narzedzia.py::test_milczacy_serwer_nie_wydluza_diagnozy_ponad_limit_czasu"
-    "::time.monotonic() - started < 1.5": (
-        "serwer nie odpowiada nigdy, więc bez limitu 0,3 s diagnoza czekałaby bez końca; granica to 5× ten limit"
     ),
     "test_potomne.py::test_potomek_spoza_drzewa_z_otwartym_wyjsciem_nie_wstrzymuje_wyniku::time.monotonic() - started < 30": (
         "granica 30 s oddziela koniec od zawieszenia: potomek z otwartym wyjściem śpi 600 s"
@@ -322,3 +333,120 @@ def test_zmierzony_czas_nie_jest_ograniczony_stala_liczba() -> None:
             "CONSTANT_TIME_BOUNDS pod kluczem z nawiasu, z powodem.",
         ]
     )
+
+
+SHORT_TIMEOUT_S = 10
+MANUAL_CLOCK = "tests.fixtures.clock.ManualClock"
+SHORT_TIMEOUTS = {
+    "test_aktualnosc_narzedzia.py::test_limit_czasu_konczy_pytanie_milczacego_serwera": (
+        "serwer nie odpowiada nigdy, więc limit 0,3 s kończy pytanie zawsze, a dłuższy tylko wydłuża test"
+    ),
+    "test_centrum_launcher.py::test_zamkniecie_z_karty_konczy_proces_centrum_i_zostawia_wpis_w_dzienniku": (
+        "Centrum już się zamknęło, a limit 0 s to jedno pytanie bez ponawiania, które ma się nie udać"
+    ),
+    "test_potomne.py::test_po_limicie_drzewo_ginie_a_run_rzuca_timeout": (
+        "limit jest tym, co test sprawdza: dziecko śpi 60 s, więc limit 5 s kończy polecenie zawsze"
+    ),
+    "test_potomne.py::test_wnuk_uruchomiony_zanim_narzedzie_wroci_ze_startu_polecenia_ginie_z_drzewem": (
+        "limit jest tym, co test sprawdza: dziecko śpi 60 s, więc limit 5 s kończy polecenie zawsze"
+    ),
+}
+
+
+def _manual_clocks(tree: ast.Module, names: dict[str, str]) -> set[str]:
+    """Nazwy podróbki zegara: przypisane ``ManualClock(...)`` albo parametry z adnotacją ``ManualClock``."""
+
+    def made(value: ast.expr | None) -> bool:
+        return isinstance(value, ast.Call) and dotted(value.func, names, "") == MANUAL_CLOCK
+
+    annotated = {
+        node.arg
+        for node in ast.walk(tree)
+        if isinstance(node, ast.arg) and node.annotation is not None and dotted(node.annotation, names, "") == MANUAL_CLOCK
+    }
+    return annotated | {name for name, values in _bindings(tree).items() if any(made(value) for value in values)}
+
+
+def _short_timeouts(tree: ast.Module) -> Iterator[tuple[ast.Call, float, str]]:
+    """Wywołanie z limitem czasu krótszym niż ``SHORT_TIMEOUT_S`` w literale argumentu nazwanego ``timeout``,
+    ``timeout_s`` albo ``*_timeout*``, z tym limitem i nazwą funkcji, w której jest.
+
+    Limit nie liczy się, gdy to samo wywołanie dostaje podróbkę zegara (``ManualClock``), bo czas przesuwa wtedy test,
+    i gdy stoi w pętli, która pyta zegar o termin, bo kończy wtedy tylko jedną próbę. Znana granica, bo wymaga analizy
+    przepływu danych: limit z nazwy stałej albo z innego modułu, argument pozycyjny (``thread.join(2)``) i wartość
+    domyślna parametru pomocnika (``def _get(port, timeout=1)``).
+    """
+
+    names = imports(tree)
+    parents = {child: node for node in ast.walk(tree) for child in ast.iter_child_nodes(node)}
+    clocks = _manual_clocks(tree, names)
+    for call in ast.walk(tree):
+        if not isinstance(call, ast.Call):
+            continue
+        given = [*call.args, *(keyword.value for keyword in call.keywords)]
+        if any(
+            (isinstance(value, ast.Call) and dotted(value.func, names, "") == MANUAL_CLOCK)
+            or (isinstance(value, ast.Name) and value.id in clocks)
+            for value in given
+        ):
+            continue
+        for keyword in call.keywords:
+            limit = keyword.value.value if isinstance(keyword.value, ast.Constant) else None
+            if (
+                keyword.arg is not None
+                and "timeout" in keyword.arg
+                and isinstance(limit, (int, float))
+                and not isinstance(limit, bool)
+                and limit < SHORT_TIMEOUT_S
+            ):
+                enclosing = _enclosing(call, parents)
+                if not _polling(enclosing, names):
+                    yield call, limit, _function(enclosing)
+                break
+
+
+def test_odpowiedz_nie_ma_krotszego_limitu_czasu_niz_10_s() -> None:
+    found, excepted = [], set()
+    for path in sorted(TESTS.rglob("*.py")):
+        name = path.relative_to(TESTS).as_posix()
+        for call, limit, function in _short_timeouts(ast.parse(path.read_text(encoding="utf-8"))):
+            key = f"{name}::{function}"
+            if key in SHORT_TIMEOUTS:
+                excepted.add(key)
+            else:
+                found.append(f"tests/{name}:{call.lineno}: {ast.unparse(call)} czeka najwyżej {limit} s ({key})")
+    found += [f"SHORT_TIMEOUTS: {key} nie ma już krótkiego limitu, usuń wpis" for key in sorted(SHORT_TIMEOUTS.keys() - excepted)]
+
+    assert not found, "\n".join(
+        [
+            *found,
+            f"Na wolnym runnerze odpowiedź przychodzi po krótkim limicie. Gdy ktoś odpowie, daj limit co najmniej "
+            f"{SHORT_TIMEOUT_S} s (dłuższy wydłuża tylko porażkę); gdy limit liczy zegar kodu pod testem, daj temu "
+            "wywołaniu ManualClock z tests/fixtures/clock.py; gdy nikt nie odpowie, a krótki limit jest tym, co test "
+            "sprawdza, wpisz test do SHORT_TIMEOUTS z powodem.",
+        ]
+    )
+
+
+@pytest.mark.parametrize(
+    ("source", "flagged"),
+    [
+        ("releases_from(api, timeout_s=2)", ["releases_from(api, timeout_s=2)"]),
+        ("urlopen(url, connect_timeout=0.3)", ["urlopen(url, connect_timeout=0.3)"]),
+        ("functools.partial(urlopen, timeout=2)", ["functools.partial(urlopen, timeout=2)"]),
+        ("run(command, timeout=1, read_timeout=2)", ["run(command, timeout=1, read_timeout=2)"]),
+        ("releases_from(api, timeout_s=30)", []),
+        ("run(command, timeout=True)", []),
+        (f"from {MANUAL_CLOCK.rpartition('.')[0]} import ManualClock\nwatch(clock=ManualClock(), timeout_s=2)", []),
+        (f"from {MANUAL_CLOCK.rpartition('.')[0]} import ManualClock\nclock = ManualClock()\nwatch(clock, timeout_s=2)", []),
+        (
+            f"from {MANUAL_CLOCK.rpartition('.')[0]} import ManualClock\n"
+            "def test_zegar(clock: ManualClock) -> None:\n    watch(clock=clock, timeout_s=2)",
+            [],
+        ),
+        ("import time\nwhile time.monotonic() < deadline:\n    urlopen(url, timeout=1)", []),
+    ],
+    ids=["literal", "nazwa-z-timeout", "partial", "dwa-limity", "dlugi", "nie-liczba", "zegar", "zegar-z-nazwy", "zegar-z-parametru", "petla"],
+)
+def test_regula_krotkiego_limitu_czasu(source: str, flagged: list[str]) -> None:
+    assert [ast.unparse(call) for call, _, _ in _short_timeouts(ast.parse(source))] == flagged

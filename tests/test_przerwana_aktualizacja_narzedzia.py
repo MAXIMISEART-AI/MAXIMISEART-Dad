@@ -36,7 +36,7 @@ MAPPING = "config/worker_mapping.yaml"
 
 
 def _get(port: int, path: str) -> dict[str, Any]:
-    with urllib.request.urlopen(f"http://127.0.0.1:{port}{path}", timeout=1) as response:
+    with urllib.request.urlopen(f"http://127.0.0.1:{port}{path}", timeout=30) as response:
         body = json.load(response)
         assert isinstance(body, dict)
         return body
