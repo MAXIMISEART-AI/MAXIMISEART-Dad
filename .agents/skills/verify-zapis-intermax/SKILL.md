@@ -79,12 +79,12 @@ Covered files: `src/rozliczenia/intermax_ordering.py`,
 (`workbook_content`, `ensure_available`, `is_open_in_excel`,
 `excel_lock_file`).
 
-**Sync commit: `31bb7651`** (2026-10-26, `main` after #476). At this commit the
+**Sync commit: `cd7d201d`** (2026-10-26, #505: retried replace with a re-read after the pause). At this commit the
 checker was confirmed to describe the code above. To see whether it needs
 another look:
 
 ```bash
-git log --oneline 31bb7651..HEAD -- src/rozliczenia/intermax_ordering.py src/rozliczenia/intermax_copies.py src/rozliczenia/intermax_file.py src/rozliczenia/workbook_save.py src/rozliczenia/workbook_files.py
+git log --oneline cd7d201d..HEAD -- src/rozliczenia/intermax_ordering.py src/rozliczenia/intermax_copies.py src/rozliczenia/intermax_file.py src/rozliczenia/workbook_save.py src/rozliczenia/workbook_files.py
 ```
 
 Read each listed commit against the table. A change matters when it adds,
