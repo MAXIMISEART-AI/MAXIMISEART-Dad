@@ -963,6 +963,18 @@ def test_scalenie_wzorca_rozliczenia_pracownika_poza_komorkami_zapisu_nie_przesz
     assert target.exists()
 
 
+@pytest.mark.parametrize("copied", [True, False], ids=["kopia", "openpyxl"])
+def test_wykonawca_bez_wierszy_danych_dostaje_plik_ze_scalonego_wzorca_rozliczenia_pracownika(
+    tmp_path: Path, copied: bool
+) -> None:
+    template_path = _worker_template_with_merge(tmp_path, "A18:B18", copied=copied)
+    target = tmp_path / "Rozliczenie - Wykonawca.xlsx"
+
+    TemplateFile.worker_settlement(template_path).create(target, [])
+
+    assert target.exists()
+
+
 @pytest.mark.parametrize(
     "merged", ["A19:B19", "N19:O19", "AT19:AU19"], ids=["kolumny-opisu", "kolumny-ilosci", "ostatnia-kolumna-zapisu"]
 )

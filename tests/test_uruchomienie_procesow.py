@@ -12,6 +12,7 @@ from typing import Any
 import pytest
 
 from rozliczenia import preparation_process, settlement_process
+from rozliczenia.collective_preparation import PreparationSummary
 from rozliczenia.preparation_process import PreparationInputs
 from rozliczenia.process_run import Outcome, Process, ProcessInputs, Stop, run_process
 from rozliczenia.settlement_process import SettlementInputs
@@ -217,3 +218,5 @@ def test_zapisane_przygotowanie_okresu_z_samymi_zleceniami_nieskutecznymi_wymaga
     outcome = run(case, tmp_path / "metrics.jsonl")
 
     assert outcome.result == "WYMAGA_SPRAWDZENIA"
+    assert isinstance(outcome.view, PreparationSummary)
+    assert "KOLUMNY_Z_OPISU" in [warning.code for warning in outcome.view.warnings]
