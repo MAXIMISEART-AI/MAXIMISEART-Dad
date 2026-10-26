@@ -153,7 +153,8 @@ Brak internetu niczego nie psuje, dopóki niczego nie wysyłasz.
 
 Gdy Zgłoszenie nie może od razu wyjść, Centrum trzyma je na tym komputerze i
 wyśle je samo, bez klikania. W miejscu przycisku zobaczysz, dlaczego czeka.
-To samo zdanie stoi przy Zgłoszeniu w Powiadomieniach.
+W Powiadomieniach przy Zgłoszeniu zobaczysz to samo: na co czeka albo że
+trzeba skontaktować się z Maksem.
 
 - `Zgłoszenie czeka na internet. Wyśle się samo.` Niczego nie musisz robić.
   Zgłoszenie wyjdzie najpóźniej minutę po powrocie internetu. W

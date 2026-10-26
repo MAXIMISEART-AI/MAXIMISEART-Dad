@@ -146,3 +146,18 @@ def test_zgloszenie_czekajace_na_token_staje_sie_odrzucone_gdy_skrzynka_odrzuci_
     assert wait_for(lambda: current_report(centrum) == REJECTED)
     assert case_states(centrum.client, "zgloszenie") == ["odrzucona"]
     assert box.sent == []
+
+
+def test_odrzucona_tresc_zostaje_odrzucona_takze_gdy_potem_token_przestaje_dzialac(tmp_path: Path) -> None:
+    centrum = preparing_centrum(tmp_path)
+    box = centrum.surroundings.report_box
+    run_id = stopped_for_maks(centrum)
+    write_key(tmp_path)
+    box.outcomes.append(Rejected())
+    assert report(centrum, run_id) == REJECTED
+
+    # Naprawiony token nie wyśle odrzuconej treści, więc tata dalej słyszy, że tego Zgłoszenia nie da się wysłać.
+    (tmp_path / "config" / "zgloszenia-klucz.txt").unlink()
+
+    assert current_report(centrum) == REJECTED
+    assert case_states(centrum.client, "zgloszenie") == ["odrzucona"]
