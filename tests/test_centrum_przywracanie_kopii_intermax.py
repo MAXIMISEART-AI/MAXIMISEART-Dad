@@ -110,11 +110,12 @@ def test_konfiguracja_wymienia_kopie_obu_nazw_od_najnowszej_z_chwila_z_nazwy(tmp
     ]
 
 
-@pytest.mark.skipif(sys.platform == "win32", reason="time.tzset jest tylko w systemach POSIX")
 def test_chwila_kopii_idzie_do_przegladarki_w_utc_takze_na_komputerze_w_strefie_taty(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     # Schemat przeglądarki przyjmuje tylko chwilę w UTC („Z”); na komputerze w UTC każda chwila tak wygląda.
+    if sys.platform == "win32":
+        pytest.skip("time.tzset jest tylko w systemach POSIX")
     monkeypatch.setenv("TZ", "Europe/Warsaw")
     time.tzset()
     try:
