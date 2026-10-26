@@ -5,8 +5,9 @@ Uruchamia każdy krok po kolei Pythonem, który uruchomił skrypt (w worktree: j
 patrz ``tools/setup_worktree.py``), i drukuje wynik kroku jedną linią; wyjście pokazuje tylko
 przy porażce. Kończy się ``CI LOKALNIE OK`` (z ``--tylko``: ``CI LOKALNIE OK | tylko <zadania>``)
 albo ``CI LOKALNIE FAIL | <kroki>``; przebieg wszystkich zadań drukuje przedtem nakładania z pracą
-w toku (``tools/praca_w_toku.py --nakladania``). Kroki E2E i Timing guard z części pytest na Windows mają
-swoje narzędzia (``--kroki-ci`` je wymienia), bo trwają kilka minut.
+w toku (``tools/praca_w_toku.py --nakladania``). Krok pytest biegnie tu w całości, a w CI plan
+(``tools/plan_ci.py``) dzieli go między zadania i dokłada do zadań Windows E2E i Timing guard, które mają swoje
+narzędzia (skill verify-rozliczenia, ``tools/benchmark_przebiegu.py``), bo trwają kilka minut.
 
 Ciężkie zadania (``change-mutations``, ``mutations``), także w przebiegu wszystkich zadań, liczy CI na GitHubie:
 poza CI biegną tylko z ``--odtwarzam <id albo URL runu>``, w którym padły na tej gałęzi (``tools/ciezkie_ci.py``).
@@ -45,12 +46,12 @@ ROOT = Path(__file__).resolve().parents[1]
 GENERATED = ("frontend/src/api", "src/rozliczenia/centrum/static")
 # Zadanie w ci.yml, w którym biegną kroki zadania narzędzia, gdy nazywa się inaczej.
 CI_JOB = {"ruff": "szybkie", "mypy": "szybkie", "frontend": "szybkie"}
-JOBS_ELSEWHERE = {"required": "zbiorczy status pozostałych zadań, nic do odtworzenia"}
+JOBS_ELSEWHERE = {
+    "plan": "plan zadań pytest runu (tools/plan_ci.py plan drukuje go lokalnie), nic nie sprawdza",
+    "required": "zbiorczy status pozostałych zadań, nic do odtworzenia",
+}
 # Fragment polecenia `run:` w odtwarzanym zadaniu CI, którego narzędzie nie odtwarza, i co je zastępuje.
 COMMANDS_ELSEWHERE = {
-    "verify-rozliczenia/scripts/run_verification.py --variant all": "E2E: skill verify-rozliczenia",
-    "tools/syntetyczne_wzorce.py": "Timing guard: tools/benchmark_przebiegu.py measure --scenario typowy-tydzien",
-    "tools/benchmark_przebiegu.py": "Timing guard: tools/benchmark_przebiegu.py measure --scenario typowy-tydzien",
     "tools/czasy_ci.py": "pomiar czasów zadania (artefakt czasy-ci), nic nie sprawdza",
 }
 OUTPUT_ON_FAILURE = 40
@@ -80,7 +81,7 @@ def _steps(root: Path) -> list[Step]:
         # Gałęzie tylko dla Windows używają API, którego inne systemy nie mają.
         # Własny cache, bo zmiana --platform unieważnia wspólny i oba kroki sprawdzałyby za każdym razem całość.
         Step("mypy (Windows)", "mypy", "-m mypy --platform win32", (python, "-m", "mypy", "--platform", "win32", "--cache-dir", ".mypy_cache/win32"), root),
-        Step("pytest", "pytest", "-m pytest -n auto", (python, "-m", "pytest", "-q", "-n", "auto"), root),
+        Step("pytest", "pytest", "tools/plan_ci.py wykonaj", (python, "-m", "pytest", "-q", "-n", "auto"), root),
         Step("mutacje skilli", "mutations", "tools/mutacje_skilli.py", (python, "tools/mutacje_skilli.py"), root),
         Step("mutacje zmiany", "change-mutations", "tools/mutacje_zmiany.py", (python, "tools/mutacje_zmiany.py"), root),
         Step("npm ci", "frontend", "npm ci", (npm, "ci"), frontend),
