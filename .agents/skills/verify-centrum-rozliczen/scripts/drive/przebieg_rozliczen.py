@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import re
 import urllib.request
 
 from openpyxl import load_workbook
@@ -24,6 +25,7 @@ from drive.common import (
     period_files,
     period_row,
     start_card_warns_while_open,
+    stop_banner,
 )
 from drive.przygotowanie_pliku_zbiorczego import drive_preparation
 
@@ -32,6 +34,11 @@ WORKER_SETTLEMENTS = f"Rozliczenie pracowników {LAST_COMPLETE}"
 # serve_centrum.py waits this long before each Szablon pracownika while the pacing file exists.
 TEMPLATE_PACING_MS = 2500
 WORKER_COLUMN, QUANTITY_COLUMN, FIRST_DATA_ROW = 8, 14, 18  # H (WYKONAWCA), N (first quantity), row 18
+UNMAPPED_WORKER_ACTION = (
+    "Popraw WYKONAWCĘ w kolumnie H albo poproś osobę utrzymującą narzędzie o dopisanie Wykonawcy do konfiguracji "
+    "wykonawców. Potem zapisz i zamknij Plik zbiorczy w Excelu i uruchom ponownie."
+)
+NAMES_ROW = re.compile(r"\bWiersz \d+\b")
 
 
 def _settlement_records(run: Run, name: str) -> list[dict[str, object]]:
@@ -383,3 +390,34 @@ def drive_settlement(run: Run, page: Page) -> None:
         "the preview wrote nothing",
     )
     run.capture(page, "47-przebieg-wymaga-sprawdzenia")
+
+    run.step(feature, "przebieg-nieznany-wykonawca")
+    preview_warnings = result["warnings"]
+    assert isinstance(preview_warnings, list)
+    page.get_by_role("button", name="Nowe Uruchomienie procesu").click()
+    page.get_by_role("radio", name="Przebieg rozliczeń").click()
+    expect(page.get_by_role("combobox", name="Okres")).to_contain_text(needs_check)
+    page.get_by_role("button", name="Uruchom", exact=True).click()
+    page.get_by_role("alertdialog", name="Uruchomić z zapisem?").get_by_role("button", name="Uruchom", exact=True).click()
+    stop = stop_banner(page)
+    expect(stop).to_contain_text("W Pliku zbiorczym jest WYKONAWCA spoza konfiguracji wykonawców")
+    expect(stop).to_contain_text(UNMAPPED_WORKER_ACTION)
+    expect(stop.get_by_text("lista problemów pokaże wiersze")).to_have_count(0)
+    result = finished_result(run, "przebieg-nieznany-wykonawca")
+    stops = result["stops"]
+    assert isinstance(stops, list)
+    [message] = stops
+    assert isinstance(message, dict)
+    run.check(
+        (result["ending"], message["action"]) == ("stop", UNMAPPED_WORKER_ACTION),
+        "the RUN stops on the Wykonawca missing from the konfiguracja wykonawców and Co zrobić starts with column H",
+    )
+    run.check(
+        bool(preview_warnings) and not any(NAMES_ROW.search(str(warning["what"])) for warning in preview_warnings),
+        "Co zrobić sends Dad to no Podgląd bez zapisu for rows: the preview of the same Plik zbiorczy names none",
+    )
+    run.check(
+        not (Path(run.fixture["periods_directory"]) / needs_check / f"Rozliczenie pracowników {needs_check}").exists(),
+        "the stopped RUN wrote nothing",
+    )
+    run.capture(page, "47b-przebieg-nieznany-wykonawca")

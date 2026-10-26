@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import datetime, timedelta
 import json
 from pathlib import Path
+import re
 from typing import Any, NoReturn
 
 from fastapi.testclient import TestClient
@@ -16,8 +18,15 @@ from rozliczenia.telemetry import MetricsStore
 
 from tests.fixtures.centrum import finished_view, phase_states, run_events
 from tests.fixtures.centrum import centrum as bare_centrum
-from tests.fixtures.centrum_processes import TODAY, WORKER_SETTLEMENTS, run_to_end, settling_centrum
+from tests.fixtures.centrum_processes import (
+    TODAY,
+    WORKER_SETTLEMENTS,
+    SettlingCentrum,
+    run_to_end,
+    settling_centrum,
+)
 from tests.fixtures.settlement import PERIOD, SOURCE_NAME
+from tests.fixtures.workbooks import replace_cells
 
 # Syntetyczny Plik zbiorczy: dwa zlecenia Adriana, jedno Darka, a Kamil bez zleceń ma pusty szablon.
 WORKER_SETTLEMENT_ROWS = [
@@ -240,6 +249,49 @@ def test_podglad_z_nieznanym_wykonawca_wymaga_sprawdzenia_inaczej_niz_sukces(tmp
     assert sorted(path.name for path in centrum.period_directory.iterdir()) == [SOURCE_NAME]
     [record] = centrum.metric_records()
     assert (record["mode"], record["result"]) == ("DRY-RUN", "WYMAGA_SPRAWDZENIA")
+
+
+PROMISES_ROWS = "Uruchom Podgląd bez zapisu: lista problemów pokaże wiersze."
+NAMES_ROW = re.compile(r"\bWiersz \d+\b")
+
+
+def with_unmapped_worker(tmp_path: Path) -> SettlingCentrum:
+    return settling_centrum(tmp_path, include_unmapped=True)
+
+
+def with_data_row_without_worker(tmp_path: Path) -> SettlingCentrum:
+    centrum = settling_centrum(tmp_path)
+    replace_cells(centrum.collective_file, {"H20": '<c r="H20"/>'})
+    return centrum
+
+
+@pytest.mark.parametrize(
+    ("source", "action"),
+    [
+        pytest.param(
+            with_unmapped_worker,
+            "Popraw WYKONAWCĘ w kolumnie H albo poproś osobę utrzymującą narzędzie o dopisanie Wykonawcy "
+            "do konfiguracji wykonawców. Potem zapisz i zamknij Plik zbiorczy w Excelu i uruchom ponownie.",
+            id="nieznany-wykonawca",
+        ),
+        pytest.param(
+            with_data_row_without_worker,
+            f"{PROMISES_ROWS} Wpisz WYKONAWCĘ w kolumnie H tych wierszy. "
+            "Potem zapisz i zamknij Plik zbiorczy w Excelu i uruchom ponownie.",
+            id="wiersz-bez-wykonawcy",
+        ),
+    ],
+)
+def test_zatrzymanie_odsyla_do_podgladu_po_wiersze_tylko_gdy_podglad_tego_pliku_je_podaje(
+    tmp_path: Path, source: Callable[[Path], SettlingCentrum], action: str
+) -> None:
+    centrum = source(tmp_path)
+
+    [stop] = run_to_end(centrum, dry_run=False)["result"]["stops"]
+    warnings = run_to_end(centrum, dry_run=True)["result"]["warnings"]
+
+    assert stop["action"] == action
+    assert any(NAMES_ROW.search(warning["what"]) for warning in warnings) is (PROMISES_ROWS in action)
 
 
 def test_nienadpisywanie_zatrzymuje_bez_zmiany_istniejacego_folderu_rozliczen_pracownikow(tmp_path: Path) -> None:
