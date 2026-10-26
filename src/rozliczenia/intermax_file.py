@@ -90,7 +90,7 @@ _ATTRIBUTE = re.compile(rb'\s([\w:]+)="([^"]*)"')
 _ROW_LOOK: Final = (b"s", b"customFormat", b"ht", b"customHeight", b"x14ac:dyDescent")
 """Atrybuty ``<row>``, które dają wiersz wygląd: styl wiersza i wysokość; ``x14ac`` deklaruje arkusz taty."""
 _SHEET_VIEWS: Final = re.compile(rb"<sheetViews\b.*?</sheetViews>", re.S)
-_SHEET_VIEW: Final = re.compile(rb"<sheetView\b([^>]*?)(?:/>|>(.*?)</sheetView>)", re.S)
+_SHEET_VIEW: Final = re.compile(rb"<sheetView\b([^>]*?)(?:/>|>.*?</sheetView>)", re.S)
 _PANE: Final = re.compile(rb"<pane\b([^>]*?)\s*/>")
 _TAB_SELECTED: Final = re.compile(rb'(<sheetView\b[^>]*?)\stabSelected="(?:1|true)"')
 _ACTIVE_TAB: Final = re.compile(rb'(<workbookView\b[^>]*?)\sactiveTab="[^"]*"')
@@ -352,7 +352,7 @@ class Register:
         looks = _Looks(self._styles, sheet.columns)
         sheet_xml = _ordered_sheet(xml, sheet.columns, block, plan, looks)
         parts = {
-            **{part: _TAB_SELECTED.sub(rb"\1", self._parts[part]) for part in self._sheet_parts},
+            **{part: _TAB_SELECTED.sub(rb"\1", self._parts[part]) for part in self._sheet_parts if part != sheet.part},
             self._workbook_part: _with_active_tab(self._parts[self._workbook_part], self._sheet_parts.index(sheet.part)),
             sheet.part: sheet_xml,
             self._styles_part: looks.styles(self._parts[self._styles_part]),
@@ -387,13 +387,14 @@ class Register:
 
 
     def _without_tabs(self, name: str, xml: bytes) -> bytes:
-        """Część bez tego, co zapis zmienia poza arkuszem zleceń: aktywnej karty skoroszytu i zaznaczenia kart."""
+        """Część bez tego, co zapis zmienia poza arkuszem zleceń: aktywnej karty skoroszytu i zaznaczenia kart.
+
+        Znacznik zaznaczenia karty (``<sheetView tabSelected>``) może stać tylko w arkuszu.
+        """
 
         if name == self._workbook_part:
             return _ACTIVE_TAB.sub(rb"\1", xml)
-        if name in self._sheet_parts:
-            return _TAB_SELECTED.sub(rb"\1", xml)
-        return xml
+        return _TAB_SELECTED.sub(rb"\1", xml)
 
 
 def _with_active_tab(xml: bytes, index: int) -> bytes:
@@ -423,7 +424,7 @@ def _with_view(head: bytes, row: int, column: int) -> bytes:
 
     def view(found: re.Match[bytes]) -> bytes:
         attributes = re.sub(rb'\stabSelected="[^"]*"', b"", found.group(1))
-        pane = _PANE.search(found.group(2) or b"")
+        pane = _PANE.search(found.group(0))
         if pane is None:
             attributes, panes, name = top(attributes), b"", b""
         else:
