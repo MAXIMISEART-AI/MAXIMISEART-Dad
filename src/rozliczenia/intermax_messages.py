@@ -250,7 +250,6 @@ def old_copies_kept(directory: Path) -> Message:
     )
 
 
-
 _AGAIN = "przywróć kopię jeszcze raz"
 _IF_IT_RETURNS = "Jeśli błąd wraca, przekaż ten komunikat osobie utrzymującej narzędzie."
 
@@ -373,6 +372,17 @@ def restore_copy_failed(directory: Path) -> Message:
     )
 
 
+def restored_moment_ago(directory: Path) -> Message:
+    """Kopia stanu bieżącego z tej samej sekundy już jest: przed chwilą przywrócono kopię, np. w drugiej karcie."""
+
+    return Message(
+        code="PRZYWRACANIE_PRZED_CHWILA",
+        what="Przed chwilą przywrócono już kopię INTERMAX, więc ta kopia nie została przywrócona.",
+        where=folder_label(directory),
+        action=f"Odśwież Konfigurację i sprawdź listę kopii. Jeśli nadal trzeba, {_AGAIN}.",
+    )
+
+
 def restore_failed(register: Path) -> Message:
     """Plik tymczasowy obok INTERMAX nie powstał albo nie ma bajtów Kopii; INTERMAX nie został podmieniony."""
 
@@ -396,6 +406,7 @@ def old_copies_kept_after_restore(directory: Path) -> Message:
             "Jeśli komunikat wraca, przekaż go osobie utrzymującej narzędzie."
         ),
     )
+
 
 def unexpected_failure() -> Message:
     """Nieprzewidziany błąd; treść wyjątku nie trafia do taty."""

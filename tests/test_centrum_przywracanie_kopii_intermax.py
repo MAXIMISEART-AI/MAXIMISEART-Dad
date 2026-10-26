@@ -11,13 +11,17 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 import errno
+from io import BytesIO
 import os
 from pathlib import Path
 import sys
 import time
 from typing import Any
+import zipfile
 
 import pytest
+
+from rozliczenia import intermax_copies
 
 from tests.fixtures.centrum_intermax import NOW, REGISTER_NAME, Clock, OrderingCentrum, copies, open_in_excel, ordering_centrum
 from tests.fixtures.centrum_processes import preparing_centrum
@@ -268,11 +272,27 @@ def test_intermax_otwarty_w_excelu_w_chwili_kopii_stanu_biezacego_to_odmowa_bez_
     assert (centrum.register.read_bytes(), _kopie(centrum)) == (before, kopie)
 
 
-def test_nieudana_kopia_stanu_biezacego_niczego_nie_podmienia(tmp_path: Path) -> None:
+class _FullDisk:
+    """Plik Kopii, którego zapis kończy się brakiem miejsca na dysku po pierwszych bajtach."""
+
+    def __init__(self, descriptor: int) -> None:
+        self._file = open(descriptor, "wb")
+
+    def __enter__(self) -> _FullDisk:
+        return self
+
+    def __exit__(self, *_exc: object) -> None:
+        self._file.close()
+
+    def write(self, data: bytes) -> int:
+        self._file.write(data[:100])
+        raise OSError(errno.ENOSPC, os.strerror(errno.ENOSPC))
+
+
+def test_nieudana_kopia_stanu_biezacego_niczego_nie_podmienia(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     centrum = _ordered(tmp_path)
-    # Kopia o tej samej nazwie już jest (drugie przywrócenie w tej samej sekundzie), więc nowa nie powstaje.
-    (centrum.copies / BEFORE_RESTORE).write_bytes("wcześniejsza Kopia".encode())
     before, kopie = centrum.register.read_bytes(), _kopie(centrum)
+    monkeypatch.setattr(os, "fdopen", lambda descriptor, _mode="r": _FullDisk(descriptor))
 
     refused = _refused(centrum, ORDERED)
 
@@ -283,6 +303,22 @@ def test_nieudana_kopia_stanu_biezacego_niczego_nie_podmienia(tmp_path: Path) ->
             "Sprawdź, czy na dysku jest wolne miejsce, potem przywróć kopię jeszcze raz. Jeśli błąd wraca, przekaż "
             "ten komunikat osobie utrzymującej narzędzie."
         ),
+    }
+    assert (centrum.register.read_bytes(), _kopie(centrum)) == (before, kopie)
+
+
+def test_drugie_przywrocenie_w_tej_samej_sekundzie_mowi_ze_kopie_przywrocono_przed_chwila(tmp_path: Path) -> None:
+    centrum = _ordered(tmp_path)
+    assert _restore(centrum, ORDERED).json()["state"] == "restored"
+    centrum.clock.moments = [LATER]  # druga karta przywraca w tej samej sekundzie zegara
+    before, kopie = centrum.register.read_bytes(), _kopie(centrum)
+
+    refused = _refused(centrum, BEFORE_RESTORE)
+
+    assert refused == {
+        "what": "Przed chwilą przywrócono już kopię INTERMAX, więc ta kopia nie została przywrócona.",
+        "where": f"folder {tmp_path.name}\\Kopie INTERMAX",
+        "action": "Odśwież Konfigurację i sprawdź listę kopii. Jeśli nadal trzeba, przywróć kopię jeszcze raz.",
     }
     assert (centrum.register.read_bytes(), _kopie(centrum)) == (before, kopie)
 
@@ -311,9 +347,22 @@ def test_przywrocenie_kopii_ktorej_lista_nie_wymienia_odmawia(tmp_path: Path, na
     assert (centrum.register.read_bytes(), _kopie(centrum)) == (before, kopie)
 
 
-def test_uszkodzona_kopia_nie_jest_przywracana(tmp_path: Path) -> None:
+def _zip_without_workbook() -> bytes:
+    archive = BytesIO()
+    with zipfile.ZipFile(archive, "w") as written:
+        written.writestr("[Content_Types].xml", "<Types/>")
+        written.writestr("xl/worksheets/sheet1.xml", "<worksheet/>")
+    return archive.getvalue()
+
+
+@pytest.mark.parametrize(
+    "damaged",
+    [b"to nie jest skoroszyt", _zip_without_workbook()],
+    ids=["nie-zip", "zip-bez-skoroszytu"],
+)
+def test_uszkodzona_kopia_nie_jest_przywracana(tmp_path: Path, damaged: bytes) -> None:
     centrum = _ordered(tmp_path)
-    (centrum.copies / ORDERED).write_bytes(b"to nie jest skoroszyt")
+    (centrum.copies / ORDERED).write_bytes(damaged)
     before, kopie = centrum.register.read_bytes(), _kopie(centrum)
 
     refused = _refused(centrum, ORDERED)
@@ -324,6 +373,30 @@ def test_uszkodzona_kopia_nie_jest_przywracana(tmp_path: Path) -> None:
         "action": "Wybierz inną kopię z listy.",
     }
     assert (centrum.register.read_bytes(), _kopie(centrum)) == (before, kopie)
+
+
+def test_kopia_usunieta_miedzy_lista_a_odczytem_to_komunikat_ze_jej_juz_nie_ma(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    centrum = _ordered(tmp_path)
+    before = centrum.register.read_bytes()
+    listed = intermax_copies.listed
+
+    def deleted_after_listing(directory: Path) -> list[intermax_copies.Copy]:
+        found = listed(directory)
+        (directory / ORDERED).unlink(missing_ok=True)  # np. tata usuwa ją w Eksploratorze
+        return found
+
+    monkeypatch.setattr(intermax_copies, "listed", deleted_after_listing)
+
+    refused = _refused(centrum, ORDERED)
+
+    assert refused == {
+        "what": f"Tej Kopii INTERMAX już nie ma. {UNCHANGED}",
+        "where": f"folder {tmp_path.name}\\Kopie INTERMAX, {ORDERED}",
+        "action": "Odśwież Konfigurację i wybierz kopię z listy.",
+    }
+    assert (centrum.register.read_bytes(), copies(centrum)) == (before, [])
 
 
 def test_kopia_otwarta_w_excelu_nie_jest_przywracana(tmp_path: Path) -> None:
@@ -432,6 +505,28 @@ def test_nieudany_zapis_obok_intermax_to_odmowa_bez_nowej_kopii(tmp_path: Path, 
         ),
     }
     assert (centrum.register.read_bytes(), _kopie(centrum)) == (before, kopie)
+
+
+def test_plik_obok_intermax_z_innymi_bajtami_niz_kopia_to_odmowa_bez_podmiany_i_nowej_kopii(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    centrum = _ordered(tmp_path)
+    before, kopie = centrum.register.read_bytes(), _kopie(centrum)
+    write_bytes = Path.write_bytes
+
+    def truncated(target: Path, data: bytes) -> int:
+        # Zapis obok INTERMAX gubi ostatni bajt (pełny dysk, antywirus, OneDrive), a odczyt pliku się udaje.
+        if target.parent == centrum.register.parent and target.name != REGISTER_NAME:
+            data = bytes(data)[:-1]
+        return write_bytes(target, data)
+
+    monkeypatch.setattr(Path, "write_bytes", truncated)
+
+    refused = _refused(centrum, ORDERED)
+
+    assert refused["what"] == f"Nie udało się przywrócić kopii. {UNCHANGED}"
+    assert (centrum.register.read_bytes(), _kopie(centrum)) == (before, kopie)
+    assert [path.name for path in centrum.register.parent.iterdir()] == [REGISTER_NAME]
 
 
 def test_w_trakcie_przywracania_uruchomienie_zamkniecie_i_drugie_przywrocenie_sa_odrzucone(

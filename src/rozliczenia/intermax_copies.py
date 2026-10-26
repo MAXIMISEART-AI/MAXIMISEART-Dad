@@ -109,14 +109,14 @@ class Restored:
     warnings: list[Message]
 
 
-def _is_workbook(content: bytes) -> bool:
-    """Bajty to archiwum skoroszytu Excela: zip z ``xl/workbook.xml``. Treści arkuszy nie sprawdza."""
+def _parts(content: bytes) -> list[str]:
+    """Nazwy części archiwum zip ``content``; bajty, które nie są zipem, nie mają żadnej."""
 
     try:
         with zipfile.ZipFile(BytesIO(content)) as archive:
-            return "xl/workbook.xml" in archive.namelist()
+            return archive.namelist()
     except zipfile.BadZipFile:
-        return False
+        return []
 
 
 def restore(
@@ -127,7 +127,8 @@ def restore(
     Najpierw powstaje Kopia stanu bieżącego z nazwą ``INTERMAX przed przywróceniem`` z ``now()``, potem INTERMAX
     dostaje atomowo bajty wybranej Kopii, a po udanej podmianie zostaje ``KEPT`` najnowszych Kopii. ``StopError``,
     gdy nie można przywrócić bezpiecznie (INTERMAX otwarty w Excelu albo trzymany przez OneDrive, Kopii nie ma albo
-    jest uszkodzona, nie powstała Kopia stanu bieżącego); INTERMAX i Kopie zostają wtedy takie, jak były. Nieudane
+    jest uszkodzona, nie powstała Kopia stanu bieżącego albo w tej samej sekundzie przywrócono już inną Kopię);
+    INTERMAX i Kopie zostają wtedy takie, jak były. Nieudane
     usunięcie starszych Kopii to ostrzeżenie: INTERMAX jest już przywrócony.
     """
 
@@ -145,7 +146,7 @@ def restore(
         content = workbook_files.workbook_content(chosen.path)
     except WorkbookError as error:
         raise StopError(messages.copy_unusable(error)) from error
-    if not _is_workbook(content):
+    if "xl/workbook.xml" not in _parts(content):  # skoroszyt Excela; treści arkuszy nie sprawdza
         raise StopError(messages.copy_damaged(chosen.path))
     made: list[Path] = []
 
@@ -155,6 +156,8 @@ def restore(
             raise StopError(messages.restore_register_open(register))
         try:
             made.append(make_copy(current, directory, moment, "restore"))
+        except FileExistsError as error:
+            raise StopError(messages.restored_moment_ago(directory)) from error
         except OSError as error:
             raise StopError(messages.restore_copy_failed(directory)) from error
 
