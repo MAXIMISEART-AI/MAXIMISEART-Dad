@@ -10,7 +10,7 @@ Zapis zadania. Zadania ``pytest`` i ``mutations`` kończą się poleceniem ``zad
 Tor to system runnera i jego Python (``windows-3.11``, ``windows-3.14``, ``linux-3.14``). Klucz jednostki nie zależy od
 podziału na zadania, więc para tor i klucz wskazuje tę samą pracę w każdym runie:
 
-    pytest:<plik testów>     suma setup + call + teardown testów pliku (junit pytest z ``-o junit_family=xunit1``)
+    pytest:<plik testów>     suma setup + call + teardown testów pliku (junit pytest, ``junit_family = "xunit1"`` w pyproject.toml)
     krok:pytest              ściana kroku pytest zadania; ``krok:mutacje`` to ściana kroku Mutation checks
     krok:e2e                 krok E2E (verify-rozliczenia --variant all)
     krok:timing              trzy kroki straży czasu razem
@@ -109,7 +109,7 @@ def _junit(plik: Path) -> list[Jednostka]:
     for test in korzen.iter("testcase"):
         nazwa = test.get("file")
         if nazwa is None:
-            raise ValueError(f"test {test.get('name')} bez atrybutu file (pytest bez -o junit_family=xunit1)")
+            raise ValueError(f"test {test.get('name')} bez atrybutu file (pytest bez junit_family = xunit1)")
         nazwa = nazwa.replace("\\", "/")
         sekundy[nazwa] += float(test.get("time", "0"))
         if test.find("failure") is not None or test.find("error") is not None:
@@ -244,7 +244,7 @@ def main(argv: list[str] | None = None) -> int:
     polecenia = parser.add_subparsers(dest="polecenie", required=True)
     zadanie = polecenia.add_parser("zadanie", help="Zapis czasów jednego zadania runu (w zadaniu CI).")
     zadanie.add_argument("--tor", required=True, help="System runnera i wersja Pythona, np. Windows-3.14.0.")
-    zadanie.add_argument("--junit", type=Path, help="Junit pytest z -o junit_family=xunit1.")
+    zadanie.add_argument("--junit", type=Path, help="Junit pytest (junit_family = xunit1 w pyproject.toml).")
     zadanie.add_argument("--mutacje", type=Path, help="Wyjście tools/mutacje_skilli.py.")
     zadanie.add_argument("--kroki", type=Path, required=True, help="Odpowiedź API zadań runu (gh api .../attempts/<próba>/jobs).")
     zadanie.add_argument("--wyjscie", type=Path, required=True)

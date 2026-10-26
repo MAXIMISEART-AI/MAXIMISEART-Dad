@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 import sys
+import tomllib
 
 import pytest
 
@@ -29,7 +30,7 @@ ENV = {
     "GITHUB_EVENT_NAME": "push",
     "GITHUB_SHA": "31bb76513d0bce91cdba28d09f61d07431ee4028",
 }
-# junit pytest -n 4 -o junit_family=xunit1: na Windows ścieżka z ukośnikami wstecznymi, test w klasie, porażka
+# junit pytest -n 4 z junit_family = xunit1: na Windows ścieżka z ukośnikami wstecznymi, test w klasie, porażka
 # testu, błąd fixture, pominięty test i plik, którego nie dało się zaimportować.
 JUNIT = """<?xml version="1.0" encoding="utf-8"?><testsuites><testsuite name="pytest" tests="7">
 <testcase classname="tests.test_b" name="test_ok" file="tests\\test_b.py" line="3" time="0.100" />
@@ -321,7 +322,8 @@ def test_kazdy_krok_jednostki_jest_krokiem_ci_a_pytest_w_ci_zapisuje_junit_z_pli
 
     assert set(KROKI) - names == set()
     assert len(pytest_runs) == 2
-    assert all(line.endswith(' "--junitxml=.ci-czasy/junit.xml" -o "junit_family=xunit1"') for line in pytest_runs), pytest_runs
+    assert tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["tool"]["pytest"]["ini_options"]["junit_family"] == "xunit1"
+    assert all(line.endswith(" --junitxml .ci-czasy/junit.xml") for line in pytest_runs), pytest_runs
     for job in ("pytest", "mutations"):
         recorded = [step["run"] for step in workflow[job]["steps"] if "tools/czasy_ci.py zadanie" in step.get("run", "")]
         assert len(recorded) == 1 and "--kroki .ci-czasy/zadania.json" in recorded[0], job
