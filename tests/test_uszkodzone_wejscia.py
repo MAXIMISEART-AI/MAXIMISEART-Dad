@@ -29,6 +29,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from rozliczenia import period_folder
 from rozliczenia.centrum.app import create_app
 from rozliczenia.centrum.configuration import ConfigurationFiles
 from rozliczenia.centrum.log import CentrumLog
@@ -536,3 +537,23 @@ def test_folder_okresow_bez_odczytu_nazywa_folder_w_kazdym_wejsciu(
     assert stopped["stops"][0]["what"].startswith("Nie można teraz odczytać folderu.")
     assert stopped["stops"][0]["where"].endswith(named)
     assert diagnosis["explanation"] == stopped["stops"][0]
+
+
+def test_folder_miesiaca_znikajacy_w_trakcie_listowania_jest_pominiety(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    periods = tmp_path / "Załączniki"
+    gone = periods / "Rozliczenia 2026" / "08_Sierpien_2026"
+    (gone / "INEA").mkdir(parents=True)
+    kept = periods / "Rozliczenia 2026" / "09_Wrzesien_2026" / "INEA"
+    (kept / SETTLEMENT_PERIOD).mkdir(parents=True)
+    scandir = os.scandir
+
+    def vanishing(path: Any) -> Any:
+        if Path(path) == gone:  # OneDrive zabrał folder miesiąca między listowaniem roku a listowaniem miesiąca
+            raise FileNotFoundError(path)
+        return scandir(path)
+
+    monkeypatch.setattr(os, "scandir", vanishing)
+
+    scanned = period_folder.scan_period_folders(periods)
+
+    assert [path for paths in scanned.locations.values() for path in paths] == [kept]
