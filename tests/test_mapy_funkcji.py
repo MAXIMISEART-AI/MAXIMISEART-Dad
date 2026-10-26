@@ -2,8 +2,9 @@
 
 Mapa to pamięć skilla: agent wybiera z niej funkcję do sprawdzenia, a harness skilla prowadzi funkcje z krotek
 ``FEATURES`` i ``EXPLICIT_FEATURES`` w swoich skryptach i z modułów pakietu ``scripts/<pakiet>/``. Rozjazd mapy z kodem
-czerwieni CI, a nie dopiero przebieg skilla u agenta. Plik funkcji skilla z funkcjami w kodzie odpowiada funkcji z kodu,
-więc ``features/README.md`` takiego skilla nie musi linkować plików; skill bez funkcji w kodzie listuje je w README.
+czerwieni CI, a nie dopiero przebieg skilla u agenta. Plik funkcji skilla z funkcjami w kodzie odpowiada funkcji z kodu
+w obie strony, więc ``features/README.md`` takiego skilla nie listuje plików: lista bez sprawdzenia kompletności kłamie od
+pierwszej nowej funkcji. Skill bez funkcji w kodzie listuje je w README, a każdy plik funkcji ma tam link.
 """
 
 from __future__ import annotations
@@ -66,15 +67,19 @@ def _package_modules(skill: Path) -> list[Feature]:
     ]
 
 
+def _readme(skill: Path) -> str:
+    readme = skill / "features" / "README.md"
+    if not readme.is_file():
+        pytest.fail(f"{skill.name}/features/ nie ma README.md: dopisz konwencje mapy i ## Feature entry contract")
+    return HTML_COMMENT.sub("", readme.read_text(encoding="utf-8"))
+
+
 def _linked(skill: Path) -> list[str]:
-    return LINK.findall(HTML_COMMENT.sub("", (skill / "features" / "README.md").read_text(encoding="utf-8")))
+    return LINK.findall(_readme(skill))
 
 
 @pytest.mark.parametrize("skill", MAPS, ids=lambda skill: skill.name)
 def test_mapa_skilla_ma_readme_bez_linkow_do_brakujacych_plikow(skill: Path) -> None:
-    assert (skill / "features" / "README.md").is_file(), (
-        f"{skill.name}/features/ nie ma README.md: dopisz konwencje mapy i ## Feature entry contract"
-    )
     files = [path.name for path in _feature_files(skill)]
 
     problems = [
@@ -124,6 +129,20 @@ def test_mapa_skilla_bez_funkcji_w_kodzie_linkuje_kazdy_plik_funkcji(skill: Path
     ]
 
     assert problems == [], "\n".join(problems)
+
+
+@pytest.mark.parametrize("skill", CODE_MAPS, ids=lambda skill: skill.name)
+def test_mapa_skilla_z_funkcjami_w_kodzie_nie_listuje_plikow_funkcji(skill: Path) -> None:
+    files = {path.name for path in _feature_files(skill)}
+
+    listing = [line for line in _readme(skill).splitlines() if line.rstrip() == "## Features"] + [
+        f"link do {name}" for name in _linked(skill) if name in files
+    ]
+
+    assert listing == [], (
+        f"{skill.name}/features/README.md listuje funkcje ({', '.join(listing)}): usuń listę, bo plik funkcji i funkcję "
+        "w kodzie pilnują testy w obie strony, a lista bez takiego testu kłamie od pierwszej nowej funkcji"
+    )
 
 
 @pytest.mark.parametrize("skill", CODE_MAPS, ids=lambda skill: skill.name)

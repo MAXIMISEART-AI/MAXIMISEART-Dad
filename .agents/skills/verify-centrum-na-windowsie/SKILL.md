@@ -53,7 +53,7 @@ py -3 .agents\skills\verify-centrum-na-windowsie\scripts\run_windows_verificatio
 ```
 
 `--feature instalacja`, `--feature komunikat-startu`, `--feature start-skrotem`, `--feature wskazanie-folderow`, or
-`--feature aktualizacja` drives one feature of `features/README.md`; the default `all` drives them all. A single
+`--feature aktualizacja` drives one feature, whose recipe is `features/<feature>.md`; the default `all` drives them all. A single
 feature first drives its prerequisites (`PRZYGOTOWANIE <feature>` in `drive.txt`), which the verdict lists as
 `przygotowanie=`, not as verified. Success prints `VERIFY OK | features=… | przygotowanie=… | evidence=… | scratch_removed=true`; anything
 else is `VERIFY FAIL | …`.
@@ -161,5 +161,5 @@ Then confirm the evidence directory still exists.
 - `scripts/windows_tool.py`: the run's world (`prepare`, `boundaries`, `release`), imported by the drive.
 - `scripts/windows_desktop.py`: native windows, processes, port owner, screenshots, imported by the drive.
 
-Read `features/README.md` before choosing a feature, and keep the map honest with
-`/pstack:maintain-verification-skill`.
+Read `features/README.md` for the conventions, then the chosen feature's `features/<feature>.md`, and keep the map
+honest with `/pstack:maintain-verification-skill`.
