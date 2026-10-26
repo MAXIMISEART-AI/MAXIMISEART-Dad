@@ -332,7 +332,7 @@ class TemplateFile:
         Wpisana komórka dostaje Hiperłącze wiersza albo żadne i wartość; w kolumnach wyglądu Wygląd Wiersza
         danych (``row_look``), a dalej Wyróżnienia na czcionce i wypełnieniu komórki Wzorca. Formuły,
         ``calcChain`` kopii, reszta formatowania i ``xl/externalLinks/*`` zostają z Wzorca. ``WorkbookError``,
-        gdy Wzorca nie da się już użyć, brak nagłówka albo komórki zapisu pliku okresu są scalone;
+        gdy Wzorca nie da się już użyć, brak nagłówka albo komórki zapisu są scalone;
         ``WorkbookSaveError``, gdy zapis się nie uda, także przez znak niedozwolony w XML. W obu przypadkach ``target`` nie powstaje.
         """
 
@@ -395,6 +395,9 @@ class TemplateFile:
                 )
             else:
                 self._check_settlement_template(sheet.title, header, self._has_input_data(sheet))
+                _ensure_unmerged(
+                    self.path, sheet.title, tuple(sheet.merged_cells.ranges), self._rules.sheet, columns, len(rows)
+                )
             try:
                 _write_rows(sheet, self._rules.sheet, _in_columns(rows, target_columns), columns)
             except IllegalCharacterError as exc:
