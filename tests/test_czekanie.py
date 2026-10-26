@@ -14,7 +14,6 @@ from pathlib import Path
 import subprocess
 import sys
 import tracemalloc
-from typing import Any
 
 import pytest
 
@@ -218,13 +217,9 @@ def test_to_samo_czekanie_w_tle_przechodzi(command: str) -> None:
     assert (hooked.returncode, hooked.stdout, hooked.stderr) == (0, "", "")
 
 
-def _bash_hooks() -> list[dict[str, Any]]:
-    entries = json.loads(SETTINGS.read_text(encoding="utf-8"))["hooks"]["PreToolUse"]
-    return [hook for entry in entries if entry["matcher"] == "Bash" for hook in entry["hooks"]]
-
-
 def _configured_timeout() -> float:
-    (timeout,) = [hook["timeout"] for hook in _bash_hooks() if "czekanie.py" in hook["command"]]
+    entries = json.loads(SETTINGS.read_text(encoding="utf-8"))["hooks"]["PreToolUse"]
+    (timeout,) = [hook["timeout"] for entry in entries if entry["matcher"] == "Bash" for hook in entry["hooks"]]
     return float(timeout)
 
 
@@ -291,8 +286,8 @@ def test_nieczytelne_wejscie_hooka_przechodzi(stdin: str) -> None:
 
 
 def _configured(project: Path) -> list[subprocess.CompletedProcess[str]]:
-    # Obok tego hooka Basha biegnie hook usuwania (``tests/test_usuwanie.py``), więc tu tylko wpisy czekania.
-    commands = [hook["command"] for hook in _bash_hooks() if "czekanie.py" in hook["command"]]
+    entries = json.loads(SETTINGS.read_text(encoding="utf-8"))["hooks"]["PreToolUse"]
+    commands = [hook["command"] for entry in entries if entry["matcher"] == "Bash" for hook in entry["hooks"]]
     tool_input = {"command": PGREP_LOOPS[0], "run_in_background": False}
     return [
         subprocess.run(

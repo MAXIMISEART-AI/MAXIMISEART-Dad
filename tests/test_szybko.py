@@ -29,8 +29,9 @@ BY_CHANGE_ONLY = {
     "tests/test_na_scalonych_pr.py": "sprawdza narzędzie na repozytoriach testu, a nie całe repozytorium",
     "tests/test_praca_w_toku.py": "sprawdza werdykt narzędzia na repozytoriach testu, a nie całe repozytorium; trwa ok. 19 s",
     "tests/test_szybko.py": "sprawdza samo szybko w repozytoriach testu; graf wybiera go przy zmianie tools/szybko.py i tabel reguł",
-    "tests/test_usuwanie.py": (
-        "sprawdza hook na pojedynczych poleceniach; graf wybiera go przy zmianie hooka, wyroczni i .claude/settings.json"
+    "tests/test_zgoda.py": (
+        "sprawdza hook zgody i jego wyrocznię na pojedynczych zdarzeniach; graf wybiera go przy zmianie hooka, wyroczni "
+        "i .claude/settings.json"
     ),
 }
 
