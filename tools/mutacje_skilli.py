@@ -23,7 +23,10 @@ czytane liczy runner, więc lista ``pilnuje`` nie musi ich powtarzać i nie zaw�
 nich. Skrypt, którego plików nie da się tak wyznaczyć (polecenie mutacji nie jest skryptem z
 repozytorium, kod się nie parsuje), biegnie zawsze. Pominięty skrypt dostaje linię ``POMINIĘTY``.
 Z ``--czesc K/N`` biegną kroki K-tej z N części o podobnym czasie w CI (``CI_TIMES_S``), więc
-N zadań CI dzieli kroki bez listy w ``ci.yml``. Krok to podstawa skilla albo jeden jego skrypt mutacji, więc
+N zadań CI dzieli kroki bez listy w ``ci.yml``. Części powstają z kroków, które przeszły wybór ``--zmiany-od``, więc
+pominięty krok nie waży w żadnej, a linię ``POMINIĘTY`` drukuje każda część. Każda część liczy podział sama, z wyboru i
+tabeli, bez zależności od kolejności zbiorów ani czasu, więc N części uruchamia każdy wybrany krok dokładnie raz.
+Krok to podstawa skilla albo jeden jego skrypt mutacji, więc
 podstawa i mutacje jednego skilla mogą biec w różnych częściach. Krok spoza tabeli waży tyle, co mediana tabeli:
 nieaktualna tabela psuje tylko równowagę części, nie gubi kroku.
 
@@ -429,15 +432,16 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     number, count = args.czesc or (1, 1)
     selected: dict[Path, tuple[bool, str]] = {}
-    # Po kolei: mutacje kilku skilli naraz na czterech rdzeniach runnera przekraczają swoje limity czasu.
-    for step in parts(found, count, CI_TIMES_S)[number - 1]:
+    for step in found:
         if step.skill not in selected:
             mutations = [ROOT / other.command[0] for other in found if other.skill == step.skill and other.verdict]
             selected[step.skill] = (True, "") if changed is None else _why_run(step.skill, mutations, changed)
         runs, why = selected[step.skill]
         if not runs:
             print(f"POMINIĘTY {step.name}: {why}", flush=True)
-            continue
+    # Po kolei: mutacje kilku skilli naraz na czterech rdzeniach runnera przekraczają swoje limity czasu.
+    for step in parts([step for step in found if selected[step.skill][0]], count, CI_TIMES_S)[number - 1]:
+        why = selected[step.skill][1]
         shown = step.name if step.verdict else f"{step.name}: {' '.join(step.command)}"
         print(f"== {shown}" + (f" ({why})" if why else ""), flush=True)
         started = time.monotonic()
