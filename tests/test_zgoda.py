@@ -54,6 +54,29 @@ def _request(mode: str) -> dict[str, Any]:
     }
 
 
+# Pytanie z reguły ``permissions.ask`` (``Bash(echo PYTAJ-MAKSA:*)``) w trybie bypass, jak je zapisał hook w rundzie 4 #496:
+# od pytania o ``rm`` różni się tylko brakiem ``permission_suggestions``.
+ASK_RULE = {
+    "hook_event_name": "PermissionRequest",
+    "permission_mode": "bypassPermissions",
+    "tool_name": "Bash",
+    "tool_input": {"command": "echo PYTAJ-MAKSA push", "description": "x"},
+}
+RM_CHECK = _request("bypassPermissions") | {
+    "permission_suggestions": [{"type": "addRules", "rules": [{"toolName": "Bash", "ruleContent": "rm -f logi/*"}]}]
+}
+# Poprawki z komunikatu odmowy, które agent dostaje zamiast pytania; wiersz reguły w AGENTS.md odsyła do komunikatu.
+PROMISES = (
+    "rm osobnym wywołaniem Basha z dosłowną ścieżką bezwzględną",
+    "ze zmienną w postaci ${VAR:?}",
+    "a resztę polecenia w następnym wywołaniu",
+    "do pliku narzędziem Write albo Edit",
+    "a nie w heredocu ani w napisie w poleceniu",
+    "reguły permissions.ask",
+    "nie obchodź jej innym zapisem, tylko napisz w odpowiedzi",
+)
+
+
 def _permission_hooks() -> list[dict[str, Any]]:
     entries = json.loads(SETTINGS.read_text(encoding="utf-8"))["hooks"]["PermissionRequest"]
     return [hook for entry in entries if entry["matcher"] == "Bash" for hook in entry["hooks"]]
@@ -71,8 +94,9 @@ def _hook(stdin: bytes) -> subprocess.CompletedProcess[bytes]:
     )
 
 
-def test_pytanie_o_zgode_w_trybie_bypass_dostaje_odmowe_z_poprawka() -> None:
-    hooked = _hook(json.dumps(_request("bypassPermissions")).encode())
+@pytest.mark.parametrize("event", [RM_CHECK, ASK_RULE], ids=["kontrola-rm", "regula-ask"])
+def test_pytanie_o_zgode_w_trybie_bypass_dostaje_odmowe_z_kazda_poprawka(event: dict[str, Any]) -> None:
+    hooked = _hook(json.dumps(event).encode())
 
     decision = json.loads(hooked.stdout)["hookSpecificOutput"]
     assert (
@@ -80,8 +104,7 @@ def test_pytanie_o_zgode_w_trybie_bypass_dostaje_odmowe_z_poprawka() -> None:
         decision["hookEventName"],
         decision["decision"]["behavior"],
     ) == (0, "PermissionRequest", "deny")
-    assert "${VAR:?}" in decision["decision"]["message"]
-    assert "narzędziem Write albo Edit" in decision["decision"]["message"]
+    assert [promise for promise in PROMISES if promise not in decision["decision"]["message"]] == []
 
 
 @pytest.mark.parametrize("mode", ["default", "acceptEdits", "plan", "dontAsk", "auto", None])
@@ -180,7 +203,7 @@ if sys.argv[1:] == ["--version"]:
     print("9.9.9 (Claude Code)")
     sys.exit(0)
 with open(os.environ["ATRAPA_WYWOLANIA"], "a", encoding="utf-8") as calls:
-    keys = ("ANTHROPIC_BASE_URL", "CLAUDE_CODE_SHELL_PREFIX", "CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT")
+    keys = ("ANTHROPIC_BASE_URL", "CLAUDE_CODE_SHELL_PREFIX", "WYROCZNIA_ZGODY_HOOK", "CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT")
     calls.write(json.dumps({{"argv": sys.argv[1:], "cwd": os.getcwd(), "env": {{k: os.environ.get(k) for k in keys}}}}) + "\\n")
 lines = [json.loads(sys.stdin.readline()) for _ in range(2)]
 assert [line["type"] for line in lines] == ["control_request", "user"], lines
@@ -365,12 +388,18 @@ def test_wyrocznia_bez_ani_jednej_odmowy_hooka_nie_konczy_sie_ok(
 
 
 @POSIX_ONLY
-def test_wyrocznia_nie_wykonuje_polecen_przypadkow(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    "tail",
+    ["", "; echo tools/hooks/zgoda.py", f"; {_permission_hooks()[0]['command']}"],
+    ids=["samo", "ze-sciezka-hooka", "z-poleceniem-hooka"],
+)
+def test_wyrocznia_nie_wykonuje_polecen_przypadkow(tmp_path: Path, tail: str) -> None:
+    # Przestój przy edycji hooka zgody będzie miał jego ścieżkę w treści, a wyrocznia biegnie w checkoucie.
     done = tmp_path / "wykonane"
 
     ran = _oracle(
         tmp_path,
-        [{"nazwa": "touch", "polecenie": f"touch {done}", "pyta_o_zgode": False}],
+        [{"nazwa": "touch", "polecenie": f"touch {done}{tail}", "pyta_o_zgode": False}],
     )
 
     assert ran.stdout.splitlines()[1] == "ZGODNE touch | powłoka", ran.stderr
@@ -397,6 +426,7 @@ def test_wyrocznia_uruchamia_claude_code_jak_t3_w_katalogu_checkoutu_z_falszywym
     assert call["env"]["ANTHROPIC_BASE_URL"].startswith("http://127.0.0.1:")
     env = (call["env"]["CLAUDE_CODE_SHELL_PREFIX"], call["env"]["CLAUDECODE"], call["env"]["CLAUDE_CODE_ENTRYPOINT"])
     assert env == (str(PREFIX), None, None)
+    assert call["env"]["WYROCZNIA_ZGODY_HOOK"] == _permission_hooks()[0]["command"]
     (command,) = [json.loads(line) for line in (tmp_path / "wywolania.jsonl.polecenia").read_text().splitlines()]
     assert re.fullmatch(r"rm -f ~/\.cache/wyrocznia-zgody-\w+/far/x # PYTA HOOK", command), command
 
@@ -449,16 +479,21 @@ def test_wyrocznia_bez_claude_na_path_konczy_sie_kodem_2(tmp_path: Path) -> None
 @pytest.mark.parametrize(
     ("command", "printed"),
     [
-        ("echo hook /x/tools/hooks/zgoda.py", "hook /x/tools/hooks/zgoda.py\n"),
-        (
-            "eval 'echo przypadek' && pwd -P >| /dev/null",
-            "WYROCZNIA-ZGODY-NIE-WYKONANO\n",
-        ),
+        ("echo hook zgody", "hook zgody\n"),
+        ("echo hook zgody; echo przypadek", "WYROCZNIA-ZGODY-NIE-WYKONANO\n"),
+        ("eval 'echo hook zgody' && pwd -P >| /dev/null", "WYROCZNIA-ZGODY-NIE-WYKONANO\n"),
         ("echo inny hook", "WYROCZNIA-ZGODY-NIE-WYKONANO\n"),
     ],
-    ids=["hook-zgody", "polecenie-basha", "inny-hook"],
+    ids=["hook-zgody", "polecenie-z-hookiem-zgody", "polecenie-basha", "inny-hook"],
 )
-def test_prefiks_wyroczni_wykonuje_tylko_hook_zgody(command: str, printed: str) -> None:
-    ran = subprocess.run([str(PREFIX), command], capture_output=True, text=True, check=False, timeout=30)
+def test_prefiks_wyroczni_wykonuje_tylko_polecenie_rowne_hookowi_zgody(command: str, printed: str) -> None:
+    ran = subprocess.run(
+        [str(PREFIX), command],
+        env={**os.environ, "WYROCZNIA_ZGODY_HOOK": "echo hook zgody"},
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=30,
+    )
 
     assert (ran.returncode, ran.stdout) == (0, printed)

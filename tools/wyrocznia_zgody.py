@@ -5,7 +5,8 @@ Claude Code ta wyrocznia uruchamia go tak jak T3 (``stream-json`` na wejściu i 
 stdio``, ``--permission-mode bypassPermissions``), w katalogu tego checkoutu, czyli z jego ``.claude/settings.json``.
 Modelu nie ma: lokalne fałszywe API (``ANTHROPIC_BASE_URL``) każe wysłać polecenie przypadku z
 ``tools/wyrocznia_zgody.jsonl`` bajt w bajt narzędziem Bash i odbiera wynik narzędzia, a wtedy wyrocznia kończy
-Claude Code. Polecenia nie biegną: prefiks powłoki ``tools/wyrocznia_zgody_prefiks.sh`` wykonuje tylko hook zgody.
+Claude Code. Polecenia nie biegną: prefiks powłoki ``tools/wyrocznia_zgody_prefiks.sh`` wykonuje tylko polecenie
+równe co do znaku poleceniu hooka zgody z ``.claude/settings.json``.
 Host, czyli T3 z człowiekiem, nigdy nie odpowiada na pytanie o zgodę i zamyka wejście po ``--host-s`` sekundach bez
 wyniku narzędzia. Ścieżki ``@WS@``, ``@FAR@`` i ``@TFAR@`` (ta sama co ``@FAR@``, ale przez ``~``) prowadzą do
 katalogu tymczasowego w ``~/.cache``, który narzędzie usuwa na końcu.
@@ -43,6 +44,7 @@ import zgoda
 ROOT = Path(__file__).resolve().parents[1]
 CASES = ROOT / "tools" / "wyrocznia_zgody.jsonl"
 PREFIX = ROOT / "tools" / "wyrocznia_zgody_prefiks.sh"
+SETTINGS = ROOT / ".claude" / "settings.json"
 NOT_RUN = "WYROCZNIA-ZGODY-NIE-WYKONANO"
 HOST_S = 30.0
 # Flagi wyjścia, wejścia i uprawnień, z którymi T3 uruchamia Claude Code (ps na komputerze Maksa, 26.10.2026).
@@ -173,6 +175,14 @@ def verdict(case: Case, seen: str) -> str:
     return "PRZESTÓJ" if seen == WAITED else "ZMIANA"
 
 
+def hook_command() -> str:
+    """Jedyne polecenie hooka ``PermissionRequest`` z ustawień checkoutu, dosłownie tak, jak Claude Code podaje je prefiksowi."""
+
+    entries = json.loads(SETTINGS.read_text(encoding="utf-8"))["hooks"]["PermissionRequest"]
+    (command,) = [str(hook["command"]) for entry in entries for hook in entry["hooks"]]
+    return command
+
+
 def environment(port: int) -> dict[str, str]:
     """Środowisko ``claude``: bez zmiennych sesji Claude Code, w której biegnie wyrocznia, z fałszywym API i prefiksem."""
 
@@ -182,6 +192,7 @@ def environment(port: int) -> dict[str, str]:
         "ANTHROPIC_BASE_URL": f"http://127.0.0.1:{port}",
         "ANTHROPIC_API_KEY": "sk-ant-wyrocznia-zgody",
         "CLAUDE_CODE_SHELL_PREFIX": str(PREFIX),
+        "WYROCZNIA_ZGODY_HOOK": hook_command(),
     }
 
 
