@@ -356,6 +356,9 @@ SHORT_TIMEOUTS = {
 def _manual_clocks(tree: ast.Module, names: dict[str, str]) -> set[str]:
     """Nazwy podróbki zegara: przypisane ``ManualClock(...)`` albo parametry z adnotacją ``ManualClock``."""
 
+    if MANUAL_CLOCK not in names.values():
+        return set()
+
     def made(value: ast.expr | None) -> bool:
         return isinstance(value, ast.Call) and dotted(value.func, names, "") == MANUAL_CLOCK
 
