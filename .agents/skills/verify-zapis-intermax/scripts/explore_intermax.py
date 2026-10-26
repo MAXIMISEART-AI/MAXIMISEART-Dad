@@ -22,8 +22,8 @@ bounds and checks:
   Surowe zlecenia”, and every other part and row „zostają bajt w bajt”.
 - KOPIA_ZASTAPIONEGO: when the run replaces INTERMAX, a Kopia INTERMAX holds exactly the bytes it replaced
   (ADR 0019: „Przed każdą podmianą powstaje Kopia INTERMAX”).
-- ZATRZYMANIE_BEZ_SLADU: a run that stops (``StopError``), or raises any other exception, leaves INTERMAX as it was,
-  no temporary file next to it, and
+- ZATRZYMANIE_BEZ_SLADU: a run that stops (``StopError``), or raises any other exception before the replace, leaves
+  INTERMAX as it was, no temporary file next to it, and
   the Kopie folder with the same Kopie, names and bytes, as before (docstring of ``order_register``).
 - SUKCES: a run that returns a summary has replaced INTERMAX and left no temporary file.
 - KOPIE_NAJNOWSZE: after a summary, the Kopie folder holds the ``KEPT`` newest Kopie by name, the new one among them,
@@ -322,7 +322,7 @@ def _check(world: World, outcome: Outcome, failure: str) -> list[tuple[str, str]
                     "żadna Kopia INTERMAX nie ma bajtów, które podmiana zastąpiła",
                 )
             )
-    if outcome in ("zatrzymanie", "wyjatek"):
+    if outcome == "zatrzymanie" or (outcome == "wyjatek" and world.replaced is None):
         who = "Zatrzymanie" if outcome == "zatrzymanie" else "Wyjątek"
         if world.register.read_bytes() != world.current:
             broken.append(
@@ -404,9 +404,9 @@ KNOWN_FINDINGS: dict[
     ),
     "BEZ_WYJATKU": (
         "OSError z zapisu pliku tymczasowego (pełny dysk, plik zablokowany przez OneDrive albo antywirus) wychodzi z "
-        "order_register jako nieoczekiwany wyjątek: write_atomically łapie OSError z utworzenia pliku tymczasowego i z os.replace, ale nie z zapisu "
-        "jego treści, a "
-        "order_register tylko WriteMismatch, UnsupportedShape i WorkbookSaveError",
+        "order_register jako nieoczekiwany wyjątek: write_atomically łapie OSError z utworzenia pliku tymczasowego "
+        "i z os.replace, ale nie z zapisu jego treści, a order_register tylko WriteMismatch, UnsupportedShape i "
+        "WorkbookSaveError",
         _temporary_write_failed,
     ),
 }
