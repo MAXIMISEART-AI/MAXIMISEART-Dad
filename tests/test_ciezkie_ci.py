@@ -24,7 +24,7 @@ from tests.fixtures.git_repo import commit, git, repository
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
 
-from ciezkie_ci import HEAVY, refusal  # noqa: E402
+from ciezkie_ci import HEAVY, mutations_refusal, refusal  # noqa: E402
 
 PASSES = ("GITHUB_ACTIONS", "MAXIMISEART_NA_SCALONYCH_PR", "MAXIMISEART_ODTWARZAM")
 OUTSIDE_CI = {name: value for name, value in os.environ.items() if name not in PASSES}
@@ -209,6 +209,40 @@ def test_odtworzenie_wszystkich_ciezkich_zadan_wymaga_porazki_kazdego(tmp_path: 
     refused = refusal({"ruff", "change-mutations", "mutations"}, "123", root=repo, env={}, gh=_gh("praca", "f" * 40, RED_MUTATIONS))
 
     assert refused is not None and "nie padło mutations;" in refused
+
+
+def _no_github(arguments: Sequence[str]) -> str:
+    raise AssertionError("bez --odtwarzam nie ma o co pytać GitHuba")
+
+
+def test_celowany_dowod_do_100_mutacji_biegnie_poza_ci(tmp_path: Path) -> None:
+    assert mutations_refusal(100, None, root=tmp_path, env={}, gh=_no_github) is None
+
+
+def test_lista_ponad_100_mutacji_poza_ci_to_reczne_mutacje_zmiany_i_odmawia_z_jej_dlugoscia(tmp_path: Path) -> None:
+    refused = mutations_refusal(101, None, root=tmp_path, env={}, gh=_no_github)
+
+    assert refused is not None and refused.startswith("CIĘŻKIE CI ODMOWA | change-mutations ") and "\n" not in refused
+    assert "Wypchnij gałąź" in refused and "--odtwarzam" in refused
+    assert "najwyżej 100 mutacji, a ta lista ma 101." in refused
+
+
+@pytest.mark.parametrize("env", [{"GITHUB_ACTIONS": "true"}, {"MAXIMISEART_NA_SCALONYCH_PR": "1"}], ids=["w CI", "z tools/na_scalonych_pr.py"])
+def test_dluga_lista_mutacji_w_ci_i_na_scalonych_pr_biegnie(tmp_path: Path, env: dict[str, str]) -> None:
+    assert mutations_refusal(335, None, root=tmp_path, env=env, gh=_no_github) is None
+
+
+def test_dluga_lista_mutacji_odtwarzajaca_czerwone_mutacje_zmiany_tej_galezi_biegnie(tmp_path: Path) -> None:
+    assert mutations_refusal(335, "123", root=_repo(tmp_path), env={}, gh=_gh("praca", "f" * 40, RED_MUTATIONS)) is None
+
+
+def test_dluga_lista_mutacji_z_runu_gdzie_padly_tylko_mutacje_skilli_odmawia(tmp_path: Path) -> None:
+    red_skills: Jobs = [{"name": "Mutation checks (1/3)", "conclusion": "failure"}, {"name": "Change mutations (1/3)", "conclusion": "success"}]
+
+    refused = mutations_refusal(335, "123", root=_repo(tmp_path), env={}, gh=_gh("praca", "f" * 40, red_skills))
+
+    assert refused is not None and refused.startswith("CIĘŻKIE CI ODMOWA | --odtwarzam 123: ") and "nie padło change-mutations" in refused
+    assert "a ta lista ma 335." in refused
 
 
 @pytest.mark.parametrize("given", ["ostatni", "https://github.com/a/b/pull/12"])
