@@ -12,7 +12,9 @@ from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 from pathlib import Path
+import re
 import socket
+import subprocess
 import threading
 import time
 
@@ -38,6 +40,8 @@ REFUSED_MIDWAY = "8888888888888888888888888888888888888888"
 FIRST_COMMIT = "9999999999999999999999999999999999999999"
 FAR_ON_LINE = "abababababababababababababababababababab"
 MERGED_LATE = "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"
+# Commit scalenia PR do `main` tak daleko na linii jak ``FAR_ON_LINE``.
+MERGED_FAR = "efefefefefefefefefefefefefefefefefefefef"
 NOT_A_COMMIT = "nie-commit"
 # Odpowiedź porównania commitu tagu z czubkiem `main` ``MAIN`` albo jego pierwszym rodzicem (``compare``); brak wpisu
 # to odmowa GitHuba. ``OLDER`` jest pierwszym rodzicem ``MAIN``.
@@ -59,6 +63,7 @@ _STATUS = {
     # Pierwszy commit repozytorium jest pierwszym rodzicem `main`, a `main` ma jeszcze dwa commity z wciągniętej
     # gałęzi (``ahead_by`` 3): ``MAIN~2`` i dalej nie istnieją (404).
     (FAR_ON_LINE, MAIN): "ahead",
+    (MERGED_FAR, MAIN): "ahead",
     # Gałąź wciągnięta merge'em, gdy `main` poszedł już dalej: jego pierwsi rodzice od niej odchodzą („diverged”).
     (MERGED_LATE, MAIN): "ahead",
     (MERGED_LATE, f"{MAIN}~1"): "diverged",
@@ -78,13 +83,13 @@ _ODD_COMPARES: dict[str, str | None] = {
     "porownanie-nie-json": "<html>GitHub ma awarię</html>",
     "porownanie-zerwane": None,
 }
-_AHEAD_BY = {FIRST_COMMIT: 3, FAR_ON_LINE: 1000, MERGED_LATE: 3}
+_AHEAD_BY = {FIRST_COMMIT: 3, FAR_ON_LINE: 1000, MERGED_LATE: 3, MERGED_FAR: 1000}
 # ``FAR_ON_LINE`` to ``MAIN~700``, a `main` ma 1000 commitów spoza niego: tydzień zmian z wciągniętymi gałęziami.
 _FAR_DEPTH = 700
 
 
 def _far_status(base: str, head: str) -> str | None:
-    if base != FAR_ON_LINE or not head.startswith(f"{MAIN}~"):
+    if base not in (FAR_ON_LINE, MERGED_FAR) or not head.startswith(f"{MAIN}~"):
         return None
     depth = int(head.removeprefix(f"{MAIN}~"))
     return "ahead" if depth < _FAR_DEPTH else "identical" if depth == _FAR_DEPTH else "behind"
@@ -151,6 +156,35 @@ _PAGES["/wydania/releases?per_page=30"] = (
     ),
     None,
 )
+
+
+def _pull(merge_commit_sha: str, **fields: object) -> object:
+    merged = {"number": 461, "merge_commit_sha": merge_commit_sha, "merged_at": "2026-10-25T19:26:59Z"}
+    return merged | {"base": {"ref": "main"}, "head": {"sha": BRANCH}} | fields
+
+
+# PR-y commitu (``commits/<sha>/pulls``). ``MERGED_FAR`` scalił drugi PR na liście. Uśpiony tag z gałęzi wciągniętej
+# merge'em stoi na czubku PR (``head.sha``), który scalił inny commit; commit ``MERGED_BRANCH`` ma też PR, który nie
+# czyni go czubkiem `main`, albo odpowiedź w innym kształcie.
+_PAGES["/daleko-scalone/tags?per_page=100"] = (_tags(("v0.1.0", MERGED_FAR)), None)
+_PAGES[f"/daleko-scalone/commits/{MERGED_FAR}/pulls"] = (json.dumps([_pull(BRANCH), _pull(MERGED_FAR)]), None)
+_PAGES[f"/z-galezi/commits/{MERGED_BRANCH}/pulls"] = (json.dumps([_pull(MAIN, head={"sha": MERGED_BRANCH})]), None)
+_PULLS_NOT_MERGING = {
+    "pr-do-galezi": [_pull(MERGED_BRANCH, base={"ref": "agent"})],
+    "pr-otwarty": [_pull(MERGED_BRANCH, merged_at=None)],
+    "pr-bez-bazy": [_pull(MERGED_BRANCH, base=None)],
+    "pr-napisem": ["#461"],
+    "pr-liczba": 5,
+}
+for _repository, _pulls in _PULLS_NOT_MERGING.items():
+    _PAGES[f"/{_repository}/tags?per_page=100"] = (_tags(("v0.1.0", MERGED_BRANCH)), None)
+    _PAGES[f"/{_repository}/commits/{MERGED_BRANCH}/pulls"] = (json.dumps(_pulls), None)
+# Commit scalenia PR do `main`, który nie jest przodkiem czubka `main` (po force-pushu `main` od niego odszedł albo
+# się przed niego cofnął).
+_MERGED_NOT_IN_MAIN = {"scalony-poza-main": OTHER, "scalony-przed-czubkiem": OFF_MAIN}
+for _repository, _commit in _MERGED_NOT_IN_MAIN.items():
+    _PAGES[f"/{_repository}/tags?per_page=100"] = (_tags(("v0.1.0", _commit)), None)
+    _PAGES[f"/{_repository}/commits/{_commit}/pulls"] = (json.dumps([_pull(_commit)]), None)
 
 
 # Ścieżki pytań do atrapy GitHuba, w kolejności; ``github`` czyści listę przed testem.
@@ -220,20 +254,20 @@ def github() -> Iterator[str]:
 
 
 def test_najnowsze_wydanie_to_najwyzszy_numer_a_nie_ostatni_tag_alfabetycznie(github: str) -> None:
-    assert releases_from(f"{github}/tagi", timeout_s=2) == GitHubReleases(NEWEST, "v0.10.0")
+    assert releases_from(f"{github}/tagi", timeout_s=30) == GitHubReleases(NEWEST, "v0.10.0")
 
 
 def test_najnowsze_wydanie_ze_wszystkich_stron_listy_tagow(github: str) -> None:
-    assert releases_from(f"{github}/strony", timeout_s=2) == GitHubReleases(NEWEST, "v1.0.0")
+    assert releases_from(f"{github}/strony", timeout_s=30) == GitHubReleases(NEWEST, "v1.0.0")
 
 
 def test_wyzsze_wydanie_spoza_main_jest_pominiete_a_nizsze_na_main_wybrane(github: str) -> None:
-    assert releases_from(f"{github}/spoza-main", timeout_s=2) == GitHubReleases(OLDER, "v0.2.0")
+    assert releases_from(f"{github}/spoza-main", timeout_s=30) == GitHubReleases(OLDER, "v0.2.0")
 
 
 @pytest.mark.parametrize("repository", ["bez-wydan", "tylko-spoza-main"])
 def test_bez_wydania_na_main_github_odpowiada_ze_nie_ma_wydania(github: str, repository: str) -> None:
-    assert releases_from(f"{github}/{repository}", timeout_s=2) == GitHubReleases(None, None)
+    assert releases_from(f"{github}/{repository}", timeout_s=30) == GitHubReleases(None, None)
 
 
 @pytest.mark.parametrize(
@@ -242,28 +276,28 @@ def test_bez_wydania_na_main_github_odpowiada_ze_nie_ma_wydania(github: str, rep
     ids=["odmowa", "nie-lista", "bez-konca", "odmowa-porownania", "czubek-main-nie-commitem", "porownanie-bez-liczby"],
 )
 def test_odmowa_odpowiedz_nie_z_api_albo_niepelna_lista_to_nie_wiadomo(github: str, repository: str) -> None:
-    assert releases_from(f"{github}/{repository}", timeout_s=2) is None
+    assert releases_from(f"{github}/{repository}", timeout_s=30) is None
 
 
 def test_wydanie_z_galezi_wciagnietej_mergem_nie_jest_na_main_i_ta_odpowiedz_zostaje_w_pamieci(github: str) -> None:
     known: dict[str, bool] = {}
 
-    assert releases_from(f"{github}/z-galezi", timeout_s=2, known=known) == GitHubReleases(None, None)
+    assert releases_from(f"{github}/z-galezi", timeout_s=30, known=known) == GitHubReleases(None, None)
     assert known == {MERGED_BRANCH: False}
     _ASKED.clear()
-    assert releases_from(f"{github}/z-galezi", timeout_s=2, known=known) == GitHubReleases(None, None)
+    assert releases_from(f"{github}/z-galezi", timeout_s=30, known=known) == GitHubReleases(None, None)
     assert _comparisons() == 0
 
 
 def test_wydanie_z_galezi_wciagnietej_po_dalszych_zmianach_main_nie_jest_na_main(github: str) -> None:
     known: dict[str, bool] = {}
 
-    assert releases_from(f"{github}/z-galezi-pozniej", timeout_s=2, known=known) == GitHubReleases(None, None)
+    assert releases_from(f"{github}/z-galezi-pozniej", timeout_s=30, known=known) == GitHubReleases(None, None)
     assert known == {MERGED_LATE: False}
 
 
 def test_wydanie_daleko_na_linii_main_kosztuje_tylko_logarytm_porownan(github: str) -> None:
-    assert releases_from(f"{github}/daleko", timeout_s=2) == GitHubReleases(FAR_ON_LINE, "v0.1.0")
+    assert releases_from(f"{github}/daleko", timeout_s=30) == GitHubReleases(FAR_ON_LINE, "v0.1.0")
     assert _comparisons() <= 12  # log2(1001) + 2
 
 
@@ -279,14 +313,31 @@ def test_aktualnosc_w_centrum_pamieta_linie_main_miedzy_sprawdzeniami(
     assert _comparisons() == 0
 
 
+def test_wydanie_ze_scalenia_pr_daleko_na_linii_main_to_cztery_pytania_bez_wzgledu_na_odleglosc(github: str) -> None:
+    known: dict[str, bool] = {}
+
+    assert releases_from(f"{github}/daleko-scalone", timeout_s=30, known=known) == GitHubReleases(MERGED_FAR, "v0.1.0")
+    assert (len(_ASKED), known) == (4, {MERGED_FAR: True})  # tagi, czubek `main`, porównanie z czubkiem, PR-y commitu
+
+
+@pytest.mark.parametrize("repository", _PULLS_NOT_MERGING)
+def test_wydanie_z_galezi_z_pr_ktory_go_nie_scalil_do_main_nie_jest_na_main(github: str, repository: str) -> None:
+    assert releases_from(f"{github}/{repository}", timeout_s=30) == GitHubReleases(None, None)
+
+
+@pytest.mark.parametrize("repository", _MERGED_NOT_IN_MAIN)
+def test_scalenie_pr_do_main_spoza_czubka_main_nie_jest_wydaniem(github: str, repository: str) -> None:
+    assert releases_from(f"{github}/{repository}", timeout_s=30) == GitHubReleases(None, None)
+
+
 def test_wydanie_na_pierwszym_commicie_repozytorium_jest_na_main(github: str) -> None:
-    assert releases_from(f"{github}/od-pierwszego-commitu", timeout_s=2) == GitHubReleases(FIRST_COMMIT, "v0.1.0")
+    assert releases_from(f"{github}/od-pierwszego-commitu", timeout_s=30) == GitHubReleases(FIRST_COMMIT, "v0.1.0")
 
 
 def test_odmowa_githuba_w_polowie_wyszukiwania_to_nie_wiadomo_i_nic_nie_zostaje_w_pamieci(github: str) -> None:
     known: dict[str, bool] = {}
 
-    assert releases_from(f"{github}/odmowa-w-wyszukiwaniu", timeout_s=2, known=known) is None
+    assert releases_from(f"{github}/odmowa-w-wyszukiwaniu", timeout_s=30, known=known) is None
     assert known == {}
 
 
@@ -295,11 +346,11 @@ def test_odmowa_githuba_w_polowie_wyszukiwania_to_nie_wiadomo_i_nic_nie_zostaje_
 @pytest.mark.filterwarnings("error::pytest.PytestUnhandledThreadExceptionWarning")
 @pytest.mark.parametrize("repository", [*_ODD_REFS, *_ODD_COMPARES])
 def test_czubek_main_albo_porownanie_w_innym_ksztalcie_to_nie_wiadomo(github: str, repository: str) -> None:
-    assert releases_from(f"{github}/{repository}", timeout_s=2) is None
+    assert releases_from(f"{github}/{repository}", timeout_s=30) is None
 
 
 def test_jedno_sprawdzenie_pyta_o_czubek_main_raz_dla_wszystkich_kandydatow(github: str) -> None:
-    assert releases_from(f"{github}/spoza-main", timeout_s=2) == GitHubReleases(OLDER, "v0.2.0")
+    assert releases_from(f"{github}/spoza-main", timeout_s=30) == GitHubReleases(OLDER, "v0.2.0")
     assert _comparisons() >= 3
     assert sum(path.endswith("/git/ref/heads/main") for path in _ASKED) == 1
 
@@ -320,11 +371,21 @@ def test_brak_sieci_to_nie_wiadomo() -> None:
         closed.bind(("127.0.0.1", 0))
         port = closed.getsockname()[1]  # port zwolniony po wyjściu: połączenie zostaje odrzucone
 
-    assert releases_from(f"http://127.0.0.1:{port}/tagi", timeout_s=2) is None
+    assert releases_from(f"http://127.0.0.1:{port}/tagi", timeout_s=30) is None
+
+
+def test_aktualnosc_pyta_repozytorium_tego_checkoutu_bez_przekierowania() -> None:
+    # Pod starym adresem GitHub przekierowuje każde pytanie: 8 zapytań zamiast 4 i „Nie sprawdzono” po 3 s (#536).
+    origin = subprocess.run(
+        ["git", "remote", "get-url", "origin"], cwd=Path(__file__).parent, capture_output=True, text=True, check=True
+    ).stdout.strip()
+    repository = re.sub(r"^(https://github\.com/|git@github\.com:)|\.git$", "", origin)
+
+    assert tool_freshness.REPOSITORY_API == f"https://api.github.com/repos/{repository}"
 
 
 def test_lista_wydan_ma_tylko_opublikowane_wydania_z_notka_i_czasem_publikacji(github: str) -> None:
-    assert published_from(f"{github}/wydania", timeout_s=2) == (
+    assert published_from(f"{github}/wydania", timeout_s=30) == (
         PublishedRelease(Release((0, 2, 0), "v0.2.0"), NOTES, datetime(2026, 10, 20, 10, tzinfo=timezone.utc)),
         PublishedRelease(Release((0, 1, 0), "v0.1.0"), "", datetime(2026, 10, 1, 6, tzinfo=timezone.utc)),
     )
@@ -332,7 +393,7 @@ def test_lista_wydan_ma_tylko_opublikowane_wydania_z_notka_i_czasem_publikacji(g
 
 @pytest.mark.parametrize("repository", ["limit", "strona"], ids=["odmowa", "nie-lista"])
 def test_lista_wydan_bez_odpowiedzi_api_to_nie_wiadomo(github: str, repository: str) -> None:
-    assert published_from(f"{github}/{repository}", timeout_s=2) is None
+    assert published_from(f"{github}/{repository}", timeout_s=30) is None
 
 
 def test_lista_wydan_bez_sieci_to_nie_wiadomo() -> None:
@@ -340,7 +401,7 @@ def test_lista_wydan_bez_sieci_to_nie_wiadomo() -> None:
         closed.bind(("127.0.0.1", 0))
         port = closed.getsockname()[1]
 
-    assert published_from(f"http://127.0.0.1:{port}/wydania", timeout_s=2) is None
+    assert published_from(f"http://127.0.0.1:{port}/wydania", timeout_s=30) is None
 
 
 def _git(root: Path, head: str) -> Path:

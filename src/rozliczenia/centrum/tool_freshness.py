@@ -263,6 +263,11 @@ def _on_first_parent_line(api: str, commit: str, tip: str, timeout_s: float) -> 
     nie przekracza liczby commitów ``tip`` spoza ``commit`` (``ahead_by``), bo ``tip~0`` … ``tip~(k-1)`` to różne
     takie commity, więc wyszukiwanie binarne pyta najwyżej ``log2(ahead_by) + 2`` razy. ``tip~k`` sprzed pierwszego
     commitu repozytorium (404) nie zawiera ``commit``.
+
+    Wyszukiwanie przy tygodniu zmian `main` nie mieści się w limicie Diagnozy, więc najpierw pada jedno pytanie, czy
+    ``commit`` to commit scalenia PR do `main` (``_merged_into_main``). Taki przodek ``tip`` był czubkiem `main`, a
+    `main` rośnie tylko o nowe commity, więc leży na linii. Wyszukiwanie zostaje dla commitu bez scalenia PR (gałąź
+    wciągnięta merge'em, commit wypchnięty wprost na `main`).
     """
 
     status, ahead = _compare(api, commit, tip, timeout_s)
@@ -270,6 +275,8 @@ def _on_first_parent_line(api: str, commit: str, tip: str, timeout_s: float) -> 
         return True
     if status != "ahead":
         return None
+    if _merged_into_main(api, commit, timeout_s):
+        return True
     contains, beyond = 0, ahead + 1
     while beyond - contains > 1:
         middle = (contains + beyond) // 2
@@ -284,6 +291,28 @@ def _on_first_parent_line(api: str, commit: str, tip: str, timeout_s: float) -> 
         else:
             beyond = middle
     return False
+
+
+def _merged_into_main(api: str, commit: str, timeout_s: float) -> bool:
+    """Czy GitHub scalił ``commit`` do `main` jako commit PR (``merge_commit_sha``), czyli ``commit`` był czubkiem
+    `main`; ``False`` także przy odmowie i odpowiedzi w innym kształcie, bo wtedy decyduje wyszukiwanie binarne.
+
+    Jedno pytanie bez względu na to, jak daleko `main` odszedł od ``commit``. Commit gałęzi wciągniętej merge'em ma
+    PR, ale inny ``merge_commit_sha``, więc tu nie przechodzi.
+    """
+
+    try:
+        pulls = _json(f"{api}/commits/{commit}/pulls", timeout_s)
+    except _NoAnswer:
+        pulls = ()
+    return any(
+        isinstance(pull, dict)
+        and pull.get("merge_commit_sha") == commit
+        and isinstance(pull.get("merged_at"), str)
+        and isinstance(base := pull.get("base"), dict)
+        and base.get("ref") == "main"
+        for pull in (pulls if isinstance(pulls, list) else ())
+    )
 
 
 def _compare(api: str, commit: str, head: str, timeout_s: float) -> tuple[str, int]:
