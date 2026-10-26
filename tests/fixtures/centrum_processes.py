@@ -32,14 +32,16 @@ from rozliczenia.input_checks import FILE_READERS, Readers
 from rozliczenia.process_run import Finished, Process, ProcessInputs
 
 from tests.fixtures.centrum import (
-    CENTRUM,
+    CentrumClient,
     FakeGitHub,
     FakeOneDrive,
     FakePlatform,
     FakeReportBox,
+    QUEUE_THREAD,
     RUN_LOGS_IN_BACKGROUND,
     MetricsPaths,
     finished_view,
+    join_threads_since,
 )
 from tests.fixtures.clock import ManualClock
 from tests.fixtures.potomne import wait_for
@@ -90,8 +92,32 @@ class Engines:
 
 
 @dataclass
+class _StartClock:
+    """Zegar jednego startu Centrum na czasie ``ManualClock`` komputera, jak zegar procesu na zegarze komputera.
+
+    Po ``stopped`` budziki tego startu już nie dzwonią, jak budziki zamkniętego procesu, a czas biegnie dalej dla
+    następnego startu. ``ManualClock.wakes`` liczy je, dopóki ich chwila nie nadejdzie.
+    """
+
+    clock: ManualClock
+    stopped: bool = False
+
+    def __call__(self) -> float:
+        return self.clock()
+
+    def after(self, seconds: float, wake: Callable[[], None]) -> None:
+        def woken() -> None:
+            if not self.stopped:
+                wake()
+
+        self.clock.after(seconds, woken)
+
+
+@dataclass
 class Surroundings:
     """GitHub, OneDrive, skrzynka Zgłoszeń, zegar i czytniki plików taty widziane z komputera taty.
+
+    ``clock`` to zegar komputera taty: każdy start Centrum dostaje na nim własny zegar (``started_clock``).
 
     ``onedrive=None`` to prawdziwy odczyt atrybutów tego systemu. ``tool`` to
     narzędzie jako prawdziwy klon z lokalnym „origin” zamiast GitHuba: wtedy
@@ -121,6 +147,15 @@ class Surroundings:
     release_unanswered: bool = False
     readers: Readers = FILE_READERS
     find_git: Callable[[], Path | None] = find_git
+    _start: _StartClock | None = field(default=None, init=False, repr=False)
+
+    def started_clock(self) -> _StartClock:
+        """Zegar nowego startu Centrum; budziki poprzedniego startu na tych otoczeniach już nie dzwonią."""
+
+        if self._start is not None:
+            self._start.stopped = True
+        self._start = _StartClock(self.clock)
+        return self._start
 
     def tool_freshness(self) -> ToolFreshness:
         tool = self.tool
@@ -181,9 +216,11 @@ def _client(
     configuration: ConfigurationFiles,
     engines: Engines,
     surroundings: Surroundings,
-) -> TestClient:
+    since: int | None = None,
+) -> CentrumClient:
     log = CentrumLog(tmp_path / "logs" / "centrum-rozliczen.log")
     onedrive = surroundings.onedrive
+    clock = surroundings.started_clock()
     app = create_app(
         settings_path=tmp_path / "config" / "centrum-ustawienia.yaml",
         platform=platform,
@@ -195,19 +232,19 @@ def _client(
         tool_freshness=surroundings.tool_freshness(),
         cloud_files=None if onedrive is None else onedrive.cloud_files(),
         report_box=surroundings.report_box,
-        clock=surroundings.clock,
+        clock=clock,
         pause=surroundings.clock.pause,
         report_search_deadline_s=surroundings.report_search_deadline_s,
         tool_update=surroundings.tool_update(),
         guardian=surroundings.guardian,
         readers=surroundings.readers,
     )
-    return TestClient(app, base_url=CENTRUM, headers={"Origin": CENTRUM})
+    return CentrumClient(app, since=since)
 
 
 @dataclass
 class PreparingCentrum:
-    client: TestClient
+    client: CentrumClient
     fixture: PreparationFixture
     metrics_path: Path
     log_path: Path
@@ -223,21 +260,42 @@ class PreparingCentrum:
         return [json.loads(line) for line in text.splitlines()]
 
     def restart(self) -> None:
-        """Nowe Centrum na tych samych plikach i Ustawieniach taty."""
+        """Nowe Centrum na tych samych plikach i Ustawieniach taty, gdy skończy się przejście kolejki poprzedniego.
 
-        self.client = _preparation_client(self.tmp_path, self.fixture, FakePlatform(), self.surroundings, self.engines)
+        Jak w nowym procesie kolejka poprzedniego Centrum już nic nie robi: kolejka, która zastałaby jej przejście na
+        tym samym folderze, oddałaby jej swoje (``outbox._claimed``), więc ponowny start czeka na koniec tego
+        przejścia, a budziki poprzedniego Centrum (ponowienie kolejki za ``RETRY_S``) już nie dzwonią, choć czas
+        ``surroundings.clock`` biegnie dalej. Inne wątki poprzedniego Centrum mogą dalej żyć, np. Uruchomienie, które
+        test trzyma (``HeldRegister``): puszczone kończy się w poprzednim Centrum i jego Logi idą jego kolejką.
+        """
+
+        join_threads_since(self.client.since, named=QUEUE_THREAD)
+        self.client = _preparation_client(
+            self.tmp_path,
+            self.fixture,
+            FakePlatform(),
+            self.surroundings,
+            self.engines,
+            since=self.client.since,
+        )
 
 
 def _preparation_client(
-    tmp_path: Path, fixture: PreparationFixture, platform: FakePlatform, surroundings: Surroundings, engines: Engines
-) -> TestClient:
+    tmp_path: Path,
+    fixture: PreparationFixture,
+    platform: FakePlatform,
+    surroundings: Surroundings,
+    engines: Engines,
+    *,
+    since: int | None = None,
+) -> CentrumClient:
     configuration = ConfigurationFiles(
         worker_config=fixture.config_path,
         internal_template=fixture.internal_template_path,
         collective_template=fixture.collective_template_path,
         worker_template=tmp_path / "config" / "Wzorzec rozliczenia pracownika.xlsx",
     )
-    return _client(tmp_path, platform, configuration, engines, surroundings)
+    return _client(tmp_path, platform, configuration, engines, surroundings, since)
 
 
 def _metrics(tmp_path: Path) -> MetricsPaths:
@@ -276,7 +334,7 @@ def preparing_centrum(
 
 @dataclass
 class SettlingCentrum:
-    client: TestClient
+    client: CentrumClient
     periods_directory: Path
     metrics_path: Path
     log_path: Path
@@ -306,9 +364,24 @@ class SettlingCentrum:
         return [json.loads(line) for line in text.splitlines()]
 
     def restart(self) -> None:
-        """Nowe Centrum na tych samych plikach i Ustawieniach taty."""
+        """Nowe Centrum na tych samych plikach i Ustawieniach taty, gdy skończy się przejście kolejki poprzedniego.
 
-        self.client = _client(self.tmp_path, FakePlatform(), self.configuration, self.engines, self.surroundings)
+        Jak w nowym procesie kolejka poprzedniego Centrum już nic nie robi: kolejka, która zastałaby jej przejście na
+        tym samym folderze, oddałaby jej swoje (``outbox._claimed``), więc ponowny start czeka na koniec tego
+        przejścia, a budziki poprzedniego Centrum (ponowienie kolejki za ``RETRY_S``) już nie dzwonią, choć czas
+        ``surroundings.clock`` biegnie dalej. Inne wątki poprzedniego Centrum mogą dalej żyć, np. Uruchomienie, które
+        test trzyma (``HeldRegister``): puszczone kończy się w poprzednim Centrum i jego Logi idą jego kolejką.
+        """
+
+        join_threads_since(self.client.since, named=QUEUE_THREAD)
+        self.client = _client(
+            self.tmp_path,
+            FakePlatform(),
+            self.configuration,
+            self.engines,
+            self.surroundings,
+            self.client.since,
+        )
 
 
 def settling_centrum(

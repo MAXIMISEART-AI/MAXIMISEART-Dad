@@ -123,6 +123,7 @@ def test_uwaga_bez_skrzynki_czeka_w_kolejce_i_wychodzi_przy_nastepnym_starcie_ce
     # Odpowiedź przychodzi z końcem nieudanej próby wysyłki, a nie po całym czasie czekania na skrzynkę.
     assert time.monotonic() - asked_at < DELIVERY_WAIT_S
     assert started.report_box.issues == []
+    started.client.stop()
     [waiting] = queued(tmp_path)
     [note] = notes(tmp_path)
     assert (note["title"], note["number"]) == (TITLE, None)
@@ -131,11 +132,12 @@ def test_uwaga_bez_skrzynki_czeka_w_kolejce_i_wychodzi_przy_nastepnym_starcie_ce
     with restarted.client:
         assert restarted.report_box.wait_until(lambda box: len(box.issues) == 1)
         assert wait_for(lambda: case_states(restarted.client, "uwaga") == ["wyslana"])
+    restarted.client.stop()
 
     [issue] = dad_note_issues(restarted)
     assert (issue.title, issue.body) == (TITLE, f"{BODY}\n\n{VERSION_LINE}")
     assert notes(tmp_path) == [{**note, "number": issue.number}]
-    assert wait_for(lambda: waiting not in queued(tmp_path))
+    assert waiting not in queued(tmp_path)
 
 
 def test_uwaga_ktorej_kolejka_nie_zapisala_jest_odmowa_bez_sladu_w_stanie_uwag(tmp_path: Path) -> None:

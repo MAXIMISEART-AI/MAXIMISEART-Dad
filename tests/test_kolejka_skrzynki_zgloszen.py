@@ -557,6 +557,7 @@ def test_wyslanej_wysylki_ktorej_nie_da_sie_usunac_skrzynka_nie_dostaje_drugi_ra
     assert wait_for(lambda: failed_removals() == 1)
     queue.outbox.post(post(["druga\n"]))
     assert wait_for(lambda: failed_removals() == 2)
+    queue.passed()  # inaczej nowa kolejka zastaje przejście tej i oddaje mu swoje (outbox._claimed)
     queue.restarted().resume()
     assert wait_for(lambda: failed_removals() == 4)
     monkeypatch.setattr(Path, "unlink", unlink)
