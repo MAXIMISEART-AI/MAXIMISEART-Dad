@@ -126,10 +126,12 @@ def test_plik_metryk_odrzuca_rekord_bez_licznika_kazdej_drogi_zapisu(tmp_path: P
 def test_plik_metryk_odrzuca_zatrzymanie_bez_rodzaju_i_kodu_komunikatu(tmp_path: Path, stop: Any) -> None:
     metrics_path = tmp_path / "metrics.jsonl"
     record = stopped_record(stop)
+    # Rekord wersji 2 (bez dróg zapisu) z pliku metryk taty sprzed tej wersji narzędzia sprawdza się tak samo.
+    from_older_tool = {key: value for key, value in record.items() if key != "routes"} | {"schema_version": 2}
 
     with pytest.raises(ValueError, match="Niepoprawny rekord metryk"):
         MetricsStore(metrics_path).append(record)
-    metrics_path.write_text(json.dumps(record) + "\n", encoding="utf-8")
+    metrics_path.write_text(json.dumps(record) + "\n" + json.dumps(from_older_tool) + "\n", encoding="utf-8")
 
     assert MetricsStore(metrics_path).read() == []
 
