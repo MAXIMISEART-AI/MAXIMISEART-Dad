@@ -88,8 +88,9 @@ nowa == <<nowaUsuwaPlikTaty, nowaZmieniaWymagania, nowaStartuje>>
 ekran == <<wynik, karta, widzi>>
 vars == <<dysk, nowa, centrum, pc, klikniecia, krok, slady, cofa, skrot, skrotyWTrakcie, ekran>>
 
-\* Znane znaleziska (SKILL.md, model/oczekiwane.json): krok, który zostawia na dysku nieprawdziwe „ok”.
-ZnaneZnaleziska == {"ok_po_dwoch_odmowach", "skrot_gasnie_przed_wynikiem"}
+\* Znane znaleziska (SKILL.md, model/oczekiwane.json): krok awarii, po którym obietnica pada. Dziś żadnego:
+\* ok_po_dwoch_odmowach i skrot_gasnie_przed_wynikiem zamknęło porównanie „po” z działającą wersją (#490).
+ZnaneZnaleziska == {}
 
 Kroki == {"spoczynek", "pobieranie", "kopia_plikow", "checkout_head", "scalanie",
           "przywrocenie_po_odmowie", "przywrocenie_po_scaleniu", "instalacja",
@@ -212,18 +213,24 @@ CofajSlad(kto, opis, slad) == pc' = "cofanie_usun" /\ krok' = opis /\ slady' = s
 \* Klon się nie przesunął, a pliki taty są z powrotem: ToolClone.update usuwa dziennik.
 PoOdmowie(opis) == pc' = "koniec_dziennika" /\ krok' = opis /\ slady' = slady /\ cofa' = "centrum" /\ skrot' = skrot /\ skrotyWTrakcie' = skrotyWTrakcie
 
-\* Karta Centrum, które startuje przy pliku wyniku w: ToolUpdates._after_restart (read_result, _view_of).
-KartaZ(w) == CASE w = "ok" -> "zaktualizowano" [] w = "porazka" -> "porazka" [] OTHER -> "nic"
+\* Karta Centrum, które startuje w wersji head przy pliku wyniku w: ToolUpdates._after_restart (read_result,
+\* _view_of). „ok”, gdy działa inny commit niż jego „po” (running != result.after), to NIEOCZEKIWANY_BLAD (#490):
+\* w modelu każde „ok” ma po = "nowa", więc „ok” przy head = "stara" to porażka.
+KartaZ(w) == CASE w = "ok" /\ head = "nowa" -> "zaktualizowano" [] w /= "brak" -> "porazka" [] OTHER -> "nic"
 
-KartaSlowami(w) == CASE w = "ok" -> "karta mowi 'Narzedzie zaktualizowane'"
+KartaSlowami(w) == CASE w = "ok" /\ head = "nowa" -> "karta mowi 'Narzedzie zaktualizowane'"
+                     [] w = "ok" -> "karta pokazuje porazke: 'ok' przy starej wersji to NIEOCZEKIWANY_BLAD"
                      [] w = "porazka" -> "karta pokazuje porazke aktualizacji"
                      [] OTHER -> "karta nic nie mowi o aktualizacji"
 
 \* Centrum startuje w wersji head przy pliku wyniku w: ToolUpdates._after_restart czyta plik, usuwa go
-\* (unlink w suppress(OSError): przy odmowie dysku plik zostaje do następnego startu) i ustawia kartę.
+\* (przy odmowie dysku plik zostaje do następnego startu) i ustawia kartę. Wynik, który dziennik Centrum już
+\* ma, albo wynik starszej Aktualizacji (CentrumLog.update_awaits, #491) Centrum pomija: karta nic nie mówi.
+\* Dziennika Centrum model nie opisuje, więc każdy start może wynik pominąć; pominięcie nigdy nie daje
+\* „zaktualizowano”.
 StartCentrumZ(w) ==
     /\ centrum' = head
-    /\ karta' = KartaZ(w)
+    /\ karta' \in {KartaZ(w), "nic"}
     /\ wynik' \in IF AwariaKopiowania /\ w /= "brak" THEN {"brak", w} ELSE {"brak"}
     /\ widzi' = "centrum"
 
@@ -560,9 +567,8 @@ OpiekunKoniec ==
     /\ UNCHANGED <<head, plikTaty, biblioteki, nowa, centrum, klikniecia, ekran>>
 
 \* Po _stop restart_guardian.main usuwa plik wyniku (unlink(missing_ok=True) w suppress(OSError)):
-\* „ok” przestało być prawdą. Odmowa dysku zostawia „ok”, a opiekun i tak cofa klon. Ta odmowa to
-\* awaria znanego znaleziska ok_po_dwoch_odmowach: gdy potem dysk odmówi też zapisu porażki
-\* (OpiekunWynik, SkrotWynik), stara wersja przeczyta „ok”.
+\* „ok” przestało być prawdą. Odmowa dysku zostawia „ok”, a opiekun i tak cofa klon. Gdy potem dysk
+\* odmówi też zapisu porażki (OpiekunWynik, SkrotWynik), stara wersja czyta „ok” i pokazuje porażkę (KartaZ).
 OpiekunWycofanie ==
     /\ pc = "opiekun_wycofanie"
     /\ \/ /\ wynik' = "brak"
@@ -570,8 +576,7 @@ OpiekunWycofanie ==
        \/ /\ AwariaKopiowania
           /\ wynik /= "brak"
           /\ UNCHANGED wynik
-          /\ CofajSlad("opiekun", "restart_guardian.main: usuniecie pliku wyniku rzuca OSError, 'ok' zostaje; potem _rolled_back",
-                       "ok_po_dwoch_odmowach")
+          /\ Cofaj("opiekun", "restart_guardian.main: usuniecie pliku wyniku rzuca OSError, 'ok' zostaje; potem _rolled_back")
     /\ UNCHANGED <<dysk, nowa, centrum, klikniecia, karta, widzi>>
 
 \* Po _rolled_back: _record z NOWA_WERSJA_NIE_WYSTARTOWALA (cofnięcie udane, dziennika nie ma) albo
@@ -631,9 +636,7 @@ OpiekunOkienko ==
 \* --- Poza kodem aktualizacji ----------------------------------------------------
 
 \* Komputer gaśnie albo proces ginie (Centrum, opiekun albo skrót w trakcie cofania). Na
-\* dysku zostaje stan z ostatniego kroku, razem z dziennikiem i jego kopią. Zgaśnięcie między
-\* ToolClone.roll_back a write_result w launcher._roll_back, gdy plik wyniku mówi „ok”, to znane
-\* znalezisko skrot_gasnie_przed_wynikiem.
+\* dysku zostaje stan z ostatniego kroku, razem z dziennikiem i jego kopią.
 Wylacz ==
     /\ Wylaczenie
     /\ pc /= "spoczynek"
@@ -643,8 +646,7 @@ Wylacz ==
     /\ karta' = "nic"
     /\ widzi' = "wylaczony"
     /\ krok' = "komputer gasnie w tym kroku"
-    /\ slady' = IF pc = "skrot_wynik" /\ wynik = "ok" THEN slady \cup {"skrot_gasnie_przed_wynikiem"} ELSE slady
-    /\ UNCHANGED <<dysk, nowa, klikniecia, cofa, skrotyWTrakcie, wynik>>
+    /\ UNCHANGED <<dysk, nowa, klikniecia, slady, cofa, skrotyWTrakcie, wynik>>
 
 \* Mija GUARDIAN_LEASE_S od zapisu opiekun_do. Założenie (Scope): opiekun kończy się przed tym
 \* terminem, więc termin mija dopiero wtedy, gdy nic już nie działa.
