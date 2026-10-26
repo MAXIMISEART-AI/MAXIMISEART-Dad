@@ -43,7 +43,15 @@ MUTATIONS = (
     ),
     Mutation(
         "Zgłoszenie odrzucone przez Skrzynkę czeka na internet",
-        (Edit(REPORTS, '        if hold == "rejected":\n            return contract.ReportRejected', "        if False:\n            return contract.ReportRejected"),),
+        # Obie drogi do „odrzucone”: odpowiedź na „Wyślij do Maksa” i odrzucenie, które kolejka zgłasza później.
+        (
+            Edit(REPORTS, '        if hold == "rejected":\n            return contract.ReportRejected', "        if False:\n            return contract.ReportRejected"),
+            Edit(
+                REPORTS,
+                'self._show(contract.ReportRejected(state="rejected"))',
+                'self._show(contract.ReportQueued(state="queued", waits_for="internet"))',
+            ),
+        ),
         ZGLOSZENIE,
         "tata czeka na internet, który nie naprawi treści odrzuconej przez Skrzynkę (Q17)",
     ),
