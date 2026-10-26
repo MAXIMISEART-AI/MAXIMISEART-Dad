@@ -32,11 +32,21 @@ export function MetricsPage() {
   const hasRuns = metrics.state === "ready" && metrics.data.runs.length > 0
   const entrance = useContentEntrance(metrics.state === "loading")
 
+  // Tryby procesu mówi serwer: ma statystyki tylko w trybach procesu (Uporządkowanie INTERMAX nie ma DRY-RUN).
+  const modes =
+    metrics.state === "ready"
+      ? MODE_OPTIONS.filter((option) =>
+          metrics.data.statistics.some((entry) => entry.process === process && entry.mode === option.value)
+        )
+      : MODE_OPTIONS
+
+  const shownMode = modes.some((option) => option.value === mode) ? mode : (modes[0]?.value ?? mode)
+
   // Jeden filtr w nagłówku steruje statystykami i wykresem; historia ma własne filtry.
   const filters = hasRuns ? (
     <>
       <SegmentedFilter label="Proces" options={PROCESS_OPTIONS} value={process} onChange={setProcess} />
-      <SegmentedFilter label="Tryb" options={MODE_OPTIONS} value={mode} onChange={setMode} />
+      <SegmentedFilter label="Tryb" options={modes} value={shownMode} onChange={setMode} />
     </>
   ) : undefined
 
@@ -47,7 +57,7 @@ export function MetricsPage() {
       {metrics.state === "failed" ? <LoadFailure what="metryk" message={metrics.message} reload={reload} /> : null}
       {metrics.state === "ready" && !hasRuns ? <NoMetrics /> : null}
       {metrics.state === "ready" && hasRuns ? (
-        <MetricsContent metrics={metrics.data} process={process} mode={mode} className={entrance} />
+        <MetricsContent metrics={metrics.data} process={process} mode={shownMode} className={entrance} />
       ) : null}
     </>
   )

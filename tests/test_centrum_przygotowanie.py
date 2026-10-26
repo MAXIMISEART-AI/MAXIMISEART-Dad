@@ -52,6 +52,7 @@ SUMMARY: dict[str, Any] = {
         {"name": COLLECTIVE_FILE_NAME, "kind": "collective_file"},
     ],
     "worker_settlements": None,
+    "intermax_copy": None,
 }
 # Domyślny syntetyczny Rejestr ma w URZĄDZENIA tylko urządzenia nieznane Regułom ilości.
 QUANTITY_WARNINGS_WHERE = [
@@ -177,7 +178,8 @@ def test_przerwij_bez_zapisu_zatrzymuje_z_trzema_czesciami_dla_centrum(tmp_path:
     centrum, view = awaiting_decision(tmp_path)
 
     decide(centrum, view, "abort")
-    result = finished_view(centrum.client)["result"]
+    finished = finished_view(centrum.client)
+    result = finished["result"]
 
     assert (result["result"], result["ending"], result["next_action"]) == ("BLAD_KRYTYCZNY", "declined", "rerun")
     assert (result["headline"], result["stop_kind"], result["diagnosis"], result["report"]) == (
@@ -186,7 +188,11 @@ def test_przerwij_bez_zapisu_zatrzymuje_z_trzema_czesciami_dla_centrum(tmp_path:
         None,
         None,
     )
-    assert (result["files_unchanged"], result["opens"]) == (True, "order_register")
+    assert (result["files_unchanged"], result["opens"], finished["run"]["register_name"]) == (
+        True,
+        "order_register",
+        "Rejestr zleceń",
+    )
     assert result["stops"] == [
         {
             "what": "Przerwano z powodu niepełnego okresu, zgodnie z odpowiedzią. Nie utworzono żadnego pliku.",

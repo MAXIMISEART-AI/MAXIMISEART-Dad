@@ -13,7 +13,7 @@ export type ApiTiming = {
     /**
      * Operation
      */
-    operation: 'getHealth' | 'getSettings' | 'chooseRegister' | 'openRegister' | 'choosePeriodsDirectory' | 'changeTheme' | 'getPeriodBoard' | 'openPeriodPath' | 'getQuantitiesToFill' | 'getCollectiveFileVersion' | 'getWithoutQuantity' | 'getKindTable' | 'openWorkerSettlement' | 'getRunSetup' | 'startRun' | 'decideRun' | 'diagnoseRun' | 'reportRun' | 'getRunCard' | 'getNotifications' | 'markNotificationsRead' | 'getMetrics' | 'getConfiguration' | 'startToolUpdate' | 'getToolUpdate' | 'reportToolUpdate' | 'getDadNoteRuns' | 'draftDadNote' | 'sendDadNote' | 'closeCentrum';
+    operation: 'getHealth' | 'getSettings' | 'chooseRegister' | 'openRegister' | 'choosePeriodsDirectory' | 'changeTheme' | 'getPeriodBoard' | 'openPeriodPath' | 'getQuantitiesToFill' | 'getCollectiveFileVersion' | 'getWithoutQuantity' | 'getKindTable' | 'openWorkerSettlement' | 'getRunSetup' | 'startRun' | 'getIntermaxSetup' | 'startIntermax' | 'decideRun' | 'diagnoseRun' | 'reportRun' | 'getRunCard' | 'getNotifications' | 'markNotificationsRead' | 'getMetrics' | 'getConfiguration' | 'startToolUpdate' | 'getToolUpdate' | 'reportToolUpdate' | 'getDadNoteRuns' | 'draftDadNote' | 'sendDadNote' | 'closeCentrum';
     /**
      * Browser Ms
      */
@@ -493,6 +493,35 @@ export type Health = {
 };
 
 /**
+ * IntermaxSetup
+ *
+ * Karta „Uporządkuj INTERMAX” poza okresami: INTERMAX to Rejestr zleceń z Ustawień taty.
+ *
+ * ``reminder`` to przypomnienie przed uruchomieniem, ``blocker`` mówi, czego brakuje w Ustawieniach taty,
+ * ``open_in_excel`` to zdanie o INTERMAX otwartym w Excelu, a ``last`` to karta ostatniego Uporządkowania
+ * INTERMAX z jego Logów Uruchomienia (``None``: żadnego albo jego Logów nie da się odczytać).
+ */
+export type IntermaxSetup = {
+    /**
+     * Title
+     */
+    title: string;
+    /**
+     * Reminder
+     */
+    reminder: string;
+    /**
+     * Blocker
+     */
+    blocker: string | null;
+    /**
+     * Open In Excel
+     */
+    open_in_excel: Array<string>;
+    last: RunRestored | null;
+};
+
+/**
  * KindTableCell
  *
  * Komórka N:AP wiersza na stronie rodzaju: wartość z pliku w kolumnie narzędzia, wpis taty, który robi wiersz, albo nic (0).
@@ -613,7 +642,7 @@ export type LoggedOutcome = {
     /**
      * Next Action
      */
-    next_action: 'run' | 'rerun' | 'open_collective_file' | 'open_worker_settlements_folder';
+    next_action: 'run' | 'rerun' | 'open_collective_file' | 'open_worker_settlements_folder' | 'open_order_register';
     /**
      * Stop Kind
      */
@@ -1107,7 +1136,7 @@ export type ProcessSetup = {
     /**
      * Process
      */
-    process: 'preparation' | 'settlement' | 'intermax';
+    process: 'preparation' | 'settlement';
     /**
      * Title
      */
@@ -1570,7 +1599,10 @@ export type RunIdle = {
 /**
  * RunInfo
  *
- * Uruchomienie procesu; ``confirms_readiness`` deklaruje proces: „Uruchom” potwierdza Gotowość.
+ * Uruchomienie procesu; ``confirms_readiness`` i ``register_name`` deklaruje proces.
+ *
+ * ``confirms_readiness``: „Uruchom” potwierdza Gotowość. ``register_name``: nazwa Rejestru zleceń z Komunikatów
+ * procesu, pod którą karta proponuje otworzyć go przy Zatrzymaniu.
  */
 export type RunInfo = {
     /**
@@ -1597,6 +1629,10 @@ export type RunInfo = {
      * Confirms Readiness
      */
     confirms_readiness: boolean;
+    /**
+     * Register Name
+     */
+    register_name: string;
 };
 
 /**
@@ -1647,7 +1683,7 @@ export type RunOutcome = {
     /**
      * Next Action
      */
-    next_action: 'run' | 'rerun' | 'open_collective_file' | 'open_worker_settlements_folder';
+    next_action: 'run' | 'rerun' | 'open_collective_file' | 'open_worker_settlements_folder' | 'open_order_register';
     /**
      * Stop Kind
      */
@@ -1702,7 +1738,7 @@ export type RunRequest = {
     /**
      * Process
      */
-    process: 'preparation' | 'settlement' | 'intermax';
+    process: 'preparation' | 'settlement';
     /**
      * Period
      */
@@ -1787,6 +1823,10 @@ export type RunSummary = {
      * Worker Settlements
      */
     worker_settlements: Array<WorkerSettlement> | null;
+    /**
+     * Intermax Copy
+     */
+    intermax_copy?: string | null;
 };
 
 /**
@@ -2292,6 +2332,61 @@ export type GetHealthResponses = {
 };
 
 export type GetHealthResponse = GetHealthResponses[keyof GetHealthResponses];
+
+export type GetIntermaxSetupData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/intermax';
+};
+
+export type GetIntermaxSetupResponses = {
+    /**
+     * Successful Response
+     */
+    200: IntermaxSetup;
+};
+
+export type GetIntermaxSetupResponse = GetIntermaxSetupResponses[keyof GetIntermaxSetupResponses];
+
+export type StartIntermaxData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/intermax/run';
+};
+
+export type StartIntermaxErrors = {
+    /**
+     * Not Found
+     */
+    404: Problem;
+    /**
+     * Conflict
+     */
+    409: Problem;
+};
+
+export type StartIntermaxError = StartIntermaxErrors[keyof StartIntermaxErrors];
+
+export type StartIntermaxResponses = {
+    /**
+     * Response Startintermax
+     *
+     * Successful Response
+     */
+    200: ({
+        state: 'idle';
+    } & RunIdle) | ({
+        state: 'running';
+    } & RunRunning) | ({
+        state: 'awaiting_decision';
+    } & RunAwaitingDecision) | ({
+        state: 'finished';
+    } & RunFinished);
+};
+
+export type StartIntermaxResponse = StartIntermaxResponses[keyof StartIntermaxResponses];
 
 export type GetMetricsData = {
     body?: never;

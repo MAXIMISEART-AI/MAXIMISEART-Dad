@@ -1,6 +1,6 @@
 import { ArrowRightIcon, EyeIcon, PlayIcon } from "lucide-react"
 
-import type { NextStep, PeriodRow, Process, ProcessStep } from "@/api/centrum"
+import type { NextStep, PeriodProcess, PeriodRow, ProcessStep } from "@/api/centrum"
 import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { isActive, useRuns } from "@/lib/runs"
@@ -9,13 +9,13 @@ import type { PageHref } from "@/pages"
 const RUNS_PAGE: PageHref = "#/uruchomienia"
 
 /** Proces, który robi następny krok okresu; „none” (okres zamknięty) nie ma procesu. */
-const STEP_PROCESSES: Record<ProcessStep["action"], Process> = {
+const STEP_PROCESSES: Record<ProcessStep["action"], PeriodProcess> = {
   prepare_collective_file: "preparation",
   create_worker_settlements: "settlement",
 }
 
 /** Proces następnego kroku okresu albo `null`, gdy okres jest zamknięty. */
-export function stepProcess(step: NextStep): Process | null {
+export function stepProcess(step: NextStep): PeriodProcess | null {
   return step.action === "none" ? null : STEP_PROCESSES[step.action]
 }
 
@@ -75,7 +75,7 @@ export function PreviewAction({
 }
 
 /** Następny krok w wierszu Tablicy okresów: przejście do Uruchomień z tym procesem i okresem do wybrania. */
-export function PrepareLink({ period, process }: { period: PeriodRow; process: Process }) {
+export function PrepareLink({ period, process }: { period: PeriodRow; process: PeriodProcess }) {
   const { setDraft } = useRuns()
 
   return (

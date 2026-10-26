@@ -3,10 +3,12 @@ import * as React from "react"
 import { failureMessage } from "@/api/client"
 import {
   decideRun,
+  startIntermax,
   startRun,
   watchRunEvents,
   type DecisionAnswer,
   type RunEvent,
+  type RunInfo,
   type RunRequest,
   type RunView,
 } from "@/api/centrum"
@@ -14,6 +16,16 @@ import { toast } from "@/components/ui/toast"
 
 /** Okres i proces wybrane w innym miejscu (np. w Tablicy okresów) do formularza nowego Uruchomienia. */
 export type RunDraft = Pick<RunRequest, "process" | "period">
+
+/** Start Uruchomienia: proces z okresem albo Uporządkowanie INTERMAX, które bierze tylko Ustawienia taty. */
+export type RunStart = RunRequest | { process: "intermax" }
+
+/** Ten sam proces jeszcze raz: z okresem i trybem `dryRun`, a Uporządkowanie INTERMAX z Ustawień taty. */
+export function rerunOf(run: RunInfo, dryRun: boolean = run.dry_run): RunStart {
+  return run.process === "intermax"
+    ? { process: "intermax" }
+    : { process: run.process, period: run.period, dry_run: dryRun }
+}
 
 type RunsContextValue = {
   /** Bieżące Uruchomienie procesu ze strumienia; `null`, dopóki nie przyjdzie pierwszy widok. */
@@ -27,7 +39,7 @@ type RunsContextValue = {
   newRun: (finishedRunId: string) => void
   /** Start wysłany, a strumień nie pokazał jeszcze nowego Uruchomienia; do tej pory kolejny start nic nie wysyła. */
   starting: boolean
-  start: (request: RunRequest) => Promise<boolean>
+  start: (request: RunStart) => Promise<boolean>
   /** Uruchomienie, którego decyzja jest wysłana, a strumień nadal pokazuje, że na nią czeka. */
   deciding: string | null
   decide: (runId: string, answer: DecisionAnswer["answer"]) => void
@@ -152,7 +164,7 @@ export function RunsProvider({ children }: { children: React.ReactNode }) {
         pendingStart.current = pending
         setStarting(true)
 
-        return startRun(request).then(
+        return ("period" in request ? startRun(request) : startIntermax()).then(
           (started) => {
             pending.accepted = shownRun(started)
 
