@@ -101,6 +101,15 @@ def test_run_liczy_kazda_kombinacje_macierzy_i_tylko_zadania_tego_zdarzenia() ->
     assert only_pull_request == Counter({"change-mutations": 3})
 
 
+def _installs_on_linux(job: str) -> list[str]:
+    return [step["run"] for step in jobs()[job]["steps"] if "uv pip install" in step.get("run", "") and "'Windows'" not in step.get("if", "")]
+
+
+def test_change_mutations_instaluje_to_samo_co_czesci_pytest_na_linuksie() -> None:
+    # Change mutations uruchamia testy dotknięte zmianą, a testy tools/scal_pr.py i tools/scalenia_pr.py wołają ruff i mypy.
+    assert _installs_on_linux("change-mutations") == _installs_on_linux("pytest")
+
+
 def test_flagi_e2e_i_timing_wypadaja_na_zamierzonych_czesciach_windows_bez_dodatkowych_zadan() -> None:
     matrix = jobs()["pytest"]["strategy"]["matrix"]
     without_flags = {**matrix, "include": [entry for entry in matrix["include"] if not FLAGS.keys() & entry.keys()]}
