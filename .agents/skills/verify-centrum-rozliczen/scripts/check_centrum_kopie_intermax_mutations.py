@@ -13,7 +13,7 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "tools"))
 sys.path.insert(0, str(Path(__file__).resolve().parents[4] / ".agents/skills/verify-centrum-rozliczen/scripts"))
 
-from cele_mutacji_centrum import BUILD, INTERMAX_COPIES, INTERMAX_RUN, KOPIE
+from cele_mutacji_centrum import BUILD, INTERMAX_COPIES, KOPIE
 from mutacje import Edit, Mutation, check_all
 
 MUTATIONS = (
@@ -34,12 +34,6 @@ MUTATIONS = (
         (Edit(INTERMAX_COPIES, "przed (uporządkowaniem|przywróceniem) (", "przed (uporządkowaniem) ("),),
         KOPIE,
         "po przywróceniu tata nie widzi Kopii stanu sprzed niego, więc nie cofnie przywrócenia",
-    ),
-    Mutation(
-        "chwila Kopii bez strefy czasowej UTC",
-        (Edit(INTERMAX_RUN, "taken_at=copy.moment.astimezone(timezone.utc)", "taken_at=copy.moment"),),
-        KOPIE,
-        "przeglądarka odrzuca odpowiedź z przesunięciem strefy i karta Kopii się nie wczytuje",
     ),
     Mutation(
         "ostrzeżenie bez godziny Kopii",

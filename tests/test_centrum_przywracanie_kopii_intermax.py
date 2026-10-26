@@ -13,6 +13,8 @@ from datetime import datetime, timedelta
 import errno
 import os
 from pathlib import Path
+import sys
+import time
 from typing import Any
 
 import pytest
@@ -106,6 +108,25 @@ def test_konfiguracja_wymienia_kopie_obu_nazw_od_najnowszej_z_chwila_z_nazwy(tmp
         (earlier + timedelta(days=3)).astimezone(),
         earlier.astimezone(),
     ]
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="time.tzset jest tylko w systemach POSIX")
+def test_chwila_kopii_idzie_do_przegladarki_w_utc_takze_na_komputerze_w_strefie_taty(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Schemat przeglądarki przyjmuje tylko chwilę w UTC („Z”); na komputerze w UTC każda chwila tak wygląda.
+    monkeypatch.setenv("TZ", "Europe/Warsaw")
+    time.tzset()
+    try:
+        centrum = ordering_centrum(tmp_path)
+        _copies_like_tool(centrum, [ORDERED])
+
+        listed = _listed(centrum)
+    finally:
+        monkeypatch.undo()
+        time.tzset()
+
+    assert listed["copies"][0]["taken_at"] == "2026-10-26T13:05:07Z"
 
 
 def test_po_uporzadkowaniu_konfiguracja_wymienia_jego_kopie(tmp_path: Path) -> None:
