@@ -1,29 +1,37 @@
 #!/usr/bin/env python3
-"""Hook ``PreToolUse`` Claude Code dla Basha: odrzuca kształty ``rm``, które Claude Code zatrzymuje na zgodzie człowieka.
+"""Hook ``PreToolUse`` Claude Code dla Basha: odrzuca ``rm``, którego Claude Code nie może sprawdzić statycznie.
 
-Claude Code 2.1.309–2.1.310 w trybie ``bypassPermissions`` puszcza ``rm`` bez pytania, ale kilka kształtów polecenia
-zatrzymuje na zgodzie, której udziela tylko człowiek. Agent w tle stoi wtedy bez słowa: 24.10 do 66 min.
-Hook odrzuca je kodem 2 z przyczyną na stderr, która nazywa kształt i poprawkę, więc agent od razu poprawia polecenie:
+Claude Code 2.1.309–2.1.310 w trybie ``bypassPermissions`` puszcza ``rm`` bez pytania, ale ``rm`` w poleceniu
+złożonym, którego skutku nie umie ustalić z samego tekstu, zatrzymuje na zgodzie, której udziela tylko człowiek.
+Agent w tle stoi wtedy bez słowa: 24.10 do 66 min, 26.10 do 104 min. Hook odrzuca takie polecenie kodem 2
+z przyczyną i poprawką na stderr, więc agent od razu je poprawia. Reguła jest jedna: polecenie złożone (lista
+``; && || | &``, nowa linia, pętla, funkcja, podpowłoka, ``$(…)``) z ``rm`` dostaje odmowę, gdy nie da się go
+rozwiązać statycznie:
 
-- ``cd`` i potem cel ``rm`` z gołym względnym ``*`` (``cd X && rm -f logi/*``);
-- cel ``$VAR/$w…``, gdzie ``w`` to zmienna pętli ``for`` (``for w in a b; do rm -f $V/$w-x; done``);
-- podpowłoka zamknięta tuż przed końcem ``$(…)`` (``"$( … || (echo n))"``), którą Claude Code parsuje inaczej niż
-  powłoka, w poleceniu z dowolnym ``rm``;
-- lista ``&&`` z poleceniem ze zmiennej, które uruchamia skrypt ``sh -c`` (``S=env; $S sh -c '…'``), w poleceniu
-  z dowolnym ``rm``;
-- ``rm -r`` z celem z podstawienia ``"$(…)"``.
+- argument ``rm`` zależy od wartości z chwili uruchomienia: ma `` ` ``, ``$(…)``, ``$((…))``, glob ``* ? [``
+  poza apostrofami albo zmienną, której polecenie wcześniej nie nadało dosłownej wartości (``D=/abs; rm -rf $D/x``
+  przechodzi, a ``for w in a; do rm -rf $D/$w; done`` i ``mk() { rm -rf $D/$1; }`` nie); ``${VAR:?}`` jest
+  rozwiązany, bo pusta wartość przerywa polecenie;
+- nazwa któregoś polecenia ma ``$`` albo `` ` `` (``$S sh -c …``), więc nie wiadomo, co uruchomi;
+- ``))`` zamyka podpowłokę i ``$(…)`` naraz (``"$( a || (echo n))"``), co parser Claude Code czyta jak koniec
+  arytmetyki, więc nie widzi, gdzie stoi ``rm``.
 
-Kształty pochodzą z wyroczni: prawdziwy Claude Code (``claude -p`` w trybie bypass, zgoda odrzucana sama) na
-przypadkach z ``tools/wyrocznia_usuwania.jsonl``. Powtórka 43 012 poleceń Basha agentów z 22–25.10.2026 przez ten
-hook odrzuca dokładnie 6 poleceń, które czekały na zgodę, i żadnego, które przeszło bez niej.
-Wszystko inne przechodzi bez słowa (kod 0), także ``rm`` w napisie w cudzysłowie i w ciele heredoca.
-Wejście, którego nie da się odczytać, też przechodzi, bo hook nie może zatrzymać pracy.
+Tę samą regułę hook stosuje do tekstu w cudzysłowie i w ciele heredoca, czytanego jak polecenie, bo Claude Code
+też go czyta: ``echo "for w in a; do rm -f $V/$w; done"`` czeka na zgodę, a ``python3 - <<'EOF'`` z takim
+napisem czekał 26.10 104 min. Odmowa radzi wtedy zapisać plik narzędziem Write albo Edit. Tekst w apostrofach to
+dosłowny tekst, a nie polecenie, więc ``echo a; rm -rf '$(echo x)'`` przechodzi.
 
-Granica: hook naśladuje zachowanie wersji Claude Code, na których biegła wyrocznia (2.1.309–2.1.310), a nie
-reguły z jego kodu. Po aktualizacji Claude Code uruchom wyrocznię ponownie (``tools/wyrocznia_usuwania.py``):
-rozjazd z hookiem to nowy albo zniknięty kształt, który trzeba dopisać do hooka i do pliku przypadków.
-Inne harnessy niż Claude Code (Codex, opencode), ``rm`` w skrypcie uruchomionym z pliku, w ``xargs``,
-``find -delete`` i ``eval`` oraz kształty, których wyrocznia nie sprawdziła, łapie tylko przegląd.
+Reguła jest szersza niż kontrola Claude Code, która rozstrzyga kształt po kształcie: zatrzymuje na przykład
+``cd X && rm -f logi/*``, a ``echo a; rm -f /abs/logi/*`` puszcza, choć hook odrzuca oba. Hook nie naśladuje
+tych kształtów, bo lista kształtów odtworzona z wyroczni nie uogólnia się na nowe polecenia (25.10 przeoczyła
+``mk() { d=$S/$1; rm -rf $d; }``, na którym agent czekał 4 min). Odmowa zbędna wobec Claude Code kosztuje agenta
+jedno poprawione polecenie, a przeoczenie stoi do powrotu człowieka. Wejście, którego nie da się odczytać, też
+przechodzi, bo hook nie może zatrzymać pracy.
+
+Granica: zgodność z Claude Code sprawdza wyrocznia (``tools/wyrocznia_usuwania.py``) na przypadkach z
+``tools/wyrocznia_usuwania.jsonl``. Po aktualizacji Claude Code uruchom ją ponownie: ``ROZJAZD`` to polecenie,
+które Claude Code zatrzymuje, a hook puszcza. Inne harnessy niż Claude Code (Codex, opencode), ``rm`` w skrypcie
+uruchomionym z pliku, w ``xargs``, ``find -delete`` i ``eval`` łapie tylko przegląd.
 Uruchamia go systemowy Python (na Macu 3.9), więc ruff sprawdza ten plik pod 3.9
 (``per-file-target-version`` w ``pyproject.toml``), a plik importuje tylko bibliotekę standardową.
 """
@@ -36,222 +44,261 @@ import re
 import sys
 from typing import Optional
 
-RM_WORD = re.compile(r"(?:^|[^\w.-])rm(?:dir)?(?![\w.-])")
-HEREDOC = re.compile(r"(?<!<)<<-?\s*(['\"]?)([A-Za-z_]\w*)\1")
-ASSIGNMENT = re.compile(r"^[A-Za-z_]\w*=")
-PREFIXES = frozenset({"sudo", "command", "builtin", "nohup", "time", "!", "then", "do", "else"})
-# Katalogi przed ``rm`` bez separatorów list, więc start po każdym ``(`` czyta tylko do następnego.
-_RM_START = r"(?:^|[;&|(\n]|&&|\|\|)\s*(?:[^\s/;&|()]*/)*rm\s+"
-# Flagi jedna po drugiej: ``-\S+\s+`` nie może się podzielić, więc dopasowanie jest liniowe.
-SUBSTITUTED_TARGET = re.compile(_RM_START + r"((?:-\S+\s+)+)[\"']?(?:\$\(|`)")
-RECURSIVE_FLAG = re.compile(r"--r\S*|-[A-Za-z]*[rR][A-Za-z]*")
-LOOP_VARIABLE = re.compile(r"\bfor\s+([A-Za-z_]\w*)\s+in\b")
-VARIABLE_THEN_VARIABLE = re.compile(r"\$\{?[A-Za-z_]\w*\}?/\$\{?([A-Za-z_]\w*)")
-ARITHMETIC = re.compile(r"\$?\(\((?:[^()]|\([^()]*\))*\)\)")
-SUBSHELL_THEN_CLOSE = re.compile(r"(?:\|\||&&|[;|])\s*\([^()]*\)\)")
-# Bez ``(`` w środku: start po każdym ``(`` czyta tylko do następnego.
-VARIABLE_COMMAND_SHELL_SCRIPT = re.compile(
-    r"(?:^|[;&|(\n]|&&|\|\|)\s*\$\{?[A-Za-z_]\w*\}?\s[^;&|\n(]*\b(?:sh|bash|zsh)\s+-\w*c\b"
+GUARDED = re.compile(r"\$\{[A-Za-z_]\w*:\?[^}]*\}")
+BRACED = re.compile(r"\$\{([A-Za-z_]\w*)\}")
+NAME = re.compile(r"[A-Za-z_]\w*|[0-9@#$!-]")
+ASSIGNMENT = re.compile(r"([A-Za-z_]\w*)\+?=")
+# Słowa przed nazwą polecenia: słowa kluczowe Basha i polecenia, które uruchamiają swoje argumenty.
+PREFIXES = frozenset(
+    {"!", "{", "do", "then", "else", "elif", "if", "while", "until", "time", "sudo", "command", "builtin", "exec", "nohup"}
 )
-CD = re.compile(r"^cd(?:\s|$)")
-BARE_STAR = re.compile(r"(?:^|/)\*$")
 
 WHY = (
-    "Claude Code w trybie bypass zatrzymałby to polecenie na zgodzie, której udziela tylko człowiek, "
-    "a agent w tle czekałby na nią bez końca."
+    "Claude Code w trybie bypass zatrzymuje rm, którego nie umie rozwiązać statycznie, na zgodzie, "
+    "której udziela tylko człowiek, a agent w tle czekałby na nią bez końca."
 )
 FIX = (
     "Uruchom rm osobnym wywołaniem Basha z dosłowną ścieżką bezwzględną (rm -f /abs/katalog/logi/a.txt, "
     "rm -rf /abs/katalog/logi) albo ze zmienną w postaci ${VAR:?}, a resztę polecenia w następnym wywołaniu. "
     "Worktree usuwa git worktree remove <ścieżka>."
 )
+TEXT_FIX = (
+    "To rm stoi w tekście w cudzysłowie albo w heredocu, który Claude Code też sprawdza: kod albo dane z rm zapisz "
+    "do pliku narzędziem Write albo Edit i uruchom ten plik, a w poleceniu Basha rozwiąż ścieżkę (dosłowna ścieżka "
+    "albo ${VAR:?})."
+)
+
+
+@dataclass
+class Word:
+    text: str = ""
+    # Wartość zależy od chwili uruchomienia: glob albo rozwinięcie bez dosłownej wartości.
+    dynamic: bool = False
+    # Ma ``$`` albo `` ` ``, także zmienną z dosłowną wartością.
+    expanded: bool = False
 
 
 @dataclass(frozen=True)
 class Refusal:
-    shape: str
     reason: str
+    fix: str = FIX
 
     @property
     def message(self) -> str:
-        return f"Odmowa ({self.shape}): {self.reason} {WHY} {FIX}"
+        return f"Odmowa: {self.reason} {WHY} {self.fix}"
 
 
-PARSE_DIVERGENCE = Refusal(
-    "podpowłoka przed końcem $(…)",
-    "podpowłoka zamyka się tuż przed końcem $(…) (\"))\"), co Claude Code parsuje inaczej niż powłoka, "
-    "więc nie sprawdzi rm w tym poleceniu.",
-)
-SUBSTITUTED = Refusal("rm -r z celem z $(…)", "rm -r bierze cel z podstawienia $(…).")
-VARIABLE_SHELL_SCRIPT = Refusal(
-    "polecenie ze zmiennej z sh -c",
-    "lista && i polecenie ze zmiennej, które uruchamia skrypt sh -c, więc Claude Code nie sprawdzi rm w tym poleceniu.",
-)
+class _Reader:
+    """Czyta tekst polecenia znak po znaku: cudzysłowy, rozwinięcia ``$``, podstawienia, przekierowania i heredoki."""
 
+    def __init__(self, text: str) -> None:
+        self.text = text
+        self.at = 0
+        self.commands: list[list[Word]] = []
+        self.subshell = False
+        self.ambiguous_close = False
+        # Tekst w cudzysłowie i ciała heredoców, które Claude Code też czyta jak polecenie.
+        self.texts: list[str] = []
+        # Zmienne, którym polecenie nadało już dosłowną wartość.
+        self.known: set[str] = set()
+        self.heredocs: list[tuple[str, bool]] = []
 
-def _without_heredocs(command: str) -> str:
-    kept: list[str] = []
-    lines = command.split("\n")
-    index = 0
-    while index < len(lines):
-        line = lines[index]
-        kept.append(line)
-        index += 1
-        for _, delimiter in HEREDOC.findall(line):
-            while index < len(lines) and lines[index].strip() != delimiter:
-                index += 1
-            index += 1
-    return "\n".join(kept)
+    def peek(self) -> str:
+        return self.text[self.at : self.at + 1]
 
+    def commands_until(self, stop: str) -> None:
+        """Polecenia do ``stop`` (``)`` po ``$(``, `` ` ``) poza cudzysłowem albo do końca tekstu."""
 
-def _segments(command: str) -> list[str]:
-    """Proste polecenia: podział na ``; & | && || ( ) { }`` i nowej linii oraz wokół ciał ``$(…)``, poza cudzysłowami."""
+        words: list[Word] = []
+        subshells = 0
+        redirected = False
+        while self.at < len(self.text):
+            char = self.text[self.at]
+            if char == stop and not subshells:
+                self.at += 1
+                break
+            if char in " \t":
+                self.at += 1
+            elif char == "#":
+                newline = self.text.find("\n", self.at)
+                self.at = len(self.text) if newline < 0 else newline
+            elif char in "<>":
+                redirected = self.redirection()
+            elif char not in "\n;&|()":
+                word = self.word()
+                if not redirected:
+                    words.append(word)
+                redirected = False
+            else:
+                self.end(words)
+                words, redirected = [], False
+                self.at += 1
+                if char == "\n":
+                    self.heredoc_bodies()
+                elif char == "(" and self.peek() == "(":
+                    self.at = self.arithmetic(self.at + 1)
+                elif char == "(":
+                    self.subshell = True
+                    subshells += 1
+                elif char == ")" and subshells:
+                    subshells -= 1
+                    if not subshells and self.peek() == ")":
+                        self.ambiguous_close = True
+        self.end(words)
 
-    segments: list[str] = []
-    current: list[str] = []
-    # Cudzysłów, w którym stało każde otwarte ``$(``: po jego ``)`` napis trwa dalej.
-    open_substitutions: list[Optional[str]] = []
-    quote: Optional[str] = None
-    index = 0
-    while index < len(command):
-        char = command[index]
-        if quote == "'":
-            current.append(char)
+    def end(self, words: list[Word]) -> None:
+        # Słowo kończące pętlę albo grupę (``done``, ``fi``, ``}``) zostaje osobnym poleceniem, więc pętla, funkcja
+        # i grupa są złożone tak jak lista.
+        start = 0
+        while start < len(words):
+            if words[start].text == "function":
+                start += 2
+            elif words[start].text in PREFIXES or ASSIGNMENT.match(words[start].text):
+                start += 1
+            else:
+                break
+        if start >= len(words):
+            # Same przypisania nadają wartość do końca polecenia, a przypisanie przed poleceniem tylko jemu.
+            for word in words:
+                assigned = ASSIGNMENT.match(word.text)
+                if assigned and word.dynamic:
+                    self.known.discard(assigned.group(1))
+                elif assigned:
+                    self.known.add(assigned.group(1))
+        elif words[start].text in ("for", "select") and start + 1 < len(words):
+            self.known.discard(words[start + 1].text)
+        else:
+            self.commands.append(words[start:])
+
+    def redirection(self) -> bool:
+        """Operator przekierowania; ``True``, gdy następne słowo to jego cel, a nie argument polecenia."""
+
+        if self.text.startswith("<<", self.at) and not self.text.startswith("<<<", self.at):
+            self.at += 2
+            strip = self.peek() == "-"
+            self.at += strip
+            while self.peek() in (" ", "\t"):
+                self.at += 1
+            self.heredocs.append((self.word().text, strip))
+            return False
+        while self.peek() in ("<", ">", "&", "|"):
+            self.at += 1
+        return True
+
+    def heredoc_bodies(self) -> None:
+        for delimiter, strip in self.heredocs:
+            body: list[str] = []
+            while self.at < len(self.text):
+                newline = self.text.find("\n", self.at)
+                end = len(self.text) if newline < 0 else newline
+                line = self.text[self.at : end]
+                self.at = end + 1
+                if (line.lstrip("\t") if strip else line) == delimiter:
+                    break
+                body.append(line)
+            self.texts.append("\n".join(body))
+        self.heredocs = []
+
+    def word(self) -> Word:
+        word = Word()
+        parts: list[str] = []
+        while self.at < len(self.text):
+            char = self.text[self.at]
+            if char in " \t\n;&|()<>":
+                break
             if char == "'":
-                quote = None
-        elif char == "\\" and index + 1 < len(command):
-            current.append(command[index : index + 2])
-            index += 1
-        elif command.startswith("${", index):
-            # ``${V}`` i ``${V:?}`` to część słowa, a nie grupa ``{ …; }``.
-            close = command.find("}", index)
-            end = len(command) if close < 0 else close + 1
-            current.append(command[index:end])
-            index = end - 1
-        elif command.startswith("$(", index):
-            current.append("$(")
-            segments.append("".join(current))
-            current = []
-            open_substitutions.append(quote)
-            quote = None
-            index += 1
-        elif quote == '"':
-            current.append(char)
-            if char == '"':
-                quote = None
-        elif char in "'\"":
-            quote = char
-            current.append(char)
-        elif char == ")" and open_substitutions:
-            segments.append("".join(current))
-            current = [")"]
-            quote = open_substitutions.pop()
-        elif char in ";&|\n(){}":
-            segments.append("".join(current))
-            current = []
+                close = self.text.find("'", self.at + 1)
+                end = len(self.text) if close < 0 else close
+                parts.append(self.text[self.at + 1 : end])
+                self.at = end + 1
+            elif char == '"':
+                self.at += 1
+                start = len(parts)
+                while self.at < len(self.text) and self.text[self.at] != '"':
+                    self.part(word, parts, self.text[self.at])
+                self.at += 1
+                self.texts.append("".join(parts[start:]))
+            else:
+                self.part(word, parts, char)
+        word.text = "".join(parts)
+        return word
+
+    def part(self, word: Word, parts: list[str], char: str) -> None:
+        """Jeden znak słowa poza apostrofami: ``\\x``, rozwinięcie albo zwykły znak."""
+
+        if char == "\\":
+            parts.append(self.text[self.at + 1 : self.at + 2])
+            self.at += 2
+        elif char in "$`":
+            start = self.at
+            word.dynamic = self.expansion() or word.dynamic
+            word.expanded = True
+            parts.append(self.text[start : self.at])
         else:
-            current.append(char)
-        index += 1
-    segments.append("".join(current))
-    return [segment.strip() for segment in segments if segment.strip()]
+            word.dynamic = word.dynamic or char in "*?["
+            parts.append(char)
+            self.at += 1
 
+    def expansion(self) -> bool:
+        """Rozwinięcie od ``$`` albo `` ` ``; ``True``, gdy jego wartość zależy od chwili uruchomienia."""
 
-def _words(segment: str) -> list[str]:
-    words: list[str] = []
-    current: list[str] = []
-    quote: Optional[str] = None
-    index = 0
-    while index < len(segment):
-        char = segment[index]
-        if quote:
-            current.append(char)
-            if char == quote:
-                quote = None
-        elif char in "'\"":
-            quote = char
-            current.append(char)
-        elif char == "\\" and index + 1 < len(segment):
-            current.append(segment[index : index + 2])
+        if self.text[self.at] == "`":
+            self.at += 1
+            self.commands_until("`")
+            return True
+        if self.text.startswith("$((", self.at):
+            self.at = self.arithmetic(self.at + 3)
+            return True
+        if self.text.startswith("$(", self.at):
+            self.at += 2
+            self.commands_until(")")
+            return True
+        if self.text.startswith("${", self.at):
+            close = self.text.find("}", self.at)
+            end = len(self.text) if close < 0 else close + 1
+            expansion = self.text[self.at : end]
+            self.at = end
+            braced = BRACED.fullmatch(expansion)
+            return not GUARDED.fullmatch(expansion) and not (braced and braced.group(1) in self.known)
+        name = NAME.match(self.text, self.at + 1)
+        self.at = self.at + 1 if name is None else name.end()
+        return name is not None and name.group() not in self.known
+
+    def arithmetic(self, start: int) -> int:
+        """Indeks za ``))`` arytmetyki, której ``((`` kończy się przed ``start``."""
+
+        depth, index = 2, start
+        while index < len(self.text) and depth:
+            depth += {"(": 1, ")": -1}.get(self.text[index], 0)
             index += 1
-        elif char.isspace():
-            if current:
-                words.append("".join(current))
-            current = []
-        else:
-            current.append(char)
-        index += 1
-    if current:
-        words.append("".join(current))
-    return words
+        return index
 
 
-def _rm_targets(segment: str) -> Optional[list[str]]:
-    """Cele ``rm``/``rmdir``, gdy proste polecenie je uruchamia, a inaczej ``None``."""
-
-    words = _words(segment)
-    start = 0
-    while start < len(words) and ASSIGNMENT.match(words[start]):
-        start += 1
-    while start < len(words) and words[start] in PREFIXES:
-        start += 1
-    if start == len(words) or words[start].rsplit("/", 1)[-1] not in ("rm", "rmdir"):
-        return None
-    arguments = words[start + 1 :]
-    end = arguments.index("--") if "--" in arguments else len(arguments)
-    return [word for word in arguments[:end] if not word.startswith("-")] + arguments[end + 1 :]
-
-
-def _unquoted(word: str) -> tuple[str, str]:
-    if len(word) >= 2 and word[0] == word[-1] and word[0] in "'\"":
-        return word[1:-1], word[0]
-    return word, ""
-
-
-def _substituted_recursive_target(command: str) -> bool:
-    return any(
-        any(RECURSIVE_FLAG.fullmatch(flag) for flag in match.group(1).split())
-        for match in SUBSTITUTED_TARGET.finditer(command)
-    )
+def _judge(command: str, fix: str) -> Optional[Refusal]:
+    reader = _Reader(command)
+    reader.commands_until("")
+    removals = [words for words in reader.commands if words[0].text.rsplit("/", 1)[-1] == "rm"]
+    if removals and (reader.subshell or len(reader.commands) > 1):
+        for word in [word for words in removals for word in words[1:]]:
+            if word.dynamic:
+                return Refusal(f"argument rm {word.text} zależy od wartości z chwili uruchomienia (zmienna, $(…) albo glob).", fix)
+        for words in reader.commands:
+            if words[0].expanded:
+                return Refusal(f"polecenie {words[0].text} bierze nazwę ze zmiennej, więc nie wiadomo, co uruchomi obok rm.", fix)
+        if reader.ambiguous_close:
+            return Refusal("\"))\" zamyka podpowłokę i $(…) naraz, więc parser Claude Code nie widzi, gdzie stoi rm.", fix)
+    for text in reader.texts:
+        refusal = _judge(text, TEXT_FIX)
+        if refusal is not None:
+            return refusal
+    return None
 
 
 def judge(command: str) -> Optional[Refusal]:
-    shell = _without_heredocs(command)
-    if not RM_WORD.search(shell):
+    try:
+        return _judge(command, FIX)
+    except RecursionError:
         return None
-    segments = _segments(shell)
-    targets: dict[str, list[str]] = {}
-    for segment in segments:
-        found = _rm_targets(segment)
-        if found is not None:
-            targets[segment] = found
-    if not targets:
-        return None
-    if "$(" in shell and SUBSHELL_THEN_CLOSE.search(ARITHMETIC.sub("", shell)):
-        return PARSE_DIVERGENCE
-    if _substituted_recursive_target(shell):
-        return SUBSTITUTED
-    if "&&" in shell and VARIABLE_COMMAND_SHELL_SCRIPT.search(shell):
-        return VARIABLE_SHELL_SCRIPT
-    loop_variables = set(LOOP_VARIABLE.findall(shell))
-    after_cd = False
-    for segment in segments:
-        if CD.match(segment):
-            after_cd = True
-            continue
-        for target in targets.get(segment, ()):
-            path, quote = _unquoted(target)
-            for variable in VARIABLE_THEN_VARIABLE.findall(path):
-                if variable in loop_variables:
-                    return Refusal(
-                        "cel ze zmienną pętli",
-                        f"cel rm {target} to $VAR/${variable}…, gdzie {variable} to zmienna pętli for: "
-                        "z pustą wartością cel staje się ścieżką od korzenia.",
-                    )
-            if after_cd and quote != "'" and not path.startswith(("/", "~", "$")) and BARE_STAR.search(path):
-                return Refusal(
-                    "goły * po cd", f"cel rm {target} to goły względny * po cd, którego Claude Code nie umie rozwiązać."
-                )
-    return None
 
 
 def main() -> int:

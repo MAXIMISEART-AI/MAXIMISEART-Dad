@@ -1,20 +1,22 @@
 """Wyrocznia hooka ``tools/hooks/usuwanie.py``: pyta zainstalowany Claude Code, które polecenia z ``rm`` zatrzymuje na zgodzie.
 
-Hook naśladuje zachowanie Claude Code, a nie reguły z jego kodu, więc po każdej aktualizacji Claude Code ta wyrocznia
-sprawdza, czy hook dalej odrzuca dokładnie to, co Claude Code zatrzymuje. Dla każdego przypadku z
+Hook ma regułę szerszą niż kontrola Claude Code, więc po każdej aktualizacji Claude Code ta wyrocznia sprawdza, czy
+hook dalej odrzuca każde polecenie, które Claude Code zatrzymuje. Dla każdego przypadku z
 ``tools/wyrocznia_usuwania.jsonl`` uruchamia ``claude -p`` w trybie ``bypassPermissions`` z odrzucaną zgodą
-(``--permission-prompts none``), każe mu wysłać polecenie Bashem bajt w bajt i czyta z ``stream-json``, czy Claude Code
-odmówił (``permission_denials``). Polecenia naprawdę biegną, więc ścieżki ``@WS@``, ``@FAR@`` i ``@TFAR@`` (ta sama co
-``@FAR@``, ale przez ``~``) prowadzą do katalogu tymczasowego w ``~/.cache``, który narzędzie usuwa na końcu.
+(``--permission-prompts none``), każe mu wysłać polecenie Bashem bajt w bajt i czyta z ``stream-json`` pierwsze
+polecenie Basha, które model wysłał, i to, czy Claude Code odmówił (``permission_denials``). Polecenia naprawdę
+biegną, więc ścieżki ``@WS@``, ``@FAR@`` i ``@TFAR@`` (ta sama co ``@FAR@``, ale przez ``~``) prowadzą do katalogu
+tymczasowego w ``~/.cache``, który narzędzie usuwa na końcu.
 Katalog roboczy ``@WS@`` nie jest repozytorium, więc hooki projektu w nim nie działają.
 
-Wiersz na przypadek: ``ZGODNE``, ``ROZJAZD`` (Claude Code i hook rozstrzygają inaczej), ``ZMIANA`` (Claude Code
-rozstrzyga inaczej, niż zapisał plik przypadków) albo ``NIEDOSŁOWNIE`` (model zmienił polecenie albo nie wysłał go
-przed limitem czasu, więc przypadek nic nie mówi). Ostatnia linia to ``WYROCZNIA OK | …`` (kod 0) albo
+Wiersz na przypadek: ``ZGODNE`` (Claude Code i hook rozstrzygają tak samo), ``SZERSZY`` (hook odrzuca polecenie,
+które Claude Code puszcza), ``ROZJAZD`` (Claude Code zatrzymuje polecenie, które hook puszcza), ``ZMIANA`` (Claude
+Code rozstrzyga inaczej, niż zapisał plik przypadków) albo ``NIEDOSŁOWNIE`` (model zmienił polecenie albo nie wysłał
+go przed limitem czasu, więc przypadek nic nie mówi). Ostatnia linia to ``WYROCZNIA OK | …`` (kod 0) albo
 ``WYROCZNIA ROZJAZD | …`` (kod 1), gdy któryś przypadek ma ``ROZJAZD`` albo ``ZMIANA``: wtedy popraw hook, test
 ``tests/test_usuwanie.py`` i pole ``pyta_o_zgode`` w pliku przypadków. Bez ``claude`` na PATH kończy się kodem 2.
 
-    .venv/bin/python tools/wyrocznia_usuwania.py                      # wszystkie przypadki, ok. 30 min
+    .venv/bin/python tools/wyrocznia_usuwania.py                      # wszystkie przypadki, ok. 60 min
     .venv/bin/python tools/wyrocznia_usuwania.py var-loop abs-cd-glob  # wybrane przypadki
 """
 
@@ -102,11 +104,12 @@ def ask(command: str, workspace: Path, model: str, limit_s: float) -> Answer:
 def verdict(case: Case, command: str, got: Answer) -> str:
     if got.sent != command:
         return "NIEDOSŁOWNIE"
-    if got.asks != (usuwanie.judge(command) is not None):
+    refused = usuwanie.judge(command) is not None
+    if got.asks and not refused:
         return "ROZJAZD"
     if case.asks is not None and got.asks != case.asks:
         return "ZMIANA"
-    return "ZGODNE"
+    return "SZERSZY" if refused and not got.asks else "ZGODNE"
 
 
 def main(argv: Sequence[str] | None = None) -> int:
