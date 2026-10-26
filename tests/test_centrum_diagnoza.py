@@ -285,7 +285,7 @@ def test_diagnoza_przygotowania_sprawdza_po_kolei_ustawienia_onedrive_rejestr_wz
         ("Folder okresu", "Folderu 08_14_09_2026 jeszcze nie ma."),
         ("Pliki okresu w Excelu", "Żaden plik okresu nie jest otwarty w Excelu."),
         ("Aktualność narzędzia", "Najnowsza wersja z GitHuba, commit 3c1d0a9."),
-        ("Klucz do Zgłoszeń", "Na tym komputerze nie ma klucza do Zgłoszeń. Zgłoszenie poczeka, aż Maks go wpisze."),
+        ("Token do Zgłoszeń", "Na tym komputerze nie ma Tokenu do Zgłoszeń. Zgłoszenie poczeka, aż Maks go wpisze."),
         ("Dziennik Centrum rozliczeń", "Ostatnie wpisy od startu Centrum: 4."),
     ]
 
@@ -579,7 +579,7 @@ def test_diagnoza_przebiegu_sprawdza_wzorzec_pracownika_i_plik_zbiorczy(tmp_path
         ("Folder okresu", "passed"),
         ("Pliki okresu w Excelu", "passed"),
         ("Aktualność narzędzia", "passed"),
-        ("Klucz do Zgłoszeń", "failed"),
+        ("Token do Zgłoszeń", "failed"),
         ("Dziennik Centrum rozliczeń", "passed"),
     ]
     assert check(passing, "Folder okresu") == ("passed", "Pliki okresu: Plik zbiorczy.")
@@ -629,7 +629,7 @@ def check(diagnosis: dict[str, Any], label: str) -> tuple[str, str]:
     return found["state"], found["detail"]
 
 
-REFUSED_KEY = ("failed", "Skrzynka Zgłoszeń odrzuca klucz. Zgłoszenie poczeka, aż Maks go wymieni.")
+REFUSED_KEY = ("failed", "Skrzynka Zgłoszeń odrzuca Token do Zgłoszeń. Zgłoszenie poczeka, aż Maks go wymieni.")
 
 
 def box_now_answers(centrum: PreparingCentrum, failure: Refused | Unreachable) -> None:
@@ -648,9 +648,9 @@ def test_diagnoza_pokazuje_odrzucony_klucz_jako_sprawdzenie_a_wyjasnieniem_zosta
 
     diagnosis = diagnose(centrum, stopped["run"]["id"])
 
-    assert check(diagnosis, "Klucz do Zgłoszeń") == REFUSED_KEY
+    assert check(diagnosis, "Token do Zgłoszeń") == REFUSED_KEY
     assert diagnosis["explanation"] == stopped["result"]["stops"][0]
-    assert f"| Klucz do Zgłoszeń | nie przeszło | {REFUSED_KEY[1]} |" in diagnosis["report"]["body"]
+    assert f"| Token do Zgłoszeń | nie przeszło | {REFUSED_KEY[1]} |" in diagnosis["report"]["body"]
 
 
 def test_diagnoza_bez_innej_przyczyny_i_z_odrzuconym_kluczem_nie_znajduje_przyczyny(tmp_path: Path) -> None:
@@ -661,8 +661,18 @@ def test_diagnoza_bez_innej_przyczyny_i_z_odrzuconym_kluczem_nie_znajduje_przycz
 
     diagnosis = diagnose(centrum, run_id)
 
-    assert check(diagnosis, "Klucz do Zgłoszeń") == REFUSED_KEY
+    assert check(diagnosis, "Token do Zgłoszeń") == REFUSED_KEY
     assert (diagnosis["explanation"], diagnosis["next_action"]) == (NOT_FOUND, "report")
+
+
+def test_diagnoza_z_tokenem_przyjetym_przez_skrzynke_mowi_ze_skrzynka_go_przyjmuje(tmp_path: Path) -> None:
+    centrum = preparing_centrum(tmp_path)
+    with_key(centrum)
+    run_id = stopped_for_maks(centrum)
+
+    diagnosis = diagnose(centrum, run_id)
+
+    assert check(diagnosis, "Token do Zgłoszeń") == ("passed", "Skrzynka Zgłoszeń przyjmuje Token do Zgłoszeń.")
 
 
 def test_diagnoza_z_kluczem_bez_sieci_go_nie_sprawdzila(tmp_path: Path) -> None:
@@ -673,7 +683,7 @@ def test_diagnoza_z_kluczem_bez_sieci_go_nie_sprawdzila(tmp_path: Path) -> None:
 
     diagnosis = diagnose(centrum, run_id)
 
-    assert check(diagnosis, "Klucz do Zgłoszeń") == (
+    assert check(diagnosis, "Token do Zgłoszeń") == (
         "not_checked",
         "Nie sprawdzono: brak połączenia ze Skrzynką Zgłoszeń.",
     )
