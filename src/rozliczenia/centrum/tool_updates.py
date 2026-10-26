@@ -137,16 +137,27 @@ class ToolUpdates:
     def _after_restart(self) -> None:
         """Wynik od opiekuna ponownego startu: do dziennika i do karty, raz, bez czekania na sieć.
 
-        Po porażce (np. cofnięcie nowej wersji) skrzynkę Zgłoszeń pyta w tle uchwyt Zgłoszenia: start Centrum na nią
-        nie czeka.
+        „ok” przy działającym commicie innym niż „po” to porażka nieoczekiwana: nowa wersja nie działa (#490). Wynik,
+        który dziennik już ma, albo wynik starszej Aktualizacji (``CentrumLog.update_awaits``) Centrum pomija, bo dysk
+        mógł nie dać usunąć jego pliku (#491). Po porażce (np. cofnięcie nowej wersji) skrzynkę Zgłoszeń pyta w tle
+        uchwyt Zgłoszenia: start Centrum na nią nie czeka.
         """
 
         result = read_result(self._result_file)
         if result is None:
             return
+        running = self._commit()
+        if result.code == UPDATED and running is not None and running != result.after:
+            result = replace(result, code=UNEXPECTED)
+        if not self._log.update_awaits(result=result.code, before=result.before, after=result.after):
+            with suppress(OSError):  # dziennik już wie, że ten wynik nie jest nowy
+                self._result_file.unlink(missing_ok=True)
+            return
         self._finished(result)
-        with suppress(OSError):  # wynik i tak jest już w dzienniku; plik zostaje do następnego startu
+        try:
             self._result_file.unlink(missing_ok=True)
+        except OSError as failure:  # następny start zastaje ten wynik w dzienniku i go pomija
+            self._log.update_result_kept(failure)
         self._view = _view_of(result) or self._failed(result)
 
     def _update(self, clone: ToolClone, before: str | None, port: int) -> None:

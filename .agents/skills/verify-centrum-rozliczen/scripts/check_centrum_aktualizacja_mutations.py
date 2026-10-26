@@ -29,6 +29,18 @@ MUTATIONS = (
         AKTUALIZACJA,
         "karta mówi „Masz najnowszą wersję.” o Wydaniu, którego Centrum już nie zna",
     ),
+    Mutation(
+        "„ok” od opiekuna bez porównania z działającym commitem",
+        (
+            Edit(
+                TOOL_UPDATES,
+                "        if result.code == UPDATED and running is not None and running != result.after:\n",
+                "        if False:\n",
+            ),
+        ),
+        AKTUALIZACJA,
+        "stara wersja po cofnięciu nie pokazuje porażki, gdy w pliku wyniku zostało „ok”",
+    ),
 )
 
 
