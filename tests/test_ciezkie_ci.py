@@ -253,22 +253,38 @@ RED_BASELINE_LINE = "PODSTAWA CZERWONA: -c raise SystemExit(1) → kod wyjścia 
 
 def _mutation_list(tmp_path: Path, count: int) -> Path:
     path = tmp_path / "mutacje.json"
-    entries = [{"nazwa": f"m{number}", "zmiany": [["src/rozliczenia/__init__.py", "", f"X = {number}\n"]]} for number in range(count)]
+    # Dwie zmiany w każdej mutacji: limit liczy mutacje, nie zmiany.
+    edits = [["src/rozliczenia/__init__.py", "", "X = 1\n"], ["src/rozliczenia/inny.py", "", "Y = 1\n"]]
+    entries = [{"nazwa": f"m{number}", "zmiany": edits} for number in range(count)]
     path.write_text(json.dumps(entries), encoding="utf-8")
     return path
 
 
 @pytest.mark.parametrize(
-    ("count", "change"),
-    [(101, ()), (100, ("--zmiana", "src/rozliczenia/__init__.py", "", "X = 0\n"))],
-    ids=["101 z pliku", "100 z pliku i jedna z --zmiana"],
+    ("count", "extra", "refused"),
+    [
+        (101, (), "CIĘŻKIE CI ODMOWA | change-mutations "),
+        (100, ("--zmiana", "src/rozliczenia/__init__.py", "", "X = 0\n"), "CIĘŻKIE CI ODMOWA | change-mutations "),
+        pytest.param(
+            101,
+            ("--odtwarzam", "123"),
+            "CIĘŻKIE CI ODMOWA | --odtwarzam 123: run dotyczy gałęzi inna",
+            marks=pytest.mark.skipif(sys.platform == "win32", reason="atrapa gh to skrypt sh"),
+        ),
+    ],
+    ids=["101 z pliku", "100 z pliku i jedna z --zmiana", "odtworzenie runu innej galezi"],
 )
-def test_mutacje_z_lista_ponad_100_poza_ci_odmawiaja_zanim_policza_podstawe(tmp_path: Path, count: int, change: tuple[str, ...]) -> None:
-    done = _tool(_repo(tmp_path), "tools/mutacje.py", "--plik", str(_mutation_list(tmp_path, count)), *change, *RED_BASELINE)
+def test_mutacje_z_lista_ponad_100_poza_ci_odmawiaja_zanim_policza_podstawe(
+    tmp_path: Path, count: int, extra: tuple[str, ...], refused: str
+) -> None:
+    repo = _repo(tmp_path)
+    env = _with_fake_gh(tmp_path, {"headBranch": "inna", "headSha": "0" * 40, "jobs": RED_MUTATIONS})
+
+    done = _tool(repo, "tools/mutacje.py", "--plik", str(_mutation_list(tmp_path, count)), *extra, *RED_BASELINE, env=env)
 
     assert done.returncode == 2, done.stdout + done.stderr
     [line] = done.stdout.splitlines()
-    assert line.startswith("CIĘŻKIE CI ODMOWA | change-mutations ") and "a ta lista ma 101." in line
+    assert line.startswith(refused) and "a ta lista ma 101." in line
 
 
 @pytest.mark.parametrize(

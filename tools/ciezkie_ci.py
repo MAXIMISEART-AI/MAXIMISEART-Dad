@@ -20,7 +20,7 @@ Granica: tylko przegląd łapie ``GITHUB_ACTIONS``, ``MAXIMISEART_ODTWARZAM`` al
 podstawione ręcznie, ``tools/na_scalonych_pr.py --commit`` z commitem własnej gałęzi, ``tools/mutacje_skilli.py``
 uruchomione wprost, własny skrypt, który woła silnik (``check_all``, ``verdicts``) z długą listą, pytest z własną
 pętlą mutacji, a także ręczne ``change-mutations`` w kilku uruchomieniach ``tools/mutacje.py`` po najwyżej ``TARGETED``
-mutacji albo dla zmiany, która daje ich tyle: strażnik liczy listę jednego uruchomienia, nie jej pochodzenie.
+mutacji albo dla zmiany, która daje ich najwyżej tyle: strażnik liczy listę jednego uruchomienia, nie jej pochodzenie.
 """
 
 from __future__ import annotations
