@@ -94,7 +94,6 @@ _PANE: Final = re.compile(rb"<pane\b([^>]*?)\s*/>")
 _CONTRACT_NUMBER: Final = "NUMER UMOWY/ZLECENIA ORANGE"
 """Nagłówek docelowy kolumny ``NUMER UMOWY`` w ``COLUMNS`` Rejestru."""
 _TAB_SELECTED: Final = re.compile(rb'(<sheetView\b[^>]*?)\stabSelected="(?:1|true)"')
-_ACTIVE_TAB: Final = re.compile(rb'(<workbookView\b[^>]*?)\sactiveTab="[^"]*"')
 _WORKBOOK_VIEW: Final = re.compile(rb"<workbookView\b([^>]*?)(/?>)")
 _STYLE_LISTS: Final = (b"fonts", b"fills", b"borders", b"cellXfs")
 """Listy ``xl/styles.xml``, na których końcu zapis dopisuje wpisy."""
@@ -353,8 +352,7 @@ class Register:
         looks = _Looks(self._styles, sheet.columns)
         sheet_xml = _ordered_sheet(xml, sheet.columns, block, plan, looks)
         parts = {
-            **{part: _TAB_SELECTED.sub(rb"\1", self._parts[part]) for part in self._sheet_parts if part != sheet.part},
-            self._workbook_part: _with_active_tab(self._parts[self._workbook_part], self._sheet_parts.index(sheet.part)),
+            **self._tabs(sheet),
             sheet.part: sheet_xml,
             self._styles_part: looks.styles(self._parts[self._styles_part]),
         }
@@ -378,23 +376,23 @@ class Register:
             parts = {name: archive.read(name) for name in names}
         if names != [info.filename for info in self._infos]:
             raise WriteMismatch("części")
+        tabs = self._tabs(sheet)
         for name in names:
-            if name not in (sheet.part, self._styles_part) and self._without_tabs(name, parts[name]) != self._without_tabs(
-                name, self._parts[name]
-            ):
+            if name not in (sheet.part, self._styles_part) and parts[name] != tabs.get(name, self._parts[name]):
                 raise WriteMismatch(name)
         _check_styles(self._parts[self._styles_part], parts[self._styles_part])
         _check_sheet(sheet.sheet_xml, parts[sheet.part], sheet.columns, block, plan)
 
-    def _without_tabs(self, name: str, xml: bytes) -> bytes:
-        """Część bez tego, co zapis zmienia poza arkuszem zleceń: aktywnej karty skoroszytu i zaznaczenia kart.
+    def _tabs(self, sheet: OrderSheet) -> dict[str, bytes]:
+        """Części, które zapis zmienia poza arkuszem zleceń: ``sheet`` jako aktywna karta i inne karty bez zaznaczenia.
 
         Znacznik zaznaczenia karty (``<sheetView tabSelected>``) może stać tylko w arkuszu.
         """
 
-        if name == self._workbook_part:
-            return _ACTIVE_TAB.sub(rb"\1", xml)
-        return _TAB_SELECTED.sub(rb"\1", xml)
+        return {
+            **{part: _TAB_SELECTED.sub(rb"\1", self._parts[part]) for part in self._sheet_parts if part != sheet.part},
+            self._workbook_part: _with_active_tab(self._parts[self._workbook_part], self._sheet_parts.index(sheet.part)),
+        }
 
 
 def _with_active_tab(xml: bytes, index: int) -> bytes:
