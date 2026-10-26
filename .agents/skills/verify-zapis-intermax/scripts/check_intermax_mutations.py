@@ -134,6 +134,11 @@ MUTATIONS = (
                 "        temporary.write_bytes(content)\n        try:\n",
                 "        temporary.write_bytes(content)\n        before_replace()\n        try:\n",
             ),
+            Edit(
+                FILE,
+                '            raise WriteMismatch("odczyt") from error\n        before_replace()\n',
+                '            raise WriteMismatch("odczyt") from error\n',
+            ),
         ),
         EXPLORER,
         "Zatrzymanie po niezgodnym zapisie zostawia Kopię INTERMAX",

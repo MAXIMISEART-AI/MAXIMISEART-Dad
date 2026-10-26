@@ -22,7 +22,8 @@ bounds and checks:
   Surowe zlecenia”, and every other part and row „zostają bajt w bajt”.
 - KOPIA_ZASTAPIONEGO: when the run replaces INTERMAX, a Kopia INTERMAX holds exactly the bytes it replaced
   (ADR 0019: „Przed każdą podmianą powstaje Kopia INTERMAX”).
-- ZATRZYMANIE_BEZ_SLADU: a run that stops (``StopError``) leaves INTERMAX as it was, no temporary file next to it, and
+- ZATRZYMANIE_BEZ_SLADU: a run that stops (``StopError``), or raises any other exception, leaves INTERMAX as it was,
+  no temporary file next to it, and
   the Kopie folder with the same Kopie, names and bytes, as before (docstring of ``order_register``).
 - SUKCES: a run that returns a summary has replaced INTERMAX and left no temporary file.
 - KOPIE_NAJNOWSZE: after a summary, the Kopie folder holds the ``KEPT`` newest Kopie by name, the new one among them,
@@ -63,6 +64,7 @@ NOW = datetime(2026, 10, 25, 20, 0, 0)
 NAME = "INTERMAX.xlsx"
 TEMPORARY = f".{Path(NAME).stem}."
 AFTER_READ = "pracownik po odczycie, przed podmianą"
+INJECTED = "plik zablokowany"
 
 Actor = Literal["pracownik", "excel"]
 Choice = Literal["ok", "pracownik", "excel", "oserror", "niezgodny", "kill"]
@@ -138,7 +140,7 @@ class Scheduler:
                 raise Crash
             if chosen == "oserror":
                 self.say(f"{step}: OSError")
-                raise PermissionError("plik zablokowany")
+                raise PermissionError(INJECTED)
             if chosen == "niezgodny":
                 self.say(f"{step}: zapis się nie zgadza (WriteMismatch)")
                 raise WriteMismatch("syntetyczna niezgodność")
@@ -160,6 +162,7 @@ class World:
     replaced: bytes | None = None
     written: bytes | None = None
     keep_failed: bool = False
+    failure: str = ""
 
     @property
     def register(self) -> Path:
@@ -319,23 +322,24 @@ def _check(world: World, outcome: Outcome, failure: str) -> list[tuple[str, str]
                     "żadna Kopia INTERMAX nie ma bajtów, które podmiana zastąpiła",
                 )
             )
-    if outcome == "zatrzymanie":
+    if outcome in ("zatrzymanie", "wyjatek"):
+        who = "Zatrzymanie" if outcome == "zatrzymanie" else "Wyjątek"
         if world.register.read_bytes() != world.current:
             broken.append(
-                ("ZATRZYMANIE_BEZ_SLADU", "Zatrzymanie zostawia zmieniony INTERMAX")
+                ("ZATRZYMANIE_BEZ_SLADU", f"{who} zostawia zmieniony INTERMAX")
             )
         if left:
             broken.append(
                 (
                     "ZATRZYMANIE_BEZ_SLADU",
-                    f"Zatrzymanie zostawia pliki obok INTERMAX: {left}",
+                    f"{who} zostawia pliki obok INTERMAX: {left}",
                 )
             )
         if kopie != world.old_copies:
             broken.append(
                 (
                     "ZATRZYMANIE_BEZ_SLADU",
-                    f"Zatrzymanie zmienia Kopie INTERMAX: {sorted(set(kopie) ^ set(world.old_copies))}",
+                    f"{who} zmienia Kopie INTERMAX: {sorted(set(kopie) ^ set(world.old_copies))}",
                 )
             )
     if outcome == "podsumowanie":
@@ -378,9 +382,10 @@ def _temporary_write_failed(world: World, faults: Sequence[tuple[str, str]]) -> 
     """``OSError`` from writing the temporary file, which nothing between it and ``order_register`` catches."""
 
     return (
-        "oserror",
-        "zapis pliku tymczasowego obok INTERMAX",
-    ) in faults and world.replaced is None
+        ("oserror", "zapis pliku tymczasowego obok INTERMAX") in faults
+        and world.replaced is None
+        and world.failure == f"PermissionError: {INJECTED}"
+    )
 
 
 # rule: the finding, and the story after which it is excused; the same rule broken otherwise is a new violation.
@@ -399,7 +404,8 @@ KNOWN_FINDINGS: dict[
     ),
     "BEZ_WYJATKU": (
         "OSError z zapisu pliku tymczasowego (pełny dysk, plik zablokowany przez OneDrive albo antywirus) wychodzi z "
-        "order_register jako nieoczekiwany wyjątek: write_atomically łapie OSError tylko z os.replace, a "
+        "order_register jako nieoczekiwany wyjątek: write_atomically łapie OSError z utworzenia pliku tymczasowego i z os.replace, ale nie z zapisu "
+        "jego treści, a "
         "order_register tylko WriteMismatch, UnsupportedShape i WorkbookSaveError",
         _temporary_write_failed,
     ),
@@ -450,7 +456,7 @@ def execute(
             outcome = "zginal"
         except Exception as error:  # noqa: BLE001 - BEZ_WYJATKU: every other exception is a finding
             outcome = "wyjatek"
-            failure = f"{type(error).__name__}: {error}"
+            failure = world.failure = f"{type(error).__name__}: {error}"
             scheduler.say(f"wyjątek {failure}")
     trace = tuple(scheduler.trace)
     violations = []

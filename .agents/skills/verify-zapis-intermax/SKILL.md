@@ -34,8 +34,9 @@ workers edit it on their own computers (ADR 0019).
 - **KOPIA_ZASTAPIONEGO**: when the run replaces INTERMAX, a Kopia INTERMAX holds
   exactly the bytes it replaced (ADR 0019: „Przed każdą podmianą powstaje Kopia
   INTERMAX”). Harm: restoring the Kopia does not bring back what was there.
-- **ZATRZYMANIE_BEZ_SLADU**: a run that stops leaves INTERMAX as it was, no
-  temporary file next to it, and the same Kopie, names and bytes, as before
+- **ZATRZYMANIE_BEZ_SLADU**: a run that stops, or ends in any other
+  exception, leaves INTERMAX as it was, no temporary file next to it, and the
+  same Kopie, names and bytes, as before
   (docstring of `order_register`: „INTERMAX zostaje wtedy nietknięty”, „gdy
   podmiana się nie uda, Kopia znika”). Harm: a stray file in Dad's OneDrive, a
   Kopia of a change that never happened, or Dad's earlier Kopie gone.
@@ -175,12 +176,16 @@ Not covered:
 2. **BEZ_WYJATKU: an `OSError` from writing the temporary file escapes as an
    unexpected error.** `temporary.write_bytes(content)` in `intermax_file.save`
    raises (a full disk, OneDrive or an antivirus holding the file).
-   `write_atomically` catches `OSError` only around `os.replace`, and
+   `write_atomically` turns an `OSError` from creating the temporary file
+   (`tempfile.mkstemp`, `os.close`) and from `os.replace` into
+   `WorkbookSaveError`, but not one from writing its content, and
    `order_register.save` catches only `WriteMismatch`, `UnsupportedShape` and
    `WorkbookSaveError`, so the `OSError` leaves `order_register`. INTERMAX is
-   unchanged and the temporary file is removed, but Dad sees an unexpected
-   error instead of a Komunikat. Excused only after that failure, with no
-   replace (`_temporary_write_failed`).
+   unchanged, the temporary file is removed and the Kopie stay as they were
+   (ZATRZYMANIE_BEZ_SLADU checks it), but Dad sees an unexpected error instead
+   of a Komunikat. Excused only after that failure, with no replace and with
+   the injected `PermissionError` as the exception that left
+   (`_temporary_write_failed`).
 
 A known finding lives in `KNOWN_FINDINGS` in `explore_intermax.py` with the
 story after which it is excused. When a code change fixes it, the check ends
