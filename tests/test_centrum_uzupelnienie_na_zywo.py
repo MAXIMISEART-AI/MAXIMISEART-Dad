@@ -17,8 +17,7 @@ from openpyxl import load_workbook
 from openpyxl.worksheet.worksheet import Worksheet
 
 from rozliczenia import workbook_files
-from tests.fixtures.centrum import FakeOneDrive
-from tests.fixtures.clock import ManualClock
+from tests.fixtures.centrum import FakeClock, FakeOneDrive
 from tests.fixtures.centrum_processes import PreparingCentrum, Surroundings, preparing_centrum, run_to_end
 from tests.fixtures.preparation import PERIOD, register_order
 
@@ -80,7 +79,7 @@ def _hidden_for(centrum: PreparingCentrum, seconds: float) -> None:
 class _SlowOneDrive(FakeOneDrive):
     """OneDrive, który przez ``seconds`` sekund zegara Centrum próbuje pobrać plik tylko w chmurze, zanim odczyt padnie."""
 
-    clock: ManualClock | None = None
+    clock: FakeClock | None = None
     seconds: float = 0
 
     def attributes(self, path: Path) -> int:

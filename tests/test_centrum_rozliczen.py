@@ -21,9 +21,8 @@ from rozliczenia.centrum.app import STATIC_DIRECTORY
 from rozliczenia.centrum.dad_cases import DAD_CASES_FILE, OLD_NOTES_FILE, OLD_REPORTS_FILE
 from rozliczenia.centrum.launcher import LOG_PATH
 from rozliczenia.centrum.notifications import NOTIFICATIONS_FILE
-from rozliczenia.centrum.outbox import ADDRESSES_FILE, QUEUE_DIRECTORY
-from rozliczenia.centrum.keyed_box import REPORT_KEY_FILE
-from rozliczenia.centrum.reports import UNSENT_DIRECTORY
+from rozliczenia.centrum.outbox import ADDRESSES_FILE
+from rozliczenia.centrum.reports import REPORT_KEY_FILE, UNSENT_DIRECTORY
 from rozliczenia.centrum.run_origins import CENTRUM_RUNS_FILE
 from rozliczenia.settings import default_settings_path
 from tests.fixtures.centrum import CENTRUM, TOOL_COMMIT, Centrum, ROOT, centrum
@@ -184,7 +183,7 @@ def test_nieistniejacy_zapamietany_folder_okresow_jest_wyraznie_oznaczony(tmp_pa
         default_settings_path().parent / REPORT_KEY_FILE,
         default_settings_path().parent / DAD_CASES_FILE,
         default_settings_path().parent / OLD_REPORTS_FILE,
-        default_settings_path().parent / UNSENT_DIRECTORY / QUEUE_DIRECTORY / "20261024T101500000000Z-0001-zgloszenie-3f2a9c1b.json",
+        default_settings_path().parent / UNSENT_DIRECTORY / "Zgłoszenie BLAD_PLANU 08_14_09_2026.md",
         default_settings_path().parent / OLD_NOTES_FILE,
         default_settings_path().parent / NOTIFICATIONS_FILE,
         default_settings_path().parent / ADDRESSES_FILE,
@@ -197,7 +196,7 @@ def test_nieistniejacy_zapamietany_folder_okresow_jest_wyraznie_oznaczony(tmp_pa
         "klucz-do-zgloszen",
         "sprawy-taty",
         "wyslane-zgloszenia",
-        "zgloszenie-w-kolejce",
+        "niewyslane-zgloszenie",
         "uwagi-taty",
         "przeczytane-powiadomienia",
         "adresy-w-skrzynce",
@@ -533,11 +532,8 @@ def test_odczyt_tablicy_okresow_nie_sprawdza_osobno_kazdego_rozliczenia_pracowni
     checked: list[object] = []
     stat = os.stat
 
-    # Tylko ścieżki pod folderem okresów: wątek w tle poprzedniego testu w tym workerze (np. wpis dziennika
-    # Centrum) też woła os.stat.
     def counted_stat(path: str | os.PathLike[str], *args: Any, **kwargs: Any) -> os.stat_result:
-        if isinstance(path, str | os.PathLike) and Path(path).is_relative_to(periods):
-            checked.append(path)
+        checked.append(path)
         return stat(path, *args, **kwargs)
 
     monkeypatch.setattr(os, "stat", counted_stat)
