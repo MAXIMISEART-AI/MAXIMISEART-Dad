@@ -6,7 +6,7 @@ import errno
 import os
 import re
 import zipfile
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
 from dataclasses import replace
 from datetime import datetime, timedelta
@@ -17,10 +17,12 @@ from typing import Literal
 import pytest
 from openpyxl import load_workbook
 from openpyxl.styles import Font
+from openpyxl.utils.cell import get_column_letter
 from openpyxl.worksheet.worksheet import Worksheet
 
 from rozliczenia import TOOL_ROOT
 from rozliczenia.domain import ProgressPhase
+from rozliczenia.intermax_file import Waiting
 from rozliczenia.intermax_ordering import OrderingSummary
 from rozliczenia.intermax_process import PROCESS, OrderingInputs
 from rozliczenia.message import Message
@@ -55,8 +57,13 @@ COPY_NAME = "INTERMAX przed uporządkowaniem 2026-10-25 21-05-07.xlsx"
 REGISTER_NAME = "ZLECENIA INTERMAX OD 08_11_2021.xlsx"
 
 
-def _run(tmp_path: Path, *, now: datetime = NOW) -> Outcome[OrderingSummary]:
-    inputs = OrderingInputs(tmp_path / "OneDrive" / REGISTER_NAME, tmp_path / "Kopie INTERMAX", lambda: now)
+def _run(tmp_path: Path, *, now: datetime = NOW, clock: ManualClock | None = None) -> Outcome[OrderingSummary]:
+    """Uruchomienie Uporządkowania; ``clock`` to zegar procesu krótkiej ponownej próby podmiany."""
+
+    waiting = clock or ManualClock()
+    inputs = OrderingInputs(
+        tmp_path / "OneDrive" / REGISTER_NAME, tmp_path / "Kopie INTERMAX", lambda: now, Waiting(waiting, waiting.pause)
+    )
     return run_process(
         PROCESS, inputs, Tata(), view=lambda _inputs, summary: summary, metrics_path=tmp_path / "m.jsonl", clock=ManualClock()
     )
@@ -77,6 +84,38 @@ def _expected(order: Order) -> tuple[object, ...]:
 def _stop(outcome: Outcome[OrderingSummary]) -> Stop:
     assert isinstance(outcome.ending, Stop), outcome.ending
     return outcome.ending
+
+
+def _without_order_data(message: Message, orders: Sequence[Order]) -> None:
+    """Komunikat bez adresów, numerów zleceń, numerów umów, loginów Wykonawców i innych wartości zleceń."""
+
+    for order in orders:
+        for value in order.values().values():
+            if isinstance(value, str) and value not in ("Miasto", "Umowa", "Instalacja", "INEA"):
+                assert value not in message.text, value
+
+
+def _raw_row(order: Order) -> Callable[[Worksheet, int], None]:
+    """Wiersz ``order`` z wyglądem z aplikacji (Roboto 4) wpisany w wiersz arkusza."""
+
+    def write(sheet: Worksheet, number: int) -> None:
+        for column, value in order.values().items():
+            sheet.cell(number, column, value).font = Font(name="Roboto", sz=4)
+
+    return write
+
+
+def _ordered_row(order: Order) -> Callable[[Worksheet, int], None]:
+    """Wiersz ``order`` z wyglądem uporządkowanego zlecenia (Calibri 8) wpisany w wiersz arkusza."""
+
+    def write(sheet: Worksheet, number: int) -> None:
+        for column, value in order.values().items():
+            cell = sheet.cell(number, column, value)
+            cell.font = Font(name="Calibri", sz=8)
+            if column == DATE:
+                cell.number_format = DATE_FORMAT
+
+    return write
 
 
 def _ordered(outcome: Outcome[OrderingSummary]) -> OrderingSummary:
@@ -513,25 +552,20 @@ def test_pierwszy_wiersz_z_data_na_miejscu_nie_jest_przesuwany_nawet_z_data_w_ko
     assert order_rows(path, layout.yellow + 9, layout.yellow + 9) == [(stray, *_expected(layout.raw[0])[1:])]
 
 
-def test_segmenty_wykonawcow_ida_alfabetycznie_bez_wzgledu_na_wielkosc_liter_a_bez_wykonawcy_pierwszy(
-    tmp_path: Path,
-) -> None:
+def test_segmenty_wykonawcow_ida_alfabetycznie_bez_wzgledu_na_wielkosc_liter(tmp_path: Path) -> None:
     raw = (
         Order(datetime(2026, 10, 26, 9), "Cezary", 201),
         Order(datetime(2026, 10, 26, 9), "anna", 202),
         Order(datetime(2026, 10, 26, 9), "Bartek", 203),
         Order(datetime(2026, 10, 26, 10), "ANNA", 204),
-        Order(datetime(2026, 10, 26, 9), "", 205),
     )
     path, layout = _register(tmp_path, Intermax(raw=raw))
 
     summary = _ordered(_run(tmp_path))
 
     assert layout.yellow is not None
-    rows = order_rows(path, layout.yellow + 2, layout.yellow + 10)
+    rows = order_rows(path, layout.yellow + 2, layout.yellow + 8)
     assert [None if row is None else row[NUMBER - 1] for row in rows] == [
-        "ZL-205",
-        None,
         "ZL-202",
         "ZL-204",
         None,
@@ -540,7 +574,7 @@ def test_segmenty_wykonawcow_ida_alfabetycznie_bez_wzgledu_na_wielkosc_liter_a_b
         "ZL-201",
         None,
     ]
-    assert summary.worker_count == 4
+    assert summary.worker_count == 3
 
 
 def test_bez_uporzadkowanych_dni_dzien_staje_10_pustych_wierszy_pod_naglowkiem_bez_wygladu_naglowka(
@@ -594,14 +628,18 @@ def test_dzien_ma_date_z_systemu_dat_intermax(tmp_path: Path, dates: str) -> Non
 
 
 @pytest.mark.parametrize("value", [True, 7])
-def test_wiersz_z_sama_wartoscia_pod_wklejeniem_to_zatrzymanie_do_maksa_bez_zapisu(tmp_path: Path, value: object) -> None:
+def test_wiersz_z_sama_wartoscia_pod_wklejeniem_to_zlecenie_bez_daty_z_wierszem_i_kolumna(
+    tmp_path: Path, value: object
+) -> None:
     path, layout = _register(tmp_path)
-    _edited(path, lambda sheet: setattr(sheet.cell(layout.first_raw + len(layout.raw) + 1, 12), "value", value))
+    stray = layout.first_raw + len(layout.raw) + 1
+    _edited(path, lambda sheet: setattr(sheet.cell(stray, 12), "value", value))
 
     with _nothing_written(tmp_path, path):
         stop = _stop(_run(tmp_path))
 
-    assert (stop.message.code, stop.stop_kind) == ("NIEOBSLUGIWANY_UKLAD_INTERMAX", "for_maks")
+    assert (stop.message.code, stop.stop_kind) == ("SUROWE_ZLECENIE_BEZ_DATY", "for_tata")
+    assert stop.message.where.endswith(f"komórka C{stray}")
 
 
 def test_wiersz_z_samymi_spacjami_pod_wklejeniem_jest_pusty(tmp_path: Path) -> None:
@@ -635,20 +673,173 @@ def test_blad_i_prawda_w_komorkach_wklejenia_przechodza_do_dnia_bez_zmian(tmp_pa
     assert (sheet.cell(layout.yellow + 2, 12).value, sheet.cell(layout.yellow + 2, 13).value) == (True, "#N/A")
 
 
-@pytest.mark.parametrize("date", ["tekst", "liczba bez formatu daty"])
-def test_surowe_zlecenie_bez_daty_to_zatrzymanie_do_maksa_bez_zapisu(tmp_path: Path, date: str) -> None:
+@pytest.mark.parametrize("value", ["jutro", 46321.5, None], ids=["tekst", "liczba bez formatu daty", "pusta"])
+def test_surowe_zlecenie_bez_daty_to_zatrzymanie_dla_taty_z_wierszem_i_kolumna(
+    tmp_path: Path, value: str | float | None
+) -> None:
     path, layout = _register(tmp_path)
+    row = layout.first_raw + 1
 
     def undated(sheet: Worksheet) -> None:
-        cell = sheet.cell(layout.first_raw + 1, DATE)
-        cell.value, cell.number_format = ("jutro", "General") if date == "tekst" else (46321.5, "General")
+        cell = sheet.cell(row, DATE)
+        cell.value, cell.number_format = value, "General"
 
     _edited(path, undated)
 
     with _nothing_written(tmp_path, path):
         stop = _stop(_run(tmp_path))
 
-    assert (stop.message.code, stop.stop_kind) == ("NIEOBSLUGIWANY_UKLAD_INTERMAX", "for_maks")
+    assert (stop.message.code, stop.stop_kind) == ("SUROWE_ZLECENIE_BEZ_DATY", "for_tata")
+    assert f"w wierszu {row} nie ma daty z godziną w kolumnie C." in stop.message.what
+    assert stop.message.where == f"plik {REGISTER_NAME}, folder OneDrive, arkusz {ORDER_SHEET}, komórka C{row}"
+    _without_order_data(stop.message, layout.raw)
+
+
+@pytest.mark.parametrize(("shifted", "column"), [(True, "H"), (False, "J")])
+def test_surowe_zlecenie_bez_wykonawcy_to_zatrzymanie_dla_taty_z_wierszem_i_kolumna(
+    tmp_path: Path, shifted: bool, column: str
+) -> None:
+    path, layout = _register(tmp_path, Intermax(shifted=shifted))
+    _edited(path, lambda sheet: setattr(sheet[f"{column}{layout.first_raw}"], "value", None))
+
+    with _nothing_written(tmp_path, path):
+        stop = _stop(_run(tmp_path))
+
+    assert (stop.message.code, stop.stop_kind) == ("SUROWE_ZLECENIE_BEZ_WYKONAWCY", "for_tata")
+    assert f"w wierszu {layout.first_raw} nie ma Wykonawcy w kolumnie {column}." in stop.message.what
+    assert stop.message.where.endswith(f"komórka {column}{layout.first_raw}")
+    assert stop.message.action.startswith(f"Wpisz Wykonawcę w komórce {column}{layout.first_raw}")
+    _without_order_data(stop.message, layout.raw)
+
+
+def test_przesuniety_pierwszy_wiersz_bez_daty_wskazuje_kolumne_a(tmp_path: Path) -> None:
+    path, layout = _register(tmp_path)
+    _edited(path, lambda sheet: setattr(sheet.cell(layout.first_raw, DATE - 2), "value", "jutro"))
+
+    with _nothing_written(tmp_path, path):
+        stop = _stop(_run(tmp_path))
+
+    assert stop.message.code == "SUROWE_ZLECENIE_BEZ_DATY"
+    assert stop.message.where.endswith(f"komórka A{layout.first_raw}")
+
+
+def test_wklejenie_z_kilku_dni_to_zatrzymanie_dla_taty_z_dniami(tmp_path: Path) -> None:
+    raw = (
+        Order(datetime(2026, 10, 27, 9), "jan.nowak", 101),
+        Order(datetime(2026, 10, 26, 10), "anna.kowalska", 102),
+        Order(datetime(2026, 10, 26, 11), "jan.nowak", 103),
+    )
+    path, layout = _register(tmp_path, Intermax(raw=raw))
+
+    with _nothing_written(tmp_path, path):
+        stop = _stop(_run(tmp_path))
+
+    assert (stop.message.code, stop.stop_kind) == ("WKLEJENIE_Z_KILKU_DNI", "for_tata")
+    assert "26.10.2026, 27.10.2026" in stop.message.what
+    assert stop.message.where.endswith(f"wiersze {layout.first_raw}–{layout.first_raw + 2}")
+    _without_order_data(stop.message, layout.raw)
+
+
+def test_surowe_zlecenia_w_dwoch_arkuszach_to_zatrzymanie_dla_taty_z_nazwami_arkuszy(tmp_path: Path) -> None:
+    path, layout = _register(tmp_path, Intermax(older_sheet=True))
+    workbook = load_workbook(path)
+    older = workbook["ZLECENIA OD 08_11_2021"]
+    _raw_row(layout.raw[1])(older, older.max_row + 3)
+    workbook.save(path)
+
+    with _nothing_written(tmp_path, path):
+        stop = _stop(_run(tmp_path))
+
+    assert (stop.message.code, stop.stop_kind) == ("SUROWE_ZLECENIA_W_KILKU_ARKUSZACH", "for_tata")
+    assert stop.message.where.endswith(f"arkusze ZLECENIA OD 08_11_2021, {ORDER_SHEET}")
+    _without_order_data(stop.message, layout.raw)
+
+
+@pytest.mark.parametrize("raw_below", [True, False])
+def test_surowe_zlecenia_nad_uporzadkowanym_wierszem_to_zatrzymanie_dla_taty(tmp_path: Path, raw_below: bool) -> None:
+    path, layout = _register(tmp_path)
+    last_raw = layout.first_raw + len(layout.raw) - 1
+    typed = Order(datetime(2026, 10, 25, 12), "jan.nowak", 301)
+
+    def typed_below(sheet: Worksheet) -> None:
+        _ordered_row(typed)(sheet, last_raw + 2)
+        if raw_below:
+            _raw_row(Order(datetime(2026, 10, 26, 7), "jan.nowak", 302))(sheet, last_raw + 4)
+
+    _edited(path, typed_below)
+
+    with _nothing_written(tmp_path, path):
+        stop = _stop(_run(tmp_path))
+
+    assert (stop.message.code, stop.stop_kind) == ("SUROWE_ZLECENIA_NAD_UPORZADKOWANYMI", "for_tata")
+    assert f"Wiersz {last_raw} wygląda jak wklejone zlecenie, ale stoi nad uporządkowanym wierszem {last_raw + 2}." in (
+        stop.message.what
+    )
+    assert stop.message.where.endswith(f"arkusz {ORDER_SHEET}, wiersz {last_raw}")
+    _without_order_data(stop.message, [*layout.raw, typed])
+
+
+@pytest.mark.parametrize(("above", "stops"), [(9, True), (10, False)])
+def test_wiersz_z_wygladem_z_aplikacji_w_poprzednim_dniu_zatrzymuje_tylko_tuz_nad_wklejeniem(
+    tmp_path: Path, above: int, stops: bool
+) -> None:
+    ordered = tuple(Order(datetime(2026, 10, 19, 7 + index), "anna.kowalska", index + 1) for index in range(12))
+    path, layout = _register(tmp_path, Intermax(ordered=ordered))
+    strange = layout.last_ordered - above
+
+    def other_font(sheet: Worksheet) -> None:
+        for column in range(FIRST, LAST + 1):
+            sheet.cell(strange, column).font = Font(name="Arial", sz=10)
+
+    _edited(path, other_font)
+
+    outcome = _run(tmp_path)
+
+    if stops:
+        assert _stop(outcome).message.code == "SUROWE_ZLECENIA_NAD_UPORZADKOWANYMI"
+        assert _stop(outcome).message.where.endswith(f"wiersz {strange}")
+    else:
+        assert _ordered(outcome).order_count == len(layout.raw)
+
+
+def test_drugie_wklejenie_tego_samego_dnia_mowi_ze_dzien_jest_uporzadkowany_i_nic_nie_zmienia(tmp_path: Path) -> None:
+    path, layout = _register(tmp_path)
+    original = path.read_bytes()
+    _ordered(_run(tmp_path))
+    first_raw = _pasted_again(path, original, layout)
+
+    with _nothing_written(tmp_path, path):
+        stop = _stop(_run(tmp_path, now=NOW + timedelta(minutes=5)))
+
+    assert (stop.message.code, stop.stop_kind) == ("DZIEN_JUZ_UPORZADKOWANY", "for_tata")
+    assert stop.message.what == "Dzień 26.10.2026 jest już uporządkowany. INTERMAX nie został zmieniony."
+    assert stop.message.action == "Nowe zlecenia na ten dzień dopisz ręcznie, a wklejone usuń."
+    assert stop.message.where.endswith(f"wklejone wiersze {first_raw}–{first_raw + len(layout.raw) - 1}")
+    _without_order_data(stop.message, layout.raw)
+
+
+def test_dzien_jest_uporzadkowany_takze_z_usterka_poprzedniego_dnia_dopisana_pod_nim(tmp_path: Path) -> None:
+    path, layout = _register(tmp_path, Intermax(grid=False))
+    original = path.read_bytes()
+    _ordered(_run(tmp_path))
+    first_raw = _pasted_again(path, original, layout)
+    _edited(path, lambda sheet: _ordered_row(Order(datetime(2026, 10, 25, 15), "jan.nowak", 401))(sheet, first_raw - 2))
+
+    with _nothing_written(tmp_path, path):
+        stop = _stop(_run(tmp_path, now=NOW + timedelta(minutes=5)))
+
+    assert stop.message.code == "DZIEN_JUZ_UPORZADKOWANY"
+
+
+def test_recznie_przesuniety_pierwszy_wiersz_jest_surowym_zleceniem_i_nie_przesuwa_sie_drugi_raz(tmp_path: Path) -> None:
+    path, layout = _register(tmp_path)
+    _edited(path, lambda sheet: sheet.move_range(f"A{layout.first_raw}:{get_column_letter(APP_LAST - 2)}{layout.first_raw}", cols=2))
+
+    summary = _ordered(_run(tmp_path))
+
+    assert summary.order_count == len(layout.raw)
+    assert layout.yellow is not None
+    assert order_rows(path, layout.yellow + 9, layout.yellow + 9) == [_expected(layout.raw[0])]
 
 
 def test_formula_we_wklejeniu_to_zatrzymanie_do_maksa_bez_zapisu(tmp_path: Path) -> None:
@@ -710,8 +901,11 @@ def test_dopisane_style_sa_raz_kazdy_a_licznik_count_zgadza_sie_z_lista(tmp_path
     assert len(_style_entries(after, b"cellXfs", b"xf")[1]) > len(_style_entries(before, b"cellXfs", b"xf")[1])
 
 
-def _pasted_again(path: Path, original: bytes, layout: Layout) -> None:
-    """Te same wiersze wklejenia co w ``original`` doklejone w XML pod ostatni wiersz ``path``, jak drugie wklejenie."""
+def _pasted_again(path: Path, original: bytes, layout: Layout, *, days: int = 0) -> int:
+    """Te same wiersze wklejenia co w ``original`` doklejone w XML pod ostatni wiersz ``path``, jak drugie wklejenie.
+
+    Daty zleceń są ``days`` dni później. Zwraca pierwszy wiersz nowego wklejenia.
+    """
 
     numbers = range(layout.first_raw, layout.first_raw + len(layout.raw))
     source = zipfile.ZipFile(BytesIO(original)).read(_SHEET)
@@ -722,10 +916,16 @@ def _pasted_again(path: Path, original: bytes, layout: Layout) -> None:
         assert row is not None
         number = b"%d" % (last + 3 + index)
         cells = re.sub(rb'(<c r="[A-Z]+)\d+"', rb'\g<1>' + number + b'"', row.group(0))
+        cells = re.sub(
+            rb'(<c r="[AC]\d+"(?:(?! t=")[^>])*><v>)([\d.]+)(</v>)',
+            lambda date: date.group(1) + b"%r" % (float(date.group(2)) + days) + date.group(3),
+            cells,
+        )
         return re.sub(rb'<row r="\d+"', b'<row r="' + number + b'"', cells, count=1)
 
     pasted = b"".join(renumbered(index, row) for index, row in enumerate(rows))
     rewrite_parts(path, lambda name, data: data.replace(b"</sheetData>", pasted + b"</sheetData>") if name == _SHEET else data)
+    return last + 3
 
 
 def test_kolejne_uporzadkowanie_nie_dopisuje_stylow_ktore_juz_sa(tmp_path: Path) -> None:
@@ -733,7 +933,7 @@ def test_kolejne_uporzadkowanie_nie_dopisuje_stylow_ktore_juz_sa(tmp_path: Path)
     original = path.read_bytes()
     _ordered(_run(tmp_path))
     first = parts(path)[_STYLES]
-    _pasted_again(path, original, layout)
+    _pasted_again(path, original, layout, days=1)
 
     assert _ordered(_run(tmp_path, now=NOW + timedelta(days=1))).order_count == len(layout.raw)
 
@@ -889,23 +1089,70 @@ def test_folder_kopii_ktorego_nie_da_sie_utworzyc_to_zatrzymanie_dla_taty_bez_za
     assert [entry.name for entry in path.parent.iterdir()] == [REGISTER_NAME]
 
 
-def test_odmowa_podmiany_intermax_to_zatrzymanie_dla_taty_bez_zmiany_i_bez_kopii(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    path, _ = _register(tmp_path)
+def _refused(monkeypatch: pytest.MonkeyPatch, times: int | None, *, excel: bool = False) -> list[float]:
+    """Podmiana INTERMAX odmawiana ``times`` razy (``None``: zawsze), z plikiem blokady Excela (``excel``) albo bez.
+
+    Zwraca listę, do której trafia liczba prób.
+    """
+
     replace_file = os.replace
+    attempts: list[float] = []
 
     def refused(source: str | os.PathLike[str], target: str | os.PathLike[str]) -> None:
         if Path(target).name == REGISTER_NAME:
-            raise PermissionError(errno.EACCES, "Permission denied")
+            attempts.append(1)
+            if excel:
+                Path(target).with_name(f"~${REGISTER_NAME}").write_bytes(b"")
+            if times is None or len(attempts) <= times:
+                raise PermissionError(errno.EACCES, "Permission denied")
         replace_file(source, target)
 
     monkeypatch.setattr(os, "replace", refused)
+    return attempts
+
+
+def test_odmowa_podmiany_bez_excela_po_krotkiej_ponownej_probie_to_onedrive_dla_taty(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path, layout = _register(tmp_path)
+    attempts = _refused(monkeypatch, None)
+    clock = ManualClock()
 
     with _nothing_written(tmp_path, path):
-        stop = _stop(_run(tmp_path))
+        stop = _stop(_run(tmp_path, clock=clock))
+
+    assert (stop.message.code, stop.stop_kind) == ("INTERMAX_SYNCHRONIZOWANY", "for_tata")
+    assert stop.message.what == "OneDrive jeszcze synchronizuje INTERMAX. INTERMAX nie został zmieniony."
+    assert stop.message.action.startswith("Spróbuj za chwilę")
+    assert (clock.seconds, len(attempts)) == (5.0, 11)
+    _without_order_data(stop.message, layout.raw)
+
+
+def test_podmiana_po_chwilowej_odmowie_onedrive_porzadkuje_intermax(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    path, layout = _register(tmp_path)
+    original = path.read_bytes()
+    attempts = _refused(monkeypatch, 2)
+    clock = ManualClock()
+
+    assert _ordered(_run(tmp_path, clock=clock)).order_count == len(layout.raw)
+
+    assert (clock.seconds, len(attempts)) == (1.0, 3)
+    assert path.read_bytes() != original
+    assert (tmp_path / "Kopie INTERMAX" / COPY_NAME).read_bytes() == original
+
+
+def test_odmowa_podmiany_przy_otwartym_excelu_to_zatrzymanie_dla_taty_bez_czekania(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path, _ = _register(tmp_path)
+    attempts = _refused(monkeypatch, None, excel=True)
+    clock = ManualClock()
+
+    with _nothing_written(tmp_path, path):
+        stop = _stop(_run(tmp_path, clock=clock))
 
     assert (stop.message.code, stop.stop_kind) == ("INTERMAX_OTWARTY", "for_tata")
+    assert (clock.seconds, len(attempts)) == (0.0, 1)
 
 
 def test_intermax_otwarty_w_excelu_w_trakcie_zapisu_to_zatrzymanie_dla_taty_bez_zapisu(
