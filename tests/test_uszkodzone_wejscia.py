@@ -29,6 +29,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from rozliczenia import period_folder
 from rozliczenia.centrum.app import create_app
 from rozliczenia.centrum.configuration import ConfigurationFiles
 from rozliczenia.centrum.log import CentrumLog
@@ -56,6 +57,8 @@ GENERIC_500 = "W Centrum rozliczeń wystąpił nieoczekiwany błąd. Odśwież k
 DIAGNOSIS_UNEXPECTED = "Nie udało się sprawdzić: nieoczekiwany błąd."
 
 TEXT, LINES, XLSX, FOLDER = "tekst", "wiersze", "xlsx", "folder"
+# Układ folderów taty: Foldery okresu obu procesów w folderze INEA miesiąca.
+MONTH = "Załączniki/Rozliczenia 2026/09_Wrzesien_2026"
 FILES: dict[str, tuple[str, str]] = {
     "ustawienia": ("config/centrum-ustawienia.yaml", TEXT),
     "konfiguracja_wykonawcow": ("config/worker_mapping.yaml", TEXT),
@@ -75,10 +78,11 @@ FILES: dict[str, tuple[str, str]] = {
     "wzorzec_wewnetrzny": ("config/Wzorzec rozliczenia wewnętrznego.xlsx", XLSX),
     "wzorzec_zbiorczy": ("config/Wzorzec pliku zbiorczego.xlsx", XLSX),
     "wzorzec_pracownika": ("config/Wzorzec rozliczenia pracownika.xlsx", XLSX),
-    "plik_zbiorczy": (f"Załączniki/{SETTLEMENT_PERIOD}/Rozliczenie {SETTLEMENT_PERIOD} - zbiorcze.xlsx", XLSX),
+    "plik_zbiorczy": (f"{MONTH}/INEA/{SETTLEMENT_PERIOD}/Rozliczenie {SETTLEMENT_PERIOD} - zbiorcze.xlsx", XLSX),
     "folder_okresow": ("Załączniki", FOLDER),
-    "folder_okresu": (f"Załączniki/{SETTLEMENT_PERIOD}", FOLDER),
-    "folder_okresu_przygotowania": (f"Załączniki/{PERIOD}", FOLDER),
+    "folder_miesiaca": (MONTH, FOLDER),
+    "folder_okresu": (f"{MONTH}/INEA/{SETTLEMENT_PERIOD}", FOLDER),
+    "folder_okresu_przygotowania": (f"{MONTH}/INEA/{PERIOD}", FOLDER),
     "folder_zgloszen": ("config/zgloszenia", FOLDER),
 }
 # Pliki sprzed Spraw taty: Centrum czyta je tylko przy starcie bez pliku Spraw taty, czyli przy pierwszym starcie
@@ -545,11 +549,18 @@ def test_macierz_obejmuje_kazda_operacje_kontraktu_centrum(tmp_path: Path) -> No
     assert (swept | NOT_SWEPT.keys()) - operations == set(), "ENTRIES albo NOT_SWEPT ma operację spoza kontraktu"
 
 
-def test_folder_okresow_bez_odczytu_nazywa_folder_w_kazdym_wejsciu(world_template: Path, tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    ("folder", "named"),
+    [("folder_okresow", "Załączniki"), ("folder_miesiaca", "09_Wrzesien_2026")],
+    ids=["folder-okresow", "folder-miesiaca"],
+)
+def test_folder_okresow_bez_odczytu_nazywa_folder_w_kazdym_wejsciu(
+    world_template: Path, tmp_path: Path, folder: str, named: str
+) -> None:
     world = World(tmp_path / "swiat")
     shutil.copytree(world_template, world.root)
     client = _remembering_choices(world)
-    periods = world.path("folder_okresow")
+    periods = world.path(folder)
     _inaccessible(periods)
     try:
         board = client.get("/api/periods")
@@ -562,9 +573,29 @@ def test_folder_okresow_bez_odczytu_nazywa_folder_w_kazdym_wejsciu(world_templat
         _readable_again(periods)
 
     assert board.status_code == 500
-    assert "folderu Załączniki" in board.json()["message"]
+    assert f"folderu {named}." in board.json()["message"]
     assert preview.status_code == 200
     assert stopped["stop_kind"] == "for_tata"
     assert stopped["stops"][0]["what"].startswith("Nie można teraz odczytać folderu.")
-    assert stopped["stops"][0]["where"].endswith("Załączniki")
+    assert stopped["stops"][0]["where"].endswith(named)
     assert diagnosis["explanation"] == stopped["stops"][0]
+
+
+def test_folder_miesiaca_znikajacy_w_trakcie_listowania_jest_pominiety(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    periods = tmp_path / "Załączniki"
+    gone = periods / "Rozliczenia 2026" / "08_Sierpien_2026"
+    (gone / "INEA").mkdir(parents=True)
+    kept = periods / "Rozliczenia 2026" / "09_Wrzesien_2026" / "INEA"
+    (kept / SETTLEMENT_PERIOD).mkdir(parents=True)
+    scandir = os.scandir
+
+    def vanishing(path: Any) -> Any:
+        if Path(path) == gone:  # OneDrive zabrał folder miesiąca między listowaniem roku a listowaniem miesiąca
+            raise FileNotFoundError(path)
+        return scandir(path)
+
+    monkeypatch.setattr(os, "scandir", vanishing)
+
+    scanned = period_folder.scan_period_folders(periods)
+
+    assert [path for paths in scanned.locations.values() for path in paths] == [kept]
