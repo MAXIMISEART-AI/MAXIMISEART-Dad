@@ -6,17 +6,16 @@
     "wynik": "przechodzi"
   },
   "kopiowanie": {
-    "wynik": "narusza",
-    "wybacz": "ok_po_dwoch_odmowach",
-    "znalezisko": "dysk odmawia opiekunowi usunięcia „ok” po nowej wersji, która nie odpowiada, i zapisu porażki po cofnięciu: stara wersja mówi w karcie „Narzędzie zaktualizowane”."
+    "wynik": "przechodzi"
   },
   "nieudany-start": {
     "wynik": "przechodzi"
   },
   "wylaczenie": {
-    "wynik": "narusza",
-    "wybacz": "skrot_gasnie_przed_wynikiem",
-    "znalezisko": "komputer gaśnie przed odczytem „ok” przez nową wersję, potem drugi raz między cofnięciem przez skrót a jego zapisem wyniku: stara wersja mówi w karcie „Narzędzie zaktualizowane”."
+    "wynik": "przechodzi"
+  },
+  "wylaczenie-i-dysk": {
+    "wynik": "przechodzi"
   },
   "skrot-w-trakcie": {
     "wynik": "przechodzi"

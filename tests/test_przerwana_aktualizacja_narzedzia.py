@@ -194,3 +194,36 @@ def test_gdy_opiekun_nie_skonczyl_aktualizacji_przed_wylaczeniem_skrot_po_jego_t
     assert health["commit"] == before[:7]
     assert repository.head() == before
     assert repository.read(MAPPING) == DAD_MAPPING
+
+
+def test_gdy_dysk_odmowi_skrotowi_zapisu_porazki_po_cofnieciu_nastepny_start_pokazuje_porazke_a_nie_ok(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(tool_update, "GUARDIAN_LEASE_S", 0.0)
+    repository = centrum_tool_repository(tmp_path / "repozytoria")
+    before = repository.head()
+    newest = repository.publish({"NOWA_WERSJA.txt": "druga wersja narzędzia\n"})
+    centrum = preparing_centrum(tmp_path, surroundings=Surroundings(tool=repository))
+    _update_until(centrum, lambda view: view.get("step") == "restarting")
+    result = repository.clone / "config" / tool_update.RESULT_FILE
+    # Opiekun zapisał „ok”, a komputer zgasł, zanim nowe Centrum je przeczytało.
+    tool_update.write_result(result, tool_update.UpdateResult(tool_update.UPDATED, before, newest))
+    # Dysk odmawia zapisu nowego wyniku: write_result w launcher._roll_back rzuca OSError po cofnięciu klonu.
+    result.with_name(result.name + ".tmp").mkdir()
+    port = free_port()
+
+    with _shortcut(repository.clone, port) as shortcut:
+        code, console = _refusal(shortcut, port)
+    with _shortcut(repository.clone, port) as shortcut:
+        health = _health(shortcut, port)
+        view = _get(port, "/api/tool-update")
+
+    assert code == 1
+    assert console.splitlines()[0].startswith("Co się stało:")
+    assert health["commit"] == before[:7]
+    assert repository.head() == before
+    assert (view["state"], view.get("message", {}).get("what"), view.get("next_action")) == (
+        "failed",
+        "Nie udało się zaktualizować narzędzia z nieoczekiwanego powodu.",
+        "retry",
+    )

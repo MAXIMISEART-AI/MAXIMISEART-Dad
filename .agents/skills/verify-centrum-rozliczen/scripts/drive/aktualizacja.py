@@ -25,6 +25,7 @@ REPORT_BUTTON = "Wyślij do Maksa"
 INSTALLING = "Instalowanie bibliotek…"
 LIBRARIES_FAILED = "Nie udało się zainstalować bibliotek nowej wersji narzędzia."
 NEW_VERSION_FAILED = "Nowa wersja narzędzia nie wystartowała."
+UNEXPECTED = "Nie udało się zaktualizować narzędzia z nieoczekiwanego powodu."
 TO_MAKS = "Narzędzie działa dalej w poprzedniej wersji. Przekaż sprawę Maksowi: kliknij „Wyślij do Maksa”."
 # Long enough to see the installation start; installing from no index fails in about a second.
 PACING_MS = 4000
@@ -33,6 +34,8 @@ PACING_MS = 4000
 UPDATE_PACING_MS = 8000
 # Long enough to see the tab wait for the new Centrum; the restarted scripted Centrum starts in about a second.
 RESTART_PACING_MS = 3000
+# Long enough for the harness to put „ok” back after the guardian's failure and before the old version reads it.
+OK_ON_OLD_VERSION_PACING_MS = 5000
 # The restart guardian waits up to 60 s for the new Centrum; the tab reloads when it answers.
 RESTART_TIMEOUT_MS = 60_000
 # Konfiguracja keeps GitHub's answer about the newest Wydanie for 10 minutes of Centrum's clock.
@@ -375,6 +378,7 @@ def drive_update(run: Run, page: Page) -> None:
         _drive_failed_installation(run, page, clone, origin, newest, libraries, dad_files, run_configuration)
         try:
             _drive_new_version_not_starting(run, page, origin, tool["not_starting"], run_configuration)
+            _drive_ok_on_old_version(run, page, tool["not_starting"])
         finally:
             restart_pacing.unlink(missing_ok=True)
         # Later features (pomiar-u-taty) expect Konfiguracja without an alert: one more click on the restored
@@ -553,3 +557,77 @@ def _drive_new_version_not_starting(
     expect(card.get_by_role("alert")).to_have_count(0)
     run.check(True, "on Konfiguracja the same Komunikat stands once, under the title, and the card shows the old version")
     run.capture(page, "137-aktualizacja-nie-wystartowala-konfiguracja")
+
+
+def _drive_ok_on_old_version(run: Run, page: Page, not_starting: str) -> None:
+    tool = run.fixture["tool"]
+    clone, newest = Path(tool["clone"]), tool["newest"]
+    result = run.root / "config" / "centrum-aktualizacja.json"
+    run.step(FEATURE, "aktualizacja-ok-przy-starej-wersji")
+    print(f"  harness: the old version, started again, waits {OK_ON_OLD_VERSION_PACING_MS} ms before it starts", flush=True)
+    (run.root / "pacing" / "ponowny-start-ms.txt").write_text(str(OK_ON_OLD_VERSION_PACING_MS), encoding="utf-8")
+    page.reload()
+    card = _tool_card(page)
+    expect(card).to_contain_text("Jest nowsza wersja")
+    page.evaluate("window.przedPonownymStartem = true")
+    card.get_by_role("button", name=BUTTON, exact=True).click()
+    expect(_status(page, RESTARTING)).to_be_visible(timeout=20_000)
+    run.wait_for(
+        lambda: result.exists() and json.loads(result.read_text(encoding="utf-8"))["wynik"] == "NOWA_WERSJA_NIE_WYSTARTOWALA",
+        "the guardian moved the clone back and wrote the failure",
+        timeout_s=20,
+    )
+    print(
+        "  harness: the disk refused the guardian both the removal of „ok” and the write of the failure, so „ok” stays",
+        flush=True,
+    )
+    result.write_text(
+        json.dumps({"wynik": "ok", "przed": newest, "po": not_starting, "biblioteki": False}) + "\n", encoding="utf-8"
+    )
+    run.check(not _answers(run), "the harness put „ok” back before the old version started")
+    (run.root / "pacing" / "ponowny-start-ms.txt").unlink()
+
+    message = page.get_by_role("alert").filter(has_text=UNEXPECTED)
+    expect(message).to_be_visible(timeout=RESTART_TIMEOUT_MS)
+    run.check(page.evaluate("window.przedPonownymStartem === undefined"), "the tab reloaded by itself")
+    expect(page.get_by_role("heading", name="Konfiguracja", exact=True)).to_be_visible()
+    expect(message).to_contain_text("narzędzie na tym komputerze")
+    expect(message).to_contain_text(
+        "Narzędzie działa dalej w poprzedniej wersji. Kliknij „Zaktualizuj narzędzie” jeszcze raz. "
+        "Jeśli komunikat wraca, kliknij „Wyślij do Maksa”."
+    )
+    expect(page.get_by_role("button", name=REPORT_BUTTON, exact=True)).to_be_visible()
+    expect(page.get_by_role("region", name="Notifications").get_by_role("dialog", name=UPDATED)).to_have_count(0)
+    card = _tool_card(page)
+    expect(card).to_contain_text(newest[:7])
+    expect(card).to_contain_text("Jest nowsza wersja")
+    run.check(True, "Konfiguracja shows the failure under its title, no `Zaktualizowano`, and the card the old version")
+    view = run.api("/api/tool-update", "aktualizacja-ok-przy-starej-wersji")
+    run.check(
+        (view["state"], view["message"], view["next_action"])
+        == (
+            "failed",
+            {
+                "what": UNEXPECTED,
+                "where": "narzędzie na tym komputerze",
+                "action": (
+                    "Narzędzie działa dalej w poprzedniej wersji. Kliknij „Zaktualizuj narzędzie” jeszcze raz. "
+                    "Jeśli komunikat wraca, kliknij „Wyślij do Maksa”."
+                ),
+            },
+            "retry",
+        ),
+        "„ok” read by the old version is the unexpected failure, to be tried again",
+    )
+    run.check(run.api("/api/health", "aktualizacja-ok-przy-starej-wersji-health")["commit"] == newest[:7], "the old version runs")
+    run.check(_head(clone) == newest, "the clone stands on the commit before the click")
+    run.check(not result.exists(), "the old version read the result once")
+    run.check(
+        _update_entries(run)[-2:]
+        == [
+            f"aktualizacja-start przed={newest}",
+            f"aktualizacja-koniec wynik=NIEOCZEKIWANY_BLAD przed={newest} po={not_starting} biblioteki=nie",
+        ],
+        "the Centrum log has the update's end as the unexpected failure, with both commits",
+    )
+    run.capture(page, "138-aktualizacja-ok-przy-starej-wersji")
