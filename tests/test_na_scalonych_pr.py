@@ -82,4 +82,4 @@ def test_mutacje_zmiany_biegna_na_commicie_takze_poza_ci(tmp_path: Path) -> None
     done = _run(repo, "--commit", "HEAD", "--", "tools/mutacje_zmiany.py", "--baza", "HEAD^1", env=outside_ci)
 
     assert done.returncode == 0, done.stdout + done.stderr
-    assert "| kod 0 | MUTACJE ZMIANY OK | brak mutacji zmienionych linii src/ od HEAD^1 |" in done.stdout
+    assert "| kod 0 | MUTACJE ZMIANY OK | brak mutacji zmienionych linii src/ i tools/ od HEAD^1 |" in done.stdout

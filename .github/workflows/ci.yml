@@ -271,7 +271,7 @@ jobs:
           if-no-files-found: ignore
 
   change-mutations:
-    # Each mutation of a line the pull request changes in src/ must fail a test (tools/mutacje_zmiany.py):
+    # Each mutation of a line the pull request changes in src/ or tools/ must fail a test (tools/mutacje_zmiany.py):
     # a reviewer used to find these by hand, after CI was green. A push to main has no change to mutate,
     # so there the job does not start and takes no runner.
     # Each part takes every third mutation: 90 mutations of a seven-module refactor (#382) took 25 min on one busy Mac.
@@ -303,7 +303,7 @@ jobs:
       - name: Install dependencies
         run: uv pip install --system --python "${{ steps.python.outputs.python-path }}" -r requirements.txt
 
-      - name: Mutate the changed lines of src/
+      - name: Mutate the changed lines of src/ and tools/
         run: python tools/mutacje_zmiany.py --baza HEAD^1 --czesc ${{ matrix.part }}/3
 
   mutations:

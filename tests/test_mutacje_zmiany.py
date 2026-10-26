@@ -1,4 +1,4 @@
-"""``tools/mutacje_zmiany.py`` psuje zmienione linie ``src/`` i pada, gdy żaden test tego nie widzi.
+"""``tools/mutacje_zmiany.py`` psuje zmienione linie ``src/`` i ``tools/`` i pada, gdy żaden test tego nie widzi.
 
 Przebiegi idą w małym repozytorium z narzędziami checkoutu: baza ma ``return a``, zmiana ``return a and b``.
 """
@@ -51,13 +51,13 @@ def _repo(tmp_path: Path, test: str, changed: str = CHANGED, base: str = BASE, c
     return repo
 
 
-def _run(repo: Path, *arguments: str) -> subprocess.CompletedProcess[str]:
+def _run(repo: Path, *arguments: str, trial: bool = False) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         [sys.executable, str(repo / "tools" / "mutacje_zmiany.py"), "--baza", "baza", "--rownolegle", "2", *arguments],
         cwd=repo,
         # Jeden worker xdist: testy biegną w kolejności z pliku, więc fixture sesji ustawia zawsze pierwszy z nich.
         # Narzędzie biegnie jak w zadaniu CI, bo poza nim odmawia startu (tools/ciezkie_ci.py).
-        env={**os.environ, "PYTEST_XDIST_AUTO_NUM_WORKERS": "1", "GITHUB_ACTIONS": "true"},
+        env={**os.environ, "PYTEST_XDIST_AUTO_NUM_WORKERS": "1", "GITHUB_ACTIONS": "true", "MAXIMISEART_NA_SCALONYCH_PR": str(int(trial))},
         capture_output=True,
         text=True,
         encoding="utf-8",
@@ -190,7 +190,7 @@ def test_przeniesiony_plik_bez_zmian_nie_daje_mutacji(tmp_path: Path) -> None:
     done = _run(repo)
 
     assert done.returncode == 0, done.stdout + done.stderr
-    assert done.stdout.splitlines()[-1] == "MUTACJE ZMIANY OK | brak mutacji zmienionych linii src/ od baza"
+    assert done.stdout.splitlines()[-1] == "MUTACJE ZMIANY OK | brak mutacji zmienionych linii src/ i tools/ od baza"
 
 
 def test_plik_bez_zaleznych_testow_konczy_sie_fail(tmp_path: Path) -> None:
@@ -262,14 +262,51 @@ def test_testy_ktore_padaja_bez_mutacji_koncza_sie_bez_werdyktu_mutacji(tmp_path
     assert "NIEWYKRYTA" not in done.stdout and "WYKRYTA" not in done.stdout
 
 
-def test_zmiana_poza_src_nie_daje_mutacji(tmp_path: Path) -> None:
+def test_zmieniona_linia_narzedzia_dostaje_mutacje_jak_linia_src(tmp_path: Path) -> None:
     repo = _repo(tmp_path, ONE_CASE, BASE)
+    (repo / "tools" / "inne.py").write_text("def oba(a: bool, b: bool) -> bool:\n    return a and b\n", encoding="utf-8")
+    (repo / "tests" / "test_inne.py").write_text(
+        "from pathlib import Path\nimport sys\n\nsys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'tools'))\n\n"
+        "from inne import oba  # noqa: E402\n\n\n"
+        "def test_oba() -> None:\n    assert oba(True, True) is True\n    assert oba(False, True) is False\n",
+        encoding="utf-8",
+    )
+
+    done = _run(repo)
+
+    assert done.returncode == 1, done.stdout + done.stderr
+    assert "WYKRYTA: tools/inne.py:2 bez `a` w `and`" in done.stdout
+    assert "NIEWYKRYTA: tools/inne.py:2 bez `b` w `and`" in done.stdout
+
+
+def test_narzedzia_podstawione_przez_probe_na_scalonych_pr_nie_sa_zmiana(tmp_path: Path) -> None:
+    repo = _repo(tmp_path, ONE_CASE, BASE)
+    (repo / "tools" / "inne.py").write_text("def f(a: bool, b: bool) -> bool:\n    return a\n", encoding="utf-8")
+    commit(repo, "commit zmienia narzędzie")
     (repo / "tools" / "inne.py").write_text("def f(a: bool, b: bool) -> bool:\n    return a and b\n", encoding="utf-8")
+    (repo / "tools" / "nowe.py").write_text("def g(a: bool, b: bool) -> bool:\n    return a or b\n", encoding="utf-8")
+
+    trial = _run(repo, trial=True)
+    checkout = _run(repo)
+
+    assert trial.returncode == 0, trial.stdout + trial.stderr
+    assert "NIESPRAWDZONA: tools/inne.py → commit go zmienia" in trial.stdout
+    assert trial.stdout.splitlines()[-1] == "MUTACJE ZMIANY OK | brak mutacji zmienionych linii src/ i tools/ od baza"
+    assert checkout.returncode == 1, checkout.stdout + checkout.stderr
+    assert "NIEWYKRYTA: tools/nowe.py:2 bez `b` w `or`" in checkout.stdout
+    assert "NIESPRAWDZONA" not in checkout.stdout
+
+
+def test_zmiana_skryptu_skilla_nie_daje_mutacji(tmp_path: Path) -> None:
+    repo = _repo(tmp_path, ONE_CASE, BASE)
+    script = repo / ".agents" / "skills" / "verify-proba" / "scripts" / "sprawdz.py"
+    script.parent.mkdir(parents=True)
+    script.write_text("def f(a: bool, b: bool) -> bool:\n    return a and b\n", encoding="utf-8")
 
     done = _run(repo)
 
     assert done.returncode == 0, done.stdout + done.stderr
-    assert done.stdout.splitlines()[-1] == "MUTACJE ZMIANY OK | brak mutacji zmienionych linii src/ od baza"
+    assert done.stdout.splitlines()[-1] == "MUTACJE ZMIANY OK | brak mutacji zmienionych linii src/ i tools/ od baza"
 
 
 def _described(text: str, changed: list[int], old: tuple[str, ...] = ()) -> dict[str, str]:
@@ -288,12 +325,33 @@ def _described(text: str, changed: list[int], old: tuple[str, ...] = ()) -> dict
         ("def f():\n    return wynik\n", "`return wynik` → `return None`", "def f():\n    return None\n"),
         ("zapisz(plik)\n", "bez wywołania `zapisz(plik)`", "pass\n"),
         ("klucz = (a.etykieta, a.kod)\n", "krotka bez `a.kod`", "klucz = (a.etykieta,)\n"),
+        ("ok = slowo in tekst\n", "`slowo in tekst` → `tekst.startswith(slowo)`", "ok = ((tekst).startswith(slowo))\n"),
+        ("ok = slowo in tekst\n", "`slowo in tekst` → `tekst.endswith(slowo)`", "ok = ((tekst).endswith(slowo))\n"),
+        ("ok = slowo not in tekst\n", "`slowo not in tekst` → `not tekst.endswith(slowo)`", "ok = (not (tekst).endswith(slowo))\n"),
+        ("ok = tekst.startswith(slowo)\n", "`tekst.startswith(slowo)` → `slowo in tekst`", "ok = ((slowo) in (tekst))\n"),
+        ("ok = tekst.startswith(slowo)\n", "`tekst.startswith(slowo)` → `tekst.endswith(slowo)`", "ok = ((tekst).endswith(slowo))\n"),
+        ("ok = tekst.endswith(slowo)\n", "`tekst.endswith(slowo)` → `tekst.startswith(slowo)`", "ok = ((tekst).startswith(slowo))\n"),
+        ("odpowiedz(stan, wersja=wersja)\n", "`wersja=wersja` → `wersja=None`", "odpowiedz(stan, wersja=None)\n"),
     ],
 )
 def test_kazdy_rodzaj_mutacji_psuje_zmieniona_linie(code: str, description: str, mutated: str) -> None:
     lines = list(range(1, code.count("\n") + 1))
 
     assert _described(code, lines)[description] == mutated
+
+
+@pytest.mark.parametrize(
+    "code",
+    [
+        "x = f(plik, wersja)\n",
+        "x = f(encoding='utf-8', limit=3, wersja=None, **opcje)\n",
+        "x = a in [1, 2] or b in {c: d}\n",
+        "x = 1 in liczby\n",
+        "x = t.startswith(('a', 'b')) or t.endswith(a, 2)\n",
+    ],
+)
+def test_argument_pozycyjny_stala_i_kolekcja_nie_dostaja_mutacji_none_ani_predykatu(code: str) -> None:
+    assert [description for description in _described(code, [1]) if "w `or`" not in description] == []
 
 
 def test_niezmieniona_linia_nie_dostaje_mutacji() -> None:
@@ -429,6 +487,12 @@ def test_wyjatek_w_samodzielnym_komentarzu_dotyczy_linii_pod_nim() -> None:
 
     assert sorted(found) == [1, 2, 3]
     assert (found[2].reason, str(found[2].until), found[2].who) == ("to samo", "2026-12-31", "Maks")
+
+
+def test_opis_postaci_wyjatku_w_napisie_nie_jest_wyjatkiem() -> None:
+    code = 'OPIS = """\n``# mutacje-zmiany: <powód> | do RRRR-MM-DD | zgoda <kto>``\n"""\nx = 1  # mutacje-zmiany: inne | do 2027-01-31 | zgoda Maks\n'
+
+    assert sorted(exceptions(code, "m.py")) == [4]
 
 
 @pytest.mark.parametrize("comment", ["# mutacje-zmiany: bez terminu", "# mutacje-zmiany: powód | do 2026-13-01 | zgoda Maks"])
