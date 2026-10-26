@@ -18,6 +18,7 @@ from openpyxl import load_workbook
 from openpyxl.worksheet.worksheet import Worksheet
 
 from rozliczenia import workbook_files
+from rozliczenia.centrum.live_file import LastGoodReads
 from tests.fixtures.centrum import FakeOneDrive
 from tests.fixtures.clock import ManualClock
 from tests.fixtures.centrum_processes import PreparingCentrum, Surroundings, preparing_centrum, run_to_end
@@ -378,3 +379,16 @@ def test_po_uruchomieniu_ktore_zmienilo_pliki_okresu_porazka_trafia_do_dziennika
     _get(centrum, VIEW)
 
     assert len(_log_lines(centrum)) == 2
+
+
+def test_po_uruchomieniu_z_zapisem_zaden_plik_zbiorczy_nie_pokazuje_odczytu_sprzed_niego(tmp_path: Path) -> None:
+    reads: LastGoodReads[str] = LastGoodReads(clock=lambda: 0.0)
+    # Tata ogląda Uzupełnienie okresu A, potem okresu B, a potem przygotowuje okres A od nowa.
+    files = [tmp_path / "A.xlsx", tmp_path / "B.xlsx"]
+    for path in files:
+        path.write_bytes(b"zapisany")
+        reads.succeeded(path, path.name, reads.attempt(path))
+
+    reads.forget_all()
+
+    assert [reads.failed(path, reads.attempt(path), "USZKODZONY").kept for path in files] == [None, None]
