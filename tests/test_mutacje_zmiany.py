@@ -472,6 +472,19 @@ def test_argument_pozycyjny_stala_i_kolekcja_nie_dostaja_mutacji_none_ani_predyk
     assert [description for description in _described(code, [1]) if "w `or`" not in description] == []
 
 
+def test_z_predykatu_napisu_biegnie_in_na_startswith() -> None:
+    # #460 r1: ``word in text`` → ``text.endswith(word)`` wykrył test, a przeżyło ``text.startswith(word)``.
+    code = "def f(a, t):\n    x = a in t\n    y = t.startswith(a)\n    return t.endswith(a)\n"
+
+    chosen = [(mutant.line, mutant.description) for mutant in selected("m.py", code, [Hunk(2, 3, ())]) if not mutant.revert]
+
+    assert chosen == [
+        (2, "`a in t` → `t.startswith(a)`"),
+        (3, "`t.startswith(a)` → `t.endswith(a)`"),
+        (4, "`t.endswith(a)` → `t.startswith(a)`"),
+    ]
+
+
 def test_predykat_nie_dostaje_zamiany_na_samego_siebie() -> None:
     assert _described("ok = slowo not in tekst\n", [1]).keys() == {
         "`slowo not in tekst` → `not tekst.startswith(slowo)`",

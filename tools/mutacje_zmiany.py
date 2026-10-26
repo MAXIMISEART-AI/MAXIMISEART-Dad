@@ -13,7 +13,8 @@ robi mutacje, które przeglądy PR-ów robiły ręcznie i które przeżywały te
   albo ``raise SystemExit(...)`` (``sys.exit(main())``), ``return <liczba>`` zamienione na inny kod wyjścia
   (``return 0`` na ``return 1``, inna liczba na ``return 0``), bo ``sys.exit(None)`` kończy się kodem 0 jak ``return 0``;
 - ``a in b``, ``b.startswith(a)`` i ``b.endswith(a)`` zamienione na siebie nawzajem (także ``not in``), gdy ``b`` nie
-  jest literałem kolekcji, a ``startswith``/``endswith`` mają jeden argument, który nie jest krotką;
+  jest literałem kolekcji, a ``startswith``/``endswith`` mają jeden argument, który nie jest krotką; biegnie
+  ``in`` → ``startswith``, ``startswith`` → ``endswith`` i ``endswith`` → ``startswith``;
 - argument nazwany (``wersja=wersja``) ustawiony na ``None``, gdy jego wartość nie jest stałą (stałą psuje już
   ``True``/``False``, a ``encoding="utf-8"`` bez niej działa na Linuksie tak samo); pozycyjnych narzędzie nie rusza,
   bo ich ``None`` zwykle tylko wywraca wywołanie;
@@ -403,7 +404,9 @@ def _predicates(node: ast.Compare | ast.Call, source: _Source) -> Iterator[tuple
     else:
         return
     item_code, text_code = source.segment(item), source.segment(text)
-    for method in ("in", *_PREDICATES):
+    # ``selected`` bierze ostatnią zamianę węzła, więc ``in`` dostaje ``startswith``: na #460 r1 test wykrył ``endswith``,
+    # a przeżyło ``startswith``, które znalazł przegląd.
+    for method in ("in", "endswith", "startswith"):
         if method == now:
             continue
         shown = f"{item_code} in {text_code}" if method == "in" else f"{text_code}.{method}({item_code})"
