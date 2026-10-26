@@ -5,17 +5,17 @@ czytnika (``WorkbookError``, ``PeriodFolderError``, ``WorkerConfigError``) modu�
 procesu, który z tego pliku korzysta: proces zatrzymuje się nim (``StopError``), a Diagnoza i Konfiguracja
 pokazują go jako przyczynę albo problem pliku.
 
-Sprawdzanie Przygotowania pliku zbiorczego szuka też Surowych zleceń (``raw_orders_in_period``) tym samym
-rozpoznaniem i odczytem arkusza zleceń co Uporządkowanie INTERMAX (``raw_orders.recognize`` na
-``intermax_file.Register``) i oddaje je jako fakt, który Przygotowanie tłumaczy na Zatrzymanie.
+Sprawdzanie Przygotowania pliku zbiorczego szuka też Surowych zleceń na dole każdego arkusza zleceń
+(``raw_orders_in_period``) tym samym rozpoznaniem bloku i odczytem arkusza co Uporządkowanie INTERMAX
+(``raw_orders.pasted`` na ``intermax_file.Register``) i oddaje je jako fakt, który Przygotowanie tłumaczy na
+Zatrzymanie.
 """
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
-from datetime import date
 from pathlib import Path
 from typing import Final
 
@@ -32,7 +32,6 @@ from .period_folder import (
 )
 from .preparation_files import PeriodFiles
 from .preparation_register import RegisterSheet
-from .raw_orders import AboveOrdered, DayOrdered, RawBlock, SeveralDays, Undated, WithoutWorker
 from .settlement_period import SettlementPeriod, parse_period_token
 from .template_file import TemplateFile
 from .workbook_files import Problem, WorkbookError
@@ -145,41 +144,36 @@ class RawOrders:
 
 
 def raw_orders_in_period(register: Path, period: SettlementPeriod) -> RawOrders | None:
-    """Surowe zlecenia z dniem w ``period`` albo z dniem, którego nie da się ustalić; zatrzymanie przy nieczytelnym Rejestrze.
+    """Surowe zlecenia na dole arkusza zleceń z dniem w ``period`` albo z dniem, którego nie da się ustalić.
 
-    Dzień nie daje się ustalić, gdy Surowe zlecenie nie ma daty albo Wykonawcy albo wiersz z wyglądem z aplikacji
-    stoi nad uporządkowanym: wtedy to Uporządkowanie INTERMAX mówi, co poprawić.
+    Dzień nie daje się ustalić, gdy Surowe zlecenie nie ma daty albo Wykonawcy: wtedy to Uporządkowanie INTERMAX
+    mówi, co poprawić. Wiersz z wyglądem z aplikacji nad uporządkowanymi bez bloku na dole nie jest Surowym
+    zleceniem i Przygotowania nie zatrzymuje. Zatrzymanie przy nieczytelnym Rejestrze.
     """
 
     with _stops(messages.register_unusable), workbook_files.unreadable_as_error(register):
         intermax = Register.read(register)
         for sheet in intermax.order_sheets:
             try:
-                recognized = raw_orders.recognize(sheet.rows_from_bottom(), sheet.columns)
+                pasted = raw_orders.pasted(sheet.rows_from_bottom(), sheet.columns)
             except UnsupportedShape as error:
                 raise WorkbookError(register, Problem.UNREADABLE) from error
-            found = _raw_rows_in_period(recognized, period)
+            found = _raw_rows_in_period(pasted, period)
             if found is not None:
                 return RawOrders(sheet.name, *found)
     return None
 
 
 def _raw_rows_in_period(
-    recognized: raw_orders.RawBlock | raw_orders.Obstacle | None, period: SettlementPeriod
+    pasted: Sequence[raw_orders.RawOrder | raw_orders.Undated | raw_orders.WithoutWorker], period: SettlementPeriod
 ) -> tuple[int, int] | None:
-    days: set[date]
-    match recognized:
-        case None:
-            return None
-        case RawBlock(orders):
-            days, rows = {order.when.date() for order in orders}, (orders[0].row, orders[-1].row)
-        case SeveralDays(several, first_row, last_row):
-            days, rows = set(several), (first_row, last_row)
-        case DayOrdered(day, first_row, last_row):
-            days, rows = {day}, (first_row, last_row)
-        case AboveOrdered(row, _) | Undated(row, _) | WithoutWorker(row, _):
-            return row, row
-    return rows if any(period.tuesday <= day <= period.monday for day in days) else None
+    undetermined = next((order for order in pasted if not isinstance(order, raw_orders.RawOrder)), None)
+    if undetermined is not None:
+        return undetermined.row, undetermined.row
+    in_period = any(
+        period.tuesday <= order.when.date() <= period.monday for order in pasted if isinstance(order, raw_orders.RawOrder)
+    )
+    return (pasted[0].row, pasted[-1].row) if in_period else None
 
 
 def register_problem(register: Path, readers: Readers) -> Message | None:
