@@ -364,7 +364,7 @@ jobs:
   required:
     # Configure only this stable status as required in branch protection.
     # It passes when every job succeeded, a job was skipped only because the plan gave it no work, and every pytest
-    # job of the plan reported each of its units (no test file lost between jobs).
+    # job of the plan reported each of its units, passed in its latest attempt (no test file lost between jobs).
     name: Required CI status
     runs-on: ubuntu-latest
     needs:

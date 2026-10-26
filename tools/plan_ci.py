@@ -13,13 +13,13 @@ zadania o najmniejszej sumie). Plik dłuższy niż zadanie dzieli się na k udzi
 z ``-p tools.pytest_czesc`` (crc32 id testu modulo k). Gdy run (``STALE_ZADANIA``, zadania pytest i
 ``ZADANIA_ZMIANY``, jeśli są mutacje zmiany) przekroczyłby ``ZADANIA_RUNU``, cel rośnie co ``KROK_CELU_S``.
 
-Change mutations startują tylko na pull request, który ma mutacje zmiany: plan liczy je tak samo jak
-``tools/mutacje_zmiany.py``, bez testów i bez instalacji.
+Change mutations startują tylko na pull request, który ma mutacje zmiany albo wyjątek ``# mutacje-zmiany:`` w złej
+postaci: plan liczy je tak samo jak ``tools/mutacje_zmiany.py``, bez testów i bez instalacji.
 
 Plan ma ``digest``: zadanie wykonuje tylko plan, którego treść się z nim zgadza, i zapisuje go w swoim zapisie czasów,
 a ``Required CI status`` (``werdykt``) przyjmuje tylko zapisy tego planu. Werdykt przepuszcza run, gdy każde zadanie
-przeszło, zadanie pominięte to tylko takie, któremu plan nie dał pracy, a każde zadanie planu zgłosiło każdą swoją
-jednostkę (plik testów, krok). Plan, którego nie ma, jest czerwonym werdyktem z przyczyną.
+przeszło, zadanie pominięte to tylko takie, któremu plan nie dał pracy, a każde zadanie planu zgłosiło w ostatniej
+próbie każdą swoją jednostkę (plik testów, krok) bez porażki. Plan, którego nie ma, jest czerwonym werdyktem z przyczyną.
 
     python3 tools/plan_ci.py plan --zdarzenie pull_request --baza HEAD^1 --czasy .ci-plan/czasy --wyjscie .ci-plan/plan.json
     python tools/plan_ci.py wykonaj --plan .ci-plan/plan.json --zadanie windows-3.14-2
@@ -293,10 +293,22 @@ def _git(*argumenty: str) -> str:
 
 
 def liczba_mutacji_zmiany(baza: str) -> int:
-    """Mutacje zmiany od ``merge-base`` HEAD z ``baza``, policzone jak w ``tools/mutacje_zmiany.py``, bez testów."""
+    """Mutacje zmiany od ``merge-base`` HEAD z ``baza``, policzone jak w ``tools/mutacje_zmiany.py``, bez testów.
+
+    Wyjątek ``# mutacje-zmiany:`` w złej postaci w zmienionym pliku to praca Change mutations także bez mutacji (np.
+    przy zmianie samego komentarza): ich zadanie zgłasza go jako ``MUTACJE ZMIANY FAIL``, jak przed planem.
+    """
 
     fragmenty = mutacje_zmiany.changes(_git("merge-base", "HEAD", baza).strip())
-    return sum(len(mutacje_zmiany.mutants(sciezka, (ROOT / sciezka).read_text(encoding="utf-8"), f)) for sciezka, f in fragmenty.items())
+    teksty = {sciezka: (ROOT / sciezka).read_text(encoding="utf-8") for sciezka in fragmenty}
+    liczba = sum(len(mutacje_zmiany.mutants(sciezka, tekst, fragmenty[sciezka])) for sciezka, tekst in teksty.items())
+    try:
+        for sciezka, tekst in teksty.items():
+            mutacje_zmiany.exceptions(tekst, sciezka)
+    except ValueError as error:
+        print(f"MUTACJE ZMIANY | {error}; Change mutations startują, żeby to zgłosić")
+        return max(liczba, 1)
+    return liczba
 
 
 def _katalog_czasow() -> Path:
@@ -429,10 +441,13 @@ def werdykt(plan: Plan | None, wyniki_zadan: Mapping[str, str], zapisy: Sequence
         if (ostatni := ostatnie.get(zadanie.id)) is None:
             przyczyny.append(f"{zadanie.nazwa}: brak zapisu czasów z tego planu, więc nic nie dowodzi, że jego jednostki biegły")
             continue
-        zgloszone = {jednostka.klucz for jednostka in ostatni.jednostki}
         # Udział pliku zapis czasów zgłasza jako cały plik (junit nie zna udziałów).
-        if brak := sorted({klucz.partition("#")[0] for klucz in zadanie.jednostki} - zgloszone):
+        zaplanowane = {klucz.partition("#")[0] for klucz in zadanie.jednostki}
+        if brak := sorted(zaplanowane - {jednostka.klucz for jednostka in ostatni.jednostki}):
             przyczyny.append(f"{zadanie.nazwa}: jednostki bez wyniku: {', '.join(brak)}")
+        # Druga linia obrony, gdyby zadanie z porażką skończyło się sukcesem.
+        if padly := sorted(zaplanowane & {jednostka.klucz for jednostka in ostatni.jednostki if jednostka.status != "ok"}):
+            przyczyny.append(f"{zadanie.nazwa}: jednostki z porażką: {', '.join(padly)}")
     return przyczyny
 
 

@@ -105,8 +105,10 @@ def test_tor_bez_pracy_nie_ma_zadan_a_bez_zadnej_pracy_macierz_jest_pusta(monkey
     ]
 
 
-def _record(plan: plan_ci.Plan, job: plan_ci.Zadanie, units: list[str], *, attempt: int = 1, digest: str | None = None) -> czasy_ci.Zapis:
-    reported = tuple(czasy_ci.Jednostka(unit, 1.0, "ok") for unit in units)
+def _record(
+    plan: plan_ci.Plan, job: plan_ci.Zadanie, units: list[str], *, attempt: int = 1, digest: str | None = None, failed: frozenset[str] = frozenset()
+) -> czasy_ci.Zapis:
+    reported = tuple(czasy_ci.Jednostka(unit, 1.0, "fail" if unit in failed else "ok") for unit in units)
     return czasy_ci.Zapis(1, attempt, "pytest", job.nazwa, job.tor, "pull_request", "0" * 40, 9.0, reported, (), digest or plan.digest, job.id)
 
 
@@ -123,6 +125,19 @@ def test_required_czerwienieje_gdy_zaplanowana_jednostka_nie_zglosila_wyniku_w_o
     assert plan_ci.werdykt(plan, results, [partial, *(record for record in complete if record.zadanie_planu != split.id)]) == [
         f"{split.nazwa}: jednostki bez wyniku: {missing}"
     ]
+
+
+def test_required_czerwienieje_gdy_jednostka_zadania_padla_w_ostatniej_probie_a_przechodzi_po_ponowieniu_zadania() -> None:
+    plan = _plan(_times(), [*FILES, LONG])
+    results = {"plan": "success", "pytest": "success", "change-mutations": "skipped"}
+    complete = [_record(plan, job, [unit.partition("#")[0] for unit in job.jednostki]) for job in plan.zadania]
+    job = next(job for job in plan.zadania if "krok:e2e" in job.jednostki)
+    units = [unit.partition("#")[0] for unit in job.jednostki]
+    failed = _record(plan, job, units, failed=frozenset({units[0], "krok:e2e"}))
+    others = [record for record in complete if record.zadanie_planu != job.id]
+
+    assert plan_ci.werdykt(plan, results, [*others, failed]) == [f"{job.nazwa}: jednostki z porażką: {', '.join(sorted({units[0], 'krok:e2e'}))}"]
+    assert plan_ci.werdykt(plan, results, [*others, failed, _record(plan, job, units, attempt=2)]) == []
 
 
 def test_plan_zmieniony_po_digest_nie_wykonuje_sie_a_required_nie_bierze_zapisow_innego_planu(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
@@ -213,8 +228,9 @@ def test_zadanie_wykonuje_kroki_po_czerwonym_pytest_przerywa_krok_po_limicie_i_z
     monkeypatch.setattr(plan_ci, "KROKI", {step.nazwa: step for step in (quick, hung)})
     job = plan_ci.Zadanie("windows-3.14-1", "windows-3.14", "pytest (Python 3.14, 1/1)", ("pytest:tests/test_mini.py", "krok:wiszacy", "krok:szybki"), 1.0)
     plan = plan_ci.Plan("push", plan_ci.CEL_S, (), 0, (job,))
+    (mini_repo / "plan.json").write_text(plan.do_json(), encoding="utf-8")
 
-    code = plan_ci.wykonaj(plan, job.id)
+    code = plan_ci.main(["wykonaj", "--plan", str(mini_repo / "plan.json"), "--zadanie", job.id])
     result = json.loads(plan_ci.WYKONANIE.read_text(encoding="utf-8"))
 
     assert code == 1
@@ -225,15 +241,41 @@ def test_zadanie_wykonuje_kroki_po_czerwonym_pytest_przerywa_krok_po_limicie_i_z
     assert capsys.readouterr().out.splitlines()[-1] == "WYKONANIE FAIL | krok:pytest, krok:wiszacy"
 
 
-@pytest.mark.parametrize(("changed", "mutated"), [("src/pakiet/a.py", True), ("tests/test_a.py", False)])
-def test_change_mutations_startuja_tylko_gdy_zmiana_ma_mutacje(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, changed: str, mutated: bool) -> None:
+MALFORMED = "src/pakiet/a.py:4: wyjątek musi mieć postać `# mutacje-zmiany: <powód> | do RRRR-MM-DD | zgoda <kto>`"
+
+
+@pytest.mark.parametrize(
+    ("changed", "appended", "started", "reported"),
+    [
+        ("src/pakiet/a.py", "\n\ndef b(x: int) -> bool:\n    return x < 3\n", True, []),
+        ("tests/test_a.py", "\n\ndef b(x: int) -> bool:\n    return x < 3\n", False, []),
+        # Sam komentarz nie ma mutacji, ale zadanie Change mutations zgłasza zły wyjątek jako MUTACJE ZMIANY FAIL.
+        ("src/pakiet/a.py", "\n# mutacje-zmiany: bez terminu\n", True, [f"MUTACJE ZMIANY | {MALFORMED}; Change mutations startują, żeby to zgłosić"]),
+    ],
+    ids=["zmiana src", "zmiana testów", "sam komentarz src ze złym wyjątkiem"],
+)
+def test_plan_pull_requestu_startuje_change_mutations_gdy_zmiana_ma_mutacje_albo_zly_wyjatek(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], changed: str, appended: str, started: bool, reported: list[str]
+) -> None:
+    def offline(*arguments: str) -> str:
+        raise subprocess.CalledProcessError(1, ["gh", *arguments], stderr="gh: not logged in")
+
     repo = repository(tmp_path / "repo", {"src/pakiet/a.py": "def a(x: int) -> bool:\n    return x > 1\n", "tests/test_a.py": "def test_a() -> None:\n    pass\n"})
     commit(repo, "baza")
     git(repo, "branch", "baza")
     with (repo / changed).open("a", encoding="utf-8") as file:
-        file.write("\n\ndef b(x: int) -> bool:\n    return x < 3\n")
+        file.write(appended)
     commit(repo, "zmiana")
     for module in (plan_ci, mutacje_zmiany):
         monkeypatch.setattr(module, "ROOT", repo)
+    monkeypatch.setattr(czasy_ci, "_gh", offline)
+    monkeypatch.setenv("GITHUB_OUTPUT", str(tmp_path / "output"))
 
-    assert (plan_ci.liczba_mutacji_zmiany("baza") > 0) == mutated
+    code = plan_ci.main(["plan", "--zdarzenie", "pull_request", "--baza", "baza", "--czasy", str(tmp_path / "czasy"), "--wyjscie", str(tmp_path / "plan.json")])
+    out = capsys.readouterr().out
+    planned = plan_ci.Plan.z_json((tmp_path / "plan.json").read_text(encoding="utf-8")).mutacje_zmiany
+    output = dict(line.split("=", 1) for line in (tmp_path / "output").read_text(encoding="utf-8").splitlines())
+
+    assert (code, planned > 0, output["mutacje-zmiany"]) == (0, started, str(planned)), out
+    assert f"| mutacje zmiany {planned} |" in out, out
+    assert [line for line in out.splitlines() if line.startswith("MUTACJE ZMIANY")] == reported, out

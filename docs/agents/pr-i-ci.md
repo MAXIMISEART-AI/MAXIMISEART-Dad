@@ -13,8 +13,9 @@ Kiedy PR jest gotowy i jak go scalić, mówi sekcja `PR: od pushu do merge'a` w 
 
 - Ile zadań pytest startuje i które pliki testów (albo udziały długiego pliku) bierze każde, ustala zadanie `Plan CI` (`tools/plan_ci.py`) z czasów ostatnich zielonych runów `main`, a E2E i straż czasu dokłada do zadań Windows.
 - Plan dla swojej gałęzi drukujesz przez `.venv/bin/python tools/plan_ci.py plan --baza origin/main` (Windows: `py -3 tools/plan_ci.py plan --baza origin/main`), z prognozą ściany każdego zadania.
-- `Required CI status` czerwienieje także wtedy, gdy planu nie ma albo zadanie pytest nie zgłosiło w zapisie czasów którejś swojej jednostki, a linia `REQUIRED FAIL` nazywa zadanie i jednostkę.
-- Porażkę jednego zadania pytest odtwarzasz przez `tools/ci_lokalnie.py --tylko pytest` albo przez pytest na plikach z linii zadania w planie.
+- `Required CI status` czerwienieje także wtedy, gdy planu nie ma albo zadanie pytest nie zgłosiło w zapisie czasów ostatniej próby którejś swojej jednostki albo zgłosiło ją z porażką, a linia `REQUIRED FAIL` nazywa zadanie i jednostkę.
+- Porażkę jednego zadania pytest odtwarzasz przez `tools/ci_lokalnie.py --tylko pytest` albo przez pytest na plikach tego zadania.
+- Linia zadania w planie podaje liczbę jego plików i nazywa tylko udziały i kroki, a listę plików ma pole `jednostki` zadania w artefakcie `plan` runu (`gh run download <id runu> --name plan`).
 
 ## Status `scalenie z main`
 
