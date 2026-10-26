@@ -20,13 +20,18 @@ Każda inna część pliku i każdy bajt nad tymi wierszami zostają. Arkusz, w 
 formuła albo zakres (scalenie, formatowanie warunkowe, sprawdzanie poprawności, autofiltr, Hiperłącze na kilka
 komórek), to ``UnsupportedShape``. Wynik trafia do pliku tymczasowego obok INTERMAX, zostaje odczytany jeszcze
 raz i porównany z oryginałem; różnica to ``WriteMismatch``, a INTERMAX zostaje nietknięty. Dopiero po zgodnym
-sprawdzeniu ``before_replace`` (Kopia INTERMAX) i atomowa podmiana.
+sprawdzeniu ``before_replace`` (Kopia INTERMAX) i atomowa podmiana. Podmianę, której system odmawia, gdy Excel nie
+trzyma INTERMAX (OneDrive go synchronizuje), ``save`` ponawia przez ``_RETRY_S`` sekund zegara procesu (``Waiting``),
+a potem zgłasza ``HeldByOneDrive``. Przed każdą ponowną próbą czyta INTERMAX jeszcze raz: gdy OneDrive wgrał w
+przerwie inną wersję, to też ``HeldByOneDrive``, bez podmiany.
 """
 
 from __future__ import annotations
 
 import html
+import os
 import re
+import time
 import zipfile
 from functools import cached_property
 from collections.abc import Callable, Iterator, Mapping, Sequence
@@ -49,7 +54,7 @@ from .raw_orders import SHIFT, CellFacts, DayPlan, OrderColumns, RawBlock, RowFa
 from .row_look import BORDER
 from .workbook_files import WorkbookError, header_columns, is_blank
 from .workbook_parts import MAIN, OFFICE_REL, IrregularSheetData, SheetData, SheetRow, office_document, relationships
-from .workbook_save import write_atomically
+from .workbook_save import WorkbookSaveError, write_atomically
 from .worker_config import normalize_text
 
 __all__ = ["OrderSheet", "Register", "UnsupportedShape", "WriteMismatch", "save"]
@@ -79,6 +84,9 @@ _ROW_LOOK: Final = (b"s", b"customFormat", b"ht", b"customHeight", b"x14ac:dyDes
 """Atrybuty ``<row>``, które dają wiersz wygląd: styl wiersza i wysokość; ``x14ac`` deklaruje arkusz taty."""
 _STYLE_LISTS: Final = (b"fonts", b"borders", b"cellXfs")
 """Listy ``xl/styles.xml``, na których końcu zapis dopisuje wpisy."""
+_RETRY_S: Final = 5.0
+"""Tyle sekund ``save`` ponawia podmianę, której system odmawia, choć Excel nie trzyma INTERMAX."""
+_PAUSE_S: Final = 0.5
 
 
 class UnsupportedShape(Exception):
@@ -87,6 +95,19 @@ class UnsupportedShape(Exception):
 
 class WriteMismatch(Exception):
     """Plik zapisany przed podmianą różni się od oryginału czymś więcej niż uporządkowanym dniem."""
+
+
+class HeldByOneDrive(Exception):
+    """System odmawia podmiany INTERMAX dłużej niż krótka ponowna próba, a Excel go nie trzyma, albo OneDrive wgrał
+    w przerwie między próbami inną wersję INTERMAX."""
+
+
+@dataclass(frozen=True)
+class Waiting:
+    """Zegar procesu w sekundach i przerwa między próbami podmiany INTERMAX."""
+
+    clock: Callable[[], float] = time.monotonic
+    pause: Callable[[float], None] = time.sleep
 
 
 @dataclass(frozen=True)
@@ -594,11 +615,22 @@ def _has_value(cell: _Cell) -> bool:
     return _VALUE.search(content) is not None or b"<is>" in content
 
 
-def save(register: Register, sheet: OrderSheet, block: RawBlock, plan: DayPlan, *, before_replace: Callable[[], None]) -> None:
+def save(
+    register: Register,
+    sheet: OrderSheet,
+    block: RawBlock,
+    plan: DayPlan,
+    *,
+    before_replace: Callable[[], None],
+    waiting: Waiting,
+) -> None:
     """Zapisuje dzień w INTERMAX: plik tymczasowy obok, sprawdzenie zapisu, ``before_replace`` i atomowa podmiana.
 
     ``WriteMismatch``, ``UnsupportedShape`` albo wyjątek z ``before_replace`` zostawiają INTERMAX nietknięty i bez
-    pliku tymczasowego; nieudana podmiana to ``WorkbookSaveError``.
+    pliku tymczasowego. Nieudana podmiana to ``WorkbookSaveError``, a odmowa podmiany bez pliku blokady Excela po
+    ponownych próbach przez ``_RETRY_S`` sekund zegara ``waiting`` to ``HeldByOneDrive``. Ponowna próba podmienia
+    tylko INTERMAX, który ma wciąż bajty ``register``: inne bajty albo plik, którego nie da się przeczytać, to
+    ``HeldByOneDrive``, a plik blokady Excela to ``WorkbookSaveError``.
     """
 
     content = register.ordered(sheet, block, plan)
@@ -613,4 +645,25 @@ def save(register: Register, sheet: OrderSheet, block: RawBlock, plan: DayPlan, 
             raise WriteMismatch("odczyt") from error
         before_replace()
 
-    write_atomically(register.path, write)
+    def replace(temporary: Path, target: Path) -> None:
+        deadline = waiting.clock() + _RETRY_S
+        while True:
+            try:
+                os.replace(temporary, target)
+                return
+            except PermissionError as error:
+                if workbook_files.is_open_in_excel(target):
+                    raise
+                if waiting.clock() >= deadline:
+                    raise HeldByOneDrive(target.name) from error
+            waiting.pause(_PAUSE_S)
+            try:
+                unchanged = workbook_files.workbook_content(target) == register.content
+            except WorkbookError as error:
+                if error.problem is workbook_files.Problem.OPEN_IN_EXCEL:
+                    raise WorkbookSaveError(target.name) from error
+                raise HeldByOneDrive(target.name) from error
+            if not unchanged:
+                raise HeldByOneDrive(target.name)
+
+    write_atomically(register.path, write, replace=replace)
