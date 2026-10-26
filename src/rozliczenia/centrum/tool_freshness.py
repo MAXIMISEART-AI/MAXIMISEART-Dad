@@ -304,7 +304,7 @@ def _merged_into_main(api: str, commit: str, timeout_s: float) -> bool:
     try:
         pulls = _json(f"{api}/commits/{commit}/pulls", timeout_s)
     except _NoAnswer:
-        return False
+        pulls = ()
     return any(
         isinstance(pull, dict)
         and pull.get("merge_commit_sha") == commit
