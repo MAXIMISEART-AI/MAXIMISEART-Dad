@@ -78,7 +78,7 @@ def main(argv: list[str] | None = None) -> int:
     if run_id is None:
         ref = args.ref or _git("branch", "--show-current")
         run_id = _dispatch(ref, args.feature, head)
-    print(f"RUN {run_id} | https://github.com/MAXIMISEART-AI/MAXIMISEART-Dad/actions/runs/{run_id}", flush=True)
+    print(f"RUN {run_id} | https://github.com/maximiseartai/MAXIMISEART-Dad/actions/runs/{run_id}", flush=True)
     subprocess.run(["gh", "run", "watch", run_id, "--interval", "30"], cwd=REPO_ROOT, stdout=subprocess.DEVNULL, check=False)
     run = json.loads(_gh("run", "view", run_id, "--json", "conclusion,headSha"))
     conclusion, checked = run["conclusion"], run["headSha"]

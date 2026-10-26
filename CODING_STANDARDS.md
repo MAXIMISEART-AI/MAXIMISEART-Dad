@@ -115,7 +115,7 @@ A rule that a check enforces sits in its section's table, one line per rule, bes
 - Display every contract field the UI receives, or remove it from the contract.
 - Take limits and value sets shared with the server from the generated schemas, never from a repeated literal.
   Key a cache or a remount by exactly the fields whose change requires a new read (tata's files, not the theme).
-- Build new UI to the accepted [v3 brief](https://github.com/MAXIMISEART-AI/MAXIMISEART-Dad/issues/90#issuecomment-6257321289) with the `emil-design-eng` skill.
+- Build new UI to the accepted [v3 brief](https://github.com/maximiseartai/MAXIMISEART-Dad/issues/90#issuecomment-6257321289) with the `emil-design-eng` skill.
 
 | Rule | Guard |
 |---|---|

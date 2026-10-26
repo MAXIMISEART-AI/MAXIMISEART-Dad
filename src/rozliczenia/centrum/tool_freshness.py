@@ -74,7 +74,7 @@ def offers_update(judgement: Judgement) -> bool:
     return judgement == "newer"
 
 
-REPOSITORY_API: Final = "https://api.github.com/repos/MAXIMISEART-AI/MAXIMISEART-Dad"
+REPOSITORY_API: Final = "https://api.github.com/repos/maximiseartai/MAXIMISEART-Dad"
 # 1000 tagów: przy Wydaniu na tydzień na lata. Strona 100 tagów to kilkadziesiąt kB.
 _PAGES: Final = 10
 # Tyle najwyższych Wydań sprawdza się po kolei, zanim jedno leży na `main`; dalej wynik jest nieznany.
