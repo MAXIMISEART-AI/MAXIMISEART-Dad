@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import json
 import threading
+import time
 from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from rozliczenia import preparation_process, settlement_process
@@ -53,6 +55,8 @@ ONLINE_ONLY_FILE = 0x400000
 BACKGROUND_NUMBERS = 1001
 # Logi Uruchomienia idą do skrzynki po każdym Uruchomieniu; testy innych wysyłek ich nie oglądają.
 RUN_LOGS_IN_BACKGROUND: frozenset[Label] = frozenset({"logi-uruchomienia"})
+# Najdłuższe czekanie zatrzymania Centrum na koniec jego wątków w tle; tyle, co skrzynka czeka na wysyłkę w tle.
+STOP_S = 30.0
 
 
 @dataclass
@@ -278,9 +282,42 @@ class MetricsPaths:
         )
 
 
+class CentrumClient(TestClient):
+    """Klient HTTP Centrum w teście, który zatrzymuje Centrum, zanim test przeczyta albo usunie jego pliki.
+
+    Na Windows pliku, który wątek Centrum w tle w tej chwili pisze albo czyta, nie da się otworzyć ani usunąć
+    (``PermissionError``), więc test dotyka plików Centrum dopiero po ``stop``. Wątki Centrum to wątki, które
+    powstały od ``alive_before``: Centrum po ponownym starcie dostaje ``alive_before`` poprzedniego, żeby ``stop``
+    czekał też na wątki jego poprzedniej pracy.
+    """
+
+    def __init__(self, app: FastAPI, *, alive_before: frozenset[threading.Thread] | None = None) -> None:
+        super().__init__(app, base_url=CENTRUM, headers={"Origin": CENTRUM})
+        self.alive_before = frozenset(threading.enumerate()) if alive_before is None else alive_before
+
+    def threads(self) -> list[threading.Thread]:
+        """Żywe wątki Centrum: serwera i jego pracy w tle."""
+
+        return [thread for thread in threading.enumerate() if thread not in self.alive_before]
+
+    def stop(self, timeout_s: float = STOP_S) -> None:
+        """Zamyka serwer (``lifespan``) i czeka, aż skończy się każdy wątek Centrum; drugie ``stop`` nic nie robi.
+
+        Wątek, który nie skończy się w ``timeout_s``, wywraca test z nazwą wątku.
+        """
+
+        if self.portal is not None:
+            self.__exit__(None, None, None)
+        deadline = time.monotonic() + timeout_s
+        while alive := self.threads():
+            left = deadline - time.monotonic()
+            assert left > 0, f"Centrum nie zatrzymało się: żyją wątki {', '.join(thread.name for thread in alive)}"
+            alive[0].join(left)
+
+
 @dataclass
 class Centrum:
-    client: TestClient
+    client: CentrumClient
     platform: FakePlatform
     settings_path: Path
     metrics: MetricsPaths
@@ -334,7 +371,7 @@ def centrum(tmp_path: Path, *, today: date = date(2026, 10, 19)) -> Centrum:
         clock=clock,
         pause=clock.pause,
     )
-    client = TestClient(app, base_url=CENTRUM, headers={"Origin": CENTRUM})
+    client = CentrumClient(app)
     return Centrum(client, platform, settings_path, metrics, log_path, report_box, clock)
 
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import codecs
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 import json
@@ -41,9 +42,11 @@ from tests.fixtures.clock import ManualClock
 from tests.fixtures.locked_file import lock_file
 from tests.fixtures.centrum_processes import (
     PreparingCentrum,
+    SettlingCentrum,
     Surroundings,
     preparing_centrum,
     run_to_end,
+    settling_centrum,
     stopped_for_maks,
 )
 from tests.fixtures.potomne import wait_for
@@ -52,7 +55,7 @@ from tests.fixtures.preparation import PERIOD
 KEY = "github_pat_SYNTETYCZNY_KLUCZ_ZGLOSZEN"
 
 
-def with_key(centrum: PreparingCentrum) -> Path:
+def with_key(centrum: PreparingCentrum | SettlingCentrum) -> Path:
     """Klucz do Zgłoszeń w lokalnym pliku obok Ustawień taty, jak go wpisuje Maks."""
 
     key_file = centrum.tmp_path / "config" / "zgloszenia-klucz.txt"
@@ -60,7 +63,7 @@ def with_key(centrum: PreparingCentrum) -> Path:
     return key_file
 
 
-def diagnose(centrum: PreparingCentrum, run_id: str) -> dict[str, Any]:
+def diagnose(centrum: PreparingCentrum | SettlingCentrum, run_id: str) -> dict[str, Any]:
     response = centrum.client.post(f"/api/runs/{run_id}/diagnosis")
     assert response.status_code == 200, response.json()
     diagnosis: dict[str, Any] = response.json()
@@ -333,8 +336,9 @@ def test_zgloszenie_ktorego_nie_da_sie_zapisac_w_kolejce_daje_komunikat(tmp_path
     centrum = preparing_centrum(tmp_path)
     run_id = stopped_for_maks(centrum)
     diagnose(centrum, run_id)
+    centrum.client.stop()
     queue = tmp_path / "config" / "zgloszenia" / "kolejka"
-    assert wait_for(lambda: removed(queue))  # Logi Uruchomienia w kolejce
+    shutil.rmtree(queue)  # Logi Uruchomienia w kolejce
     queue.write_text("", encoding="utf-8")  # plik zamiast folderu: zapis się nie uda
 
     state = send(centrum, run_id)
@@ -362,9 +366,8 @@ def test_niezapisane_zgloszenie_powracajacego_problemu_zostawia_jego_poprzednie_
     centrum.restart()
     again = stopped_for_maks(centrum)
     diagnose(centrum, again)
+    centrum.client.stop()
     queue = tmp_path / "config" / "zgloszenia" / "kolejka"
-    # Kolejka z kluczem wysyła Logi Uruchomienia w tle; na Windows folder z plikiem usuwanym w tej chwili nie znika.
-    assert wait_for(lambda: not any(queue.iterdir()))
     shutil.rmtree(queue)
     queue.write_text("", encoding="utf-8")  # plik zamiast folderu: zapis się nie uda
 
@@ -377,16 +380,27 @@ def test_niezapisane_zgloszenie_powracajacego_problemu_zostawia_jego_poprzednie_
     assert [case["number"] for case in cases(centrum)] == [1]
 
 
-def removed(folder: Path) -> bool:
-    """Usuwa ``folder``; ``False``, gdy na Windows przejście kolejki bez klucza czyta w tej chwili jego plik."""
+@pytest.mark.parametrize("started", [preparing_centrum, settling_centrum], ids=["przygotowanie", "przebieg"])
+def test_zatrzymanie_centrum_czeka_na_kazdy_jego_watek_takze_sprzed_ponownego_startu_a_drugie_nic_nie_robi(
+    tmp_path: Path, started: Callable[[Path], PreparingCentrum | SettlingCentrum]
+) -> None:
+    centrum = started(tmp_path)
+    with_key(centrum)
+    hold = centrum.surroundings.report_box.search_hold = threading.Event()
+    run_id = stopped_for_maks(centrum)
+    diagnose(centrum, run_id)  # Diagnoza pyta skrzynkę o Zgłoszenie w tle, a skrzynka nie odpowiada
+    centrum.restart()
 
-    try:
-        shutil.rmtree(folder)
-    except FileNotFoundError:
-        return True
-    except OSError:
-        return False
-    return True
+    with centrum.client:
+        running = centrum.client.threads()
+        with pytest.raises(AssertionError, match="żyją wątki .*zgloszenie-skrzynka"):
+            centrum.client.stop(timeout_s=0)
+        hold.set()
+        centrum.client.stop()
+        centrum.client.stop()
+
+    assert {"zgloszenie-skrzynka", "skrzynka-klucz"} <= {thread.name for thread in running}
+    assert [thread.name for thread in running if thread.is_alive()] == []
 
 
 def current_report(centrum: PreparingCentrum) -> object:

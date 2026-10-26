@@ -32,7 +32,7 @@ from rozliczenia.input_checks import FILE_READERS, Readers
 from rozliczenia.process_run import Finished, Process, ProcessInputs
 
 from tests.fixtures.centrum import (
-    CENTRUM,
+    CentrumClient,
     FakeGitHub,
     FakeOneDrive,
     FakePlatform,
@@ -177,7 +177,8 @@ def _client(
     configuration: ConfigurationFiles,
     engines: Engines,
     surroundings: Surroundings,
-) -> TestClient:
+    alive_before: frozenset[threading.Thread] | None = None,
+) -> CentrumClient:
     log = CentrumLog(tmp_path / "logs" / "centrum-rozliczen.log")
     onedrive = surroundings.onedrive
     app = create_app(
@@ -198,12 +199,12 @@ def _client(
         guardian=surroundings.guardian,
         readers=surroundings.readers,
     )
-    return TestClient(app, base_url=CENTRUM, headers={"Origin": CENTRUM})
+    return CentrumClient(app, alive_before=alive_before)
 
 
 @dataclass
 class PreparingCentrum:
-    client: TestClient
+    client: CentrumClient
     fixture: PreparationFixture
     metrics_path: Path
     log_path: Path
@@ -221,19 +222,32 @@ class PreparingCentrum:
     def restart(self) -> None:
         """Nowe Centrum na tych samych plikach i Ustawieniach taty."""
 
-        self.client = _preparation_client(self.tmp_path, self.fixture, FakePlatform(), self.surroundings, self.engines)
+        self.client = _preparation_client(
+            self.tmp_path,
+            self.fixture,
+            FakePlatform(),
+            self.surroundings,
+            self.engines,
+            alive_before=self.client.alive_before,
+        )
 
 
 def _preparation_client(
-    tmp_path: Path, fixture: PreparationFixture, platform: FakePlatform, surroundings: Surroundings, engines: Engines
-) -> TestClient:
+    tmp_path: Path,
+    fixture: PreparationFixture,
+    platform: FakePlatform,
+    surroundings: Surroundings,
+    engines: Engines,
+    *,
+    alive_before: frozenset[threading.Thread] | None = None,
+) -> CentrumClient:
     configuration = ConfigurationFiles(
         worker_config=fixture.config_path,
         internal_template=fixture.internal_template_path,
         collective_template=fixture.collective_template_path,
         worker_template=tmp_path / "config" / "Wzorzec rozliczenia pracownika.xlsx",
     )
-    return _client(tmp_path, platform, configuration, engines, surroundings)
+    return _client(tmp_path, platform, configuration, engines, surroundings, alive_before)
 
 
 def _metrics(tmp_path: Path) -> MetricsPaths:
@@ -271,7 +285,7 @@ def preparing_centrum(
 
 @dataclass
 class SettlingCentrum:
-    client: TestClient
+    client: CentrumClient
     periods_directory: Path
     metrics_path: Path
     log_path: Path
@@ -303,7 +317,14 @@ class SettlingCentrum:
     def restart(self) -> None:
         """Nowe Centrum na tych samych plikach i Ustawieniach taty."""
 
-        self.client = _client(self.tmp_path, FakePlatform(), self.configuration, self.engines, self.surroundings)
+        self.client = _client(
+            self.tmp_path,
+            FakePlatform(),
+            self.configuration,
+            self.engines,
+            self.surroundings,
+            self.client.alive_before,
+        )
 
 
 def settling_centrum(
