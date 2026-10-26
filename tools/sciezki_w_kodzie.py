@@ -1,7 +1,6 @@
 """Ścieżki, które moduł Pythona nazywa w swoim kodzie: napisy, ścieżki składane operatorem ``/`` i globy na katalogach.
 
-Czytają je ``tools/szybko.py`` (od czego zależy test) i ``tools/mutacje_skilli.py`` (które skrypty uruchamia skill,
-także dla ``tools/skille_dla_zmiany.py``), więc wszystkie trzy rozpoznają uruchamiany plik tak samo.
+Czyta je ``tools/szybko.py``: od tych plików zależy test, choć ich nie importuje.
 """
 
 from __future__ import annotations

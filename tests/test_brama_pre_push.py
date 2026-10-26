@@ -262,7 +262,7 @@ def test_push_agenta_bez_origin_main_drukuje_powod_nieznanych_skilli(checkout: P
 
     [line] = _skills_lines(checkout, "kod/nowy.py")
 
-    assert line.startswith("SKILLE VERIFY: nieznane (git diff: fatal: "), line
+    assert line.startswith("SKILLE VERIFY: nieznane (git merge-base: fatal: "), line
 
 
 BROKEN_SKILLS = {
