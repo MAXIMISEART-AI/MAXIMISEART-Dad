@@ -20,7 +20,7 @@ server's answer and the files on disk.
 
 CI runs `run_centrum_verification.py --feature all` (the `ci:` key) and the `check_centrum_<feature>_mutations.py` scripts
 in Mutation checks on Windows whenever a change touches this skill; a red run leaves its evidence in
-the `mutation-checks-evidence-<part>` artifact. Run `all` and the mutations locally only to reproduce
+the `evidence-<job id>-<attempt>` artifact (e.g. `evidence-mutacje-2-1`). Run `all` and the mutations locally only to reproduce
 a red Mutation checks step. What stays with you: drive the feature you change, as a background
 command, and look at its screenshots after a UI change, because a passing run does not judge visual
 quality. `wydajnosc` is never part of `all` and runs only locally (`features/wydajnosc.md`).

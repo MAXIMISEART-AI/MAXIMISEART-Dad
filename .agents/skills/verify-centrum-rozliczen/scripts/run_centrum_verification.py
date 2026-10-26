@@ -29,6 +29,10 @@ from skrypt_skilla import Parser, new_run
 SCRIPTS = Path(__file__).resolve().parent
 REPO_ROOT = SCRIPTS.parents[3]
 STEP_TIMEOUT_SECONDS = 300
+# A drive of several features gets this much per feature: `all` (22 features) drove 280-305 s on windows-latest on
+# 26.10 and timed out at a fixed STEP_TIMEOUT_SECONDS (CI runs 40309201075 and 40322305317), so its limit grows with
+# each feature it drives.
+DRIVE_SECONDS_PER_FEATURE = 40
 # wydajnosc repeats every scenario in two CPU profiles, so its drive takes minutes.
 PERFORMANCE_TIMEOUT_SECONDS = 1800
 REQUIRED_EVIDENCE = (
@@ -291,6 +295,22 @@ def _environment() -> dict[str, str]:
     return environment
 
 
+def _driven(feature: str) -> dict[str, tuple[str, ...]]:
+    """Screenshots each driven feature must leave: ``all`` drives every feature but ``EXPLICIT_FEATURES``."""
+
+    if feature == "all":
+        return {name: shots for name, shots in REQUIRED_SCREENSHOTS.items() if name not in EXPLICIT_FEATURES}
+    return {feature: REQUIRED_SCREENSHOTS[feature]}
+
+
+def drive_timeout_s(feature: str) -> int:
+    """How long the drive of ``feature`` may run before it counts as hung."""
+
+    if feature == "wydajnosc":
+        return PERFORMANCE_TIMEOUT_SECONDS
+    return max(STEP_TIMEOUT_SECONDS, DRIVE_SECONDS_PER_FEATURE * len(_driven(feature)))
+
+
 def _run_step(name: str, arguments: list[str], evidence: Path, timeout: int = STEP_TIMEOUT_SECONDS) -> None:
     command = [sys.executable, *arguments]
     try:
@@ -397,7 +417,7 @@ def _verify(feature: str, performance: list[str], run_dir: Path) -> Path:
             [str(SCRIPTS / "drive_centrum.py"), "--root", str(run_root), "--url", url,
              "--evidence", str(evidence), "--feature", feature, *performance],
             evidence,
-            PERFORMANCE_TIMEOUT_SECONDS if feature == "wydajnosc" else STEP_TIMEOUT_SECONDS,
+            drive_timeout_s(feature),
         )
     finally:
         if process is not None:
@@ -405,11 +425,7 @@ def _verify(feature: str, performance: list[str], run_dir: Path) -> Path:
         _run_step("cleanup", [str(SCRIPTS / "centrum_cleanup.py"), "--root", str(run_root)], evidence)
     if run_root.exists():
         raise VerificationFailure(f"scratch was not removed: {run_root}")
-    features = (
-        {name: shots for name, shots in REQUIRED_SCREENSHOTS.items() if name not in EXPLICIT_FEATURES}
-        if feature == "all"
-        else {feature: REQUIRED_SCREENSHOTS[feature]}
-    )
+    features = _driven(feature)
     missing = [name for name in REQUIRED_EVIDENCE[:-1] if not (evidence / name).exists()]
     missing += [shot for shots in features.values() for shot in shots if not (evidence / "screenshots" / shot).exists()]
     missing += [name for name in REQUIRED_FEATURE_EVIDENCE.get(feature, ()) if not (evidence / name).exists()]

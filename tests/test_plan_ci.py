@@ -147,6 +147,12 @@ def test_kazdy_wybrany_krok_skilla_biegnie_raz_a_skrypt_dluzszy_od_zadania_w_cze
     assert all(job.sciana_s <= plan.cel_s or len(job.jednostki) == 1 for job in jobs)
 
 
+def test_w_zadaniu_podstawa_skilla_biegnie_przed_jego_skryptami_mutacji() -> None:
+    plan = _plan(_with_skill_times(_times()), FILES, steps=_skill_steps(["verify-c/check_c_mutations.py", "verify-c/ci"]))
+
+    assert [job.jednostki for job in plan.zadania if job.tor == plan_ci.MUTACJE.nazwa] == [("skill:verify-c/ci", "skill:verify-c/check_c_mutations.py")]
+
+
 def test_ten_sam_stan_daje_ten_sam_plan_a_zadania_maja_rozne_nazwy() -> None:
     first, again = _plan(_times(), [*FILES, LONG]), _plan(_times(), [*FILES, LONG])
 
@@ -227,7 +233,8 @@ def test_bez_czasow_z_main_plan_wazy_prace_domyslnie_mowi_to_i_daje_macierz(
     monkeypatch.setattr(czasy_ci, "_gh", offline)
     monkeypatch.setenv("GITHUB_OUTPUT", str(tmp_path / "output"))
 
-    code = plan_ci.main(["plan", "--zdarzenie", "push", "--czasy", str(tmp_path / "czasy"), "--wyjscie", str(tmp_path / "plan.json")])
+    # Baza HEAD nie ma zmian, więc tylko push, który bazę pomija, wybiera każdy krok (ADR 0014).
+    code = plan_ci.main(["plan", "--zdarzenie", "push", "--baza", "HEAD", "--czasy", str(tmp_path / "czasy"), "--wyjscie", str(tmp_path / "plan.json")])
     out = capsys.readouterr().out.splitlines()
     plan = plan_ci.Plan.z_json((tmp_path / "plan.json").read_text(encoding="utf-8"))
     output = dict(line.split("=", 1) for line in (tmp_path / "output").read_text(encoding="utf-8").splitlines())
@@ -329,8 +336,12 @@ def test_zadanie_mutation_checks_uruchamia_po_kolei_swoje_kroki_skilli_a_czesc_s
     monkeypatch.setattr(mutacje_skilli, "SKILLS", tmp_path / ".agents" / "skills")
     monkeypatch.chdir(tmp_path)
     script = "skill:verify-a/check_a_mutations.py"
+    # Krok z planu, którego zadanie nie znajduje wśród kroków skilli (plan i zadanie policzyły je inaczej), nie biegł.
+    lost = "skill:verify-c/check_c_mutations.py"
     jobs = (
-        plan_ci.Zadanie("mutacje-1", "mutacje", "Mutation checks (1/2)", ("skill:verify-a/ci", f"{script}#1/2", "skill:verify-b/check_b_mutations.py"), 1.0),
+        plan_ci.Zadanie(
+            "mutacje-1", "mutacje", "Mutation checks (1/2)", ("skill:verify-a/ci", f"{script}#1/2", "skill:verify-b/check_b_mutations.py", lost), 1.0
+        ),
         plan_ci.Zadanie("mutacje-2", "mutacje", "Mutation checks (2/2)", (f"{script}#2/2",), 1.0),
     )
     plan = plan_ci.Plan("push", plan_ci.CEL_S, (), 0, jobs)
@@ -341,7 +352,11 @@ def test_zadanie_mutation_checks_uruchamia_po_kolei_swoje_kroki_skilli_a_czesc_s
         results.append((code, [(unit["klucz"], unit["status"]) for unit in units], capsys.readouterr().out.splitlines()[-1]))
 
     assert results == [
-        (1, [("skill:verify-a/ci", "ok"), (script, "ok"), ("skill:verify-b/check_b_mutations.py", "fail")], "WYKONANIE FAIL | skill:verify-b/check_b_mutations.py"),
+        (
+            1,
+            [("skill:verify-a/ci", "ok"), (script, "ok"), ("skill:verify-b/check_b_mutations.py", "fail"), (lost, "fail")],
+            f"WYKONANIE FAIL | skill:verify-b/check_b_mutations.py, {lost}",
+        ),
         (0, [(script, "ok")], "WYKONANIE OK | Mutation checks (2/2)"),
     ]
     # Podstawa biegnie cała, a każda część skryptu mutacji dostaje swój numer.
@@ -404,3 +419,46 @@ def test_plan_pull_requestu_startuje_change_mutations_i_mutation_checks_tylko_z_
     assert mutation_checks == (["Mutation checks (1/1)"] if started else [])
     shown = [line for line in out.splitlines() if line.startswith(("MUTACJE ZMIANY", "WYBRANY", "POMINIĘTY"))]
     assert len(shown) == len(reported) and all(line.startswith(start) for line, start in zip(shown, reported, strict=True)), out
+
+
+@pytest.mark.parametrize(
+    ("files", "failure"),
+    [
+        (
+            {".agents/skills/verify-a/scripts/check_mutation_proba.py": "MUTATIONS = ()\n"},
+            ".agents/skills/verify-a/scripts/check_mutation_proba.py: nazwa spoza wzorca scripts/check_*_mutations.py",
+        ),
+        (
+            {".agents/skills/verify-b/SKILL.md": "---\nname: verify-b\nci: brak.py\n---\n"},
+            "PODSTAWA verify-b: ci w .agents/skills/verify-b/SKILL.md nie zaczyna się skryptem .py z repozytorium",
+        ),
+    ],
+    ids=["skrypt mutacji spoza wzorca", "zły klucz ci"],
+)
+def test_zgubiony_skrypt_mutacji_albo_zly_klucz_ci_trafia_z_wyboru_do_planu_i_czerwieni_required(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], files: dict[str, str], failure: str
+) -> None:
+    def offline(*arguments: str) -> str:
+        raise subprocess.CalledProcessError(1, ["gh", *arguments], stderr="gh: not logged in")
+
+    repo = repository(tmp_path / "repo", {"src/pakiet/a.py": "def a(x: int) -> bool:\n    return x > 1\n", **SKILL})
+    commit(repo, "baza")
+    git(repo, "branch", "baza")
+    for name, text in files.items():
+        (repo / name).parent.mkdir(parents=True, exist_ok=True)
+        (repo / name).write_text(text, encoding="utf-8")
+    commit(repo, "zmiana")
+    for module in (plan_ci, mutacje_zmiany, mutacje_skilli):
+        monkeypatch.setattr(module, "ROOT", repo)
+    monkeypatch.setattr(mutacje_skilli, "SKILLS", repo / ".agents" / "skills")
+    monkeypatch.setattr(czasy_ci, "_gh", offline)
+
+    code = plan_ci.main(["plan", "--zdarzenie", "pull_request", "--baza", "baza", "--czasy", str(tmp_path / "czasy"), "--wyjscie", str(tmp_path / "plan.json")])
+    plan = plan_ci.Plan.z_json((tmp_path / "plan.json").read_text(encoding="utf-8"))
+    every_job_green = {"plan": "success", "pytest": "success", "mutations": "success", "change-mutations": "success"}
+    complete = [_record(plan, job, [unit.partition("#")[0] for unit in job.jednostki]) for job in plan.zadania]
+
+    assert code == 0
+    assert f"FAIL {failure}" in capsys.readouterr().out.splitlines()
+    assert plan.bledy == (failure,)
+    assert plan_ci.werdykt(plan, every_job_green, complete) == [f"mutacje skilli: {failure}"]

@@ -385,6 +385,17 @@ def test_polecenie_ci_kazdego_skilla_to_skrypt_z_repozytorium(monkeypatch: pytes
     assert {"verify-centrum-rozliczen", "verify-aktualizacja-narzedzia"} <= {skill for skill, command in commands.items() if command}
 
 
+def test_nazwy_mutacji_w_tabeli_kazdego_skryptu_skilla_sa_rozne(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Część ``MUTACJE_CZESC`` układa mutacje po nazwie; przy dwóch równych nazwach decydowałoby ``repr`` ścieżek."""
+
+    tool = _load_tool(monkeypatch)
+    scripts = sorted((ROOT / ".agents" / "skills").glob(f"*/scripts/{tool.PATTERN}"))
+    names = {script.name: [mutation.name for mutation in tool._mutations(script)] for script in scripts}
+
+    assert scripts
+    assert {script: sorted(set(found)) for script, found in names.items()} == {script: sorted(found) for script, found in names.items()}
+
+
 def test_wybor_oznacza_kroki_skilla_ktorego_skrypty_importuja_playwright_i_liczy_mutacje_skryptu(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
