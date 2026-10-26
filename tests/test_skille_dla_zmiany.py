@@ -132,7 +132,9 @@ EXECUTED = {
     ".agents/skills/verify-c/scripts/run_c.py": (
         "from pathlib import Path\nimport pomocnik\nimport produkt\n\n"
         'ROOT = Path(__file__).resolve().parents[4]\nSCRIPT = ROOT / "tools" / "uruchamiany.py"\n'
+        'OTHER_SKILL = ROOT / ".agents" / "skills" / "verify-d" / "scripts"\nFIXTURE = OTHER_SKILL / "przygotuj.py"\n'
     ),
+    ".agents/skills/verify-d/scripts/przygotuj.py": "X = 1\n",
     ".agents/skills/verify-c/scripts/check_c_mutations.py": "import tylko_mutacje\n",
     "tools/pomocnik.py": "import glebszy\n",
     "tools/glebszy.py": 'G = 1\nSKRYPT = "tools/z_importu.py"\n',
@@ -156,6 +158,7 @@ EXECUTED = {
         ("tools/od_uruchamianego.py", ["verify-c"]),
         ("tools/dalej.py", ["verify-c"]),
         ("tools/z_importu.py", ["verify-c"]),
+        (".agents/skills/verify-d/scripts/przygotuj.py", ["verify-c"]),
         ("tools/z_produktu.py", []),
         ("tools/tylko_mutacje.py", []),
         ("src/produkt.py", []),
