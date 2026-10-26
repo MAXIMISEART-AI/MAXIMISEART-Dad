@@ -338,7 +338,6 @@ def centrum(tmp_path: Path, *, today: date = date(2026, 10, 19)) -> Centrum:
         cloud_files=FakeOneDrive().cloud_files(),
         report_box=report_box,
         clock=clock,
-        pause=clock.pause,
     )
     client = TestClient(app, base_url=CENTRUM, headers={"Origin": CENTRUM})
     return Centrum(client, platform, settings_path, metrics, log_path, report_box, clock)

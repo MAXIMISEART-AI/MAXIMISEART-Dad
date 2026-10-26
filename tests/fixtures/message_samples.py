@@ -13,14 +13,7 @@ from pathlib import Path
 
 from rozliczenia import preparation_messages as messages
 from rozliczenia import settlement_messages
-from rozliczenia.centrum import (
-    diagnosis_messages,
-    fill_messages,
-    notification_messages,
-    report_messages,
-    start_problems,
-    update_messages,
-)
+from rozliczenia.centrum import diagnosis_messages, fill_messages, report_messages, start_problems, update_messages
 from rozliczenia.centrum.tool_update import LIBRARIES_FAILED, NEW_VERSION_FAILED, ROLLBACK_FAILED, UNEXPECTED
 from rozliczenia.message import Message
 from rozliczenia.period_folder import PeriodFolderLookupError
@@ -233,15 +226,6 @@ REPORT_QUEUE = Path("C:/Narzedzie/config/zgloszenia/kolejka")
 
 REPORT_SAMPLES: Samples = {
     "not_queued": [lambda: report_messages.not_queued(REPORT_QUEUE)],
-}
-
-DAD_CASES_STATE = Path("//nas/Wspolne/Narzedzie/config/sprawy-taty.json")
-READ_NOTIFICATIONS_STATE = DAD_CASES_STATE.with_name("powiadomienia.json")
-NOTIFICATION_SAMPLES: Samples = {
-    "unavailable": [
-        lambda: notification_messages.unavailable([DAD_CASES_STATE]),
-        lambda: notification_messages.unavailable([DAD_CASES_STATE, READ_NOTIFICATIONS_STATE]),
-    ],
 }
 
 UPDATE_SAMPLES: Samples = {

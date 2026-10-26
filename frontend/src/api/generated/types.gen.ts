@@ -764,8 +764,7 @@ export type NotSetPath = {
 /**
  * Notifications
  *
- * Powiadomienia od najnowszego, liczba nieprzeczytanych (kropka na dzwonku) i Komunikat o pliku stanu, którego
- * Centrum nie może zapisać (``None``: wszystko zapisane).
+ * Powiadomienia od najnowszego i liczba nieprzeczytanych (kropka na dzwonku).
  */
 export type Notifications = {
     /**
@@ -776,7 +775,6 @@ export type Notifications = {
      * Items
      */
     items: Array<DadNoteNotification | ReportNotification | ReleaseNotification>;
-    message: Message | null;
 };
 
 /**
