@@ -1093,10 +1093,43 @@ def layout_unreleased_main(repository: ToolRepository) -> None:
     repository.publish({"src/narzedzie.py": "WERSJA = 2\n"}, released=False)
 
 
+def layout_release_deep_on_main(repository: ToolRepository) -> None:
+    repository.publish({"src/narzedzie.py": "WERSJA = 2\n"})
+    for version in (3, 4, 5):
+        repository.publish({"src/narzedzie.py": f"WERSJA = {version}\n"}, released=False)
+
+
+def layout_dormant_tag_merged(repository: ToolRepository) -> None:
+    """Uśpiony tag na pierwszym z trzech commitów gałęzi agenta, którą `main` wciągnął merge'em."""
+
+    repository.release(off_main_commit(repository), tag="v0.9.0")
+    git(repository.publisher, "checkout", "--quiet", "agent")
+    for version in (667, 668):
+        (repository.publisher / "src" / "narzedzie.py").write_text(f"WERSJA = {version}\n", encoding="utf-8")
+        git(repository.publisher, "commit", "--quiet", "--all", "--message", f"Zmiana agenta {version}")
+    git(repository.publisher, "checkout", "--quiet", "main")
+    git(repository.publisher, "merge", "--quiet", "--no-ff", "--no-edit", "agent")
+    git(repository.publisher, "push", "--quiet", "origin", "main")
+
+
 @pytest.mark.parametrize(
     "layout",
-    [layout_off_main_above, layout_number_above_order, layout_only_off_main, layout_unreleased_main],
-    ids=["wyzsze-spoza-main", "numer-a-kolejnosc", "tylko-spoza-main", "main-bez-wydania"],
+    [
+        layout_off_main_above,
+        layout_number_above_order,
+        layout_only_off_main,
+        layout_unreleased_main,
+        layout_release_deep_on_main,
+        layout_dormant_tag_merged,
+    ],
+    ids=[
+        "wyzsze-spoza-main",
+        "numer-a-kolejnosc",
+        "tylko-spoza-main",
+        "main-bez-wydania",
+        "wydanie-glebiej-na-main",
+        "uspiony-tag-wciagniety-merge-em",
+    ],
 )
 def test_aktualnosc_z_api_githuba_i_aktualizacja_wybieraja_to_samo_wydanie(
     repository: ToolRepository, tmp_path: Path, layout: Callable[[ToolRepository], None]
@@ -1112,6 +1145,28 @@ def test_aktualnosc_z_api_githuba_i_aktualizacja_wybieraja_to_samo_wydanie(
     assert repository.head() == (answer.newest or result.before)
     assert result.code in ("ok", "AKTUALNA")
     assert installed == answer.newest
+
+
+def test_aktualnosc_pamieta_wydanie_bedace_przodkiem_main_a_wydanie_spoza_main_sprawdza_za_kazdym_razem(
+    repository: ToolRepository,
+) -> None:
+    layout_off_main_above(repository)
+    off_main = git(repository.origin, "rev-parse", "v0.3.0^{commit}")
+    known: dict[str, bool] = {}
+    asked: list[str] = []
+    with github_api_of(repository.origin, asked=asked) as api:
+        first = releases_from(api, timeout_s=5, known=known)
+        asked.clear()
+        again = releases_from(api, timeout_s=5, known=known)
+
+    tip = git(repository.origin, "rev-parse", "main")
+    assert first == again
+    assert first is not None and first.newest == tip
+    assert asked == [
+        "/repo/tags?per_page=100",
+        "/repo/git/ref/heads/main",
+        f"/repo/compare/{off_main}...{tip}?per_page=1&page=2",
+    ]
 
 
 README = Path(__file__).resolve().parents[1] / "README.md"

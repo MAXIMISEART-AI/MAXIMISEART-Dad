@@ -26,6 +26,7 @@ from pathlib import Path
 import re
 import threading
 from typing import Final, Literal
+import urllib.error
 import urllib.request
 
 from rozliczenia import TOOL_ROOT
@@ -186,38 +187,52 @@ class RememberedRelease:
         return answer
 
 
+# Commity Wydań, które są przodkami `main` publicznego repozytorium, i czy leżą na linii jego pierwszych rodziców.
+_GITHUB_LINE: Final[dict[str, bool]] = {}
+
+
 def github_releases() -> GitHubReleases | None:
     """Najnowsze Wydanie na `main` publicznego repozytorium; ``None`` bez sieci, po limicie czasu, przy odmowie."""
 
-    return releases_from(REPOSITORY_API, timeout_s=_TIMEOUT_S)
+    return releases_from(REPOSITORY_API, timeout_s=_TIMEOUT_S, known=_GITHUB_LINE)
 
 
-def releases_from(api: str, *, timeout_s: float) -> GitHubReleases | None:
+def releases_from(api: str, *, timeout_s: float, known: dict[str, bool] | None = None) -> GitHubReleases | None:
     """Najnowsze Wydanie na `main` z API GitHuba repozytorium ``api``, najpóźniej po ``timeout_s`` sekundach.
 
     Lista tagów (``tags``) przychodzi stronami (nagłówek ``Link``); bez
     wszystkich stron nie wiadomo, które Wydanie jest najnowsze, więc więcej niż
-    ``_PAGES`` stron to ``None``. Czy commit Wydania leży na `main`, mówi
-    porównanie (``compare``) ze stroną bez commitów i plików. Diagnoza czeka na
-    odpowiedź najwyżej ``timeout_s`` (``deadline.within``). Połączenie idzie
-    wprost, bez serwera proxy z ustawień systemu.
+    ``_PAGES`` stron to ``None``. Wydanie leży na `main` tak jak w Aktualizacji
+    narzędzia (``tool_update.MainLine``): jego commit leży na linii pierwszych
+    rodziców `main` (``_on_first_parent_line``). Odpowiedź dla commitu, który
+    jest przodkiem `main`, trafia do ``known`` i się nie zmienia, bo `main`
+    rośnie tylko o nowe commity. Diagnoza czeka na odpowiedź najwyżej
+    ``timeout_s`` (``deadline.within``); spóźniona odpowiedź i tak trafia do
+    ``known``. Połączenie idzie wprost, bez serwera proxy z ustawień systemu.
     """
+
+    line = {} if known is None else known
 
     def fetch() -> GitHubReleases | None:
         commits = _tag_commits(f"{api}/tags?per_page=100", timeout_s)
         if commits is None:
             return None
         asked = 0
+        tips: list[str] = []
 
         def on_main(commit: str) -> bool:
             nonlocal asked
             asked += 1
             if asked > _CANDIDATES:
                 raise _NoAnswer
-            compared = _json(f"{api}/compare/{commit}...main?per_page=1&page=2", timeout_s)
-            if not isinstance(compared, dict) or not isinstance(compared.get("status"), str):
-                raise _NoAnswer
-            return compared["status"] in ("ahead", "identical")
+            if commit in line:
+                return line[commit]
+            if not tips:
+                tips.append(_main_tip(api, timeout_s))
+            on_line = _on_first_parent_line(api, commit, tips[0], timeout_s)
+            if on_line is not None:
+                line[commit] = on_line
+            return on_line is True
 
         try:
             newest = newest_on_main(commits, on_main)
@@ -226,6 +241,61 @@ def releases_from(api: str, *, timeout_s: float) -> GitHubReleases | None:
         return GitHubReleases(newest.commit, None if newest.release is None else newest.release.tag)
 
     return within(timeout_s, fetch, name="github-wydania")
+
+
+def _main_tip(api: str, timeout_s: float) -> str:
+    """Czubek `main` teraz: wszystkie porównania jednego sprawdzenia liczą od tego samego commitu."""
+
+    ref = _json(f"{api}/git/ref/heads/main", timeout_s)
+    target = ref.get("object") if isinstance(ref, dict) else None
+    sha = target.get("sha") if isinstance(target, dict) else None
+    if not isinstance(sha, str) or not is_commit(sha):
+        raise _NoAnswer
+    return sha
+
+
+def _on_first_parent_line(api: str, commit: str, tip: str, timeout_s: float) -> bool | None:
+    """Czy ``commit`` jest jednym z ``tip~k``, czyli leży na linii pierwszych rodziców ``tip``; ``None``, gdy nie
+    jest przodkiem ``tip``.
+
+    API bez logowania nie podaje linii pierwszych rodziców, ale porównuje z ``tip~k``. ``tip~k`` zawiera przodka
+    ``commit`` od k = 0 do pewnego k, a dalej już nie; ``commit`` leży na linii, gdy przy tym k jest nim samym. To k
+    nie przekracza liczby commitów ``tip`` spoza ``commit`` (``ahead_by``), bo ``tip~0`` … ``tip~(k-1)`` to różne
+    takie commity, więc wyszukiwanie binarne pyta najwyżej ``log2(ahead_by) + 2`` razy. ``tip~k`` sprzed pierwszego
+    commitu repozytorium (404) nie zawiera ``commit``.
+    """
+
+    status, ahead = _compare(api, commit, tip, timeout_s)
+    if status == "identical":
+        return True
+    if status != "ahead":
+        return None
+    contains, beyond = 0, ahead + 1
+    while beyond - contains > 1:
+        middle = (contains + beyond) // 2
+        try:
+            status, _ = _compare(api, commit, f"{tip}~{middle}", timeout_s)
+        except _NotFound:
+            status = "behind"
+        if status == "identical":
+            return True
+        if status == "ahead":
+            contains = middle
+        else:
+            beyond = middle
+    return False
+
+
+def _compare(api: str, commit: str, head: str, timeout_s: float) -> tuple[str, int]:
+    """Stan ``commit`` względem ``head`` (``ahead``: ``head`` go zawiera) i liczba commitów ``head`` spoza niego, ze
+    strony porównania bez commitów i plików."""
+
+    compared = _json(f"{api}/compare/{commit}...{head}?per_page=1&page=2", timeout_s)
+    status = compared.get("status") if isinstance(compared, dict) else None
+    ahead = compared.get("ahead_by") if isinstance(compared, dict) else None
+    if not isinstance(status, str) or type(ahead) is not int:
+        raise _NoAnswer
+    return status, ahead
 
 
 # Tyle ostatnio opublikowanych Wydań (jedna strona listy) pokazują Powiadomienia; starsze nie wracają do historii.
@@ -280,6 +350,10 @@ class _NoAnswer(Exception):
     """GitHub nie dał pełnej odpowiedzi; Aktualność to wtedy ``None``."""
 
 
+class _NotFound(_NoAnswer):
+    """GitHub odpowiedział 404: nie zna takiego commitu."""
+
+
 def _tag_commits(url: str, timeout_s: float) -> dict[str, str] | None:
     """Tagi i ich commity ze wszystkich stron listy tagów; ``None`` bez pełnej listy."""
 
@@ -314,7 +388,9 @@ def _page(url: str, timeout_s: float) -> tuple[object, str | None]:
     try:
         with direct.open(request, timeout=timeout_s) as response:
             return json.loads(response.read(_PAGE_BYTES)), _next_page(response.headers.get("Link"))
-    except (OSError, ValueError) as failure:  # brak sieci, odmowa GitHuba (HTTPError), zerwane połączenie, nie JSON
+    except urllib.error.HTTPError as failure:  # odmowa GitHuba
+        raise (_NotFound if failure.code == 404 else _NoAnswer) from failure
+    except (OSError, ValueError) as failure:  # brak sieci, zerwane połączenie, nie JSON
         raise _NoAnswer from failure
 
 

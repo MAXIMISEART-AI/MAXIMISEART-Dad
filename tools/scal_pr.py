@@ -10,36 +10,28 @@ Narzędzie scala PR numer N do jego bazy, gdy jednocześnie:
    scalonym drzewie (``scalenia_pr.merge_verdict``, jak status ``scalenie z main``, ale teraz, nie po pushu).
 
 Werdykty to komentarze i recenzje PR kont z prawem zapisu (``OWNER``, ``MEMBER``, ``COLLABORATOR``), w kolejności
-utworzenia; nieopublikowana recenzja (``PENDING``) się nie liczy. Zgoda to komentarz albo recenzja, której pierwsza
-niepusta linia to dokładnie ``WERDYKT: PASS <SHA>``, gdzie ``<SHA>`` to HEAD PR małymi literami (pełny albo co
-najmniej 7 pierwszych znaków); dalsze linie to znaleziska i ich nie czyta. Pisze ją niezależny recenzent, nie autor
-zmiany: ``PASS`` mówi, że przegląd nie znalazł problemów, a skille ``verify-*`` z linii ``SKILLE VERIFY``
-``tools/skille_dla_zmiany.py`` przeszły na tym SHA (ich polecenia z linii ``LICZY CI`` w CI, reszta workflow u
-agenta). Ścisła jest tylko zgoda. Linię czyta po normalizacji NFKC i zamianie na odstęp wszystkiego, co
-nie jest literą ani cyfrą (markdown, emoji, cytat, interpunkcja, BOM, znaki zerowej szerokości). Słowo sprzeciwu to
-słowo zaczynające się od ``fail`` (``FAIL``, ``FAILED``, ``FAILURE``) albo para „nie pass”, bez względu na wielkość
-liter. Sprzeciwem jest recenzja w stanie ``CHANGES_REQUESTED`` i każdy inny werdykt, którego pierwsza niepusta linia
-zawiera słowo sprzeciwu albo zaczyna się od „werdykt”, „weryfikacj” lub „verdict” bez słowa ``PASS``, a także taki,
-którego dalsza linia zaczyna się od słowa sprzeciwu (``**FAIL** <SHA>``) albo od „werdykt”, „weryfikacj”, „verdict”,
-„wynik” lub „ocena” i zawiera słowo sprzeciwu (nagłówek nad werdyktem). Pierwsza linia ze słowem werdyktu i ``PASS``,
-ale nie w postaci zgody, to werdykt nieczytelny: też blokuje, ale przyczyna każe go poprawić. Sprzeciw i werdykt
-nieczytelny nie dotyczą HEAD tylko wtedy, gdy linia podaje SHA innego commitu (co najmniej 7 znaków hex małymi
-literami, które git zna jako początek SHA commitu), a nie podaje HEAD; liczby i słowa, które nie są commitem, go nie
-zwalniają. Rozstrzyga najnowszy werdykt dla HEAD: sprzeciw po ``PASS`` odbiera zgodę, nowszy ``PASS`` ją przywraca,
-a werdykt starszego commitu nie przechodzi na nowy push. Komentarz edytowany liczy się z treścią po edycji, ale
-w miejscu utworzenia, a ukryty komentarz nadal się liczy.
+utworzenia; nieopublikowana recenzja (``PENDING``) się nie liczy. Werdykt to komentarz albo recenzja, której pierwsza
+niepusta linia, bez odstępów na brzegach, to dokładnie ``WERDYKT: PASS <SHA>`` (zgoda) albo ``WERDYKT: FAIL <SHA>``
+(sprzeciw), gdzie ``<SHA>`` to pełny SHA HEAD PR małymi literami; dalsze linie to znaleziska i ich nie czyta.
+Sprzeciwem jest też recenzja w stanie ``CHANGES_REQUESTED``. Inny tekst, także ``FAIL`` w prozie albo werdykt ze
+skróconym SHA, nie jest werdyktem. Zgodę pisze niezależny recenzent, nie autor zmiany: ``PASS`` mówi, że przegląd
+nie znalazł problemów, a skille ``verify-*`` z linii ``SKILLE VERIFY`` ``tools/skille_dla_zmiany.py`` przeszły na
+tym SHA (ich polecenia z linii ``LICZY CI`` w CI, reszta workflow u agenta). Rozstrzyga najnowszy werdykt dla HEAD:
+sprzeciw po ``PASS`` odbiera zgodę, nowszy ``PASS`` ją przywraca, a werdykt starszego commitu nie przechodzi na nowy
+push. Komentarz edytowany liczy się z treścią po edycji, ale w miejscu utworzenia, a ukryty komentarz nadal się liczy.
 
 Gdy któryś warunek nie zachodzi, narzędzie nie scala i kończy się linią ``SCAL ODMOWA | #N <sha> | <przyczyny>``.
 Warunki 1–3 sprawdza razem i podaje wszystkie przyczyny; warunek 4 trwa dłużej, więc biegnie dopiero po nich.
 Przed merge'em sprawdza, że baza w ``origin`` nie przesunęła się w trakcie sprawdzania, a ``gh pr merge
---match-head-commit`` odrzuca PR, którego HEAD zmienił się po sprawdzeniu. Po merge'u uruchamia sprzątanie
-lokalnych gałęzi i worktree ``tools/sprzatanie.py``, jeśli istnieje; sprzątanie, które przekroczy czas, kończy
-się ostrzeżeniem w linii ``SCAL OK``, bo PR jest już scalony. Kod 0 i ``SCAL OK`` znaczą, że PR jest scalony
+--match-head-commit`` odrzuca PR, którego HEAD zmienił się po sprawdzeniu. Po merge'u uruchamia
+``tools/sprzatanie.py``, jeśli istnieje, i podaje ostatnią linię jego raportu: bez ``--usun`` sprzątanie niczego nie
+usuwa, tylko mówi, które lokalne gałęzie i worktree można usunąć. Sprzątanie, które przekroczy czas, kończy się
+ostrzeżeniem w linii ``SCAL OK``, bo PR jest już scalony. Kod 0 i ``SCAL OK`` znaczą, że PR jest scalony
 (albo z ``--bez-merge``: że byłby); linia po merge'u podaje SHA commitu merge'a i bazy, z którą sprawdziła
 scalenie. Kod 1 to odmowa albo błąd narzędzia (``SCAL FAIL``).
 
 Komentarze, recenzje i checki pochodzą z jednego ``gh pr view --json``, które doczytuje wszystkie strony
-komentarzy (sprawdzone na PR z 337 komentarzami, gh 2.101). SHA werdyktów sprawdza git po pobraniu HEAD PR.
+komentarzy (sprawdzone na PR z 337 komentarzami, gh 2.101).
 
     .venv/bin/python tools/scal_pr.py 336               # sprawdza i scala
     .venv/bin/python tools/scal_pr.py 336 --bez-merge   # tylko sprawdza
@@ -54,17 +46,13 @@ from pathlib import Path
 import re
 import subprocess
 import sys
-import unicodedata
 
 import potomne
 import scalenia_pr
 
 ROOT = Path(__file__).resolve().parents[1]
 REQUIRED_CHECK = "Required CI status"
-PASS_LINE = re.compile(r"WERDYKT: PASS ([0-9a-f]{7,40})")
-VERDICT_WORDS = ("werdykt", "weryfikacj", "verdict")
-RESULT_WORDS = (*VERDICT_WORDS, "wynik", "ocena")
-SHA = re.compile(r"[0-9a-f]{7,}")
+VERDICT_LINE = re.compile(r"WERDYKT: (PASS|FAIL) ([0-9a-f]{40})")
 TRUSTED = frozenset({"OWNER", "MEMBER", "COLLABORATOR"})
 CLEANUP = ROOT / "tools" / "sprzatanie.py"
 CLEANUP_TIMEOUT_S = 300
@@ -109,70 +97,27 @@ def _ci_problem(rollup: list[dict[str, str | None]]) -> str | None:
     return f"CI: „{REQUIRED_CHECK}” {', '.join(failed)}" if failed else None
 
 
-def _words(line: str) -> list[str]:
-    return "".join(char if char.isalnum() else " " for char in unicodedata.normalize("NFKC", line)).split()
-
-
-def _objections(words: list[str]) -> list[int]:
-    """Pozycje słów sprzeciwu: ``fail…`` albo „nie” przed „pass”."""
-
-    lower = [word.lower() for word in words]
-    return [at for at, word in enumerate(lower) if word.startswith("fail") or lower[at : at + 2] == ["nie", "pass"]]
-
-
-def _starts_with(words: list[str], prefixes: tuple[str, ...]) -> bool:
-    return words[0].lower().startswith(prefixes)
-
-
-def _known_commit(sha: str) -> bool:
-    found = subprocess.run(
-        ["git", "rev-parse", "--verify", "--quiet", f"{sha}^{{commit}}"],
-        cwd=ROOT,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        check=False,
-    )
-    return found.stdout.startswith(sha)
-
-
-def _against_head(words: list[str], head: str) -> bool:
-    shas = [word for word in words if SHA.fullmatch(word)]
-    return any(head.startswith(sha) for sha in shas) or not any(_known_commit(sha) for sha in shas)
-
-
 def _verdict(verdict: dict[str, object], head: str) -> str | None:
-    """``PASS``, ``sprzeciw`` albo ``nieczytelny`` dla ``head``; ``None``, gdy werdykt nie mówi nic o ``head``."""
+    """``PASS`` albo ``FAIL`` dla ``head``; ``None``, gdy komentarz albo recenzja nie jest werdyktem dla ``head``."""
 
     if verdict["authorAssociation"] not in TRUSTED or verdict.get("state") == "PENDING":
         return None
     if verdict.get("state") == "CHANGES_REQUESTED":
-        return "sprzeciw"
-    lines = [line.strip() for line in str(verdict["body"]).split("\n") if _words(line)]
-    if not lines:
-        return None
-    found = PASS_LINE.fullmatch(lines[0])
-    if found:
-        return "PASS" if head.startswith(found[1]) else None
-    first, *rest = map(_words, lines)
-    passing = "pass" in (word.lower() for word in first)
-    objecting = [first] if _objections(first) or (_starts_with(first, VERDICT_WORDS) and not passing) else []
-    objecting += [words for words in rest if 0 in _objections(words) or (_starts_with(words, RESULT_WORDS) and _objections(words))]
-    if any(_against_head(words, head) for words in objecting):
-        return "sprzeciw"
-    return "nieczytelny" if _starts_with(first, VERDICT_WORDS) and passing and _against_head(first, head) else None
+        return "FAIL"
+    lines = [line.strip() for line in str(verdict["body"]).splitlines() if line.strip()]
+    found = VERDICT_LINE.fullmatch(lines[0]) if lines else None
+    return found[1] if found and found[2] == head else None
 
 
 def _verdict_problem(verdicts: list[dict[str, object]], head: str) -> str | None:
-    """Przyczyna odmowy z werdyktów w kolejności utworzenia; ``head`` musi być w repozytorium."""
+    """Przyczyna odmowy z werdyktów w kolejności utworzenia."""
 
     latest = None
     for verdict in verdicts:
         latest = _verdict(verdict, head) or latest
-    short = head[:7]
     if latest is None:
-        return f"werdykt: brak komentarza ani recenzji „WERDYKT: PASS {short}”"
-    return None if latest == "PASS" else f"werdykt: {latest} dla {short} bez nowszego „WERDYKT: PASS {short}”"
+        return f"werdykt: brak komentarza ani recenzji „WERDYKT: PASS {head}”"
+    return None if latest == "PASS" else f"werdykt: FAIL dla {head[:7]} bez nowszego „WERDYKT: PASS {head}”"
 
 
 def _pull(number: int) -> Pull:
