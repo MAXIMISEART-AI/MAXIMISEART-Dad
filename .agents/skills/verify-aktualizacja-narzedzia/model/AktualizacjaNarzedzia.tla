@@ -37,12 +37,15 @@ CONSTANTS
     AwariaPobrania,     \* _Git.fetch: brak sieci albo logowanie -> BRAK_POLACZENIA, LOGOWANIE
     AwariaBibliotek,    \* pip_install zwraca False (błąd pip, limit czasu) -> INSTALACJA_BIBLIOTEK
     AwariaOpiekuna,     \* restart_guardian.launch rzuca; stare Centrum nie zwalnia portu w PORT_TIMEOUT_S
-    AwariaGita,         \* git checkout HEAD -- (set_aside), git diff (changed), git reset --keep (_roll_back): GitFailed;
+    AwariaGita,         \* git checkout HEAD -- (set_aside) z kodem różnym od 0: _NotSetAside; git diff (changed),
+                        \* rev-parse HEAD i git reset --keep (_roll_back): GitFailed;
                         \* każde polecenie Gita także po limicie czasu albo z OSError z _run_tree (_Git.run:
                         \* TimeoutExpired; OSError, gdy zadanie Windows nie powstanie albo drzewo przeżyje
-                        \* _KILL_TIMEOUT_S): git checkout HEAD --, git merge --ff-only, rev-parse HEAD w _roll_back
+                        \* _KILL_TIMEOUT_S): git checkout HEAD --, git merge --ff-only, git diff (changed), rev-parse
+                        \* HEAD i git reset --keep w _roll_back
     AwariaKopiowania,   \* OSError z dysku (dysk, antywirus, OneDrive): shutil.copy2 pliku taty, zapis stan.json (także
-                        \* terminu opiekuna), zapis pliku wyniku (write_result) albo jego usunięcie
+                        \* terminu opiekuna), zapis pliku wyniku (write_result) albo jego usunięcie, usunięcie pliku
+                        \* taty z klonu w _roll_back
     NieudanyStart,      \* nowa wersja nie odpowiada w START_TIMEOUT_S, choć ma swoje biblioteki
     Wylaczenie,         \* komputer gaśnie albo proces ginie w dowolnym kroku
     MaxSkrotowWTrakcie, \* ile razy tata klika skrót na pulpicie, gdy opiekun ponownego startu działa
@@ -401,7 +404,8 @@ KtoPokazujeNieudane == CASE cofa \in {"centrum", "klik"} -> "Centrum pokazuje CO
 
 \* _Journal.read i rev-parse HEAD (klon na przed albo po), potem (git.root / name).unlink()
 \* dla każdego pliku z kopii w dzienniku. rev-parse HEAD, który rzuca (GitFailed, TimeoutExpired,
-\* OSError z _run_tree), kończy _roll_back przed try, więc nic się nie zmienia.
+\* OSError z _run_tree), kończy _roll_back przed try, więc nic się nie zmienia. Tak samo unlink pliku taty,
+\* który rzuca OSError (Windows trzyma plik): plik zostaje, a _put_back nie rusza, bo jest dopiero w finally.
 CofanieUsun ==
     /\ pc = "cofanie_usun"
     /\ \/ /\ plikTaty' = IF kopia = "taty" THEN "brak" ELSE plikTaty
@@ -410,13 +414,21 @@ CofanieUsun ==
        \/ /\ AwariaGita
           /\ plikTaty' = plikTaty
           /\ NieudaneCofniecie("_roll_back: rev-parse HEAD rzuca, nic sie nie zmienia; " \o KtoPokazujeNieudane)
+       \/ /\ AwariaKopiowania
+          /\ kopia = "taty"
+          /\ plikTaty /= "brak"  \* unlink(missing_ok=True) brakującego pliku nie rzuca
+          /\ plikTaty' = plikTaty
+          /\ NieudaneCofniecie("_roll_back: (git.root / name).unlink rzuca OSError przed try, plik taty zostaje; " \o KtoPokazujeNieudane)
     /\ UNCHANGED <<head, kopia, biblioteki, dziennik, dzierzawa, nowa, centrum, klikniecia, wynik, karta>>
 
 CofanieUsunUdane == CofanieUsun /\ pc' = "cofanie_reset"
 
 \* git reset --keep --quiet before, w try. Stara wersja śledzi plik taty, więc reset
 \* zapisuje jej treść z repozytorium. Porażka (GitFailed, TimeoutExpired, OSError z _run_tree) zostawia
-\* klon, gdzie stał: na nowym commicie albo, po wyjątku w scalaniu, na starym.
+\* klon, gdzie stał: na nowym commicie albo na starym, gdy dziennik został, a klon się jeszcze nie przesunął
+\* (wyjątek albo nieudane _put_back w checkout HEAD -- lub w scalaniu, wyłączenie komputera przed scaleniem
+\* albo po jego odmowie, zanim ToolClone.update usunie dziennik)
+\* albo już wrócił (wcześniejsze cofanie z udanym resetem, po którym _put_back rzucił albo komputer zgasł).
 CofanieReset ==
     /\ pc = "cofanie_reset"
     /\ \/ /\ head' = "stara"

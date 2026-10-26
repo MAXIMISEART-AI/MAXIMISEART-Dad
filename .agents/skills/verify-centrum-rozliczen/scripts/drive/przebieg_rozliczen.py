@@ -122,7 +122,10 @@ def drive_settlement(run: Run, page: Page) -> None:
         page,
         process="settlement",
         workbook=collective_file,
-        warning="Plik zbiorczy jest otwarty w Excelu. Zapisz go i zamknij.",
+        warning=(
+            "Plik zbiorczy jest otwarty w Excelu. Zapisz go i zamknij. Jeśli Excel jest zamknięty, usuń z tego samego "
+            f"folderu pozostawiony plik ~${collective_file.name}."
+        ),
         name="przebieg-plik-zbiorczy",
         shots=("4a-przebieg-plik-zbiorczy-otwarty-w-excelu", "4b-przebieg-plik-zbiorczy-zamkniety"),
     )
