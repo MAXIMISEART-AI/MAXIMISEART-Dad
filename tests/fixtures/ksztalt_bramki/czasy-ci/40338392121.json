@@ -1,0 +1,3694 @@
+{
+ "wersja": 1,
+ "runy": [
+  {
+   "run": 40338392121,
+   "proba": 1,
+   "sha": "501faa689425499ee9a5af1c7b3f2057a23654b4",
+   "zdarzenie": "push"
+  }
+ ],
+ "tory": {
+  "linux-3.14": {
+   "krok:praca": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, Linux, 1/2)",
+     "s": 220.0,
+     "status": "ok"
+    },
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, Linux, 2/2)",
+     "s": 381.0,
+     "status": "ok"
+    }
+   ],
+   "krok:pytest": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, Linux, 1/2)",
+     "s": 220.0,
+     "status": "ok"
+    },
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, Linux, 2/2)",
+     "s": 381.1,
+     "status": "ok"
+    }
+   ],
+   "narzut:pytest": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, Linux, 1/2)",
+     "s": 11.0,
+     "status": "ok"
+    },
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, Linux, 2/2)",
+     "s": 7.0,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_adr.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, Linux, 1/2)",
+     "s": 0.002,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_aktualizacja_narzedzia.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, Linux, 2/2)",
+     "s": 28.11,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_aktualnosc_narzedzia.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, Linux, 1/2)",
+     "s": 3.675,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_benchmark_przebiegu.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, Linux, 2/2)",
+     "s": 99.639,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_brama_pre_push.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, Linux, 1/2)",
+     "s": 19.858,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_centrum_aktualizacja.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, Linux, 1/2)",
+     "s": 10.21,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_centrum_diagnoza.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, Linux, 2/2)",
+     "s": 15.956,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_centrum_karta_z_logow.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, Linux, 1/2)",
+     "s": 2.636,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_centrum_konfiguracja.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, Linux, 2/2)",
+     "s": 5.226,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_centrum_kontrola_ilosci.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, Linux, 2/2)",
+     "s": 5.225,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_centrum_launcher.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, Linux, 1/2)",
+     "s": 10.679,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_centrum_logi_uruchomienia.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, Linux, 1/2)",
+     "s": 14.981,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_centrum_logi_w_skrzynce.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, Linux, 1/2)",
+     "s": 3.788,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_centrum_metryki.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, Linux, 2/2)",
+     "s": 1.188,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_centrum_na_windowsie_z_githuba.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, Linux, 1/2)",
+     "s": 1.072,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_centrum_pomiar_u_taty.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, Linux, 1/2)",
+     "s": 1.887,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_centrum_powiadomienia.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, Linux, 2/2)",
+     "s": 15.372,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_centrum_przebieg.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, Linux, 1/2)",
+     "s": 2.113,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_centrum_przygotowanie.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, Linux, 2/2)",
+     "s": 10.385,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_centrum_przywracanie_kopii_intermax.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, Linux, 1/2)",
+     "s": 4.697,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_centrum_rozliczen.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, Linux, 1/2)",
+     "s": 4.225,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_centrum_serwer.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, Linux, 1/2)",
+     "s": 0.273,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_centrum_sprawy_taty.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, Linux, 2/2)",
+     "s": 3.36,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_centrum_token_do_zgloszen.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, Linux, 1/2)",
+     "s": 0.978,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_centrum_uchwyt_zgloszenia.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, Linux, 1/2)",
+     "s": 0.56,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_centrum_uporzadkowanie_intermax.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, Linux, 2/2)",
+     "s": 6.437,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_centrum_uwaga_do_uruchomienia.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, Linux, 2/2)",
+     "s": 5.342,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_centrum_uwaga_taty.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, Linux, 2/2)",
+     "s": 1.896,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_centrum_uzupelnienie.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, Linux, 1/2)",
+     "s": 4.367,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_centrum_uzupelnienie_gotowosc.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, Linux, 2/2)",
+     "s": 3.24,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_centrum_uzupelnienie_na_zywo.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, Linux, 2/2)",
+     "s": 7.416,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_centrum_uzupelnienie_po_przebiegu.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, Linux, 2/2)",
+     "s": 1.742,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_centrum_uzupelnienie_tabela.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, Linux, 2/2)",
+     "s": 4.157,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_centrum_uzupelnienie_wejscia.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, Linux, 2/2)",
+     "s": 1.251,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_centrum_zgloszenie.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, Linux, 1/2)",
+     "s": 6.662,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_ci_lokalnie.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, Linux, 2/2)",
+     "s": 20.362,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_cicha_maszyna.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, Linux, 1/2)",
+     "s": 0.106,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_ciezkie_ci.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, Linux, 1/2)",
+     "s": 4.386,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_collective_preparation.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, Linux, 1/2)",
+     "s": 6.41,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_collective_preparation_stops.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, Linux, 1/2)",
+     "s": 5.97,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_czasy_ci.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, Linux, 1/2)",
+     "s": 0.634,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_czekanie.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, Linux, 1/2)",
+     "s": 5.666,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_decyzje_na_faktach.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, Linux, 1/2)",
+     "s": 0.143,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_dokumenty_regul.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, Linux, 2/2)",
+     "s": 0.003,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_filtr_prywatnosci_wierszy.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, Linux, 1/2)",
+     "s": 0.039,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_git_w_testach.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, Linux, 2/2)",
+     "s": 0.152,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_glossary.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, Linux, 1/2)",
+     "s": 0.001,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_granice_importow.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, Linux, 2/2)",
+     "s": 0.641,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_granice_wyjatkow.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, Linux, 2/2)",
+     "s": 0.267,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_hiperlacza_pliku_zbiorczego.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, Linux, 2/2)",
+     "s": 0.217,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_ilosci_tylko_dla_inea.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, Linux, 2/2)",
+     "s": 0.379,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_ilosci_uslug.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, Linux, 2/2)",
+     "s": 9.255,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_instrukcja_taty.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, Linux, 1/2)",
+     "s": 0.064,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_jeden_odczyt_skoroszytu.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, Linux, 1/2)",
+     "s": 0.709,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_jeden_zapis_skoroszytu.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, Linux, 1/2)",
+     "s": 0.316,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_jedno_uruchomienie_naraz.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, Linux, 2/2)",
+     "s": 101.662,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_klucz_zgloszen.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, Linux, 2/2)",
+     "s": 0.054,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_kolejka_skrzynki_zgloszen.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, Linux, 2/2)",
+     "s": 1.876,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_kolejnosc_sprawdzania.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, Linux, 1/2)",
+     "s": 2.79,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_komentarz_logow_uruchomienia.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, Linux, 2/2)",
+     "s": 0.027,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_kopia_wzorca.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, Linux, 2/2)",
+     "s": 464.635,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_limit_drive_centrum.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, Linux, 2/2)",
+     "s": 0.017,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_mapy_funkcji.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, Linux, 1/2)",
+     "s": 1.047,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_miejsce_skilli.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, Linux, 1/2)",
+     "s": 0.012,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_model_aktualizacji_narzedzia.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, Linux, 2/2)",
+     "s": 0.663,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_mutacje.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, Linux, 1/2)",
+     "s": 14.897,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_mutacje_skilli.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, Linux, 1/2)",
+     "s": 87.172,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_mutacje_zmiany.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, Linux, 2/2)",
+     "s": 70.133,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_na_scalonych_pr.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, Linux, 2/2)",
+     "s": 1.961,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_notka_wydania.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, Linux, 1/2)",
+     "s": 0.015,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_opiekun_ponownego_startu.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, Linux, 2/2)",
+     "s": 37.344,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_ostrzezenia_ilosci.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, Linux, 2/2)",
+     "s": 1.4,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_phase_runner.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, Linux, 2/2)",
+     "s": 0.015,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_plan_ci.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, Linux, 2/2)",
+     "s": 9.083,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_plik_metryk.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, Linux, 2/2)",
+     "s": 0.113,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_plik_stanu_centrum.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, Linux, 2/2)",
+     "s": 0.031,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_plik_taty_w_komunikacie.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, Linux, 1/2)",
+     "s": 0.002,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_plik_zbiorczy_kopia_wzorca.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, Linux, 1/2)",
+     "s": 6.455,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_pomiar_regul_ilosci.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, Linux, 2/2)",
+     "s": 0.477,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_porownanie_rozliczen.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, Linux, 2/2)",
+     "s": 1.594,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_potomne.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, Linux, 1/2)",
+     "s": 34.96,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_praca_w_toku.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, Linux, 2/2)",
+     "s": 14.219,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_process_run.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, Linux, 2/2)",
+     "s": 0.108,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_progress.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, Linux, 1/2)",
+     "s": 0.003,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_przejscie_miedzy_procesami.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, Linux, 1/2)",
+     "s": 0.251,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_przerwana_aktualizacja_narzedzia.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, Linux, 1/2)",
+     "s": 3.609,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_publikacja_plikow_okresu.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, Linux, 1/2)",
+     "s": 18.623,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_rodzaj_zatrzymania.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, Linux, 2/2)",
+     "s": 0.004,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_scal_pr.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, Linux, 2/2)",
+     "s": 130.129,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_scalanie_plikow_generowanych.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, Linux, 1/2)",
+     "s": 0.149,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_scalenia_pr.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, Linux, 1/2)",
+     "s": 16.844,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_settlement_engine.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, Linux, 2/2)",
+     "s": 12.11,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_skille_dla_zmiany.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, Linux, 2/2)",
+     "s": 20.558,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_skoroszyt_ktorego_nie_da_sie_uzyc.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, Linux, 1/2)",
+     "s": 0.523,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_skrypty_bez_instalacji.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, Linux, 2/2)",
+     "s": 28.974,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_skrzynka_zgloszen_github.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, Linux, 1/2)",
+     "s": 0.066,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_sprzatanie.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, Linux, 2/2)",
+     "s": 19.035,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_sprzatanie_excela.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, Linux, 1/2)",
+     "s": 0.862,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_struktura_testow.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, Linux, 1/2)",
+     "s": 3.58,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_syntetyczne_wzorce.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, Linux, 2/2)",
+     "s": 8.053,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_systemowy_python.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, Linux, 2/2)",
+     "s": 0.24,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_szybko.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, Linux, 2/2)",
+     "s": 188.865,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_uporzadkowanie_intermax.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, Linux, 1/2)",
+     "s": 7.249,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_uruchom_proces.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, Linux, 2/2)",
+     "s": 18.069,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_uruchomienie_procesow.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, Linux, 1/2)",
+     "s": 0.916,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_uszkodzone_wejscia.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, Linux, 1/2)",
+     "s": 494.078,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_wersja_narzedzia.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, Linux, 1/2)",
+     "s": 0.052,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_weryfikacja_w_excelu.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, Linux, 1/2)",
+     "s": 1.715,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_workbook_files.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, Linux, 2/2)",
+     "s": 16.56,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_worker_config.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, Linux, 2/2)",
+     "s": 0.202,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_wycofane_pojecia.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, Linux, 2/2)",
+     "s": 1.059,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_wydanie.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, Linux, 2/2)",
+     "s": 49.713,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_wyglad_wiersza_danych.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, Linux, 1/2)",
+     "s": 0.913,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_wywolanie_skryptow_skilli.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, Linux, 1/2)",
+     "s": 10.635,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_zadania_ci.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, Linux, 2/2)",
+     "s": 4.32,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_zegar_centrum.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, Linux, 1/2)",
+     "s": 0.117,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_zgoda.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, Linux, 2/2)",
+     "s": 10.845,
+     "status": "ok"
+    }
+   ]
+  },
+  "windows-3.11": {
+   "krok:e2e": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.11, 3/3)",
+     "s": 63.7,
+     "status": "ok"
+    }
+   ],
+   "krok:praca": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.11, 1/3)",
+     "s": 385.0,
+     "status": "ok"
+    },
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.11, 2/3)",
+     "s": 382.0,
+     "status": "ok"
+    },
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.11, 3/3)",
+     "s": 358.0,
+     "status": "ok"
+    }
+   ],
+   "krok:pytest": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.11, 1/3)",
+     "s": 382.3,
+     "status": "ok"
+    },
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.11, 2/3)",
+     "s": 378.4,
+     "status": "ok"
+    },
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.11, 3/3)",
+     "s": 292.6,
+     "status": "ok"
+    }
+   ],
+   "narzut:pytest": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.11, 1/3)",
+     "s": 17.0,
+     "status": "ok"
+    },
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.11, 2/3)",
+     "s": 16.0,
+     "status": "ok"
+    },
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.11, 3/3)",
+     "s": 16.0,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_adr.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.11, 2/3)",
+     "s": 0.007,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_aktualizacja_narzedzia.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.11, 3/3)",
+     "s": 193.267,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_aktualnosc_narzedzia.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.11, 2/3)",
+     "s": 6.506,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_benchmark_przebiegu.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.11, 3/3)",
+     "s": 114.612,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_brama_pre_push.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.11, 1/3)",
+     "s": 0.002,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_centrum_aktualizacja.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.11, 2/3)",
+     "s": 128.147,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_centrum_diagnoza.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.11, 3/3)",
+     "s": 25.317,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_centrum_karta_z_logow.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.11, 1/3)",
+     "s": 4.529,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_centrum_konfiguracja.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.11, 3/3)",
+     "s": 7.818,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_centrum_kontrola_ilosci.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.11, 2/3)",
+     "s": 8.608,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_centrum_launcher.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.11, 2/3)",
+     "s": 30.114,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_centrum_logi_uruchomienia.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.11, 2/3)",
+     "s": 52.49,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_centrum_logi_w_skrzynce.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.11, 3/3)",
+     "s": 10.959,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_centrum_metryki.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.11, 3/3)",
+     "s": 1.421,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_centrum_na_windowsie_z_githuba.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.11, 1/3)",
+     "s": 0.0,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_centrum_pomiar_u_taty.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.11, 3/3)",
+     "s": 15.244,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_centrum_powiadomienia.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.11, 3/3)",
+     "s": 16.35,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_centrum_przebieg.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.11, 2/3)",
+     "s": 5.058,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_centrum_przygotowanie.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.11, 3/3)",
+     "s": 19.646,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_centrum_przywracanie_kopii_intermax.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.11, 3/3)",
+     "s": 12.645,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_centrum_rozliczen.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.11, 2/3)",
+     "s": 10.208,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_centrum_serwer.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.11, 3/3)",
+     "s": 0.347,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_centrum_sprawy_taty.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.11, 1/3)",
+     "s": 5.011,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_centrum_token_do_zgloszen.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.11, 2/3)",
+     "s": 1.942,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_centrum_uchwyt_zgloszenia.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.11, 1/3)",
+     "s": 1.076,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_centrum_uporzadkowanie_intermax.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.11, 2/3)",
+     "s": 7.458,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_centrum_uwaga_do_uruchomienia.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.11, 3/3)",
+     "s": 8.194,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_centrum_uwaga_taty.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.11, 2/3)",
+     "s": 1.917,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_centrum_uzupelnienie.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.11, 3/3)",
+     "s": 11.935,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_centrum_uzupelnienie_gotowosc.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.11, 2/3)",
+     "s": 4.38,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_centrum_uzupelnienie_na_zywo.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.11, 3/3)",
+     "s": 23.049,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_centrum_uzupelnienie_po_przebiegu.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.11, 3/3)",
+     "s": 2.473,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_centrum_uzupelnienie_tabela.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.11, 3/3)",
+     "s": 9.993,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_centrum_uzupelnienie_wejscia.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.11, 3/3)",
+     "s": 2.059,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_centrum_zgloszenie.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.11, 3/3)",
+     "s": 13.936,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_ci_lokalnie.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.11, 3/3)",
+     "s": 26.704,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_cicha_maszyna.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.11, 2/3)",
+     "s": 0.08,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_ciezkie_ci.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.11, 2/3)",
+     "s": 34.725,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_collective_preparation.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.11, 2/3)",
+     "s": 17.136,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_collective_preparation_stops.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.11, 2/3)",
+     "s": 15.392,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_czasy_ci.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.11, 1/3)",
+     "s": 3.307,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_czekanie.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.11, 2/3)",
+     "s": 13.546,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_decyzje_na_faktach.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.11, 1/3)",
+     "s": 0.403,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_dokumenty_regul.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.11, 3/3)",
+     "s": 0.005,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_filtr_prywatnosci_wierszy.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.11, 2/3)",
+     "s": 0.072,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_git_w_testach.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.11, 1/3)",
+     "s": 1.857,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_glossary.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.11, 1/3)",
+     "s": 0.002,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_granice_importow.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.11, 2/3)",
+     "s": 0.672,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_granice_wyjatkow.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.11, 2/3)",
+     "s": 0.338,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_hiperlacza_pliku_zbiorczego.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.11, 2/3)",
+     "s": 0.346,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_ilosci_tylko_dla_inea.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.11, 1/3)",
+     "s": 0.652,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_ilosci_uslug.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.11, 2/3)",
+     "s": 11.615,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_instrukcja_taty.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.11, 1/3)",
+     "s": 0.096,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_jeden_odczyt_skoroszytu.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.11, 3/3)",
+     "s": 1.715,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_jeden_zapis_skoroszytu.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.11, 2/3)",
+     "s": 0.629,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_jedno_uruchomienie_naraz.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.11, 2/3)",
+     "s": 66.001,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_klucz_zgloszen.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.11, 3/3)",
+     "s": 0.074,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_kolejka_skrzynki_zgloszen.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.11, 3/3)",
+     "s": 3.27,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_kolejnosc_sprawdzania.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.11, 2/3)",
+     "s": 7.284,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_komentarz_logow_uruchomienia.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.11, 2/3)",
+     "s": 0.037,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_kopia_wzorca.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.11, 2/3)",
+     "s": 451.073,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_limit_drive_centrum.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.11, 1/3)",
+     "s": 0.014,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_mapy_funkcji.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.11, 1/3)",
+     "s": 1.677,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_miejsce_skilli.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.11, 3/3)",
+     "s": 0.213,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_model_aktualizacji_narzedzia.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.11, 3/3)",
+     "s": 8.065,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_mutacje.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.11, 2/3)",
+     "s": 102.913,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_mutacje_skilli.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.11, 3/3)",
+     "s": 138.884,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_mutacje_zmiany.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.11, 2/3)",
+     "s": 131.107,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_na_scalonych_pr.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.11, 2/3)",
+     "s": 6.159,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_notka_wydania.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.11, 3/3)",
+     "s": 0.029,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_opiekun_ponownego_startu.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.11, 2/3)",
+     "s": 161.719,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_ostrzezenia_ilosci.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.11, 2/3)",
+     "s": 1.405,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_phase_runner.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.11, 3/3)",
+     "s": 0.032,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_plan_ci.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.11, 2/3)",
+     "s": 16.91,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_plik_metryk.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.11, 1/3)",
+     "s": 1.643,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_plik_stanu_centrum.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.11, 3/3)",
+     "s": 0.083,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_plik_taty_w_komunikacie.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.11, 3/3)",
+     "s": 0.006,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_plik_zbiorczy_kopia_wzorca.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.11, 2/3)",
+     "s": 23.151,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_pomiar_regul_ilosci.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.11, 1/3)",
+     "s": 0.516,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_porownanie_rozliczen.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.11, 2/3)",
+     "s": 3.142,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_potomne.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.11, 3/3)",
+     "s": 31.398,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_praca_w_toku.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.11, 3/3)",
+     "s": 135.179,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_process_run.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.11, 3/3)",
+     "s": 0.375,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_progress.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.11, 2/3)",
+     "s": 0.008,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_przejscie_miedzy_procesami.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.11, 1/3)",
+     "s": 0.494,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_przerwana_aktualizacja_narzedzia.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.11, 3/3)",
+     "s": 24.882,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_publikacja_plikow_okresu.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.11, 3/3)",
+     "s": 107.297,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_rodzaj_zatrzymania.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.11, 3/3)",
+     "s": 0.006,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_scal_pr.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.11, 2/3)",
+     "s": 0.012,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_scalanie_plikow_generowanych.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.11, 3/3)",
+     "s": 2.816,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_scalenia_pr.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.11, 3/3)",
+     "s": 0.004,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_settlement_engine.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.11, 3/3)",
+     "s": 19.836,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_skille_dla_zmiany.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.11, 3/3)",
+     "s": 46.163,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_skoroszyt_ktorego_nie_da_sie_uzyc.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.11, 3/3)",
+     "s": 0.75,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_skrypty_bez_instalacji.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.11, 1/3)",
+     "s": 1.653,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_skrzynka_zgloszen_github.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.11, 1/3)",
+     "s": 0.071,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_sprzatanie.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.11, 1/3)",
+     "s": 0.005,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_sprzatanie_excela.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.11, 2/3)",
+     "s": 1.815,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_struktura_testow.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.11, 2/3)",
+     "s": 7.64,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_syntetyczne_wzorce.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.11, 2/3)",
+     "s": 8.475,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_systemowy_python.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.11, 2/3)",
+     "s": 0.001,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_szybko.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.11, 3/3)",
+     "s": 8.522,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_uporzadkowanie_intermax.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.11, 3/3)",
+     "s": 21.881,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_uruchom_proces.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.11, 2/3)",
+     "s": 25.171,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_uruchomienie_procesow.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.11, 3/3)",
+     "s": 3.125,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_uszkodzone_wejscia.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.11, 1/3)",
+     "s": 1430.225,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_wersja_narzedzia.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.11, 3/3)",
+     "s": 1.543,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_weryfikacja_w_excelu.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.11, 2/3)",
+     "s": 0.001,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_workbook_files.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.11, 2/3)",
+     "s": 19.814,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_worker_config.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.11, 2/3)",
+     "s": 0.217,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_wycofane_pojecia.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.11, 2/3)",
+     "s": 0.999,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_wydanie.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.11, 2/3)",
+     "s": 0.0,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_wyglad_wiersza_danych.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.11, 1/3)",
+     "s": 2.153,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_wywolanie_skryptow_skilli.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.11, 3/3)",
+     "s": 27.48,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_zadania_ci.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.11, 3/3)",
+     "s": 8.735,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_zegar_centrum.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.11, 1/3)",
+     "s": 0.13,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_zgoda.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.11, 2/3)",
+     "s": 0.842,
+     "status": "ok"
+    }
+   ]
+  },
+  "windows-3.14": {
+   "krok:e2e": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, 3/3)",
+     "s": 61.4,
+     "status": "ok"
+    }
+   ],
+   "krok:praca": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "Mutation checks (1/8)",
+     "s": 423.0,
+     "status": "ok"
+    },
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "Mutation checks (2/8)",
+     "s": 242.0,
+     "status": "ok"
+    },
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "Mutation checks (3/8)",
+     "s": 390.0,
+     "status": "ok"
+    },
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "Mutation checks (4/8)",
+     "s": 504.0,
+     "status": "ok"
+    },
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "Mutation checks (5/8)",
+     "s": 563.0,
+     "status": "ok"
+    },
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "Mutation checks (6/8)",
+     "s": 313.0,
+     "status": "ok"
+    },
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "Mutation checks (7/8)",
+     "s": 378.0,
+     "status": "ok"
+    },
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "Mutation checks (8/8)",
+     "s": 391.0,
+     "status": "ok"
+    },
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, 1/3)",
+     "s": 300.0,
+     "status": "ok"
+    },
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, 2/3)",
+     "s": 378.0,
+     "status": "ok"
+    },
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, 3/3)",
+     "s": 378.0,
+     "status": "ok"
+    }
+   ],
+   "krok:pytest": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, 1/3)",
+     "s": 297.8,
+     "status": "ok"
+    },
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, 2/3)",
+     "s": 351.2,
+     "status": "ok"
+    },
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, 3/3)",
+     "s": 314.5,
+     "status": "ok"
+    }
+   ],
+   "krok:timing": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, 2/3)",
+     "s": 22.7,
+     "status": "ok"
+    }
+   ],
+   "narzut:mutations": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "Mutation checks (1/8)",
+     "s": 27.0,
+     "status": "ok"
+    },
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "Mutation checks (2/8)",
+     "s": 39.0,
+     "status": "ok"
+    },
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "Mutation checks (3/8)",
+     "s": 43.0,
+     "status": "ok"
+    },
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "Mutation checks (4/8)",
+     "s": 43.0,
+     "status": "ok"
+    },
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "Mutation checks (5/8)",
+     "s": 47.0,
+     "status": "ok"
+    },
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "Mutation checks (6/8)",
+     "s": 38.0,
+     "status": "ok"
+    },
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "Mutation checks (7/8)",
+     "s": 38.0,
+     "status": "ok"
+    },
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "Mutation checks (8/8)",
+     "s": 52.0,
+     "status": "ok"
+    }
+   ],
+   "narzut:pytest": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, 1/3)",
+     "s": 16.0,
+     "status": "ok"
+    },
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, 2/3)",
+     "s": 37.0,
+     "status": "ok"
+    },
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, 3/3)",
+     "s": 19.0,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_adr.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, 3/3)",
+     "s": 0.008,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_aktualizacja_narzedzia.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, 3/3)",
+     "s": 216.036,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_aktualnosc_narzedzia.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, 2/3)",
+     "s": 16.85,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_benchmark_przebiegu.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, 3/3)",
+     "s": 121.218,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_brama_pre_push.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, 3/3)",
+     "s": 0.005,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_centrum_aktualizacja.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, 2/3)",
+     "s": 75.554,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_centrum_diagnoza.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, 3/3)",
+     "s": 32.871,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_centrum_karta_z_logow.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, 3/3)",
+     "s": 7.07,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_centrum_konfiguracja.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, 2/3)",
+     "s": 7.66,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_centrum_kontrola_ilosci.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, 3/3)",
+     "s": 12.144,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_centrum_launcher.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, 3/3)",
+     "s": 30.543,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_centrum_logi_uruchomienia.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, 2/3)",
+     "s": 33.679,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_centrum_logi_w_skrzynce.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, 2/3)",
+     "s": 7.326,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_centrum_metryki.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, 3/3)",
+     "s": 1.159,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_centrum_na_windowsie_z_githuba.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, 3/3)",
+     "s": 0.0,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_centrum_pomiar_u_taty.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, 3/3)",
+     "s": 3.519,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_centrum_powiadomienia.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, 2/3)",
+     "s": 20.937,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_centrum_przebieg.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, 2/3)",
+     "s": 3.7,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_centrum_przygotowanie.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, 3/3)",
+     "s": 14.216,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_centrum_przywracanie_kopii_intermax.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, 2/3)",
+     "s": 8.569,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_centrum_rozliczen.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, 3/3)",
+     "s": 10.007,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_centrum_serwer.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, 2/3)",
+     "s": 0.352,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_centrum_sprawy_taty.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, 2/3)",
+     "s": 3.886,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_centrum_token_do_zgloszen.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, 2/3)",
+     "s": 5.378,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_centrum_uchwyt_zgloszenia.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, 3/3)",
+     "s": 1.69,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_centrum_uporzadkowanie_intermax.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, 3/3)",
+     "s": 13.539,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_centrum_uwaga_do_uruchomienia.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, 2/3)",
+     "s": 7.689,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_centrum_uwaga_taty.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, 2/3)",
+     "s": 4.159,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_centrum_uzupelnienie.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, 2/3)",
+     "s": 9.767,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_centrum_uzupelnienie_gotowosc.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, 3/3)",
+     "s": 3.791,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_centrum_uzupelnienie_na_zywo.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, 3/3)",
+     "s": 10.288,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_centrum_uzupelnienie_po_przebiegu.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, 2/3)",
+     "s": 4.504,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_centrum_uzupelnienie_tabela.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, 2/3)",
+     "s": 6.22,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_centrum_uzupelnienie_wejscia.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, 3/3)",
+     "s": 2.002,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_centrum_zgloszenie.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, 2/3)",
+     "s": 13.919,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_ci_lokalnie.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, 2/3)",
+     "s": 27.05,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_cicha_maszyna.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, 3/3)",
+     "s": 0.126,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_ciezkie_ci.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, 2/3)",
+     "s": 29.619,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_collective_preparation.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, 2/3)",
+     "s": 16.039,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_collective_preparation_stops.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, 2/3)",
+     "s": 15.617,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_czasy_ci.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, 2/3)",
+     "s": 5.228,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_czekanie.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, 3/3)",
+     "s": 14.246,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_decyzje_na_faktach.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, 3/3)",
+     "s": 0.4,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_dokumenty_regul.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, 2/3)",
+     "s": 0.007,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_filtr_prywatnosci_wierszy.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, 3/3)",
+     "s": 0.074,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_git_w_testach.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, 3/3)",
+     "s": 2.938,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_glossary.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, 2/3)",
+     "s": 0.003,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_granice_importow.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, 3/3)",
+     "s": 0.74,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_granice_wyjatkow.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, 2/3)",
+     "s": 0.258,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_hiperlacza_pliku_zbiorczego.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, 2/3)",
+     "s": 0.39,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_ilosci_tylko_dla_inea.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, 3/3)",
+     "s": 0.604,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_ilosci_uslug.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, 3/3)",
+     "s": 11.912,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_instrukcja_taty.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, 2/3)",
+     "s": 0.147,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_jeden_odczyt_skoroszytu.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, 2/3)",
+     "s": 1.121,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_jeden_zapis_skoroszytu.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, 3/3)",
+     "s": 0.703,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_jedno_uruchomienie_naraz.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, 3/3)",
+     "s": 70.308,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_klucz_zgloszen.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, 2/3)",
+     "s": 0.071,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_kolejka_skrzynki_zgloszen.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, 3/3)",
+     "s": 2.866,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_kolejnosc_sprawdzania.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, 2/3)",
+     "s": 8.568,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_komentarz_logow_uruchomienia.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, 3/3)",
+     "s": 0.04,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_kopia_wzorca.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, 2/3)",
+     "s": 495.858,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_limit_drive_centrum.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, 2/3)",
+     "s": 0.016,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_mapy_funkcji.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, 2/3)",
+     "s": 1.972,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_miejsce_skilli.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, 3/3)",
+     "s": 0.186,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_model_aktualizacji_narzedzia.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, 3/3)",
+     "s": 6.964,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_mutacje.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, 2/3)",
+     "s": 67.674,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_mutacje_skilli.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, 3/3)",
+     "s": 136.661,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_mutacje_zmiany.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, 3/3)",
+     "s": 100.921,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_na_scalonych_pr.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, 3/3)",
+     "s": 6.76,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_notka_wydania.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, 3/3)",
+     "s": 0.026,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_opiekun_ponownego_startu.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, 2/3)",
+     "s": 109.249,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_ostrzezenia_ilosci.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, 2/3)",
+     "s": 2.698,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_phase_runner.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, 2/3)",
+     "s": 0.03,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_plan_ci.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, 2/3)",
+     "s": 18.328,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_plik_metryk.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, 2/3)",
+     "s": 0.644,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_plik_stanu_centrum.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, 3/3)",
+     "s": 0.081,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_plik_taty_w_komunikacie.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, 3/3)",
+     "s": 0.005,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_plik_zbiorczy_kopia_wzorca.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, 3/3)",
+     "s": 20.969,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_pomiar_regul_ilosci.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, 2/3)",
+     "s": 0.685,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_porownanie_rozliczen.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, 2/3)",
+     "s": 4.099,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_potomne.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, 2/3)",
+     "s": 31.382,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_praca_w_toku.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, 2/3)",
+     "s": 133.776,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_process_run.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, 2/3)",
+     "s": 0.301,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_progress.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, 2/3)",
+     "s": 0.008,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_przejscie_miedzy_procesami.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, 3/3)",
+     "s": 0.715,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_przerwana_aktualizacja_narzedzia.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, 3/3)",
+     "s": 26.545,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_publikacja_plikow_okresu.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, 3/3)",
+     "s": 38.209,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_rodzaj_zatrzymania.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, 2/3)",
+     "s": 0.006,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_scal_pr.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, 2/3)",
+     "s": 0.01,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_scalanie_plikow_generowanych.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, 2/3)",
+     "s": 3.367,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_scalenia_pr.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, 3/3)",
+     "s": 0.0,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_settlement_engine.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, 3/3)",
+     "s": 22.421,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_skille_dla_zmiany.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, 3/3)",
+     "s": 62.041,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_skoroszyt_ktorego_nie_da_sie_uzyc.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, 3/3)",
+     "s": 0.777,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_skrypty_bez_instalacji.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, 3/3)",
+     "s": 1.665,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_skrzynka_zgloszen_github.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, 2/3)",
+     "s": 0.133,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_sprzatanie.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, 3/3)",
+     "s": 0.002,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_sprzatanie_excela.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, 3/3)",
+     "s": 2.388,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_struktura_testow.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, 2/3)",
+     "s": 7.46,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_syntetyczne_wzorce.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, 3/3)",
+     "s": 10.509,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_systemowy_python.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, 3/3)",
+     "s": 0.0,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_szybko.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, 2/3)",
+     "s": 5.364,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_uporzadkowanie_intermax.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, 3/3)",
+     "s": 22.644,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_uruchom_proces.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, 3/3)",
+     "s": 24.736,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_uruchomienie_procesow.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, 3/3)",
+     "s": 4.505,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_uszkodzone_wejscia.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, 1/3)",
+     "s": 1153.634,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_wersja_narzedzia.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, 2/3)",
+     "s": 1.645,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_weryfikacja_w_excelu.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, 2/3)",
+     "s": 0.002,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_workbook_files.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, 3/3)",
+     "s": 22.567,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_worker_config.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, 2/3)",
+     "s": 0.221,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_wycofane_pojecia.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, 3/3)",
+     "s": 1.498,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_wydanie.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, 3/3)",
+     "s": 0.002,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_wyglad_wiersza_danych.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, 3/3)",
+     "s": 3.614,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_wywolanie_skryptow_skilli.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, 2/3)",
+     "s": 34.811,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_zadania_ci.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, 3/3)",
+     "s": 5.713,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_zegar_centrum.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, 3/3)",
+     "s": 0.181,
+     "status": "ok"
+    }
+   ],
+   "pytest:tests/test_zgoda.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "pytest (Python 3.14, 2/3)",
+     "s": 2.118,
+     "status": "ok"
+    }
+   ],
+   "skill:verify-aktualizacja-narzedzia/ci": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "Mutation checks (7/8)",
+     "s": 20.0,
+     "status": "ok"
+    }
+   ],
+   "skill:verify-centrum-rozliczen/check_centrum_aktualizacja_mutations.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "Mutation checks (7/8)",
+     "s": 96.1,
+     "status": "ok"
+    }
+   ],
+   "skill:verify-centrum-rozliczen/check_centrum_diagnoza_mutations.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "Mutation checks (2/8)",
+     "s": 45.3,
+     "status": "ok"
+    }
+   ],
+   "skill:verify-centrum-rozliczen/check_centrum_karta_z_logow_mutations.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "Mutation checks (8/8)",
+     "s": 56.9,
+     "status": "ok"
+    }
+   ],
+   "skill:verify-centrum-rozliczen/check_centrum_kopie_intermax_mutations.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "Mutation checks (4/8)",
+     "s": 49.5,
+     "status": "ok"
+    }
+   ],
+   "skill:verify-centrum-rozliczen/check_centrum_przebieg_rozliczen_mutations.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "Mutation checks (8/8)",
+     "s": 145.1,
+     "status": "ok"
+    }
+   ],
+   "skill:verify-centrum-rozliczen/check_centrum_przygotowanie_pliku_zbiorczego_mutations.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "Mutation checks (3/8)",
+     "s": 86.5,
+     "status": "ok"
+    }
+   ],
+   "skill:verify-centrum-rozliczen/check_centrum_uporzadkowanie_intermax_mutations.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "Mutation checks (5/8)",
+     "s": 110.8,
+     "status": "ok"
+    }
+   ],
+   "skill:verify-centrum-rozliczen/check_centrum_uwaga_taty_mutations.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "Mutation checks (7/8)",
+     "s": 196.2,
+     "status": "ok"
+    }
+   ],
+   "skill:verify-centrum-rozliczen/check_centrum_uzupelnienie_mutations.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "Mutation checks (6/8)",
+     "s": 243.7,
+     "status": "ok"
+    }
+   ],
+   "skill:verify-centrum-rozliczen/check_centrum_zgloszenie_mutations.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "Mutation checks (7/8)",
+     "s": 64.6,
+     "status": "ok"
+    }
+   ],
+   "skill:verify-centrum-rozliczen/ci": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "Mutation checks (3/8)",
+     "s": 303.1,
+     "status": "ok"
+    }
+   ],
+   "skill:verify-jedno-uruchomienie-naraz/check_runs_mutations.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "Mutation checks (2/8)",
+     "s": 195.8,
+     "status": "ok"
+    }
+   ],
+   "skill:verify-jedno-uruchomienie-naraz/ci": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "Mutation checks (5/8)",
+     "s": 52.2,
+     "status": "ok"
+    }
+   ],
+   "skill:verify-kolejka-skrzynki/check_outbox_mutations.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "Mutation checks (5/8)",
+     "s": 398.8,
+     "status": "ok"
+    }
+   ],
+   "skill:verify-kolejka-skrzynki/ci": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "Mutation checks (8/8)",
+     "s": 187.7,
+     "status": "ok"
+    }
+   ],
+   "skill:verify-kopia-wzorca/check_copy_mutations.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "Mutation checks (4/8)",
+     "s": 342.8,
+     "status": "ok"
+    }
+   ],
+   "skill:verify-publikacja-plikow-okresu/check_publication_mutations.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "Mutation checks (6/8)",
+     "s": 48.6,
+     "status": "ok"
+    }
+   ],
+   "skill:verify-rozliczenia/check_quantity_rules_mutations.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "Mutation checks (4/8)",
+     "s": 110.0,
+     "status": "ok"
+    }
+   ],
+   "skill:verify-skoroszyty-w-excelu/check_excel_cleanup_mutations.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "Mutation checks (6/8)",
+     "s": 19.8,
+     "status": "ok"
+    }
+   ],
+   "skill:verify-zapis-intermax/check_intermax_mutations.py": [
+    {
+     "run": 40338392121,
+     "proba": 1,
+     "zadanie": "Mutation checks (1/8)",
+     "s": 421.8,
+     "status": "ok"
+    }
+   ]
+  }
+ }
+}
