@@ -112,8 +112,8 @@ COLLECTIVE_TEMPLATE_QUANTITY_FILL = PatternFill(fill_type="solid", fgColor="FFCC
 RegisterRow = dict[str, object] | None
 """Wiersz Rejestru: wartości po nagłówkach Rejestru albo ``None`` dla całkowicie pustego wiersza."""
 
-# Wygląd Rejestru: mniejsza czcionka niż we wzorcach i własny format daty.
-REGISTER_FONT_NAME = "Arial"
+# Wygląd Rejestru: uporządkowane zlecenia taty (Calibri 8, mniejsza czcionka niż we wzorcach) i własny format daty.
+REGISTER_FONT_NAME = "Calibri"
 REGISTER_FONT_SIZE = 8
 REGISTER_DATE_FORMAT = "dd.mm.yyyy hh:mm"
 # Wygląd wierszy danych z wzorców.
@@ -277,6 +277,35 @@ def write_register_sheet(
                     cell.fill = PatternFill(fill_type="solid", fgColor=highlight.fill)
                 if header == "DATA GODZ. POCZ.":
                     cell.number_format = REGISTER_DATE_FORMAT
+
+
+RAW_ORDER_FONT = Font(name="Roboto", size=4, bold=True)
+"""Wygląd zlecenia wklejonego z aplikacji firmowej (Surowego zlecenia)."""
+
+
+def paste_raw_orders(path: Path, orders: Sequence[Mapping[str, object]], *, gap: int = 2) -> int:
+    """Wkleja ``orders`` na dół arkusza ``ZLECENIA`` jak z aplikacji: ``gap`` pustych wierszy niżej, Roboto 4.
+
+    Pierwszy wiersz jest przesunięty o dwie kolumny w lewo, więc wklejenie nie ma wartości ``AKCJE``. Zwraca numer
+    pierwszego wklejonego wiersza.
+    """
+
+    workbook = load_workbook(path)
+    try:
+        sheet = workbook["ZLECENIA"]
+        columns = {cell.value: cell.column for cell in sheet[1] if cell.value}
+        first = sheet.max_row + gap + 1
+        for index, order in enumerate(orders):
+            shift = 2 if index == 0 else 0
+            for header, value in order.items():
+                if header != "AKCJE":
+                    cell = sheet.cell(first + index, columns[header] - shift)
+                    cell.value = value  # type: ignore[assignment]  # syntetyczne zlecenia mają tekst i daty
+                    cell.font = RAW_ORDER_FONT
+        workbook.save(path)
+    finally:
+        workbook.close()
+    return first
 
 
 def link_register_order_numbers(path: Path, address: str) -> dict[int, str]:

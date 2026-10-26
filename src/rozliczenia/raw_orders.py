@@ -10,6 +10,8 @@ gdy w ``DATA GODZ. POCZ.`` nie ma daty; gdy data stoi na miejscu (ktoś przesun�
 przesuwa. Miejsce dnia wyznacza żółty wiersz, którym tata oddziela dni: najniższy pusty wiersz między
 ostatnim uporządkowanym a blokiem, w którym co najmniej połowa kolumn zlecenia ma żółte wypełnienie. Kolumna bez
 komórki ma wypełnienie stylu wiersza: u taty żółty wiersz to zwykle styl całego wiersza bez żadnej komórki.
+Sam blok, bez przeglądu nad nim i bez przeszkód, oddaje ``pasted``: z niego Przygotowanie pliku zbiorczego wie,
+z których dni są Surowe zlecenia.
 
 Przeszkody: wiersz z wyglądem z aplikacji nad uporządkowanym wierszem, Surowe zlecenie bez daty z godziną albo bez
 Wykonawcy, blok z więcej niż jednego dnia i dzień, który już jest uporządkowany. Pierwsza i ostatnia wymagają
@@ -175,6 +177,39 @@ def recognize(rows_from_bottom: Iterable[RowFacts], columns: OrderColumns) -> Ra
     """
 
     rows = iter(rows_from_bottom)
+    raw, yellow, blank, ordered = _bottom(rows, columns)
+    found = _pasted(raw, columns)
+    orders = [order for order in found if isinstance(order, RawOrder)]
+    days = sorted({order.when.date() for order in orders})
+    above, ordered_days = (None, set[date]()) if ordered is None else _above(ordered, rows, columns, days[0] if days else None)
+    if above is not None:
+        return above
+    if not raw:
+        return None
+    missing = next((order for order in found if not isinstance(order, RawOrder)), None)
+    if missing is not None:
+        return missing
+    if len(days) > 1:
+        return SeveralDays(tuple(days), raw[0].number, raw[-1].number)
+    if days[0] in ordered_days:
+        return DayOrdered(days[0], raw[0].number, raw[-1].number)
+    anchor = 1 if ordered is None else ordered.number
+    return RawBlock(tuple(orders), yellow if yellow is not None else anchor, yellow is not None, anchor, blank)
+
+
+def pasted(rows_from_bottom: Iterable[RowFacts], columns: OrderColumns) -> tuple[RawOrder | Undated | WithoutWorker, ...]:
+    """Wiersze z wartościami pod ostatnim uporządkowanym wierszem jako Surowe zlecenia, w kolejności z aplikacji.
+
+    To blok Surowych zleceń bez przeglądu nad nim, więc bez wiersza z wyglądem z aplikacji nad uporządkowanymi;
+    pusta krotka, gdy na dole arkusza nic nie jest wklejone.
+    """
+
+    return tuple(_pasted(_bottom(iter(rows_from_bottom), columns)[0], columns))
+
+
+def _bottom(rows: Iterator[RowFacts], columns: OrderColumns) -> tuple[list[RowFacts], int | None, int | None, RowFacts | None]:
+    """Dół arkusza do ostatniego uporządkowanego wiersza: wiersze z wartościami pod nim (od góry), żółty i pusty wiersz, on sam."""
+
     raw: list[RowFacts] = []
     yellow: int | None = None
     blank: int | None = None
@@ -192,23 +227,11 @@ def recognize(rows_from_bottom: Iterable[RowFacts], columns: OrderColumns) -> Ra
         yellow = None
         raw.append(row)
     raw.reverse()
-    found = [_order(row, columns, index == 0 and not _is_date(row.value(columns.date))) for index, row in enumerate(raw)]
-    orders = [order for order in found if isinstance(order, RawOrder)]
-    days = sorted({order.when.date() for order in orders})
-    above, ordered_days = (None, set[date]()) if ordered is None else _above(ordered, rows, columns, days[0] if days else None)
-    if above is not None:
-        return above
-    if not raw:
-        return None
-    missing = next((order for order in found if not isinstance(order, RawOrder)), None)
-    if missing is not None:
-        return missing
-    if len(days) > 1:
-        return SeveralDays(tuple(days), raw[0].number, raw[-1].number)
-    if days[0] in ordered_days:
-        return DayOrdered(days[0], raw[0].number, raw[-1].number)
-    anchor = 1 if ordered is None else ordered.number
-    return RawBlock(tuple(orders), yellow if yellow is not None else anchor, yellow is not None, anchor, blank)
+    return raw, yellow, blank, ordered
+
+
+def _pasted(raw: list[RowFacts], columns: OrderColumns) -> list[RawOrder | Undated | WithoutWorker]:
+    return [_order(row, columns, index == 0 and not _is_date(row.value(columns.date))) for index, row in enumerate(raw)]
 
 
 def plan_day(block: RawBlock) -> DayPlan:
