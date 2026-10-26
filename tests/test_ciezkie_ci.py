@@ -1,7 +1,8 @@
 """Ciężkie zadania CI (mutacje zmiany, mutacje skilli) liczy GitHub, a lokalnie biegną tylko do odtworzenia porażki.
 
 ``tools/mutacje_zmiany.py`` i ``tools/ci_lokalnie.py`` z ciężkim zadaniem poza CI odmawiają startu, chyba że
-``--odtwarzam`` wskazuje run Actions tej gałęzi, w którym to zadanie padło. Atrapa ``gh`` podaje run bez sieci.
+``--odtwarzam`` wskazuje run Actions tej gałęzi, w którym to zadanie padło; tak samo ``tools/mutacje.py`` z listą
+dłuższą niż 100 mutacji. Atrapa ``gh`` podaje run bez sieci.
 """
 
 from __future__ import annotations
@@ -24,7 +25,7 @@ from tests.fixtures.git_repo import commit, git, repository
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
 
-from ciezkie_ci import HEAVY, refusal  # noqa: E402
+from ciezkie_ci import HEAVY, mutations_refusal, refusal  # noqa: E402
 
 PASSES = ("GITHUB_ACTIONS", "MAXIMISEART_NA_SCALONYCH_PR", "MAXIMISEART_ODTWARZAM")
 OUTSIDE_CI = {name: value for name, value in os.environ.items() if name not in PASSES}
@@ -209,6 +210,123 @@ def test_odtworzenie_wszystkich_ciezkich_zadan_wymaga_porazki_kazdego(tmp_path: 
     refused = refusal({"ruff", "change-mutations", "mutations"}, "123", root=repo, env={}, gh=_gh("praca", "f" * 40, RED_MUTATIONS))
 
     assert refused is not None and "nie padło mutations;" in refused
+
+
+def _no_github(arguments: Sequence[str]) -> str:
+    raise AssertionError("bez --odtwarzam nie ma o co pytać GitHuba")
+
+
+def test_celowany_dowod_do_100_mutacji_biegnie_poza_ci(tmp_path: Path) -> None:
+    assert mutations_refusal(100, None, root=tmp_path, env={}, gh=_no_github) is None
+
+
+def test_lista_ponad_100_mutacji_poza_ci_to_reczne_mutacje_zmiany_i_odmawia_z_jej_dlugoscia(tmp_path: Path) -> None:
+    refused = mutations_refusal(101, None, root=tmp_path, env={}, gh=_no_github)
+
+    assert refused is not None and refused.startswith("CIĘŻKIE CI ODMOWA | change-mutations ") and "\n" not in refused
+    assert "Wypchnij gałąź" in refused and "--odtwarzam" in refused
+    assert "najwyżej 100 mutacji, a ta lista ma 101." in refused
+
+
+@pytest.mark.parametrize("env", [{"GITHUB_ACTIONS": "true"}, {"MAXIMISEART_NA_SCALONYCH_PR": "1"}], ids=["w CI", "z tools/na_scalonych_pr.py"])
+def test_dluga_lista_mutacji_w_ci_i_na_scalonych_pr_biegnie(tmp_path: Path, env: dict[str, str]) -> None:
+    assert mutations_refusal(335, None, root=tmp_path, env=env, gh=_no_github) is None
+
+
+def test_dluga_lista_mutacji_odtwarzajaca_czerwone_mutacje_zmiany_tej_galezi_biegnie(tmp_path: Path) -> None:
+    assert mutations_refusal(335, "123", root=_repo(tmp_path), env={}, gh=_gh("praca", "f" * 40, RED_MUTATIONS)) is None
+
+
+def test_dluga_lista_mutacji_z_runu_gdzie_padly_tylko_mutacje_skilli_odmawia(tmp_path: Path) -> None:
+    red_skills: Jobs = [{"name": "Mutation checks (1/3)", "conclusion": "failure"}, {"name": "Change mutations (1/3)", "conclusion": "success"}]
+
+    refused = mutations_refusal(335, "123", root=_repo(tmp_path), env={}, gh=_gh("praca", "f" * 40, red_skills))
+
+    assert refused is not None and refused.startswith("CIĘŻKIE CI ODMOWA | --odtwarzam 123: ") and "nie padło change-mutations" in refused
+    assert "a ta lista ma 335." in refused
+
+
+# Podstawa padnie na pierwszej kopii: mutacje, które przeszły przez strażnika, kończą się na niej, a nie po 101 kopiach.
+RED_BASELINE = ("--", "-c", "raise SystemExit(1)")
+RED_BASELINE_LINE = "PODSTAWA CZERWONA: -c raise SystemExit(1) → kod wyjścia 1"
+
+
+def _mutation_list(tmp_path: Path, count: int) -> Path:
+    path = tmp_path / "mutacje.json"
+    # Dwie zmiany w każdej mutacji: limit liczy mutacje, nie zmiany.
+    edits = [["src/rozliczenia/__init__.py", "", "X = 1\n"], ["src/rozliczenia/inny.py", "", "Y = 1\n"]]
+    entries = [{"nazwa": f"m{number}", "zmiany": edits} for number in range(count)]
+    path.write_text(json.dumps(entries), encoding="utf-8")
+    return path
+
+
+@pytest.mark.parametrize(
+    ("count", "extra", "refused"),
+    [
+        (101, (), "CIĘŻKIE CI ODMOWA | change-mutations "),
+        (100, ("--zmiana", "src/rozliczenia/__init__.py", "", "X = 0\n"), "CIĘŻKIE CI ODMOWA | change-mutations "),
+        pytest.param(
+            101,
+            ("--odtwarzam", "123"),
+            "CIĘŻKIE CI ODMOWA | --odtwarzam 123: run dotyczy gałęzi inna",
+            marks=pytest.mark.skipif(sys.platform == "win32", reason="atrapa gh to skrypt sh"),
+        ),
+    ],
+    ids=["101 z pliku", "100 z pliku i jedna z --zmiana", "odtworzenie runu innej galezi"],
+)
+def test_mutacje_z_lista_ponad_100_poza_ci_odmawiaja_zanim_policza_podstawe(
+    tmp_path: Path, count: int, extra: tuple[str, ...], refused: str
+) -> None:
+    repo = _repo(tmp_path)
+    env = _with_fake_gh(tmp_path, {"headBranch": "inna", "headSha": "0" * 40, "jobs": RED_MUTATIONS})
+
+    done = _tool(repo, "tools/mutacje.py", "--plik", str(_mutation_list(tmp_path, count)), *extra, *RED_BASELINE, env=env)
+
+    assert done.returncode == 2, done.stdout + done.stderr
+    [line] = done.stdout.splitlines()
+    assert line.startswith(refused) and "a ta lista ma 101." in line
+
+
+@pytest.mark.parametrize(
+    ("count", "passes", "reproduces"),
+    [
+        (100, {}, ()),
+        (101, {"GITHUB_ACTIONS": "true"}, ()),
+        pytest.param(101, {}, ("--odtwarzam", "123"), marks=pytest.mark.skipif(sys.platform == "win32", reason="atrapa gh to skrypt sh")),
+    ],
+    ids=["celowany dowod poza CI", "w CI", "odtworzenie czerwonych mutacji zmiany"],
+)
+def test_mutacje_licza_celowany_dowod_i_dluga_liste_w_ci_i_przy_odtwarzaniu(
+    tmp_path: Path, count: int, passes: dict[str, str], reproduces: tuple[str, ...]
+) -> None:
+    repo = _repo(tmp_path)
+    env = {**_with_fake_gh(tmp_path, {"headBranch": "praca", "headSha": "0" * 40, "jobs": RED_MUTATIONS}), **passes}
+
+    done = _tool(repo, "tools/mutacje.py", "--plik", str(_mutation_list(tmp_path, count)), *reproduces, *RED_BASELINE, env=env)
+
+    assert done.returncode == 2, done.stdout + done.stderr
+    assert "ODMOWA" not in done.stdout and done.stdout.splitlines()[0] == RED_BASELINE_LINE
+
+
+def test_skrypt_mutacji_skilla_liczy_dluga_liste_poza_ci_bez_limitu(tmp_path: Path) -> None:
+    repo = _repo(tmp_path)
+    script = repo / ".agents" / "skills" / "verify-x" / "scripts" / "check_x_mutations.py"
+    script.parent.mkdir(parents=True)
+    script.write_text(
+        "from pathlib import Path\n"
+        "import sys\n\n"
+        'sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "tools"))\n\n'
+        "from mutacje import Edit, Mutation, check_all\n\n"
+        'EDIT = Edit(Path("src/rozliczenia/__init__.py"), "", "X = 1\\n")\n'
+        f'MUTATIONS = [Mutation(f"m{{number}}", (EDIT,), {RED_BASELINE[1:]!r}) for number in range(101)]\n'
+        "raise SystemExit(check_all(MUTATIONS))\n",
+        encoding="utf-8",
+    )
+
+    done = _tool(repo, str(script.relative_to(repo)))
+
+    assert done.returncode == 2, done.stdout + done.stderr
+    assert "ODMOWA" not in done.stdout and done.stdout.splitlines()[0] == RED_BASELINE_LINE
 
 
 @pytest.mark.parametrize("given", ["ostatni", "https://github.com/a/b/pull/12"])

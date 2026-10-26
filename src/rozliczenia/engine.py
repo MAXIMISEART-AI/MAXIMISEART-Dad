@@ -132,14 +132,14 @@ def run_settlements(
         if dry_run:
             return WorkerResult(worker_name, target_path, len(rows), "PLAN" if rows else "PUSTY_SZABLON")
         try:
-            worker_template.create(target_path, rows)
+            route = worker_template.create(target_path, rows)
         except WorkbookError as error:
             raise StopError(
                 settlement_messages.worker_template_unusable_in_saving(target_directory, worker_name, error)
             ) from error
         except (OSError, WorkbookSaveError) as exc:
             raise StopError(settlement_messages.worker_file_failed(target_directory, worker_name)) from exc
-        return WorkerResult(worker_name, target_path, len(rows), "ZAPISANO" if rows else "PUSTY_SZABLON")
+        return WorkerResult(worker_name, target_path, len(rows), "ZAPISANO" if rows else "PUSTY_SZABLON", route)
 
     def save_templates(directory: Path) -> list[WorkerResult]:
         return phases.each_template(lambda worker_name: settle(directory, worker_name))

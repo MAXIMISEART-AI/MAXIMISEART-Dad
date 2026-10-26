@@ -33,6 +33,7 @@ from .phase_runner import PhaseRunner
 from .preparation_files import CollectiveFilePlan
 from .preparation_plan import IncompletePeriod, Plan
 from .quantity_rules import DESCRIPTION_COLUMNS, WEEKDAY_LABELS
+from .template_file import RouteCounts
 
 __all__ = [
     "PreparationSummary",
@@ -50,7 +51,7 @@ class PreparationSummary:
     ``orders_per_day`` ma dokładnie siedem kluczy, każdy dzień okresu od wtorku
     do poniedziałku w kolejności dat, także dni bez zleceń (wartość ``0``).
     ``skipped_empty_rows`` to całkowicie puste wiersze Rejestru od pierwszego do
-    ostatniego zlecenia okresu.
+    ostatniego zlecenia okresu. ``routes``: ile zapisanych plików okresu każdego rodzaju powstało każdą drogą zapisu (ADR 0008).
     """
 
     internal_settlement_file: Path
@@ -61,6 +62,7 @@ class PreparationSummary:
     orders_per_day: dict[date, int] = field(default_factory=dict)
     warnings: list[Message] = field(default_factory=list)
     phase_durations_ms: Mapping[ProgressPhase, int] = field(default_factory=lambda: MappingProxyType({}))
+    routes: RouteCounts = field(default_factory=lambda: MappingProxyType({}))
 
     def labeled_orders_per_day(self) -> list[tuple[str, int]]:
         """``Zlecenia na dzień`` z etykietami dni dla taty, np. ``("wt 08.09.2026", 1)``, w kolejności dat."""
@@ -212,9 +214,10 @@ def prepare_collective_file(
             if not consent:
                 raise Declined(messages.incomplete_period_refused(period, conversation.continue_hint))
 
-    def save_both() -> None:
-        if not dry_run:
-            preparation_files.write_period_files(files, plan.orders, plan.collective_rows)
+    def save_both() -> RouteCounts:
+        if dry_run:
+            return {}
+        return preparation_files.write_period_files(files, plan.orders, plan.collective_rows)
 
-    phases.save(save_both)
-    return replace(summary, phase_durations_ms=phases.durations_ms())
+    routes = phases.save(save_both)
+    return replace(summary, phase_durations_ms=phases.durations_ms(), routes=routes)

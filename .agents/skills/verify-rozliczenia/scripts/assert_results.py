@@ -126,6 +126,13 @@ def _check_metrics(root: Path, expected: list[tuple[str, str]], errors: list[str
     check_metrics(root / "metrics.jsonl", root, period=PERIOD, expected=expected, row_content=_ROW_CONTENT, errors=errors)
 
 
+def _routes(copies: int) -> dict[str, dict[str, int]]:
+    """``routes`` of a settlement record: ``copies`` Rozliczenia pracownika by copy, no other file (ADR 0008)."""
+
+    none = {"kopia": 0, "openpyxl": 0}
+    return {"worker_settlement": {"kopia": copies, "openpyxl": 0}, "collective_file": none, "internal_settlement": none}
+
+
 def _check_stop_metrics(root: Path, expected_stop: str, errors: list[str]) -> None:
     """The stopped run's record carries the Rodzaj Zatrzymania and the Komunikat code, never its text.
 
@@ -134,7 +141,7 @@ def _check_stop_metrics(root: Path, expected_stop: str, errors: list[str]) -> No
 
     records = [json.loads(line) for line in (root / "metrics.jsonl").read_text(encoding="utf-8").splitlines()]
     last = records[-1] if records else {}
-    expected = (2, "BLAD_KRYTYCZNY", False, {"kind": "for_tata", "code": expected_stop})
+    expected = (3, "BLAD_KRYTYCZNY", False, {"kind": "for_tata", "code": expected_stop})
     if (last.get("schema_version"), last.get("result"), last.get("completed"), last.get("stop")) != expected:
         errors.append(f"stopped run's metrics record is not {expected}")
 
@@ -256,11 +263,16 @@ def _assert_run(root: Path, result_path: Path | None) -> int:
         if result.result != "OK" or result.stop is not None or result.warnings != [] or result.summary != expected_summary:
             errors.append("run result does not report a successful complete run")
         _check_progress(result.progress, errors)
-    _check_metrics(root, [("DRY-RUN", "OK"), ("RUN", "OK")], errors)
+    records = check_metrics(
+        root / "metrics.jsonl", root, period=PERIOD, expected=[("DRY-RUN", "OK"), ("RUN", "OK")],
+        row_content=_ROW_CONTENT, errors=errors,
+    )
+    if [record.get("routes") for record in records] != [_routes(0), _routes(len(WORKERS))]:
+        errors.append("metrics records do not count each written Rozliczenie pracownika as a copy of the Wzorzec")
 
     return finish(
         errors,
-        "ASSERT OK | mode=run | workbooks_checked=3 | "
+        "ASSERT OK | mode=run | workbooks_checked=3 | routes_counted=true | "
         "formulas_preserved=true | hyperlinks_equal_plik_zbiorczy=F | worker_template_unchanged=true | "
         "progress_reported=true | metrics_safe=true",
     )
