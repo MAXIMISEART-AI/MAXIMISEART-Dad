@@ -108,13 +108,15 @@ def _is_valid_stop(stop: object, result: object) -> bool:
 
 
 def _are_valid_routes(routes: object) -> bool:
-    if not isinstance(routes, dict) or set(routes) != TEMPLATE_KIND_NAMES:
-        return False
-    return all(
-        isinstance(counts, dict)
-        and set(counts) == ROUTE_NAMES
-        and all(_is_nonnegative_int(count) for count in counts.values())
-        for counts in routes.values()
+    return (
+        isinstance(routes, dict)
+        and set(routes) == TEMPLATE_KIND_NAMES
+        and all(
+            isinstance(counts, dict)
+            and set(counts) == ROUTE_NAMES
+            and all(_is_nonnegative_int(count) for count in counts.values())
+            for counts in routes.values()
+        )
     )
 
 

@@ -82,7 +82,7 @@ class TemplateKind(Enum):
     INTERNAL_SETTLEMENT = "internal_settlement"
 
 
-RouteCounts: TypeAlias = Mapping[tuple[TemplateKind, Route], int]
+RouteCounts: TypeAlias = "Mapping[tuple[TemplateKind, Route], int]"
 """Drogi zapisu: ile plików każdego rodzaju powstało każdą drogą; para bez plików może nie mieć wpisu."""
 
 
