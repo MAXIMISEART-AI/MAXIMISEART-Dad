@@ -136,6 +136,38 @@ def test_pusta_lista_mutacji_niczego_nie_dowodzi() -> None:
     assert (answered.returncode, answered.stdout.strip()) == (1, "MUTACJE: brak mutacji, więc nie ma czego dowieść")
 
 
+def test_czesci_tabeli_sprawdzaja_kazda_mutacje_raz_kazda_z_podstawa_tylko_polecen_swoich_mutacji(tmp_path: Path) -> None:
+    repo = _small_repository(tmp_path)
+    log = tmp_path / "polecenia"
+
+    def command(name: str) -> list[str]:
+        seen = "os.environ.get('MUTACJE_CZESC', '-')"
+        writes = f"open(os.environ['DZIENNIK'], 'a').write('{name} ' + str(rozliczenia.WARTOSC) + ' ' + {seen} + chr(10))"
+        return ["-c", f"import os, rozliczenia\n{writes}\nraise SystemExit(rozliczenia.WARTOSC)"]
+
+    table = [{"nazwa": f"m{number}", "zmiany": [[PACKAGE, "WARTOSC = 0", "WARTOSC = 1"]], "polecenie": command("AB"[number % 2])} for number in range(1, 6)]
+    seen = {}
+    # Każda część to osobne zadanie CI z tą samą tabelą, a kolejność tabeli nie zmienia podziału.
+    for part, order in (("1/3", table), ("2/3", table[::-1]), ("3/3", table[2:] + table[:2]), ("6/6", table)):
+        (tmp_path / "mutacje.json").write_text(json.dumps(order), encoding="utf-8")
+        log.write_text("", encoding="utf-8")
+        answered = _in_repository(repo, "--plik", str(tmp_path / "mutacje.json"), "--", "-c", "", env=WITHOUT_XDIST_WORKERS | {"MUTACJE_CZESC": part, "DZIENNIK": str(log)})
+        checked = sorted(line.split()[1] for line in answered.stdout.splitlines() if line.startswith("WYKRYTA: "))
+        ran = [line.split() for line in log.read_text(encoding="utf-8").splitlines()]
+        baseline = sorted(command for command, value, _ in ran if value == "0")
+        # Część dzieli tabelę skryptu, a sprawdzane polecenie zmiennej nie dostaje.
+        seen[part] = (answered.returncode, answered.stdout.splitlines()[-1], checked, baseline, {inherited for _, _, inherited in ran})
+    broken = _in_repository(repo, "--plik", str(tmp_path / "mutacje.json"), "--", "-c", "", env=WITHOUT_XDIST_WORKERS | {"MUTACJE_CZESC": "0/3", "DZIENNIK": str(log)})
+
+    assert seen == {
+        "1/3": (0, "MUTACJE OK", ["m1", "m4"], ["A", "B"], {"-"}),
+        "2/3": (0, "MUTACJE OK", ["m2", "m5"], ["A", "B"], {"-"}),
+        "3/3": (0, "MUTACJE OK", ["m3"], ["B"], {"-"}),
+        "6/6": (0, "MUTACJE OK", [], [], set()),
+    }
+    assert broken.returncode == 1 and "MUTACJE_CZESC to K/N z 1 <= K <= N, nie '0/3'" in broken.stderr, broken.stderr
+
+
 def test_kopia_ma_niezacommitowane_zmiany_checkoutu_a_checkout_zostaje_nietkniety(tmp_path: Path) -> None:
     package = "src/rozliczenia"
     repo = repository(
@@ -270,3 +302,83 @@ def test_przerwane_narzedzie_konczy_trwajace_mutacje_i_sprzata(tmp_path: Path) -
     assert (started.exists(), beating(beats)) == (True, False)
     assert git(repo, "worktree", "list", "--porcelain").count("worktree ") == 1
     assert list(scratch.iterdir()) == []
+
+
+# Środowisko wywołującego bez wartości ``-n auto``, którą ustawia ``tools/szybko.py``.
+WITHOUT_XDIST_WORKERS = {name: value for name, value in os.environ.items() if name != "PYTEST_XDIST_AUTO_NUM_WORKERS"}
+
+
+def _small_repository(path: Path) -> Path:
+    repo = repository(path / "repo", {"src/rozliczenia/__init__.py": "WARTOSC = 0\n"})
+    commit(repo, "baza")
+    return repo
+
+
+def _plan(path: Path, count: int) -> Path:
+    plan = path / "mutacje.json"
+    entries = [{"nazwa": f"m{number}", "zmiany": [[PACKAGE, "WARTOSC = 0", "WARTOSC = 1"]]} for number in range(1, count + 1)]
+    plan.write_text(json.dumps(entries), encoding="utf-8")
+    return plan
+
+
+def _in_repository(repo: Path, *arguments: str, env: dict[str, str] = WITHOUT_XDIST_WORKERS) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [sys.executable, str(repo / "tools" / "mutacje.py"), *arguments],
+        cwd=repo,
+        env=env,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        timeout=120,
+        check=False,
+    )
+
+
+@pytest.mark.parametrize(
+    ("arguments", "caller", "seen"),
+    [(("--rownolegle",), {}, "1"), (("--rownolegle",), {"PYTEST_XDIST_AUTO_NUM_WORKERS": "3"}, "3"), ((), {}, "brak")],
+    ids=["naraz", "naraz-z-wartoscia-wywolujacego", "po-kolei"],
+)
+def test_mutacje_naraz_daja_zagniezdzonemu_pytest_n_auto_jednego_workera(
+    tmp_path: Path, arguments: tuple[str, ...], caller: dict[str, str], seen: str
+) -> None:
+    """26.10 test każdej z 20 mutacji naraz uruchomił ``pytest -n auto`` z 16 workerami: load 229 na 16 rdzeniach."""
+
+    workers = (
+        "import os, rozliczenia; print('workery', os.environ.get('PYTEST_XDIST_AUTO_NUM_WORKERS', 'brak')); "
+        "raise SystemExit(rozliczenia.WARTOSC)"
+    )
+
+    answered = _in_repository(
+        _small_repository(tmp_path), *arguments, "--zmiana", PACKAGE, "WARTOSC = 0", "WARTOSC = 1", "--", "-c", workers, env=WITHOUT_XDIST_WORKERS | caller
+    )
+
+    assert answered.stdout.splitlines() == [f"WYKRYTA: mutacja → workery {seen}", "MUTACJE OK"], answered.stderr
+
+
+def test_naraz_biegnie_najwyzej_osiem_mutacji(tmp_path: Path) -> None:
+    """Każda mutacja czeka, aż wystartuje osiem, i podaje, ile biegnie naraz; dziewiąta startuje dopiero po końcu innej."""
+
+    started, running = tmp_path / "wystartowaly", tmp_path / "biegna"
+    started.mkdir()
+    running.mkdir()
+    counts = (
+        "import pathlib, time, uuid, rozliczenia\n"
+        "if rozliczenia.WARTOSC:\n"
+        f"    started, running, me = pathlib.Path({str(started)!r}), pathlib.Path({str(running)!r}), uuid.uuid4().hex\n"
+        "    (started / me).touch()\n"
+        "    (running / me).touch()\n"
+        "    deadline = time.monotonic() + 20\n"
+        "    while len(list(started.iterdir())) < 8 and time.monotonic() < deadline:\n"
+        "        time.sleep(0.05)\n"
+        "    time.sleep(0.5)\n"
+        "    print('naraz', len(list(running.iterdir())))\n"
+        "    (running / me).unlink()\n"
+        "    raise SystemExit(1)\n"
+    )
+
+    answered = _in_repository(_small_repository(tmp_path), "--rownolegle", "--plik", str(_plan(tmp_path, 9)), "--", "-c", counts)
+
+    seen = [int(line.rsplit(" ", 1)[1]) for line in answered.stdout.splitlines() if line.startswith("WYKRYTA: m")]
+    assert (len(seen), max(seen, default=0)) == (9, 8), answered.stdout + answered.stderr
+

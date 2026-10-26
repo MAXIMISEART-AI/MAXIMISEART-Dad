@@ -15,6 +15,7 @@ import {
 import { zDadNoteRequest } from "@/api/generated/zod.gen"
 import { DadNoteRuns } from "@/components/dad-note-runs"
 import { SegmentedFilter, type FilterOption } from "@/components/segmented-filter"
+import { SendProblem } from "@/components/send-problem"
 import { Button } from "@/components/ui/button"
 import { DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Field, FieldLabel, FieldTitle } from "@/components/ui/field"
@@ -34,9 +35,10 @@ const DRAFT_PAUSE_MS = 150
 // Nieudane zapytanie o szkic wraca po tej przerwie, żeby „Wyślij” nie czekał na następny klawisz taty.
 const DRAFT_RETRY_MS = 1000
 
-const ANSWERS: Record<DadNoteState["state"], { icon: LucideIcon; tone: string; text: string }> = {
+// Odpowiedzi, które tata usłyszy bez Maksa; brak Tokenu do Zgłoszeń i odrzuconą treść mówi `SendProblem`.
+const ANSWERS: Record<"sent" | "internet", { icon: LucideIcon; tone: string; text: string }> = {
   sent: { icon: CircleCheckIcon, tone: "text-success", text: "Uwaga wysłana do Maksa." },
-  waiting: { icon: ClockIcon, tone: "text-muted-foreground", text: "Wyślę do Maksa, gdy będzie internet." },
+  internet: { icon: ClockIcon, tone: "text-muted-foreground", text: "Wyślę do Maksa, gdy będzie internet." },
 }
 
 const MARKDOWN_LINK = /\[([^\]\n]+)\]\([^)\s]+\)/g
@@ -89,45 +91,50 @@ export function DadNoteForm({ openedFrom, close }: { openedFrom: string | null; 
       <DialogHeader>
         <DialogTitle>Napisz do Maksa</DialogTitle>
       </DialogHeader>
-      <Field>
-        <FieldLabel htmlFor="uwaga-tytul">Tytuł</FieldLabel>
-        <Input
-          id="uwaga-tytul"
-          required
-          autoFocus
-          maxLength={TITLE_MAX_LENGTH}
-          placeholder="Np. Brakuje kolumny z kilometrami"
-          value={title}
-          onChange={(event) => setTitle(event.target.value)}
-        />
-      </Field>
-      <Field>
-        <FieldLabel htmlFor="uwaga-tresc">
-          Treść <span className="font-normal text-muted-foreground">(niekonieczna)</span>
-        </FieldLabel>
-        <Textarea
-          id="uwaga-tresc"
-          rows={3}
-          maxLength={BODY_MAX_LENGTH}
-          className="max-h-48"
-          value={body}
-          onChange={(event) => setBody(event.target.value)}
-        />
-      </Field>
-      <Field className="min-h-0">
-        <FieldTitle>Dotyczy</FieldTitle>
-        <SegmentedFilter label="Dotyczy" options={SCOPES} value={scope} onChange={setScope} />
-        {scope === "run" ? (
-          <DadNoteRuns
-            runs={runs}
-            reload={reloadRuns}
-            openedFrom={openedFrom}
-            checked={checked}
-            onCheck={setChecked}
+      {/* Nagłówek i „Wyślij” zostają w oknie. Między nimi wysokość oddają jak dotąd lista Uruchomień i „Maks dostanie”,
+          a pola przewijają się dopiero wtedy, gdy obie są najniższe: „Dotyczy” z przełącznikiem i jednym wierszem listy
+          (wyżej o zdanie nad listą), podgląd z podpisem i pierwszą linią. `-m-1 p-1` zostawia miejsce na obwódkę fokusu. */}
+      <div className="-m-1 flex flex-col gap-5 overflow-y-auto p-1">
+        <Field>
+          <FieldLabel htmlFor="uwaga-tytul">Tytuł</FieldLabel>
+          <Input
+            id="uwaga-tytul"
+            required
+            autoFocus
+            maxLength={TITLE_MAX_LENGTH}
+            placeholder="Np. Brakuje kolumny z kilometrami"
+            value={title}
+            onChange={(event) => setTitle(event.target.value)}
           />
-        ) : null}
-      </Field>
-      <Preview shown={shown} />
+        </Field>
+        <Field>
+          <FieldLabel htmlFor="uwaga-tresc">
+            Treść <span className="font-normal text-muted-foreground">(niekonieczna)</span>
+          </FieldLabel>
+          <Textarea
+            id="uwaga-tresc"
+            rows={3}
+            maxLength={BODY_MAX_LENGTH}
+            className="max-h-48"
+            value={body}
+            onChange={(event) => setBody(event.target.value)}
+          />
+        </Field>
+        <Field className="has-data-[slot=radio-group]:min-h-32 has-[>p+[data-slot=radio-group]]:min-h-44">
+          <FieldTitle>Dotyczy</FieldTitle>
+          <SegmentedFilter label="Dotyczy" options={SCOPES} value={scope} onChange={setScope} />
+          {scope === "run" ? (
+            <DadNoteRuns
+              runs={runs}
+              reload={reloadRuns}
+              openedFrom={openedFrom}
+              checked={checked}
+              onCheck={setChecked}
+            />
+          ) : null}
+        </Field>
+        <Preview shown={shown} />
+      </div>
       <DialogFooter>
         <Button type="submit" disabled={title.trim() === "" || sendable === null || sending}>
           {sending ? <Spinner data-icon="inline-start" /> : <SendIcon data-icon="inline-start" />}
@@ -260,7 +267,7 @@ function Preview({ shown }: { shown: Shown | null }) {
   const title = shown?.kind === "draft" ? shown.draft.title : ""
 
   return (
-    <figure aria-label="Co dostanie Maks" className="flex min-h-0 flex-col gap-1 overflow-y-auto rounded-lg bg-muted/50 p-3 text-sm">
+    <figure aria-label="Co dostanie Maks" className="flex min-h-16 flex-col gap-1 overflow-y-auto rounded-lg bg-muted/50 p-3 text-sm">
       <figcaption className="text-xs text-muted-foreground">Maks dostanie</figcaption>
       <p className={cn("font-medium break-words", title === "" && "text-muted-foreground/60")}>
         {title === "" ? "Tytuł" : title}
@@ -279,22 +286,40 @@ function Preview({ shown }: { shown: Shown | null }) {
   )
 }
 
+function Reply({ answer: { icon: Icon, tone, text } }: { answer: (typeof ANSWERS)[keyof typeof ANSWERS] }) {
+  return (
+    <>
+      <Icon className={cn("size-8", tone)} aria-hidden />
+      <p role="status" className="text-base font-medium">
+        {text}
+      </p>
+    </>
+  )
+}
+
 /** Link Markdown `[napis](adres)` jako sam napis, jak na GitHubie, bez odnośnika: tata nie otworzy prywatnej Skrzynki. */
 function linkTexts(body: string): string {
   return body.replace(MARKDOWN_LINK, "$1")
 }
 
 function Answer({ state, close }: { state: DadNoteState; close: () => void }) {
-  const { icon: Icon, tone, text } = ANSWERS[state.state]
+  const problem = state.state === "rejected" ? "rejected" : state.state === "waiting" ? state.waits_for : null
 
   return (
     <>
       <DialogTitle className="sr-only">Napisz do Maksa</DialogTitle>
       <div className="wejscie flex flex-col items-center gap-3 py-6 text-center">
-        <Icon className={cn("size-8", tone)} aria-hidden />
-        <p role="status" className="text-base font-medium">
-          {text}
-        </p>
+        {problem === "rejected" || problem === "key" ? (
+          <SendProblem
+            role="status"
+            cause={problem}
+            kind="uwaga"
+            className="flex-col gap-3 text-base font-medium"
+            iconClassName="size-8"
+          />
+        ) : (
+          <Reply answer={ANSWERS[problem ?? "sent"]} />
+        )}
         <Button variant="outline" className="mt-2" onClick={close}>
           Zamknij
         </Button>

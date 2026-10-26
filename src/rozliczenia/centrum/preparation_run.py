@@ -25,7 +25,6 @@ from rozliczenia.process_run import Process
 from rozliczenia.settlement_period import SettlementPeriod, last_complete_period
 from rozliczenia.telemetry import MetricsStore
 
-_KEY: Final[contract.ProcessKey] = "preparation"
 _VIEW: Final = run_view.PREPARATION
 _CHOSEN_WEEKS: Final = 8
 
@@ -41,8 +40,8 @@ class PreparationEntry:
     readers: Readers
 
     @property
-    def key(self) -> contract.ProcessKey:
-        return _KEY
+    def key(self) -> contract.PeriodProcessKey:
+        return "preparation"
 
     @property
     def view(self) -> run_view.ProcessView[Any, Any]:
@@ -55,9 +54,9 @@ class PreparationEntry:
         previewed = previewed_periods(MetricsStore(self.process.metrics_path(), self.process.counter_names))
         folders = scan_period_folders(settings.periods_directory) if settings.periods_directory is not None else None
         register = [] if settings.register is None else [InputWorkbook("Rejestr zleceń", settings.register, "data_file")]
-        open_files = open_in_excel([*register, *self.configuration.template_inputs(_KEY)])
+        open_files = open_in_excel([*register, *self.configuration.template_inputs(self.key)])
         return contract.ProcessSetup(
-            process=_KEY,
+            process=self.key,
             title=self.process.name,
             creates="Rozliczenie wewnętrzne i Plik zbiorczy",
             reminder=_VIEW.reminder,
@@ -94,7 +93,7 @@ class PreparationEntry:
             readers=self.readers,
         )
         return PreparedRun(
-            key=_KEY,
+            key=self.key,
             period=period,
             process=self.process,
             inputs=inputs,

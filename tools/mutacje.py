@@ -11,8 +11,9 @@ NIEAKTUALNA. Pusta kotwica w pliku, którego nie ma, tworzy go razem z katalogam
 zepsuje kod, polecenie musi przejść na kopii bez mutacji, a jeśli mutacja oczekuje ostatniej
 linii wyjścia, polecenie bez mutacji nie może się nią kończyć. Mutacja jest WYKRYTA, gdy polecenie
 pada albo kończy się oczekiwaną linią; PRZEKROCZONY CZAS (``--limit-s``) nie jest wykryciem.
-Mutacje biegną po kolei, bo równoległe testy przekraczają swoje limity czasu; ``--rownolegle`` je
-zrównolegla.
+Mutacje biegną po kolei, bo równoległe testy przekraczają swoje limity czasu; ``--rownolegle`` puszcza
+naraz najwyżej ``PARALLEL``, a ich polecenia dostają ``PYTEST_XDIST_AUTO_NUM_WORKERS=1`` (chyba że wywołujący je
+ustawił), bo gołe ``pytest -n auto`` w teście każdej z nich bierze wszystkie rdzenie komputera.
 Polecenia i kopie biegną przez ``tools/potomne.py``: procesy potomne polecenia giną z jego końcem, a
 przekroczony czas, przerwanie (Ctrl-C) i zabicie narzędzia kończą polecenie i usuwają kopie.
 
@@ -23,8 +24,15 @@ przekroczony czas, przerwanie (Ctrl-C) i zabicie narzędzia kończą polecenie i
 Plik JSON to lista ``{"nazwa", "zmiany": [[plik, kotwica, zamiana], ...]}`` z opcjonalnym
 ``"polecenie"`` (argumenty Pythona), które zastępuje polecenie po ``--``, i opcjonalnym
 ``"oczekiwane"``, początkiem ostatniej linii wyjścia, który wykrywa mutację zamiast kodu wyjścia.
-Skrypty ``check_<co>_mutations.py`` skilli ``verify-*`` używają tego samego silnika przez
-``check_all``.
+Lista dłuższa niż ``ciezkie_ci.TARGETED`` mutacji to ręczne ``change-mutations``: poza CI narzędzie odmawia
+jej startu (kod 2 i linia ``CIĘŻKIE CI ODMOWA``) na zasadach ``tools/ciezkie_ci.py``. Skrypty
+``check_<co>_mutations.py`` skilli ``verify-*`` używają tego samego silnika przez ``check_all``, który
+takiego limitu nie ma.
+
+Z ``MUTACJE_CZESC=K/N`` w środowisku ``check_all`` sprawdza tylko K-tą z N części tabeli: mutacje w kolejności nazw,
+co N-tą od K-tej, więc część nie zależy od kolejności tabeli, a N części sprawdza każdą mutację dokładnie raz. Podstawa
+części to tylko polecenia jej mutacji, a część bez mutacji kończy się ``MUTACJE OK``. Tak plan CI
+(``tools/plan_ci.py``) dzieli długi skrypt mutacji skilla na zadania bez zmiany skryptu.
 """
 
 from __future__ import annotations
@@ -44,10 +52,14 @@ import subprocess
 import sys
 import threading
 
+import ciezkie_ci
 import potomne
 
 ROOT = Path(__file__).resolve().parents[1]
 TIMEOUT = 600
+# Tyle mutacji naraz dawał ThreadPoolExecutor (rdzenie + 4) na 4 vCPU runnera CI; na 16 rdzeniach Maca dawał 20.
+PARALLEL = 8
+PART = "MUTACJE_CZESC"
 
 
 @dataclass(frozen=True)
@@ -70,9 +82,13 @@ class Mutation:
     expected: str | None = None  # początek ostatniej linii wyjścia; None: polecenie kończy się błędem
 
 
-def environment(copy: Path) -> dict[str, str]:
+def environment(copy: Path, *, concurrent: bool = False) -> dict[str, str]:
+    nested = {"PYTEST_XDIST_AUTO_NUM_WORKERS": "1"} if concurrent else {}
+    # Część dzieli tabelę tego skryptu, nie tabele, które sprawdzane polecenie samo uruchamia.
+    inherited = {name: value for name, value in os.environ.items() if name != PART}
     return {
-        **os.environ,
+        **nested,
+        **inherited,
         "PYTHONPATH": os.pathsep.join([str(copy / "src"), os.environ.get("PYTHONPATH", "")]).rstrip(os.pathsep),
         "PYTHONDONTWRITEBYTECODE": "1",
         "PYTHONUTF8": "1",
@@ -130,23 +146,26 @@ def _apply(copy: Path, edits: Sequence[Edit]) -> str | None:
     return None
 
 
-def _run(copy: Path, command: Sequence[str], limit_s: float, stop: threading.Event | None = None) -> tuple[int | None, str]:
+def _run(
+    copy: Path, command: Sequence[str], limit_s: float, stop: threading.Event | None = None, *, concurrent: bool = False
+) -> tuple[int | None, str]:
     """Uruchamia polecenie w kopii; zwraca kod wyjścia (None po przekroczeniu czasu) i ostatnią linię."""
 
     try:
-        done = potomne.run([sys.executable, *command], cwd=copy, env=environment(copy), timeout=limit_s, stop=stop)
+        env = environment(copy, concurrent=concurrent)
+        done = potomne.run([sys.executable, *command], cwd=copy, env=env, timeout=limit_s, stop=stop)
     except subprocess.TimeoutExpired:
         return None, f"brak wyniku po {limit_s:g} s"
     lines = (done.stdout.strip() or done.stderr.strip()).splitlines()
     return done.returncode, lines[-1] if lines else f"kod wyjścia {done.returncode}"
 
 
-def _verdict(mutation: Mutation, *, limit_s: float, stop: threading.Event) -> tuple[str, str]:
+def _verdict(mutation: Mutation, *, limit_s: float, stop: threading.Event, concurrent: bool) -> tuple[str, str]:
     with checkout_copy() as copy:
         stale = _apply(copy, mutation.edits)
         if stale:
             return "NIEAKTUALNA", stale
-        code, last = _run(copy, mutation.command, limit_s, stop)
+        code, last = _run(copy, mutation.command, limit_s, stop, concurrent=concurrent)
     if code is None:
         return "PRZEKROCZONY CZAS", last
     caught = last.startswith(mutation.expected) if mutation.expected is not None else code != 0
@@ -168,13 +187,13 @@ def _baseline(mutations: Sequence[Mutation], limit_s: float) -> list[str]:
     return red
 
 
-def verdicts(mutations: Sequence[Mutation], *, workers: int | None, limit_s: float = TIMEOUT) -> Iterator[tuple[str, str]]:
+def verdicts(mutations: Sequence[Mutation], *, workers: int, limit_s: float = TIMEOUT) -> Iterator[tuple[str, str]]:
     """Werdykt i ostatnia linia wyjścia każdej mutacji po kolei, bez sprawdzenia podstawy; ``workers`` mutacji naraz."""
 
     stop = threading.Event()
     pool = ThreadPoolExecutor(max_workers=workers)
     try:
-        yield from pool.map(partial(_verdict, limit_s=limit_s, stop=stop), mutations)
+        yield from pool.map(partial(_verdict, limit_s=limit_s, stop=stop, concurrent=workers > 1), mutations)
     except BaseException:
         # Przerwanie w głównym wątku nie dociera do wątków, które czekają na swoje polecenia.
         stop.set()
@@ -183,10 +202,28 @@ def verdicts(mutations: Sequence[Mutation], *, workers: int | None, limit_s: flo
         pool.shutdown(cancel_futures=True)
 
 
+def _part(mutations: Sequence[Mutation], part: str) -> list[Mutation]:
+    """Mutacje części ``K/N`` w kolejności tabeli; zła postać to ``ValueError`` z nazwą zmiennej."""
+
+    number, _, count = part.partition("/")
+    if not (number.isdigit() and count.isdigit() and 1 <= int(number) <= int(count)):
+        raise ValueError(f"{PART} to K/N z 1 <= K <= N, nie {part!r}")
+    by_name = sorted(range(len(mutations)), key=lambda index: (mutations[index].name, repr(mutations[index])))
+    chosen = set(by_name[int(number) - 1 :: int(count)])
+    return [mutation for index, mutation in enumerate(mutations) if index in chosen]
+
+
 def check_all(mutations: Sequence[Mutation], *, parallel: bool = True, limit_s: float = TIMEOUT) -> int:
     if not mutations:
         print("MUTACJE: brak mutacji, więc nie ma czego dowieść")
         return 1
+    if part := os.environ.get(PART):
+        total = len(mutations)
+        mutations = _part(mutations, part)
+        print(f"MUTACJE CZĘŚĆ {part}: {len(mutations)} z {total} mutacji", flush=True)
+        if not mutations:
+            print("MUTACJE OK")
+            return 0
     red = _baseline(mutations, limit_s)
     for line in red:
         print(f"PODSTAWA CZERWONA: {line}", flush=True)
@@ -194,7 +231,7 @@ def check_all(mutations: Sequence[Mutation], *, parallel: bool = True, limit_s: 
         print("MUTACJE: polecenie bez mutacji pada albo daje wynik mutacji, więc wynik po mutacji niczego nie dowodzi")
         return 2
     failures = 0
-    found = list(verdicts(mutations, workers=None if parallel else 1, limit_s=limit_s))
+    found = list(verdicts(mutations, workers=PARALLEL if parallel else 1, limit_s=limit_s))
     for mutation, (verdict, last) in zip(mutations, found, strict=True):
         failures += verdict != "WYKRYTA"
         harm = f" ({mutation.harm})" if mutation.harm else ""
@@ -233,6 +270,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--plik", type=Path, help="Plik JSON z listą mutacji.")
     parser.add_argument("--rownolegle", action="store_true", help="Mutacje naraz, każda w swojej kopii.")
     parser.add_argument("--limit-s", type=float, default=TIMEOUT, help="Limit czasu jednego polecenia w sekundach.")
+    ciezkie_ci.argument(parser)
     args = parser.parse_args(arguments[:split])
     try:
         mutations = _from_file(args.plik, command) if args.plik else []
@@ -243,6 +281,9 @@ def main(argv: list[str] | None = None) -> int:
         parser.error(str(error))
     if not mutations or not all(mutation.command for mutation in mutations):
         parser.error("podaj mutację (--zmiana albo --plik) i polecenie po --, np. -- -m pytest -q tests/test_x.py")
+    if refused := ciezkie_ci.mutations_refusal(len(mutations), args.odtwarzam, root=ROOT):
+        print(refused)
+        return 2
     return check_all(mutations, parallel=args.rownolegle, limit_s=args.limit_s)
 
 

@@ -20,8 +20,9 @@ config/*
 !config/worker_mapping.example.yaml
 node_modules/
 .benchmark/
-# Czasy jednostek zadania CI (tools/czasy_ci.py), artefakt runu.
+# Czasy jednostek zadania CI (tools/czasy_ci.py) i plan runu (tools/plan_ci.py), artefakty runu.
 .ci-czasy/
+.ci-plan/
 
 # Kopie INTERMAX i metryki Uporządkowania INTERMAX na komputerze taty.
 Kopie INTERMAX/

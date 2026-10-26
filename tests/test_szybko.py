@@ -26,6 +26,7 @@ BY_CHANGE_ONLY = {
     "tests/test_git_w_testach.py": (
         "sprawdza gita sesji testów, a nie całe repozytorium"
     ),
+    "tests/test_mutacje.py": "sprawdza silnik mutacji na repozytoriach testu, a nie całe repozytorium",
     "tests/test_na_scalonych_pr.py": "sprawdza narzędzie na repozytoriach testu, a nie całe repozytorium",
     "tests/test_praca_w_toku.py": "sprawdza werdykt narzędzia na repozytoriach testu, a nie całe repozytorium; trwa ok. 19 s",
     "tests/test_szybko.py": "sprawdza samo szybko w repozytoriach testu; graf wybiera go przy zmianie tools/szybko.py i tabel reguł",
@@ -135,10 +136,11 @@ def _repo(tmp_path: Path, structure: str = "pass") -> Path:
 
 
 def _szybko(
-    repo: Path, *arguments: str, runs: Path | None = None, workers: str | None = "2"
+    repo: Path, *arguments: str, runs: Path | None = None, workers: str | None = "2", path: Path | None = None
 ) -> subprocess.CompletedProcess[str]:
     # ``PYTEST_XDIST_WORKER`` workera, który uruchamia ten test, nie może udawać workera szybko.
     environment = {name: value for name, value in os.environ.items() if not name.startswith("PYTEST_XDIST_")}
+    environment |= {"PATH": f"{path}{os.pathsep}{environment['PATH']}"} if path else {}
     environment |= {"PRZEBIEGI": str(runs)} if runs else {}
     environment |= {"PYTEST_XDIST_AUTO_NUM_WORKERS": workers} if workers else {}
     return subprocess.run(
@@ -176,9 +178,15 @@ def _base_moved_on(repo: Path, on_main: tuple[str, str], on_branch: tuple[str, s
 
 
 def _commit_times(repo: Path, expensive: dict[str, float]) -> None:
+    """Czasy CI z main, jakie szybko pobrał dziś do ``.git/czasy-ci`` (artefakt ``czasy-ci``, ``tools/czasy_ci.py``), i
+    commit dotychczasowych zmian jako ``origin/main``."""
+
     times = {test: 0.1 for test in BASE_FILES if szybko._is_test(test)} | expensive
-    _write(repo, str(szybko.TIMES), json.dumps(times))
-    commit(repo, "tabela czasów")
+    keys = {f"pytest:{test}": [{"run": 7, "proba": 1, "zadanie": "pytest (Python 3.14, Linux, 1/2)", "s": s, "status": "ok"}] for test, s in times.items()}
+    artifact = {"wersja": 1, "runy": [{"run": 7, "proba": 1, "sha": "0" * 40, "zdarzenie": "push"}], "tory": {szybko.TIMES_TOR: keys}}
+    _write(repo, ".git/czasy-ci/7.json", json.dumps(artifact))
+    _write(repo, ".git/czasy-ci/pobrane", "")
+    commit(repo, "pliki testów z czasami")
     git(repo, "update-ref", "refs/remotes/origin/main", "HEAD")
 
 
@@ -395,6 +403,18 @@ def test_zmiana_konfiguracji_uruchamia_w_budzecie_testy_ktore_ja_czytaja_jak_w_o
     name = re.escape(PurePosixPath(deferred).name)
     line = rf"^zostawione CI: 1 z \d+ plików testów \(~{deferred_s:.0f} s w CI\): {name}$"
     assert re.search(line, answered.stdout, re.MULTILINE), answered.stdout
+
+
+def test_bez_czasow_ci_szybko_mowi_w_jednej_linii_dlaczego(tmp_path: Path) -> None:
+    repo = _repo(tmp_path)
+    offline = tmp_path / "bin"
+    _write(offline, "gh", "#!/bin/sh\necho 'error connecting to api.github.com' >&2\nexit 1\n")
+    (offline / "gh").chmod(0o755)
+
+    answered = _szybko(repo, path=offline)
+
+    line = "SZYBKO | bez czasów CI (pobranie czasy-ci z GitHuba: error connecting to api.github.com): każdy plik waży 0, więc biegnie cały wybór"
+    assert line in answered.stdout.splitlines(), answered.stdout
 
 
 # Zmieniony ``src/a.py`` i ``docs/dane.md``: ``test_dane`` czyta ``docs/dane.md``, a ``src/czyta.py`` czyta go dla

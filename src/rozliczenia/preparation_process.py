@@ -78,6 +78,7 @@ def _finished(inputs: PreparationInputs, summary: PreparationSummary) -> Finishe
             "warnings": len(summary.warnings),
         },
         phase_durations_ms=summary.phase_durations_ms,
+        routes=summary.routes,
     )
 
 

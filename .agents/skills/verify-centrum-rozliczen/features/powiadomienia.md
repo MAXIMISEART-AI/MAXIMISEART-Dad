@@ -4,14 +4,17 @@ The bell in the header, right of `Napisz do Maksa`, opens the view Powiadomienia
 (`#/powiadomienia`), which has no sidebar entry. The view lists Dad's sent Uwagi
 taty and Zgłoszenia, newest first, each with its colored tag (`Uwaga`,
 `Zgłoszenie`) and state: `Wysłana do Maksa.`, `Wyślę do Maksa, gdy będzie
-internet.`, `Rozwiązana. Będzie w następnej wersji.` (Maks closed the issue as
+internet.`, `Token do Zgłoszeń nie działa. Skontaktuj się z Maksem.` with the error icon (no token, or one the skrzynka
+refuses), `Tej Uwagi nie da się wysłać. Skontaktuj się z Maksem.` with the
+error icon (the skrzynka rejected its content; a Zgłoszenie: `Tego Zgłoszenia`), `Rozwiązana. Będzie w następnej wersji.` (Maks closed the issue as
 `completed` or without a reason) or `Maks przeczytał.` (`not_planned` or
 `duplicate`); a Zgłoszenie takes the neuter forms `Wysłane do Maksa.` and
 `Rozwiązane. Będzie w następnej wersji.`. A Zgłoszenie is named by its
 „Co się stało”, without the code; one recorded before Powiadomienia, without a
 „Co się stało”, has no row. A Zgłoszenie that waits in the queue of the
-skrzynka reads `Wyślę do Maksa, gdy będzie internet.` like an Uwaga, and
-features/zgloszenie.md checks that row (`zgloszenie-bez-klucza`). Only Maks's states are new: they light a red
+skrzynka reads what it waits for like an Uwaga, and features/zgloszenie.md
+checks those rows (`zgloszenie-bez-klucza`, `zgloszenie-odrzucone`), features/uwaga-taty.md
+the rejected Uwaga (`uwaga-odrzucona`). Only Maks's states are new: they light a red
 dot on the bell. Entering the view marks them read at once (the dot goes out),
 and the rows that were new keep a small dot and a light background until Dad
 leaves. Centrum asks the skrzynka Zgłoszeń about Dad's open cases at start and

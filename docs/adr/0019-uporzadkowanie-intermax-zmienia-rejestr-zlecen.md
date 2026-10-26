@@ -35,7 +35,9 @@ od 2021 roku: około 42 tys. wierszy, cztery arkusze, około 6,5 MB, w OneDrive.
   [ADR 0008](0008-zapis-rozliczenia-pracownika-przez-podmiane-wierszy-danych.md).
   Każda inna część pliku i każdy wiersz nad blokiem, także kolumny za `UWAGI`,
   zostają bajt w bajt. Nie wczytuje i nie zapisuje całego skoroszytu w
-  openpyxl.
+  openpyxl. Dzień widoku to najpóźniejszy dzień ze zleceniami nie późniejszy
+  niż dziś, szukany od dołu arkusza tą samą granicą 10 wierszy wcześniejszego
+  dnia co przegląd nad wklejeniem, a bez takiego dnia uporządkowany dzień.
 - **Zapis dotyka w arkuszu zleceń jeszcze dwóch miejsc** (sprawdzone na kopii
   INTERMAX taty z doklejonym wklejeniem z aplikacji, #467): `<dimension ref>`
   rośnie, gdy dzień sięga dalej niż ostatni wiersz albo przesunięty pierwszy

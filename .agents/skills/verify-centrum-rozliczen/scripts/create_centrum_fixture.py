@@ -26,6 +26,13 @@ on the port it is given; while ``<root>/pacing/ponowny-start-ms.txt`` exists, it
 waits that many milliseconds first. One version on the origin's branch
 ``nie-startuje`` has a ``run_centrum.py`` that fails at once with an import error.
 
+``<root>/INTERMAX/`` holds two synthetic INTERMAX files for ``uporzadkowanie-intermax``: one with the Surowe
+zlecenia of Monday 26.10.2026 pasted under the ordered days (6 orders of 3 Wykonawcy, the first row shifted), and
+one whose pasted rows hold a formula, which Uporządkowanie INTERMAX stops „do Maksa”. Kopie INTERMAX go to
+``<root>/Kopie INTERMAX``. ``<root>/INTERMAX/przywracanie/`` holds a third INTERMAX for ``kopie-intermax`` and the
+bytes of three Kopie of both names (one ordered order fewer in the oldest), which that feature puts into the folder
+of Kopie only while it runs.
+
 ``--wariant rok-pracy`` (for ``wydajnosc``) adds a year of Dad's work on top:
 ``<root>/Rok pracy/Załączniki`` with 52 periods up to the last complete one in
 Dad's layout, each before it with a Folder rozliczeń pracowników of 14
@@ -43,13 +50,15 @@ import shutil
 import subprocess
 import sys
 
-from openpyxl import Workbook
+from openpyxl import Workbook, load_workbook
 from openpyxl.worksheet.worksheet import Worksheet
 import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "tools"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[4]))
 
 from skrypt_skilla import Parser, create_run_root
+from tests.fixtures.intermax import ORDER_SHEET, Intermax
 
 # Dad's "today" for the run: Monday 19.10.2026, so the last complete period is 06_12_10_2026,
 # whose Folder okresu deliberately does not exist.
@@ -275,8 +284,51 @@ def _metric_record(run: MetricRun, counters: dict[str, int]) -> dict[str, object
     return record | {"stop": RECORDED_STOPS[started_at]}
 
 
+def _intermax(root: Path) -> dict[str, object]:
+    """INTERMAX with Surowe zlecenia to order and one whose pasted rows Uporządkowanie INTERMAX stops „do Maksa”."""
+
+    folder = root / "INTERMAX"
+    folder.mkdir()
+    register = folder / "ZLECENIA INTERMAX OD 08_11_2021-NOWA WERSJA.xlsx"
+    Intermax().write(register)
+    with_formula = folder / "ZLECENIA INTERMAX Z FORMUŁĄ.xlsx"
+    layout = Intermax().write(with_formula)
+    workbook = load_workbook(with_formula)
+    workbook[ORDER_SHEET].cell(layout.first_raw + 1, 4).value = "=1+1"
+    workbook.save(with_formula)
+    restore = folder / "przywracanie"
+    (restore / "kopie").mkdir(parents=True)
+    restored = restore / register.name
+    Intermax().write(restored)
+    earlier = Intermax()
+    earlier.ordered = earlier.ordered[:-1]
+    # Kopie of both names; by name „przed przywróceniem” sorts before „przed uporządkowaniem”, in time it is between.
+    copies = {
+        "INTERMAX przed uporządkowaniem 2026-10-16 07-30-00.xlsx": earlier,
+        "INTERMAX przed przywróceniem 2026-10-17 12-15-00.xlsx": earlier,
+        "INTERMAX przed uporządkowaniem 2026-10-18 18-45-00.xlsx": Intermax(),
+    }
+    for name, intermax in copies.items():
+        intermax.write(restore / "kopie" / name)
+    return {
+        "register": str(register),
+        "with_formula": str(with_formula),
+        "copies": str(root / "Kopie INTERMAX"),
+        "orders": len(layout.raw),
+        "workers": len({order.worker for order in layout.raw}),
+        "day": "pon 26.10.2026",
+        "restore": {
+            "register": str(restored),
+            "copies": [str(restore / "kopie" / name) for name in copies],
+        },
+    }
+
+
 def _metrics(root: Path) -> dict[str, object]:
-    """Both metrics files with a valid history and one record each that the metrics reader skips."""
+    """Both metrics files with a valid history and one record each that the metrics reader skips.
+
+    Uporządkowanie INTERMAX has its own metrics file, absent until its first Uruchomienie.
+    """
 
     metrics = root / "metrics"
     metrics.mkdir()
@@ -293,6 +345,7 @@ def _metrics(root: Path) -> dict[str, object]:
     return {
         "preparation": str(preparation),
         "settlement": str(settlement),
+        "intermax": str(metrics / "uporzadkowanie-intermax-metrics.jsonl"),
         "runs": len(PREPARATION_RUNS) + len(SETTLEMENT_RUNS),
         "oldest": min(run[0] for run in (*PREPARATION_RUNS, *SETTLEMENT_RUNS)),
         # period, then the measured phase times until the interruption
@@ -553,6 +606,8 @@ def create(root: Path, variant: str | None = None) -> dict[str, object]:
         "workers": [*WORKERS, EMPTY_WORKER],
         # Aktualizacja narzędzia: the run's tool clone, its local "origin", both commits, and Dad's files in the clone
         "tool": _tool_clone(root),
+        # Uporządkowanie INTERMAX: two INTERMAX files, the folder of Kopie INTERMAX and the day it orders
+        "intermax": _intermax(root),
         # Przygotowanie pliku zbiorczego of the last complete period from the Rejestr zleceń above
         "preparation": EXPECTED_PREPARATION,
         # Przebieg rozliczeń: one Wiersz danych per Wykonawca with orders after Przygotowanie of the last complete

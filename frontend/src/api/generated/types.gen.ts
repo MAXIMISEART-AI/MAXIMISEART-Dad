@@ -13,7 +13,7 @@ export type ApiTiming = {
     /**
      * Operation
      */
-    operation: 'getHealth' | 'getSettings' | 'chooseRegister' | 'openRegister' | 'choosePeriodsDirectory' | 'changeTheme' | 'getPeriodBoard' | 'openPeriodPath' | 'getQuantitiesToFill' | 'getCollectiveFileVersion' | 'getWithoutQuantity' | 'getKindTable' | 'openWorkerSettlement' | 'getRunSetup' | 'startRun' | 'decideRun' | 'diagnoseRun' | 'reportRun' | 'getRunCard' | 'getNotifications' | 'markNotificationsRead' | 'getMetrics' | 'getConfiguration' | 'startToolUpdate' | 'getToolUpdate' | 'reportToolUpdate' | 'getDadNoteRuns' | 'draftDadNote' | 'sendDadNote' | 'closeCentrum';
+    operation: 'getHealth' | 'getSettings' | 'chooseRegister' | 'openRegister' | 'choosePeriodsDirectory' | 'changeTheme' | 'getPeriodBoard' | 'openPeriodPath' | 'getQuantitiesToFill' | 'getCollectiveFileVersion' | 'getWithoutQuantity' | 'getKindTable' | 'openWorkerSettlement' | 'getRunSetup' | 'startRun' | 'getIntermaxSetup' | 'startIntermax' | 'getIntermaxCopies' | 'restoreIntermaxCopy' | 'decideRun' | 'diagnoseRun' | 'reportRun' | 'getRunCard' | 'getNotifications' | 'markNotificationsRead' | 'getMetrics' | 'getConfiguration' | 'startToolUpdate' | 'getToolUpdate' | 'reportToolUpdate' | 'getDadNoteRuns' | 'draftDadNote' | 'sendDadNote' | 'closeCentrum';
     /**
      * Browser Ms
      */
@@ -260,7 +260,19 @@ export type DadNoteNotification = {
     /**
      * State
      */
-    state: 'wyslana' | 'czeka_na_internet' | 'rozwiazana' | 'przeczytana';
+    state: 'wyslana' | 'czeka_na_internet' | 'czeka_na_token' | 'odrzucona' | 'rozwiazana' | 'przeczytana';
+};
+
+/**
+ * DadNoteRejected
+ *
+ * Skrzynka Zgłoszeń odrzuciła treść Uwagi taty; jak ``ReportRejected``, Centrum niczego nie obiecuje.
+ */
+export type DadNoteRejected = {
+    /**
+     * State
+     */
+    state: 'rejected';
 };
 
 /**
@@ -322,13 +334,17 @@ export type DadNoteText = {
 /**
  * DadNoteWaiting
  *
- * Uwaga taty czeka w kolejce (brak internetu, klucza albo odmowa) i wyjdzie sama, także po następnym starcie.
+ * Uwaga taty czeka w Kolejce wysyłki i wyjdzie sama, także po następnym starcie, gdy będzie to, na co czeka.
  */
 export type DadNoteWaiting = {
     /**
      * State
      */
     state: 'waiting';
+    /**
+     * Waits For
+     */
+    waits_for: 'internet' | 'key';
 };
 
 /**
@@ -493,6 +509,115 @@ export type Health = {
 };
 
 /**
+ * IntermaxCopies
+ *
+ * Kopie INTERMAX w Konfiguracji, od najnowszej.
+ *
+ * ``problem`` to Komunikat, gdy folderu Kopii nie da się odczytać; ``copies`` jest wtedy puste.
+ */
+export type IntermaxCopies = {
+    /**
+     * Copies
+     */
+    copies: Array<IntermaxCopy>;
+    problem: Message | null;
+};
+
+/**
+ * IntermaxCopy
+ *
+ * Kopia INTERMAX w folderze Kopii: nazwa pliku, chwila z nazwy i to, przed czym powstała.
+ */
+export type IntermaxCopy = {
+    /**
+     * Name
+     */
+    name: string;
+    /**
+     * Taken At
+     */
+    taken_at: string;
+    /**
+     * Before
+     */
+    before: 'ordering' | 'restore';
+};
+
+/**
+ * IntermaxRestoreRefused
+ *
+ * Przywrócenie odmówiło z Komunikatem; INTERMAX i Kopie zostały takie, jak były.
+ */
+export type IntermaxRestoreRefused = {
+    /**
+     * State
+     */
+    state: 'refused';
+    message: Message;
+};
+
+/**
+ * IntermaxRestoreRequest
+ *
+ * Przywrócenie Kopii INTERMAX ``name``, którą wymieniła lista Kopii.
+ */
+export type IntermaxRestoreRequest = {
+    /**
+     * Name
+     */
+    name: string;
+};
+
+/**
+ * IntermaxRestored
+ *
+ * INTERMAX ma bajty Kopii ``restored``, a jego stan sprzed przywrócenia leży jako Kopia ``previous``.
+ *
+ * ``warnings``: Komunikaty o tym, czego przywrócenie nie dokończyło (starsze Kopie zostały).
+ */
+export type IntermaxRestored = {
+    /**
+     * State
+     */
+    state: 'restored';
+    restored: IntermaxCopy;
+    previous: IntermaxCopy;
+    /**
+     * Warnings
+     */
+    warnings: Array<Message>;
+};
+
+/**
+ * IntermaxSetup
+ *
+ * Karta „Uporządkuj INTERMAX” poza okresami: INTERMAX to Rejestr zleceń z Ustawień taty.
+ *
+ * ``reminder`` to przypomnienie przed uruchomieniem, ``blocker`` mówi, czego brakuje w Ustawieniach taty,
+ * ``open_in_excel`` to zdanie o INTERMAX otwartym w Excelu, a ``last`` to karta ostatniego Uporządkowania
+ * INTERMAX z jego Logów Uruchomienia (``None``: żadnego albo jego Logów nie da się odczytać).
+ */
+export type IntermaxSetup = {
+    /**
+     * Title
+     */
+    title: string;
+    /**
+     * Reminder
+     */
+    reminder: string;
+    /**
+     * Blocker
+     */
+    blocker: string | null;
+    /**
+     * Open In Excel
+     */
+    open_in_excel: Array<string>;
+    last: RunRestored | null;
+};
+
+/**
  * KindTableCell
  *
  * Komórka N:AP wiersza na stronie rodzaju: wartość z pliku w kolumnie narzędzia, wpis taty, który robi wiersz, albo nic (0).
@@ -613,7 +738,7 @@ export type LoggedOutcome = {
     /**
      * Next Action
      */
-    next_action: 'run' | 'rerun' | 'open_collective_file' | 'open_worker_settlements_folder';
+    next_action: 'run' | 'rerun' | 'open_collective_file' | 'open_worker_settlements_folder' | 'open_order_register';
     /**
      * Stop Kind
      */
@@ -1107,7 +1232,7 @@ export type ProcessSetup = {
     /**
      * Process
      */
-    process: 'preparation' | 'settlement' | 'intermax';
+    process: 'preparation' | 'settlement';
     /**
      * Title
      */
@@ -1375,14 +1500,13 @@ export type ReportNotification = {
     /**
      * State
      */
-    state: 'wyslana' | 'czeka_na_internet' | 'rozwiazana' | 'przeczytana';
+    state: 'wyslana' | 'czeka_na_internet' | 'czeka_na_token' | 'odrzucona' | 'rozwiazana' | 'przeczytana';
 };
 
 /**
  * ReportQueued
  *
- * Zgłoszenie czeka w kolejce Skrzynki na tym komputerze i wyjdzie samo; ``waits_for``: na internet albo na klucz
- * do Zgłoszeń od Maksa (brak klucza albo klucz, którego Skrzynka odmówiła).
+ * Zgłoszenie czeka w Kolejce wysyłki na tym komputerze i wyjdzie samo, gdy będzie to, na co czeka.
  */
 export type ReportQueued = {
     /**
@@ -1405,6 +1529,21 @@ export type ReportReady = {
      * State
      */
     state: 'ready';
+};
+
+/**
+ * ReportRejected
+ *
+ * Skrzynka Zgłoszeń odrzuciła treść tego Zgłoszenia: ani internet, ani Token do Zgłoszeń tego nie naprawią.
+ *
+ * Plik zostaje w Kolejce wysyłki, która spróbuje go dopiero przy następnym starcie Centrum, więc Centrum niczego nie
+ * obiecuje, tylko każe skontaktować się z Maksem.
+ */
+export type ReportRejected = {
+    /**
+     * State
+     */
+    state: 'rejected';
 };
 
 /**
@@ -1570,7 +1709,10 @@ export type RunIdle = {
 /**
  * RunInfo
  *
- * Uruchomienie procesu; ``confirms_readiness`` deklaruje proces: „Uruchom” potwierdza Gotowość.
+ * Uruchomienie procesu; ``confirms_readiness`` i ``register_name`` deklaruje proces.
+ *
+ * ``confirms_readiness``: „Uruchom” potwierdza Gotowość. ``register_name``: nazwa Rejestru zleceń z Komunikatów
+ * procesu, pod którą karta proponuje otworzyć go przy Zatrzymaniu.
  */
 export type RunInfo = {
     /**
@@ -1597,6 +1739,10 @@ export type RunInfo = {
      * Confirms Readiness
      */
     confirms_readiness: boolean;
+    /**
+     * Register Name
+     */
+    register_name: string;
 };
 
 /**
@@ -1647,7 +1793,7 @@ export type RunOutcome = {
     /**
      * Next Action
      */
-    next_action: 'run' | 'rerun' | 'open_collective_file' | 'open_worker_settlements_folder';
+    next_action: 'run' | 'rerun' | 'open_collective_file' | 'open_worker_settlements_folder' | 'open_order_register';
     /**
      * Stop Kind
      */
@@ -1681,6 +1827,8 @@ export type RunOutcome = {
     } & ReportWaiting) | ({
         state: 'queued';
     } & ReportQueued) | ({
+        state: 'rejected';
+    } & ReportRejected) | ({
         state: 'not_queued';
     } & ReportNotQueued) | null;
     /**
@@ -1702,7 +1850,7 @@ export type RunRequest = {
     /**
      * Process
      */
-    process: 'preparation' | 'settlement' | 'intermax';
+    process: 'preparation' | 'settlement';
     /**
      * Period
      */
@@ -1787,6 +1935,10 @@ export type RunSummary = {
      * Worker Settlements
      */
     worker_settlements: Array<WorkerSettlement> | null;
+    /**
+     * Intermax Copy
+     */
+    intermax_copy?: string | null;
 };
 
 /**
@@ -1922,6 +2074,8 @@ export type ToolUpdateFailed = {
     } & ReportWaiting) | ({
         state: 'queued';
     } & ReportQueued) | ({
+        state: 'rejected';
+    } & ReportRejected) | ({
         state: 'not_queued';
     } & ReportNotQueued);
     draft: ReportDraft;
@@ -2203,7 +2357,9 @@ export type SendDadNoteResponses = {
         state: 'sent';
     } & DadNoteSent) | ({
         state: 'waiting';
-    } & DadNoteWaiting);
+    } & DadNoteWaiting) | ({
+        state: 'rejected';
+    } & DadNoteRejected);
 };
 
 export type SendDadNoteResponse = SendDadNoteResponses[keyof SendDadNoteResponses];
@@ -2292,6 +2448,112 @@ export type GetHealthResponses = {
 };
 
 export type GetHealthResponse = GetHealthResponses[keyof GetHealthResponses];
+
+export type GetIntermaxSetupData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/intermax';
+};
+
+export type GetIntermaxSetupResponses = {
+    /**
+     * Successful Response
+     */
+    200: IntermaxSetup;
+};
+
+export type GetIntermaxSetupResponse = GetIntermaxSetupResponses[keyof GetIntermaxSetupResponses];
+
+export type GetIntermaxCopiesData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/intermax/copies';
+};
+
+export type GetIntermaxCopiesResponses = {
+    /**
+     * Successful Response
+     */
+    200: IntermaxCopies;
+};
+
+export type GetIntermaxCopiesResponse = GetIntermaxCopiesResponses[keyof GetIntermaxCopiesResponses];
+
+export type RestoreIntermaxCopyData = {
+    body: IntermaxRestoreRequest;
+    path?: never;
+    query?: never;
+    url: '/api/intermax/copies/restore';
+};
+
+export type RestoreIntermaxCopyErrors = {
+    /**
+     * Conflict
+     */
+    409: Problem;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type RestoreIntermaxCopyError = RestoreIntermaxCopyErrors[keyof RestoreIntermaxCopyErrors];
+
+export type RestoreIntermaxCopyResponses = {
+    /**
+     * Response Restoreintermaxcopy
+     *
+     * Successful Response
+     */
+    200: ({
+        state: 'restored';
+    } & IntermaxRestored) | ({
+        state: 'refused';
+    } & IntermaxRestoreRefused);
+};
+
+export type RestoreIntermaxCopyResponse = RestoreIntermaxCopyResponses[keyof RestoreIntermaxCopyResponses];
+
+export type StartIntermaxData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/intermax/run';
+};
+
+export type StartIntermaxErrors = {
+    /**
+     * Not Found
+     */
+    404: Problem;
+    /**
+     * Conflict
+     */
+    409: Problem;
+};
+
+export type StartIntermaxError = StartIntermaxErrors[keyof StartIntermaxErrors];
+
+export type StartIntermaxResponses = {
+    /**
+     * Response Startintermax
+     *
+     * Successful Response
+     */
+    200: ({
+        state: 'idle';
+    } & RunIdle) | ({
+        state: 'running';
+    } & RunRunning) | ({
+        state: 'awaiting_decision';
+    } & RunAwaitingDecision) | ({
+        state: 'finished';
+    } & RunFinished);
+};
+
+export type StartIntermaxResponse = StartIntermaxResponses[keyof StartIntermaxResponses];
 
 export type GetMetricsData = {
     body?: never;
@@ -2897,6 +3159,8 @@ export type ReportRunResponses = {
     } & ReportWaiting) | ({
         state: 'queued';
     } & ReportQueued) | ({
+        state: 'rejected';
+    } & ReportRejected) | ({
         state: 'not_queued';
     } & ReportNotQueued);
 };
@@ -3126,6 +3390,8 @@ export type ReportToolUpdateResponses = {
     } & ReportWaiting) | ({
         state: 'queued';
     } & ReportQueued) | ({
+        state: 'rejected';
+    } & ReportRejected) | ({
         state: 'not_queued';
     } & ReportNotQueued);
 };

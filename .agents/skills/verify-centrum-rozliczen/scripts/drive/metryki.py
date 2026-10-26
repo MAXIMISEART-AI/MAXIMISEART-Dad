@@ -203,7 +203,7 @@ def drive_metrics(run: Run, page: Page) -> None:
     last_record = json.loads(Path(fixture_metrics["preparation"]).read_text(encoding="utf-8").splitlines()[-1])
     run.check(
         (last_record["schema_version"], last_record["result"], last_record["stop"])
-        == (2, "BLAD_KRYTYCZNY", {"kind": "for_tata", "code": "BRAK_REJESTRU"}),
+        == (3, "BLAD_KRYTYCZNY", {"kind": "for_tata", "code": "BRAK_REJESTRU"}),
         f"the record carries the Rodzaj Zatrzymania and the Komunikat code only: {last_record['stop']}",
     )
     after = run.api("/api/metrics", "metryki-spoza-centrum")["runs"]

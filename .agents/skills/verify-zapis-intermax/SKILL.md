@@ -1,6 +1,6 @@
 ---
 name: verify-zapis-intermax
-description: Exhaustively check that Uporządkowanie INTERMAX (`order_register` in `src/rozliczenia/intermax_ordering.py`) replaces the Rejestr zleceń only over the bytes it read, keeps a Kopia INTERMAX with exactly the bytes it replaced and the 10 newest Kopie, and leaves INTERMAX, its folder and the Kopie as they were when it stops, under every order of a worker's change arriving through OneDrive, Dad opening INTERMAX in Excel, OneDrive refusing the replace, failed file steps, a failed write check and a killed process. Use when a change touches `order_register` (`before_replace`, `save`), `intermax_copies.make_copy` or `keep_newest`, `intermax_file.save` (its retried replace and `Waiting`), `Register.read` or `Register.check`, `workbook_save.write_atomically`, `workbook_files` reading or the Excel lock, adds Przywracanie Kopii INTERMAX (#472), or when `explore_intermax.py` fails.
+description: Exhaustively check that Uporządkowanie INTERMAX (`order_register` in `src/rozliczenia/intermax_ordering.py`) and Przywracanie Kopii INTERMAX (`restore` in `src/rozliczenia/intermax_copies.py`) replace the Rejestr zleceń only over the bytes they read, keep a Kopia INTERMAX with exactly the bytes they replaced and the 10 newest Kopie of both names, put exactly the chosen Kopia into INTERMAX, and leave INTERMAX, its folder and the Kopie as they were when they stop, under every order of a worker's change arriving through OneDrive, Dad opening INTERMAX in Excel, OneDrive refusing the replace, failed file steps, a failed write check and a killed process. Use when a change touches `order_register` (`before_replace`, `save`), `intermax_copies.make_copy`, `listed`, `keep_newest` or `restore`, `intermax_file.save` or `restore` (their retried replace and `Waiting`), `Register.read` or `Register.check`, `workbook_save.write_atomically`, `workbook_files` reading or the Excel lock, adds another writer of INTERMAX or of the Kopie folder, or when `explore_intermax.py` fails.
 pilnuje:
   - src/rozliczenia/intermax_ordering.py
   - src/rozliczenia/intermax_copies.py
@@ -17,15 +17,17 @@ ci: .agents/skills/verify-zapis-intermax/scripts/explore_intermax.py
 CI runs `explore_intermax.py` (the `ci:` key) and `check_intermax_mutations.py` in Mutation checks
 whenever a change touches this skill. Run them locally only to reproduce a red Mutation checks step, or
 while you work on the checker. What stays with you on every change to the covered code is „Does the
-change touch it?”: a new step between the read and the replace, a second writer of INTERMAX or of the
-Kopie folder (such as Przywracanie Kopii INTERMAX, #472) or a new file next to INTERMAX passes the
-check without being checked until the checker has a point for it. Sorting a red run as „When the
+change touch it?”: a new step between the read and the replace, a third writer of INTERMAX or of the
+Kopie folder (beside Uporządkowanie and Przywracanie Kopii INTERMAX, #472) or a new file next to INTERMAX
+passes the check without being checked until the checker has a point for it. Sorting a red run as „When the
 check fails” says also stays with you.
 
 ## The promise
 
 INTERMAX is the only record of orders since 2021, in OneDrive, and the
-workers edit it on their own computers (ADR 0019).
+workers edit it on their own computers (ADR 0019). Two pieces of code
+replace it: Uporządkowanie INTERMAX and Przywracanie Kopii INTERMAX from
+Konfiguracja (#472). Each rule holds for both; „the run” is either.
 
 - **BEZ_UTRATY_ZMIAN**: when the run replaces INTERMAX, it replaces the bytes
   it read. ADR 0019: Uporządkowanie „zmienia tylko Surowe zlecenia”, and every
@@ -42,29 +44,35 @@ workers edit it on their own computers (ADR 0019).
   Kopia of a change that never happened, or Dad's earlier Kopie gone.
 - **SUKCES**: a run that returns a summary has replaced INTERMAX and left no
   temporary file.
+- **PRZYWROCONA_KOPIA**: a restore that returns has replaced INTERMAX with
+  exactly the bytes of the chosen Kopia (#472: „INTERMAX jest bajt w bajt
+  wybraną Kopią”). Harm: Dad clicks „Przywróć tę kopię” and still has the
+  broken INTERMAX.
 - **KOPIE_NAJNOWSZE**: after a summary the Kopie folder holds the
-  `intermax_copies.KEPT` (10) newest Kopie by name, the new one among them,
-  unless removing older ones failed, which `order_register` turns into a
-  warning. Harm: Dad loses the Kopia he needs, or the folder grows forever.
+  `intermax_copies.KEPT` (10) newest Kopie of both names (`przed
+  uporządkowaniem`, `przed przywróceniem`) by the moment in their name, the new
+  one among them, unless removing older ones failed, which the code turns into
+  a warning. Harm: Dad loses the Kopia he needs, or the folder grows forever.
 - **BEZ_WYJATKU**: the run ends with a summary or a `StopError`, or the process
   dies; no other exception escapes. Harm: Dad sees an unexpected error instead
   of a Komunikat that tells him what to do.
 
 ## Does the change touch it?
 
-The checker runs the real `order_register` and wraps eight steps to choose,
-before each, what happens first. Each is one indivisible step of this code:
+The checker runs the real `order_register` and the real
+`intermax_copies.restore`, and wraps eight steps to choose, before each, what
+happens first. Each is one indivisible step of this code:
 
 | Point in the checker | Code (`src/rozliczenia/`) |
 | --- | --- |
-| after the read | `intermax_file.Register.read` (`workbook_files.workbook_content`), called in `order_register.read` |
-| the Excel lock check | `workbook_files.is_open_in_excel` on INTERMAX, in `ensure_available` (`check`, `Register.read`) and in `before_replace` |
+| after the read | `intermax_file.Register.read` (`workbook_files.workbook_content`), called in `order_register.read`; in the restore the first `workbook_content` of INTERMAX |
+| the Excel lock check | `workbook_files.is_open_in_excel` on INTERMAX, in `ensure_available` (`check`, `Register.read`, `workbook_content`), in both `before_replace` and in the restore's sorting of a failed replace |
 | the temporary file | `temporary.write_bytes(content)` in `intermax_file.save`, inside `workbook_save.write_atomically`; may raise `OSError` |
-| the write check | `Register.check` on the re-read temporary file in `intermax_file.save`; may find a mismatch (`WriteMismatch`) |
-| the Kopia | `intermax_copies.make_copy(register.content, …)` in `before_replace`, after the write check; may raise `OSError` |
-| the replace | `os.replace` of the temporary file over INTERMAX in the `replace` that `intermax_file.save` gives `workbook_save.write_atomically`; may raise `OSError`, may be refused by OneDrive (`PermissionError` without the `~$` lock, which `save` retries), and raises `PermissionError` while the `~$` lock exists, as Windows does for a file Excel holds |
+| the write check | `Register.check` on the re-read temporary file in `intermax_file.save`; may find a mismatch (`WriteMismatch`). The restore compares bytes and has no such point |
+| the Kopia | `intermax_copies.make_copy(register.content, …)` in `before_replace`, after the write check; in the restore `make_copy(current, …, "restore")`; may raise `OSError` |
+| the replace | `os.replace` of the temporary file over INTERMAX in the `replace` that `intermax_file._replace` (for `save` and `restore`) gives `workbook_save.write_atomically`; may raise `OSError`, may be refused by OneDrive (`PermissionError` without the `~$` lock, which `save` retries), and raises `PermissionError` while the `~$` lock exists, as Windows does for a file Excel holds |
 | the pause before a retry | `waiting.pause` in that `replace`, after a refusal and before it reads INTERMAX again (`workbook_content`) and retries; may last the whole retry time (`_RETRY_S`), so the next refusal ends in `HeldByOneDrive`. The checker's `Waiting` clock moves only in this pause and never sleeps |
-| the old Kopie | `intermax_copies.keep_newest` after the replace; may raise `OSError`, which `order_register` turns into a warning |
+| the old Kopie | `intermax_copies.keep_newest` after the replace; may raise `OSError`, which `order_register` and `restore` turn into a warning |
 
 At each point, before the step, a worker may save a change on another
 computer, which OneDrive puts in place as a new INTERMAX (not while Excel holds
@@ -73,18 +81,20 @@ leaves out), Dad may open INTERMAX in Excel (the `~$` lock file), the step may
 fail, or the process may die.
 
 Covered files: `src/rozliczenia/intermax_ordering.py`,
-`src/rozliczenia/intermax_copies.py`, `src/rozliczenia/intermax_file.py`
-(`Register.read`, `Register.check`, `save`), `src/rozliczenia/workbook_save.py`
+`src/rozliczenia/intermax_copies.py` (`make_copy`, `listed`, `keep_newest`,
+`restore`), `src/rozliczenia/intermax_file.py`
+(`Register.read`, `Register.check`, `save`, `restore`, `_replace`), `src/rozliczenia/workbook_save.py`
 (`write_atomically`), and `src/rozliczenia/workbook_files.py`
 (`workbook_content`, `ensure_available`, `is_open_in_excel`,
 `excel_lock_file`).
 
-**Sync commit: `cd7d201d`** (2026-10-26, #505: retried replace with a re-read after the pause). At this commit the
+**Sync commit: `c567dff6`** (2026-10-26, #472: Przywracanie Kopii INTERMAX through the same retried replace, the
+limit of 10 over both names). At this commit the
 checker was confirmed to describe the code above. To see whether it needs
 another look:
 
 ```bash
-git log --oneline cd7d201d..HEAD -- src/rozliczenia/intermax_ordering.py src/rozliczenia/intermax_copies.py src/rozliczenia/intermax_file.py src/rozliczenia/workbook_save.py src/rozliczenia/workbook_files.py
+git log --oneline c567dff6..HEAD -- src/rozliczenia/intermax_ordering.py src/rozliczenia/intermax_copies.py src/rozliczenia/intermax_file.py src/rozliczenia/workbook_save.py src/rozliczenia/workbook_files.py
 ```
 
 Read each listed commit against the table. A change matters when it adds,
@@ -118,18 +128,22 @@ The last line is the verdict:
 
 ## How it works and what it covers
 
-`explore_intermax.py` writes two synthetic INTERMAX files with
+`explore_intermax.py` writes three synthetic INTERMAX files with
 `tests/fixtures/intermax.py`: the original, with a day of Surowe zlecenia at the
-bottom, and the version a worker saves on another computer, with one more
-ordered order above them. For every schedule it puts the original into a fresh
-folder, fills the Kopie folder with 10 older Kopie (earlier days, each with its
-own bytes), runs `order_register`, and picks at every point in the table. It
-re-runs the code from scratch for every schedule.
+bottom, the version a worker saves on another computer, with one more
+ordered order above them, and an earlier one with one ordered order fewer. For
+every schedule it puts the original into a fresh folder, fills the Kopie folder
+with 10 older Kopie (earlier days, alternately `przed przywróceniem` and `przed
+uporządkowaniem`, so that their order by name differs from their order in time;
+the oldest holds the earlier INTERMAX, the others their own bytes), runs
+`order_register` or `restore` of the oldest Kopia, and picks at every point in
+the table. It re-runs the code from scratch for every schedule.
 
 Bounds: at most one worker's change, one Excel opening, one failed file step,
 one failed write check, two OneDrive refusals of the replace, one pause that
-lasts the whole retry time and one killed process per run. That is 895
-schedules (305 before the retried replace, #505).
+lasts the whole retry time and one killed process per run. That is 1780
+schedules: 895 of Uporządkowanie and 885 of the restore (305 before the
+retried replace, #505).
 
 Not covered:
 
@@ -146,13 +160,17 @@ Not covered:
   would leave in OneDrive with a Kopia of a replace that never happened. After
   a kill only BEZ_UTRATY_ZMIAN and KOPIA_ZASTAPIONEGO are checked, when the
   replace happened;
-- Przywracanie Kopii INTERMAX (#472, not built yet), and the order of Kopie by
-  name around a clock change.
+- the restore's own checks before its first step (the Kopia missing, open in
+  Excel or not a workbook), which `tests/test_centrum_przywracanie_kopii_intermax.py`
+  covers, and a restore running beside an Uruchomienie, which `RunHost` refuses
+  (`verify-jedno-uruchomienie-naraz`);
+- the order of Kopie by the moment in their name around a clock change.
 
 ## Known findings
 
 1. **BEZ_UTRATY_ZMIAN and KOPIA_ZASTAPIONEGO: a worker's change that arrives
-   during the run is lost.** The steps:
+   during the run is lost.** The same holds for the restore, whose Kopia of the
+   current state is made from the bytes it read (`current`). The steps:
    1. `Register.read` reads INTERMAX;
    2. `before_replace` writes the Kopia INTERMAX from `register.content`;
    3. a worker saves a change on another computer, and OneDrive replaces
@@ -238,7 +256,12 @@ temporary copy of the checkout (`tools/mutacje.py`) and must end with
 - a retried replace that does not read INTERMAX again after the pause;
 - a retried replace that reads INTERMAX again before the pause instead of
   after it;
-- the Kopia made before the write check.
+- the Kopia made before the write check;
+- Kopie sorted by name instead of by the moment in their name;
+- a restore without the Kopia of the current state;
+- the Kopia of the current state left after a failed restore;
+- a restore that replaces INTERMAX with the bytes it read instead of the
+  chosen Kopia.
 
 A mutation reported as `NIEAKTUALNA` no longer matches its file: rewrite its
 `anchor` and `replacement` against the new code so that it breaks the same

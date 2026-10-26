@@ -24,6 +24,10 @@ export const zApiTiming = z.object({
         'openWorkerSettlement',
         'getRunSetup',
         'startRun',
+        'getIntermaxSetup',
+        'startIntermax',
+        'getIntermaxCopies',
+        'restoreIntermaxCopy',
         'decideRun',
         'diagnoseRun',
         'reportRun',
@@ -152,9 +156,20 @@ export const zDadNoteNotification = z.object({
     state: z.enum([
         'wyslana',
         'czeka_na_internet',
+        'czeka_na_token',
+        'odrzucona',
         'rozwiazana',
         'przeczytana'
     ])
+});
+
+/**
+ * DadNoteRejected
+ *
+ * Skrzynka Zgłoszeń odrzuciła treść Uwagi taty; jak ``ReportRejected``, Centrum niczego nie obiecuje.
+ */
+export const zDadNoteRejected = z.object({
+    state: z.literal('rejected')
 });
 
 /**
@@ -195,10 +210,11 @@ export const zDadNoteText = z.object({
 /**
  * DadNoteWaiting
  *
- * Uwaga taty czeka w kolejce (brak internetu, klucza albo odmowa) i wyjdzie sama, także po następnym starcie.
+ * Uwaga taty czeka w Kolejce wysyłki i wyjdzie sama, także po następnym starcie, gdy będzie to, na co czeka.
  */
 export const zDadNoteWaiting = z.object({
-    state: z.literal('waiting')
+    state: z.literal('waiting'),
+    waits_for: z.enum(['internet', 'key'])
 });
 
 /**
@@ -268,6 +284,26 @@ export const zHealth = z.object({
 });
 
 /**
+ * IntermaxCopy
+ *
+ * Kopia INTERMAX w folderze Kopii: nazwa pliku, chwila z nazwy i to, przed czym powstała.
+ */
+export const zIntermaxCopy = z.object({
+    name: z.string(),
+    taken_at: z.iso.datetime(),
+    before: z.enum(['ordering', 'restore'])
+});
+
+/**
+ * IntermaxRestoreRequest
+ *
+ * Przywrócenie Kopii INTERMAX ``name``, którą wymieniła lista Kopii.
+ */
+export const zIntermaxRestoreRequest = z.object({
+    name: z.string()
+});
+
+/**
  * KindTableCell
  *
  * Komórka N:AP wiersza na stronie rodzaju: wartość z pliku w kolumnie narzędzia, wpis taty, który robi wiersz, albo nic (0).
@@ -301,6 +337,42 @@ export const zDecision = z.object({
     title: z.string(),
     message: zMessage,
     counts: zCountGroup
+});
+
+/**
+ * IntermaxCopies
+ *
+ * Kopie INTERMAX w Konfiguracji, od najnowszej.
+ *
+ * ``problem`` to Komunikat, gdy folderu Kopii nie da się odczytać; ``copies`` jest wtedy puste.
+ */
+export const zIntermaxCopies = z.object({
+    copies: z.array(zIntermaxCopy),
+    problem: zMessage.nullable()
+});
+
+/**
+ * IntermaxRestoreRefused
+ *
+ * Przywrócenie odmówiło z Komunikatem; INTERMAX i Kopie zostały takie, jak były.
+ */
+export const zIntermaxRestoreRefused = z.object({
+    state: z.literal('refused'),
+    message: zMessage
+});
+
+/**
+ * IntermaxRestored
+ *
+ * INTERMAX ma bajty Kopii ``restored``, a jego stan sprzed przywrócenia leży jako Kopia ``previous``.
+ *
+ * ``warnings``: Komunikaty o tym, czego przywrócenie nie dokończyło (starsze Kopie zostały).
+ */
+export const zIntermaxRestored = z.object({
+    state: z.literal('restored'),
+    restored: zIntermaxCopy,
+    previous: zIntermaxCopy,
+    warnings: z.array(zMessage)
 });
 
 /**
@@ -509,11 +581,7 @@ export const zProcessRun = z.object({
  * uruchomieniem, czy „Uruchom” potwierdza Gotowość, i podpowiedź „Podgląd bez zapisu”.
  */
 export const zProcessSetup = z.object({
-    process: z.enum([
-        'preparation',
-        'settlement',
-        'intermax'
-    ]),
+    process: z.enum(['preparation', 'settlement']),
     title: z.string(),
     creates: z.string(),
     reminder: z.string(),
@@ -672,6 +740,8 @@ export const zReportNotification = z.object({
     state: z.enum([
         'wyslana',
         'czeka_na_internet',
+        'czeka_na_token',
+        'odrzucona',
         'rozwiazana',
         'przeczytana'
     ])
@@ -680,8 +750,7 @@ export const zReportNotification = z.object({
 /**
  * ReportQueued
  *
- * Zgłoszenie czeka w kolejce Skrzynki na tym komputerze i wyjdzie samo; ``waits_for``: na internet albo na klucz
- * do Zgłoszeń od Maksa (brak klucza albo klucz, którego Skrzynka odmówiła).
+ * Zgłoszenie czeka w Kolejce wysyłki na tym komputerze i wyjdzie samo, gdy będzie to, na co czeka.
  */
 export const zReportQueued = z.object({
     state: z.literal('queued'),
@@ -695,6 +764,18 @@ export const zReportQueued = z.object({
  */
 export const zReportReady = z.object({
     state: z.literal('ready')
+});
+
+/**
+ * ReportRejected
+ *
+ * Skrzynka Zgłoszeń odrzuciła treść tego Zgłoszenia: ani internet, ani Token do Zgłoszeń tego nie naprawią.
+ *
+ * Plik zostaje w Kolejce wysyłki, która spróbuje go dopiero przy następnym starcie Centrum, więc Centrum niczego nie
+ * obiecuje, tylko każe skontaktować się z Maksem.
+ */
+export const zReportRejected = z.object({
+    state: z.literal('rejected')
 });
 
 /**
@@ -861,7 +942,10 @@ export const zRunCardMissing = z.object({
 /**
  * RunInfo
  *
- * Uruchomienie procesu; ``confirms_readiness`` deklaruje proces: „Uruchom” potwierdza Gotowość.
+ * Uruchomienie procesu; ``confirms_readiness`` i ``register_name`` deklaruje proces.
+ *
+ * ``confirms_readiness``: „Uruchom” potwierdza Gotowość. ``register_name``: nazwa Rejestru zleceń z Komunikatów
+ * procesu, pod którą karta proponuje otworzyć go przy Zatrzymaniu.
  */
 export const zRunInfo = z.object({
     id: z.string(),
@@ -873,7 +957,8 @@ export const zRunInfo = z.object({
     title: z.string(),
     period: z.string(),
     dry_run: z.boolean(),
-    confirms_readiness: z.boolean()
+    confirms_readiness: z.boolean(),
+    register_name: z.string()
 });
 
 /**
@@ -909,11 +994,7 @@ export const zRunInterrupted = z.object({
  * Start Uruchomienia procesu; pliki wejściowe wylicza serwer z ustawień i okresu.
  */
 export const zRunRequest = z.object({
-    process: z.enum([
-        'preparation',
-        'settlement',
-        'intermax'
-    ]),
+    process: z.enum(['preparation', 'settlement']),
     period: z.string(),
     dry_run: z.boolean()
 });
@@ -1058,6 +1139,7 @@ export const zToolUpdateFailed = z.object({
         zReportSent,
         zReportWaiting,
         zReportQueued,
+        zReportRejected,
         zReportNotQueued
     ]),
     draft: zReportDraft
@@ -1200,7 +1282,8 @@ export const zRunSummary = z.object({
     figures: z.array(zFigure),
     counts: zCountGroup.nullable(),
     files: z.array(zPeriodFile),
-    worker_settlements: z.array(zWorkerSettlement).nullable()
+    worker_settlements: z.array(zWorkerSettlement).nullable(),
+    intermax_copy: z.string().nullish()
 });
 
 /**
@@ -1233,7 +1316,8 @@ export const zLoggedOutcome = z.object({
         'run',
         'rerun',
         'open_collective_file',
-        'open_worker_settlements_folder'
+        'open_worker_settlements_folder',
+        'open_order_register'
     ]),
     stop_kind: z.enum([
         'for_tata',
@@ -1276,7 +1360,8 @@ export const zRunOutcome = z.object({
         'run',
         'rerun',
         'open_collective_file',
-        'open_worker_settlements_folder'
+        'open_worker_settlements_folder',
+        'open_order_register'
     ]),
     stop_kind: z.enum([
         'for_tata',
@@ -1294,6 +1379,7 @@ export const zRunOutcome = z.object({
         zReportSent,
         zReportWaiting,
         zReportQueued,
+        zReportRejected,
         zReportNotQueued
     ]).nullable(),
     files_unchanged: z.boolean(),
@@ -1326,6 +1412,23 @@ export const zRunRestored = z.object({
     started_at: z.iso.datetime(),
     phases: z.array(zPhaseProgress),
     result: zLoggedOutcome
+});
+
+/**
+ * IntermaxSetup
+ *
+ * Karta „Uporządkuj INTERMAX” poza okresami: INTERMAX to Rejestr zleceń z Ustawień taty.
+ *
+ * ``reminder`` to przypomnienie przed uruchomieniem, ``blocker`` mówi, czego brakuje w Ustawieniach taty,
+ * ``open_in_excel`` to zdanie o INTERMAX otwartym w Excelu, a ``last`` to karta ostatniego Uporządkowania
+ * INTERMAX z jego Logów Uruchomienia (``None``: żadnego albo jego Logów nie da się odczytać).
+ */
+export const zIntermaxSetup = z.object({
+    title: z.string(),
+    reminder: z.string(),
+    blocker: z.string().nullable(),
+    open_in_excel: z.array(z.string()),
+    last: zRunRestored.nullable()
 });
 
 /**
@@ -1429,7 +1532,8 @@ export const zSendDadNoteBody = zDadNoteRequest;
  */
 export const zSendDadNoteResponse = z.discriminatedUnion('state', [
     zDadNoteSent,
-    zDadNoteWaiting
+    zDadNoteWaiting,
+    zDadNoteRejected
 ]);
 
 export const zDraftDadNoteBody = zDadNoteText;
@@ -1454,6 +1558,40 @@ export const zGetDadNoteRunsResponse = z.array(zPinnableRun);
  * Successful Response
  */
 export const zGetHealthResponse = zHealth;
+
+/**
+ * Successful Response
+ */
+export const zGetIntermaxSetupResponse = zIntermaxSetup;
+
+/**
+ * Successful Response
+ */
+export const zGetIntermaxCopiesResponse = zIntermaxCopies;
+
+export const zRestoreIntermaxCopyBody = zIntermaxRestoreRequest;
+
+/**
+ * Response Restoreintermaxcopy
+ *
+ * Successful Response
+ */
+export const zRestoreIntermaxCopyResponse = z.discriminatedUnion('state', [
+    zIntermaxRestored,
+    zIntermaxRestoreRefused
+]);
+
+/**
+ * Response Startintermax
+ *
+ * Successful Response
+ */
+export const zStartIntermaxResponse = z.discriminatedUnion('state', [
+    zRunIdle,
+    zRunRunning,
+    zRunAwaitingDecision,
+    zRunFinished
+]);
 
 /**
  * Successful Response
@@ -1648,6 +1786,7 @@ export const zReportRunResponse = z.discriminatedUnion('state', [
     zReportSent,
     zReportWaiting,
     zReportQueued,
+    zReportRejected,
     zReportNotQueued
 ]);
 
@@ -1719,6 +1858,7 @@ export const zReportToolUpdateResponse = z.discriminatedUnion('state', [
     zReportSent,
     zReportWaiting,
     zReportQueued,
+    zReportRejected,
     zReportNotQueued
 ]);
 

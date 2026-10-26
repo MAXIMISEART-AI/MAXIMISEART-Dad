@@ -55,6 +55,9 @@
                     },
                     {
                       "$ref": "#/components/schemas/DadNoteWaiting"
+                    },
+                    {
+                      "$ref": "#/components/schemas/DadNoteRejected"
                     }
                   ],
                   "title": "Response Senddadnote",
@@ -62,7 +65,8 @@
                     "propertyName": "state",
                     "mapping": {
                       "sent": "#/components/schemas/DadNoteSent",
-                      "waiting": "#/components/schemas/DadNoteWaiting"
+                      "waiting": "#/components/schemas/DadNoteWaiting",
+                      "rejected": "#/components/schemas/DadNoteRejected"
                     }
                   }
                 }
@@ -237,6 +241,178 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/Health"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/intermax": {
+      "get": {
+        "tags": [
+          "uruchomienia"
+        ],
+        "summary": "Setup",
+        "operationId": "getIntermaxSetup",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntermaxSetup"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/intermax/copies": {
+      "get": {
+        "tags": [
+          "konfiguracja"
+        ],
+        "summary": "Copies",
+        "operationId": "getIntermaxCopies",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntermaxCopies"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/intermax/copies/restore": {
+      "post": {
+        "tags": [
+          "konfiguracja"
+        ],
+        "summary": "Restore",
+        "operationId": "restoreIntermaxCopy",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IntermaxRestoreRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/IntermaxRestored"
+                    },
+                    {
+                      "$ref": "#/components/schemas/IntermaxRestoreRefused"
+                    }
+                  ],
+                  "title": "Response Restoreintermaxcopy",
+                  "discriminator": {
+                    "propertyName": "state",
+                    "mapping": {
+                      "restored": "#/components/schemas/IntermaxRestored",
+                      "refused": "#/components/schemas/IntermaxRestoreRefused"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/intermax/run": {
+      "post": {
+        "tags": [
+          "uruchomienia"
+        ],
+        "summary": "Start",
+        "operationId": "startIntermax",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/RunIdle"
+                    },
+                    {
+                      "$ref": "#/components/schemas/RunRunning"
+                    },
+                    {
+                      "$ref": "#/components/schemas/RunAwaitingDecision"
+                    },
+                    {
+                      "$ref": "#/components/schemas/RunFinished"
+                    }
+                  ],
+                  "title": "Response Startintermax",
+                  "discriminator": {
+                    "propertyName": "state",
+                    "mapping": {
+                      "idle": "#/components/schemas/RunIdle",
+                      "running": "#/components/schemas/RunRunning",
+                      "awaiting_decision": "#/components/schemas/RunAwaitingDecision",
+                      "finished": "#/components/schemas/RunFinished"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
                 }
               }
             }
@@ -1246,6 +1422,9 @@
                       "$ref": "#/components/schemas/ReportQueued"
                     },
                     {
+                      "$ref": "#/components/schemas/ReportRejected"
+                    },
+                    {
                       "$ref": "#/components/schemas/ReportNotQueued"
                     }
                   ],
@@ -1256,6 +1435,7 @@
                       "sent": "#/components/schemas/ReportSent",
                       "waiting": "#/components/schemas/ReportWaiting",
                       "queued": "#/components/schemas/ReportQueued",
+                      "rejected": "#/components/schemas/ReportRejected",
                       "not_queued": "#/components/schemas/ReportNotQueued"
                     }
                   },
@@ -1604,6 +1784,9 @@
                       "$ref": "#/components/schemas/ReportQueued"
                     },
                     {
+                      "$ref": "#/components/schemas/ReportRejected"
+                    },
+                    {
                       "$ref": "#/components/schemas/ReportNotQueued"
                     }
                   ],
@@ -1615,6 +1798,7 @@
                       "sent": "#/components/schemas/ReportSent",
                       "waiting": "#/components/schemas/ReportWaiting",
                       "queued": "#/components/schemas/ReportQueued",
+                      "rejected": "#/components/schemas/ReportRejected",
                       "not_queued": "#/components/schemas/ReportNotQueued"
                     }
                   }
@@ -1692,6 +1876,10 @@
               "openWorkerSettlement",
               "getRunSetup",
               "startRun",
+              "getIntermaxSetup",
+              "startIntermax",
+              "getIntermaxCopies",
+              "restoreIntermaxCopy",
               "decideRun",
               "diagnoseRun",
               "reportRun",
@@ -2109,6 +2297,8 @@
             "enum": [
               "wyslana",
               "czeka_na_internet",
+              "czeka_na_token",
+              "odrzucona",
               "rozwiazana",
               "przeczytana"
             ],
@@ -2127,6 +2317,22 @@
         ],
         "title": "DadNoteNotification",
         "description": "Powiadomienie o Uwadze taty, nazwanej jej tytułem."
+      },
+      "DadNoteRejected": {
+        "properties": {
+          "state": {
+            "type": "string",
+            "const": "rejected",
+            "title": "State"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "state"
+        ],
+        "title": "DadNoteRejected",
+        "description": "Skrzynka Zgłoszeń odrzuciła treść Uwagi taty; jak ``ReportRejected``, Centrum niczego nie obiecuje."
       },
       "DadNoteRequest": {
         "properties": {
@@ -2219,15 +2425,24 @@
             "type": "string",
             "const": "waiting",
             "title": "State"
+          },
+          "waits_for": {
+            "type": "string",
+            "enum": [
+              "internet",
+              "key"
+            ],
+            "title": "Waits For"
           }
         },
         "additionalProperties": false,
         "type": "object",
         "required": [
-          "state"
+          "state",
+          "waits_for"
         ],
         "title": "DadNoteWaiting",
-        "description": "Uwaga taty czeka w kolejce (brak internetu, klucza albo odmowa) i wyjdzie sama, także po następnym starcie."
+        "description": "Uwaga taty czeka w Kolejce wysyłki i wyjdzie sama, także po następnym starcie, gdy będzie to, na co czeka."
       },
       "Decision": {
         "properties": {
@@ -2455,6 +2670,183 @@
         "title": "Health",
         "description": "Tożsamość działającego Centrum.\n\n``commit`` to skrócony commit narzędzia, z którego Centrum wystartowało, jak na Konfiguracji (``None`` poza\nklonem Gita); po nim launcher i opiekun ponownego startu rozpoznają wersję działającego Centrum, a karta\npokazuje go w „Zaktualizowano”. ``instance`` to losowy identyfikator tego startu Centrum: po ponownym starcie\njest inny, także gdy commit się nie zmienił."
       },
+      "IntermaxCopies": {
+        "properties": {
+          "copies": {
+            "items": {
+              "$ref": "#/components/schemas/IntermaxCopy"
+            },
+            "type": "array",
+            "title": "Copies"
+          },
+          "problem": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Message"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "copies",
+          "problem"
+        ],
+        "title": "IntermaxCopies",
+        "description": "Kopie INTERMAX w Konfiguracji, od najnowszej.\n\n``problem`` to Komunikat, gdy folderu Kopii nie da się odczytać; ``copies`` jest wtedy puste."
+      },
+      "IntermaxCopy": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "taken_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Taken At"
+          },
+          "before": {
+            "type": "string",
+            "enum": [
+              "ordering",
+              "restore"
+            ],
+            "title": "Before"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "name",
+          "taken_at",
+          "before"
+        ],
+        "title": "IntermaxCopy",
+        "description": "Kopia INTERMAX w folderze Kopii: nazwa pliku, chwila z nazwy i to, przed czym powstała."
+      },
+      "IntermaxRestoreRefused": {
+        "properties": {
+          "state": {
+            "type": "string",
+            "const": "refused",
+            "title": "State"
+          },
+          "message": {
+            "$ref": "#/components/schemas/Message"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "state",
+          "message"
+        ],
+        "title": "IntermaxRestoreRefused",
+        "description": "Przywrócenie odmówiło z Komunikatem; INTERMAX i Kopie zostały takie, jak były."
+      },
+      "IntermaxRestoreRequest": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "title": "IntermaxRestoreRequest",
+        "description": "Przywrócenie Kopii INTERMAX ``name``, którą wymieniła lista Kopii."
+      },
+      "IntermaxRestored": {
+        "properties": {
+          "state": {
+            "type": "string",
+            "const": "restored",
+            "title": "State"
+          },
+          "restored": {
+            "$ref": "#/components/schemas/IntermaxCopy"
+          },
+          "previous": {
+            "$ref": "#/components/schemas/IntermaxCopy"
+          },
+          "warnings": {
+            "items": {
+              "$ref": "#/components/schemas/Message"
+            },
+            "type": "array",
+            "title": "Warnings"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "state",
+          "restored",
+          "previous",
+          "warnings"
+        ],
+        "title": "IntermaxRestored",
+        "description": "INTERMAX ma bajty Kopii ``restored``, a jego stan sprzed przywrócenia leży jako Kopia ``previous``.\n\n``warnings``: Komunikaty o tym, czego przywrócenie nie dokończyło (starsze Kopie zostały)."
+      },
+      "IntermaxSetup": {
+        "properties": {
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "reminder": {
+            "type": "string",
+            "title": "Reminder"
+          },
+          "blocker": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Blocker"
+          },
+          "open_in_excel": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Open In Excel"
+          },
+          "last": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RunRestored"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "title",
+          "reminder",
+          "blocker",
+          "open_in_excel",
+          "last"
+        ],
+        "title": "IntermaxSetup",
+        "description": "Karta „Uporządkuj INTERMAX” poza okresami: INTERMAX to Rejestr zleceń z Ustawień taty.\n\n``reminder`` to przypomnienie przed uruchomieniem, ``blocker`` mówi, czego brakuje w Ustawieniach taty,\n``open_in_excel`` to zdanie o INTERMAX otwartym w Excelu, a ``last`` to karta ostatniego Uporządkowania\nINTERMAX z jego Logów Uruchomienia (``None``: żadnego albo jego Logów nie da się odczytać)."
+      },
       "KindTableCell": {
         "properties": {
           "source": {
@@ -2633,7 +3025,8 @@
               "run",
               "rerun",
               "open_collective_file",
-              "open_worker_settlements_folder"
+              "open_worker_settlements_folder",
+              "open_order_register"
             ],
             "title": "Next Action"
           },
@@ -3464,8 +3857,7 @@
             "type": "string",
             "enum": [
               "preparation",
-              "settlement",
-              "intermax"
+              "settlement"
             ],
             "title": "Process"
           },
@@ -3856,6 +4248,8 @@
             "enum": [
               "wyslana",
               "czeka_na_internet",
+              "czeka_na_token",
+              "odrzucona",
               "rozwiazana",
               "przeczytana"
             ],
@@ -3898,7 +4292,7 @@
           "waits_for"
         ],
         "title": "ReportQueued",
-        "description": "Zgłoszenie czeka w kolejce Skrzynki na tym komputerze i wyjdzie samo; ``waits_for``: na internet albo na klucz\ndo Zgłoszeń od Maksa (brak klucza albo klucz, którego Skrzynka odmówiła)."
+        "description": "Zgłoszenie czeka w Kolejce wysyłki na tym komputerze i wyjdzie samo, gdy będzie to, na co czeka."
       },
       "ReportReady": {
         "properties": {
@@ -3915,6 +4309,22 @@
         ],
         "title": "ReportReady",
         "description": "Zgłoszenia tego problemu jeszcze nie wysłano; „Wyślij do Maksa” wyśle podgląd z Diagnozy."
+      },
+      "ReportRejected": {
+        "properties": {
+          "state": {
+            "type": "string",
+            "const": "rejected",
+            "title": "State"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "state"
+        ],
+        "title": "ReportRejected",
+        "description": "Skrzynka Zgłoszeń odrzuciła treść tego Zgłoszenia: ani internet, ani Token do Zgłoszeń tego nie naprawią.\n\nPlik zostaje w Kolejce wysyłki, która spróbuje go dopiero przy następnym starcie Centrum, więc Centrum niczego nie\nobiecuje, tylko każe skontaktować się z Maksem."
       },
       "ReportSent": {
         "properties": {
@@ -4196,6 +4606,10 @@
           "confirms_readiness": {
             "type": "boolean",
             "title": "Confirms Readiness"
+          },
+          "register_name": {
+            "type": "string",
+            "title": "Register Name"
           }
         },
         "additionalProperties": false,
@@ -4206,10 +4620,11 @@
           "title",
           "period",
           "dry_run",
-          "confirms_readiness"
+          "confirms_readiness",
+          "register_name"
         ],
         "title": "RunInfo",
-        "description": "Uruchomienie procesu; ``confirms_readiness`` deklaruje proces: „Uruchom” potwierdza Gotowość."
+        "description": "Uruchomienie procesu; ``confirms_readiness`` i ``register_name`` deklaruje proces.\n\n``confirms_readiness``: „Uruchom” potwierdza Gotowość. ``register_name``: nazwa Rejestru zleceń z Komunikatów\nprocesu, pod którą karta proponuje otworzyć go przy Zatrzymaniu."
       },
       "RunInterrupted": {
         "properties": {
@@ -4273,7 +4688,8 @@
               "run",
               "rerun",
               "open_collective_file",
-              "open_worker_settlements_folder"
+              "open_worker_settlements_folder",
+              "open_order_register"
             ],
             "title": "Next Action"
           },
@@ -4357,6 +4773,9 @@
                     "$ref": "#/components/schemas/ReportQueued"
                   },
                   {
+                    "$ref": "#/components/schemas/ReportRejected"
+                  },
+                  {
                     "$ref": "#/components/schemas/ReportNotQueued"
                   }
                 ],
@@ -4366,6 +4785,7 @@
                     "not_queued": "#/components/schemas/ReportNotQueued",
                     "queued": "#/components/schemas/ReportQueued",
                     "ready": "#/components/schemas/ReportReady",
+                    "rejected": "#/components/schemas/ReportRejected",
                     "sent": "#/components/schemas/ReportSent",
                     "waiting": "#/components/schemas/ReportWaiting"
                   }
@@ -4423,8 +4843,7 @@
             "type": "string",
             "enum": [
               "preparation",
-              "settlement",
-              "intermax"
+              "settlement"
             ],
             "title": "Process"
           },
@@ -4569,6 +4988,17 @@
               }
             ],
             "title": "Worker Settlements"
+          },
+          "intermax_copy": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Intermax Copy"
           }
         },
         "additionalProperties": false,
@@ -4787,6 +5217,9 @@
                 "$ref": "#/components/schemas/ReportQueued"
               },
               {
+                "$ref": "#/components/schemas/ReportRejected"
+              },
+              {
                 "$ref": "#/components/schemas/ReportNotQueued"
               }
             ],
@@ -4797,6 +5230,7 @@
                 "not_queued": "#/components/schemas/ReportNotQueued",
                 "queued": "#/components/schemas/ReportQueued",
                 "ready": "#/components/schemas/ReportReady",
+                "rejected": "#/components/schemas/ReportRejected",
                 "sent": "#/components/schemas/ReportSent",
                 "waiting": "#/components/schemas/ReportWaiting"
               }

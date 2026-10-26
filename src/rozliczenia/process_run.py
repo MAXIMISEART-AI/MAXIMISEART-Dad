@@ -21,6 +21,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 import time
+from types import MappingProxyType
 from typing import Any, Generic, Literal, Protocol, TypeVar
 
 from .call_trace import CallTrace
@@ -29,6 +30,7 @@ from .domain import ProgressEvent, ProgressObserver, ProgressPhase, StopKind
 from .message import Message, StopError
 from .progress import PhaseState, ProgressProjection, ProgressSnapshot
 from .telemetry import MetricsStore, RecordedStop, metric_record
+from .template_file import RouteCounts
 
 __all__ = [
     "Finished",
@@ -105,14 +107,16 @@ class Stop:
 
 @dataclass(frozen=True)
 class Finished:
-    """Fakty zakończonego procesu, te same w metrykach: wynik, liczniki i czasy etapów.
+    """Fakty zakończonego procesu, te same w metrykach: wynik, liczniki, czasy etapów i drogi zapisu.
 
-    Klucze ``counters`` to dokładnie ``Process.counter_names``.
+    Klucze ``counters`` to dokładnie ``Process.counter_names``. ``routes``: ile zapisanych plików każdego rodzaju
+    powstało każdą drogą zapisu z Wzorca (ADR 0008); proces, który nie pisze z Wzorca, nie ma żadnej.
     """
 
     result: Literal["OK", "WYMAGA_SPRAWDZENIA"]
     counters: Mapping[str, int]
     phase_durations_ms: Mapping[ProgressPhase, int]
+    routes: RouteCounts = field(default_factory=lambda: MappingProxyType({}))
 
 
 @dataclass(frozen=True)
@@ -320,6 +324,9 @@ def run_process(
         result=finished.result if finished else "BLAD_KRYTYCZNY",
         counters=finished.counters if finished else dict.fromkeys(process.counter_names, 0),
         stop=stop,
+        # Bez wyniku drogi zapisu są nieznane i rekord ma ich zero, tak jak liczników: także gdy zatrzymanie przyszło
+        # dopiero przy pokazaniu wyniku, a pliki z Wzorca już powstały.
+        routes=finished.routes if finished else {},
     )
     technical_notes: list[str] = []
     try:

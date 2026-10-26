@@ -33,7 +33,8 @@ from mutacje_skilli import PATTERN, ROOT, SKILLS, SRC, ci_command, executed, gua
 VERDICT = "SKILLE VERIFY"
 IN_CI = "LICZY CI"
 SHOWN = 3
-WORKFLOW = ROOT / ".github" / "workflows" / "ci.yml"
+# Pliki, w których CI wywołuje skrypty skilli: kroki ci.yml i kroki planu runu (E2E w zadaniach pytest).
+CI_FILES = (ROOT / ".github" / "workflows" / "ci.yml", ROOT / "tools" / "plan_ci.py")
 # Wywołanie skryptu skilla: skill, ścieżka skryptu w ``scripts/`` i argumenty do końca linii.
 SKILL_COMMAND = re.compile(r"\.agents/skills/([\w-]+)/scripts/([\w/]+\.py)((?:[ \t]+[^\s`\"']+)*)")
 
@@ -91,7 +92,7 @@ def ci_runs(skill: Path) -> list[tuple[str, ...]]:
     """Polecenia skilla (nazwa skryptu z argumentami), które liczy CI.
 
     To polecenie ``ci:`` i skrypty mutacji (zadanie Mutation checks) oraz wywołania skryptów skilla w krokach
-    ``ci.yml``. Klucz ``ci:``, którego nie da się odczytać, pomija: Mutation checks i tak na nim pada.
+    ``ci.yml`` i ``tools/plan_ci.py``. Klucz ``ci:``, którego nie da się odczytać, pomija: plan CI zgłasza go w Required.
     """
 
     try:
@@ -100,7 +101,7 @@ def ci_runs(skill: Path) -> list[tuple[str, ...]]:
         command = None
     runs = [(Path(command[0]).name, *command[1:])] if command else []
     runs += [(script.name,) for script in sorted(skill.glob(f"scripts/{PATTERN}"))]
-    workflow = WORKFLOW.read_text(encoding="utf-8") if WORKFLOW.is_file() else ""
+    workflow = "\n".join(path.read_text(encoding="utf-8") for path in CI_FILES if path.is_file())
     runs += [(Path(script).name, *arguments.split()) for name, script, arguments in SKILL_COMMAND.findall(workflow) if name == skill.name]
     return list(dict.fromkeys(runs))
 

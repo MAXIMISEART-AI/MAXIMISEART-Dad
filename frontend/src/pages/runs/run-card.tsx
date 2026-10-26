@@ -1,6 +1,7 @@
 import * as React from "react"
 import { cn } from "cn"
 import {
+  ArchiveIcon,
   CircleCheckIcon,
   CircleDashedIcon,
   CircleXIcon,
@@ -47,7 +48,7 @@ import { StopMessage, ThreePartMessage } from "@/components/three-part-message"
 import { WriteAboutRun } from "@/components/write-to-maks"
 import { useChangeEntrance } from "@/lib/content-entrance"
 import { dateTime, seconds } from "@/lib/format"
-import { useRuns } from "@/lib/runs"
+import { rerunOf, useRuns } from "@/lib/runs"
 import { FillingOnResult } from "@/pages/filling/filling-on-result"
 import { openAndConfirm, openOrderRegisterAndConfirm, type OpenedInPeriod } from "@/pages/periods/open-period-path"
 import { CountTiles, NumberStrip } from "@/pages/runs/count-tiles"
@@ -194,7 +195,7 @@ function InterruptedRunCard({ past, onNewRun }: { past: RunInterrupted; onNewRun
         <ThreePartMessage
           message={past.advice}
           kind="warning"
-          action={<RerunButton onRerun={() => start({ process: run.process, period: run.period, dry_run: run.dry_run })} />}
+          action={<RerunButton onRerun={() => start(rerunOf(run))} />}
         />
       </CardContent>
     </Card>
@@ -303,9 +304,7 @@ function RunOutcomeSection({ run, result, reminder }: { run: RunInfo; result: Ru
   // Czy i jak proponować Diagnozę, mówi serwer: przy niej przycisk „Diagnoza” zastępuje następną akcję.
   const offersDiagnosis = result.diagnosis !== null
 
-  const diagnosis = useStopDiagnosis(run.id, result.diagnosis, result.report, () =>
-    start({ process: run.process, period: run.period, dry_run: run.dry_run })
-  )
+  const diagnosis = useStopDiagnosis(run.id, result.diagnosis, result.report, () => start(rerunOf(run)))
 
   return (
     <>
@@ -371,6 +370,7 @@ function OutcomeBody({
           kind={result.stop_kind}
           headline={result.headline}
           period={run.period}
+          registerName={run.register_name}
           action={action}
           live={live}
         />
@@ -395,7 +395,7 @@ function OutcomeBody({
 function useNextAction(run: RunInfo, action: NextAction, reminder: string) {
   const { start } = useRuns()
   const [confirming, setConfirming] = React.useState(false)
-  const again = (dryRun: boolean) => start({ process: run.process, period: run.period, dry_run: dryRun })
+  const again = (dryRun: boolean) => start(rerunOf(run, dryRun))
 
   return {
     button: (
@@ -432,10 +432,11 @@ const STOPS: Record<StopKind, { kind: "stop" | "to_fix" | "declined"; note: stri
   declined: { kind: "declined", note: null },
 }
 
-const DAD_FILES: Record<DadFile, { label: string; open: (period: string) => void }> = {
-  order_register: { label: "Otwórz Rejestr zleceń", open: () => openOrderRegisterAndConfirm() },
+// Rejestr zleceń nosi nazwę z Komunikatów procesu (`register_name`), np. „INTERMAX” w Uporządkowaniu INTERMAX.
+const DAD_FILES: Record<DadFile, { label: (registerName: string) => string; open: (period: string) => void }> = {
+  order_register: { label: (registerName) => `Otwórz ${registerName}`, open: () => openOrderRegisterAndConfirm() },
   collective_file: {
-    label: "Otwórz Plik zbiorczy",
+    label: () => "Otwórz Plik zbiorczy",
     open: (period) => openAndConfirm(period, { target: "collective_file" }),
   },
 }
@@ -446,6 +447,7 @@ function RunStop({
   kind,
   headline,
   period,
+  registerName,
   action,
   live,
 }: {
@@ -453,6 +455,7 @@ function RunStop({
   kind: StopKind
   headline: string
   period: string
+  registerName: string
   action: React.ReactNode
   live: LiveStop | null
 }) {
@@ -471,7 +474,7 @@ function RunStop({
           {file === null ? null : (
             <Button size="sm" variant={live?.openFirst ? "default" : "outline"} onClick={() => file.open(period)}>
               <FileSpreadsheetIcon data-icon="inline-start" />
-              {file.label}
+              {file.label(registerName)}
             </Button>
           )}
           {action}
@@ -515,6 +518,13 @@ function NextActionButton({
         <Button size="sm" onClick={() => onOpen("worker_settlements_folder")}>
           <FolderOpenIcon data-icon="inline-start" />
           Otwórz folder rozliczeń pracowników
+        </Button>
+      )
+    case "open_order_register":
+      return (
+        <Button size="sm" onClick={openOrderRegisterAndConfirm}>
+          <FileSpreadsheetIcon data-icon="inline-start" />
+          Otwórz INTERMAX
         </Button>
       )
     default: {
@@ -564,6 +574,12 @@ function SummaryDetails({ summary, run }: { summary: RunSummary; run: RunInfo })
     <>
       {summary.counts === null ? null : <CountTiles title={summary.counts.title} counts={summary.counts.counts} />}
       {summary.files.length === 0 ? null : <PeriodFiles files={summary.files} onOpen={open} />}
+      {summary.intermax_copy == null ? null : (
+        <p className="flex items-center gap-2 text-sm text-muted-foreground">
+          <ArchiveIcon className="size-4 shrink-0" aria-hidden />
+          <span className="min-w-0 truncate">Kopia sprzed zapisu: {summary.intermax_copy}</span>
+        </p>
+      )}
       {summary.worker_settlements === null ? null : open === undefined ? (
         <FilePlan settlements={summary.worker_settlements} />
       ) : (

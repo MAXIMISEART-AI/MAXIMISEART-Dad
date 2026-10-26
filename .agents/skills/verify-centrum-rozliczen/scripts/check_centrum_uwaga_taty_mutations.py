@@ -13,10 +13,79 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "tools"))
 sys.path.insert(0, str(Path(__file__).resolve().parents[4] / ".agents/skills/verify-centrum-rozliczen/scripts"))
 
-from cele_mutacji_centrum import DAD_NOTES, UWAGA
+from cele_mutacji_centrum import BUILD, DAD_NOTES, UWAGA
 from mutacje import Edit, Mutation, check_all
 
+FIELDS = Edit(BUILD, "`-m-1 flex flex-col gap-5 overflow-y-auto p-1`", "`-m-1 flex min-h-0 flex-col gap-5 p-1`")
+DOTYCZY = Edit(
+    BUILD, "`has-data-[slot=radio-group]:min-h-32 has-[>p+[data-slot=radio-group]]:min-h-44`", "`min-h-0`"
+)
+PREVIEW = "`flex min-h-16 flex-col gap-1 overflow-y-auto rounded-lg bg-muted/50 p-3 text-sm`"
+CSS = BUILD.with_name("index.css")
+WITH_LIST = ":has([data-slot=radio-group]){min-height:calc(var(--spacing) * 32)}"
+WITH_SENTENCE = ":has(>p+[data-slot=radio-group]){min-height:calc(var(--spacing) * 44)}"
+
 MUTATIONS = (
+    Mutation(
+        "pola okna Uwagi się nie przewijają",
+        (FIELDS,),
+        UWAGA,
+        "przy niskim oknie przełącznik „Dotyczy” i „Maks dostanie” leżą pod stopką i nie da się do nich przewinąć (#488)",
+    ),
+    Mutation(
+        "okno Uwagi jak na main",
+        (FIELDS, DOTYCZY, Edit(BUILD, PREVIEW, PREVIEW.replace("min-h-16", "min-h-0"))),
+        UWAGA,
+        "przy niskim oknie „Dotyczy” kurczy się pod przełącznik, a pola się nie przewijają (#488)",
+    ),
+    Mutation(
+        "„Dotyczy” kurczy się pod przełącznik",
+        (DOTYCZY,),
+        UWAGA,
+        "przy niskim oknie lista Uruchomień albo przełącznik nachodzi na „Maks dostanie” (#488)",
+    ),
+    Mutation(
+        "„Dotyczy” z listą ma za duże minimum",
+        (Edit(CSS, WITH_LIST, WITH_LIST.replace("* 32", "* 72")),),
+        UWAGA,
+        "przy pełnym oknie lista Uruchomień jest wyższa, a „Maks dostanie” niższe niż na main (#498)",
+    ),
+    Mutation(
+        "„Dotyczy” z listą schodzi poniżej jednego wiersza",
+        (Edit(CSS, WITH_LIST, WITH_LIST.replace("* 32", "* 28")),),
+        UWAGA,
+        "przy niskim oknie lista Uruchomień nie pokazuje całego wiersza i nachodzi na „Maks dostanie” (#488)",
+    ),
+    Mutation(
+        "„Dotyczy” ze zdaniem nad listą ma minimum jak bez zdania",
+        (Edit(CSS, WITH_SENTENCE, WITH_SENTENCE.replace("* 44", "* 32")),),
+        UWAGA,
+        "przy niskim oknie Uwagi o Uruchomieniu spoza historii lista nie pokazuje całego wiersza (#488)",
+    ),
+    Mutation(
+        "„Maks dostanie” nie oddaje wysokości",
+        (Edit(BUILD, PREVIEW, PREVIEW.replace("min-h-16", "shrink-0")),),
+        UWAGA,
+        "przy pełnym oknie lista Uruchomień jest niższa niż na main, bo wysokość oddaje tylko ona (#498)",
+    ),
+    Mutation(
+        "„Maks dostanie” ma za duże minimum",
+        (
+            Edit(
+                CSS,
+                ".min-h-16{min-height:calc(var(--spacing) * 16)}",
+                ".min-h-16{min-height:calc(var(--spacing) * 16)}figure.min-h-16{min-height:calc(var(--spacing) * 40)}",
+            ),
+        ),
+        UWAGA,
+        "przy niskim oknie pola przewijają się, zanim „Maks dostanie” odda wysokość do podpisu i pierwszej linii (#488)",
+    ),
+    Mutation(
+        "„Maks dostanie” kurczy się pod podpis",
+        (Edit(BUILD, PREVIEW, PREVIEW.replace("min-h-16", "min-h-10")),),
+        UWAGA,
+        "przy niskim oknie „Maks dostanie” nie pokazuje pierwszej linii (#488)",
+    ),
     Mutation(
         "komentarz z odnośnikiem do odrzuconych Logów nie powstaje",
         (
@@ -52,6 +121,18 @@ MUTATIONS = (
         (Edit(DAD_NOTES, "    if rejected(run_id):\n", "    if True:\n"),),
         UWAGA,
         "Uwaga obiecuje odnośnik do Logów, których nie ma w kolejce",
+    ),
+    Mutation(
+        "Uwaga bez Tokenu do Zgłoszeń czeka na internet",
+        (Edit(DAD_NOTES, 'contract.DadNoteWaiting(state="waiting", waits_for=hold)', 'contract.DadNoteWaiting(state="waiting", waits_for="internet")'),),
+        UWAGA,
+        "bez tokenu tata czyta, że Uwaga wyjdzie, gdy będzie internet, zamiast skontaktować się z Maksem (Q17)",
+    ),
+    Mutation(
+        "Uwaga odrzucona przez Skrzynkę czeka",
+        (Edit(DAD_NOTES, '    if hold == "rejected":\n        return contract.DadNoteRejected', "    if False:\n        return contract.DadNoteRejected"),),
+        UWAGA,
+        "tata czyta, że Uwaga czeka, choć Skrzynka odrzuciła jej treść (Q17)",
     ),
 )
 

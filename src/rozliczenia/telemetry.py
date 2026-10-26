@@ -8,14 +8,17 @@ import os
 from pathlib import Path
 import re
 from collections.abc import Mapping
+from types import MappingProxyType
 from typing import Any, TypedDict, get_args
 
 from .domain import PHASES, ProgressPhase, StopKind
 from .settlement_period import PERIOD_TOKEN_PATTERN
+from .template_file import Route, RouteCounts, TemplateKind
 
 
 # Wersja 2 dodaje ``stop``: Rodzaj Zatrzymania i kod Komunikatu przerwanego Uruchomienia procesu.
-METRICS_SCHEMA_VERSION = 2
+# Wersja 3 dodaje ``routes``: ile zapisanych plików każdego rodzaju powstało każdą drogą zapisu z Wzorca (ADR 0008).
+METRICS_SCHEMA_VERSION = 3
 MINIMUM_STATISTIC_SAMPLES = 5
 METRIC_MODES = frozenset({"RUN", "DRY-RUN"})
 METRIC_RESULTS = frozenset({"OK", "WYMAGA_SPRAWDZENIA", "BLAD_KRYTYCZNY"})
@@ -28,6 +31,8 @@ PERIOD_PATTERN = re.compile(rf"^(?:{PERIOD_TOKEN_PATTERN}|{UNKNOWN_PERIOD})$")
 STOP_KINDS = frozenset(get_args(StopKind))
 # Kod Komunikatu, nigdy jego treść (ADR 0004): wielkie litery, cyfry i podkreślenia, bez ścieżek i danych klientów.
 STOP_CODE_PATTERN = re.compile(r"[A-Z][A-Z0-9_]{0,63}")
+ROUTE_NAMES = frozenset(route.value for route in Route)
+TEMPLATE_KIND_NAMES = frozenset(kind.value for kind in TemplateKind)
 _V1_FIELDS = frozenset(
     {
         "schema_version",
@@ -42,7 +47,7 @@ _V1_FIELDS = frozenset(
     }
 )
 # Pola rekordu każdej czytanej wersji schematu; stare rekordy zostają w historii taty.
-_FIELDS_BY_VERSION = {1: _V1_FIELDS, METRICS_SCHEMA_VERSION: _V1_FIELDS | {"stop"}}
+_FIELDS_BY_VERSION = {1: _V1_FIELDS, 2: _V1_FIELDS | {"stop"}, METRICS_SCHEMA_VERSION: _V1_FIELDS | {"stop", "routes"}}
 
 
 class RecordedStop(TypedDict):
@@ -62,12 +67,16 @@ def metric_record(
     result: str,
     counters: Mapping[str, int],
     stop: RecordedStop | None,
+    routes: RouteCounts = MappingProxyType({}),
 ) -> dict[str, Any]:
     """Rekord jednego Uruchomienia procesu w schemacie sprawdzanym przez ``MetricsStore``.
 
     Rekord z wynikiem ``BLAD_KRYTYCZNY`` jest niezakończony i ma ``stop``; każdy
     inny ma ``stop`` równe ``None``. Okres spoza wzorca okresu trafia jako
-    ``nieznany``, a etap bez zmierzonego czasu ma ``0`` ms.
+    ``nieznany``, a etap bez zmierzonego czasu ma ``0`` ms. ``routes`` ma dla
+    każdego rodzaju pliku z Wzorca liczbę zapisanych plików każdej drogi zapisu, a droga bez plików ``0``;
+    domyślnie nie ma żadnego pliku. Rozliczenie wewnętrzne powstaje zawsze drogą openpyxl, więc dopiero
+    rodzaj pliku mówi, czy kopia nie przyjęła Wzorca, który przyjmuje.
     """
 
     return {
@@ -81,6 +90,7 @@ def metric_record(
         "phase_durations_ms": {phase: phase_durations_ms.get(ProgressPhase(phase), 0) for phase in PHASES},
         "counters": dict(counters),
         "stop": stop,
+        "routes": {kind.value: {route.value: routes.get((kind, route), 0) for route in Route} for kind in TemplateKind},
     }
 
 
@@ -97,13 +107,27 @@ def _is_valid_stop(stop: object, result: object) -> bool:
     return isinstance(kind, str) and kind in STOP_KINDS and isinstance(code, str) and bool(STOP_CODE_PATTERN.fullmatch(code))
 
 
+def _are_valid_routes(routes: object) -> bool:
+    return (
+        isinstance(routes, dict)
+        and set(routes) == TEMPLATE_KIND_NAMES
+        and all(
+            isinstance(counts, dict)
+            and set(counts) == ROUTE_NAMES
+            and all(_is_nonnegative_int(count) for count in counts.values())
+            for counts in routes.values()
+        )
+    )
+
+
 def _is_valid_record(record: object, counter_names: frozenset[str] = COUNTER_NAMES) -> bool:
     if not isinstance(record, dict):
         return False
     version = record.get("schema_version")
     if type(version) is not int or _FIELDS_BY_VERSION.get(version) != frozenset(record):
         return False
-    if version != 1 and not _is_valid_stop(record["stop"], record["result"]):
+    routes_valid = version != METRICS_SCHEMA_VERSION or _are_valid_routes(record["routes"])
+    if not routes_valid or (version != 1 and not _is_valid_stop(record["stop"], record["result"])):
         return False
     started_at = record["started_at"]
     if not isinstance(started_at, str):
@@ -145,7 +169,8 @@ class MetricsStore:
     Każdy proces ma własną historię i własny zestaw liczników; domyślny zestaw
     to liczniki Przebiegu rozliczeń. Rekordy z innym zestawem są odrzucane.
     ``read`` zwraca też rekordy wersji 1, które nie mają ``stop``: nie wiadomo,
-    jakiego rodzaju było ich Zatrzymanie.
+    jakiego rodzaju było ich Zatrzymanie, oraz rekordy wersji 1 i 2 bez ``routes``:
+    nie wiadomo, którą drogą powstały ich pliki.
     """
 
     def __init__(self, path: Path, counter_names: frozenset[str] = COUNTER_NAMES):

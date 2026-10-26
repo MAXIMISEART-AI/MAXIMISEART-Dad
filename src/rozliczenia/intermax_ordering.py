@@ -3,8 +3,8 @@
 Jedyną operacją publiczną jest ``order_register()``. Silnik sekwencjonuje cztery etapy i jako jedyny tłumaczy fakty
 rozpoznania, planu dnia i zapisu na Komunikaty: Sprawdzanie (INTERMAX jest i nie jest otwarty w Excelu), Odczyt
 danych (``intermax_file.Register``), Planowanie (``raw_orders.recognize`` w każdym arkuszu zleceń i
-``raw_orders.plan_day``) i Zapisywanie (``intermax_file.save`` z Kopią INTERMAX z ``intermax_copies`` przed
-podmianą). Nie ma podglądu bez zapisu ani Decyzji taty. Zatrzymania zgłasza jako ``StopError``, a wynik nie zawiera
+``raw_orders.plan_day`` z widokiem na dzisiejszy dzień z ``now``) i Zapisywanie (``intermax_file.save`` z Kopią
+INTERMAX z ``intermax_copies`` przed podmianą). Nie ma podglądu bez zapisu ani Decyzji taty. Zatrzymania zgłasza jako ``StopError``, a wynik nie zawiera
 danych klientów.
 """
 
@@ -116,7 +116,7 @@ def order_register(
         [(sheet, recognized)] = found
         if not isinstance(recognized, RawBlock):
             raise StopError(_obstacle(register_path, sheet.name, recognized))
-        return sheet, recognized, raw_orders.plan_day(recognized)
+        return sheet, recognized, raw_orders.plan_day(recognized, sheet.rows_from_bottom(), sheet.columns, now().date())
 
     sheet, block, day = phases.plan(plan, issue_count=lambda _: 0)
     copies: list[Path] = []
@@ -165,3 +165,17 @@ def _obstacle(register: Path, sheet: str, obstacle: Obstacle) -> Message:
             return messages.several_days(register, sheet, days, first_row, last_row)
         case DayOrdered(day, first_row, last_row):
             return messages.day_already_ordered(register, sheet, day, first_row, last_row)
+
+
+def register_problem(register_path: Path) -> Message | None:
+    """Komunikat, którym Sprawdzanie albo Odczyt danych zatrzymałyby Uporządkowanie INTERMAX; ``None``, gdy przechodzą.
+
+    Tylko czyta, więc Diagnoza sprawdza INTERMAX tą samą regułą co proces. ``Register.read`` sprawdza najpierw to
+    samo co Sprawdzanie i daje ten sam Komunikat, więc wystarcza sam.
+    """
+
+    try:
+        register = Register.read(register_path)
+    except WorkbookError as error:
+        return messages.register_unusable(error)
+    return None if register.order_sheets else messages.no_order_sheet(register_path)

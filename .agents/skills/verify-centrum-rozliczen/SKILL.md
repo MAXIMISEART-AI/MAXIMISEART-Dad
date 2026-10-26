@@ -20,7 +20,7 @@ server's answer and the files on disk.
 
 CI runs `run_centrum_verification.py --feature all` (the `ci:` key) and the `check_centrum_<feature>_mutations.py` scripts
 in Mutation checks on Windows whenever a change touches this skill; a red run leaves its evidence in
-the `mutation-checks-evidence-<part>` artifact. Run `all` and the mutations locally only to reproduce
+the `evidence-<job id>-<attempt>` artifact (e.g. `evidence-mutacje-2-1`). Run `all` and the mutations locally only to reproduce
 a red Mutation checks step. What stays with you: drive the feature you change, as a background
 command, and look at its screenshots after a UI change, because a passing run does not judge visual
 quality. `wydajnosc` is never part of `all` and runs only locally (`features/wydajnosc.md`).
@@ -35,7 +35,7 @@ py -3 .agents\skills\verify-centrum-rozliczen\scripts\run_centrum_verification.p
 
 `--feature ustawienia`, `--feature tablica-okresow`, `--feature uklad-folderow-taty`, `--feature konfiguracja`, `--feature aktualizacja`,
 `--feature metryki`, `--feature blad-odczytu`, `--feature przygotowanie-pliku-zbiorczego`, `--feature uzupelnienie`,
-`--feature przebieg-rozliczen`, `--feature kontrola-ilosci`, `--feature diagnoza`, `--feature aktualnosc-i-onedrive`, `--feature zgloszenie`, `--feature uwaga-taty`, `--feature logi-uruchomienia`, `--feature karta-z-logow`, `--feature powiadomienia`, `--feature pomiar-u-taty`, or `--feature start-i-zamykanie` drives one
+`--feature przebieg-rozliczen`, `--feature uporzadkowanie-intermax`, `--feature kopie-intermax`, `--feature kontrola-ilosci`, `--feature diagnoza`, `--feature aktualnosc-i-onedrive`, `--feature zgloszenie`, `--feature uwaga-taty`, `--feature logi-uruchomienia`, `--feature karta-z-logow`, `--feature powiadomienia`, `--feature pomiar-u-taty`, or `--feature start-i-zamykanie` drives one
 feature; the default `all` drives every feature in `features/` except `wydajnosc`, ending
 with `start-i-zamykanie`, which closes Centrum through its own button. In `all`,
 Dad's whole week runs in order: Przygotowanie pliku zbiorczego, the summary of
@@ -86,7 +86,8 @@ Explorer appends the path to `<root>/opened.jsonl` instead of launching an
 application. While `<root>/pacing/szablony-ms.txt` exists, each Szablon
 pracownika of a Przebieg rozliczeń RUN waits that many milliseconds, so the
 live progress and the refused closing can be observed; the drive turns it on
-for one RUN only. The Diagnoza never reaches GitHub: the commit of the newest Wydanie on `main` is the
+for one RUN only. Uporządkowanie INTERMAX keeps its Kopie INTERMAX in `<root>/Kopie INTERMAX`, and its clock is the
+fixture's "today" at the computer's time of day. The Diagnoza never reaches GitHub: the commit of the newest Wydanie on `main` is the
 tool's own unless `<root>/github/main-commit.txt` names another, its tag is in `<root>/github/wydanie.txt`, the published Wydania with their notes are `<root>/github/wydania.json` in GitHub's shape, `<root>/github/brak-sieci`
 means no network, and a full path listed in `<root>/onedrive/tylko-w-chmurze.txt` is a
 OneDrive file „tylko online” on every system. Zgłoszenia never reach GitHub
@@ -216,8 +217,10 @@ Then confirm the evidence directory still exists.
   `scripts/check_centrum_aktualizacja_mutations.py`,
   `scripts/check_centrum_diagnoza_mutations.py`,
   `scripts/check_centrum_karta_z_logow_mutations.py`,
+  `scripts/check_centrum_kopie_intermax_mutations.py`,
   `scripts/check_centrum_przebieg_rozliczen_mutations.py`,
   `scripts/check_centrum_przygotowanie_pliku_zbiorczego_mutations.py`,
+  `scripts/check_centrum_uporzadkowanie_intermax_mutations.py`,
   `scripts/check_centrum_uwaga_taty_mutations.py`,
   `scripts/check_centrum_uzupelnienie_mutations.py`,
   `scripts/check_centrum_zgloszenie_mutations.py`.

@@ -177,6 +177,8 @@ class Opened(_Model):
 
 # Każdy proces ma klucz, ten sam w Uruchomieniach i w Metrykach.
 ProcessKey = Literal["preparation", "settlement", "intermax"]
+# Proces, którego Uruchomienie tata wybiera z okresem; Uporządkowanie INTERMAX ma własną kartę poza okresami.
+PeriodProcessKey = Literal["preparation", "settlement"]
 RunMode = Literal["RUN", "DRY-RUN"]
 RunResult = Literal["OK", "WYMAGA_SPRAWDZENIA", "BLAD_KRYTYCZNY"]
 # Rodzaj Zatrzymania zapisany w metrykach, bez powtórki, którą Centrum pamięta tylko do zamknięcia.
@@ -308,7 +310,7 @@ class ProcessSetup(_Model):
     uruchomieniem, czy „Uruchom” potwierdza Gotowość, i podpowiedź „Podgląd bez zapisu”.
     """
 
-    process: ProcessKey
+    process: PeriodProcessKey
     title: str
     creates: str
     reminder: str
@@ -326,7 +328,7 @@ class RunSetup(_Model):
 class RunRequest(_Model):
     """Start Uruchomienia procesu; pliki wejściowe wylicza serwer z ustawień i okresu."""
 
-    process: ProcessKey
+    process: PeriodProcessKey
     period: str
     dry_run: bool
 
@@ -356,7 +358,11 @@ class Progress(_Model):
 
 
 class RunInfo(_Model):
-    """Uruchomienie procesu; ``confirms_readiness`` deklaruje proces: „Uruchom” potwierdza Gotowość."""
+    """Uruchomienie procesu; ``confirms_readiness`` i ``register_name`` deklaruje proces.
+
+    ``confirms_readiness``: „Uruchom” potwierdza Gotowość. ``register_name``: nazwa Rejestru zleceń z Komunikatów
+    procesu, pod którą karta proponuje otworzyć go przy Zatrzymaniu.
+    """
 
     id: str
     process: ProcessKey
@@ -364,6 +370,7 @@ class RunInfo(_Model):
     period: str
     dry_run: bool
     confirms_readiness: bool
+    register_name: str
 
     @property
     def mode(self) -> RunMode:
@@ -564,6 +571,8 @@ class RunSummary(_Model):
     counts: CountGroup | None
     files: list[PeriodFile]
     worker_settlements: list[WorkerSettlement] | None
+    intermax_copy: str | None = None
+    """Nazwa Kopii INTERMAX sprzed zapisu Uporządkowania INTERMAX; ``None`` w innych procesach i w Logach sprzed niej."""
 
 
 class ReportDraft(_Model):
@@ -591,12 +600,26 @@ class ReportWaiting(_Model):
     state: Literal["waiting"]
 
 
+# Na co czeka wysyłka taty w Kolejce wysyłki: ``internet`` albo ``key``, czyli Token do Zgłoszeń od Maksa (brak
+# tokenu albo token, którego Skrzynka Zgłoszeń odmówiła).
+WaitsFor = Literal["internet", "key"]
+
+
 class ReportQueued(_Model):
-    """Zgłoszenie czeka w kolejce Skrzynki na tym komputerze i wyjdzie samo; ``waits_for``: na internet albo na klucz
-    do Zgłoszeń od Maksa (brak klucza albo klucz, którego Skrzynka odmówiła)."""
+    """Zgłoszenie czeka w Kolejce wysyłki na tym komputerze i wyjdzie samo, gdy będzie to, na co czeka."""
 
     state: Literal["queued"]
-    waits_for: Literal["internet", "key"]
+    waits_for: WaitsFor
+
+
+class ReportRejected(_Model):
+    """Skrzynka Zgłoszeń odrzuciła treść tego Zgłoszenia: ani internet, ani Token do Zgłoszeń tego nie naprawią.
+
+    Plik zostaje w Kolejce wysyłki, która spróbuje go dopiero przy następnym starcie Centrum, więc Centrum niczego nie
+    obiecuje, tylko każe skontaktować się z Maksem.
+    """
+
+    state: Literal["rejected"]
 
 
 class ReportNotQueued(_Model):
@@ -607,7 +630,8 @@ class ReportNotQueued(_Model):
 
 
 ReportState = Annotated[
-    ReportReady | ReportSent | ReportWaiting | ReportQueued | ReportNotQueued, Field(discriminator="state")
+    ReportReady | ReportSent | ReportWaiting | ReportQueued | ReportRejected | ReportNotQueued,
+    Field(discriminator="state"),
 ]
 
 
@@ -620,7 +644,7 @@ StopKind = Literal[RecordedStopKind, "repeated", "declined"]
 # nieoczekiwany wyjątek, przy którym przeglądarka zaczyna Diagnozę od razu po pokazaniu wyniku.
 DiagnosisOffer = Literal["on_request", "automatic"]
 # Otwarcie tego, co proces zapisał: akcja po wyniku z zapisem, którą deklaruje proces (``run_view``).
-ResultAction = Literal["open_collective_file", "open_worker_settlements_folder"]
+ResultAction = Literal["open_collective_file", "open_worker_settlements_folder", "open_order_register"]
 NextAction = Literal["run", "rerun", ResultAction]
 
 
@@ -742,6 +766,71 @@ class RunCardMissing(_Model):
 RunCard = Annotated[RunRestored | RunCardMissing, Field(discriminator="state")]
 
 
+class IntermaxSetup(_Model):
+    """Karta „Uporządkuj INTERMAX” poza okresami: INTERMAX to Rejestr zleceń z Ustawień taty.
+
+    ``reminder`` to przypomnienie przed uruchomieniem, ``blocker`` mówi, czego brakuje w Ustawieniach taty,
+    ``open_in_excel`` to zdanie o INTERMAX otwartym w Excelu, a ``last`` to karta ostatniego Uporządkowania
+    INTERMAX z jego Logów Uruchomienia (``None``: żadnego albo jego Logów nie da się odczytać).
+    """
+
+    title: str
+    reminder: str
+    blocker: str | None
+    open_in_excel: list[str]
+    last: RunRestored | None
+
+
+# Przed czym powstała Kopia INTERMAX: przed Uporządkowaniem INTERMAX albo przed przywróceniem innej Kopii.
+IntermaxCopyBefore = Literal["ordering", "restore"]
+
+
+class IntermaxCopy(_Model):
+    """Kopia INTERMAX w folderze Kopii: nazwa pliku, chwila z nazwy i to, przed czym powstała."""
+
+    name: str
+    taken_at: datetime
+    before: IntermaxCopyBefore
+
+
+class IntermaxCopies(_Model):
+    """Kopie INTERMAX w Konfiguracji, od najnowszej.
+
+    ``problem`` to Komunikat, gdy folderu Kopii nie da się odczytać; ``copies`` jest wtedy puste.
+    """
+
+    copies: list[IntermaxCopy]
+    problem: Message | None
+
+
+class IntermaxRestoreRequest(_Model):
+    """Przywrócenie Kopii INTERMAX ``name``, którą wymieniła lista Kopii."""
+
+    name: str
+
+
+class IntermaxRestored(_Model):
+    """INTERMAX ma bajty Kopii ``restored``, a jego stan sprzed przywrócenia leży jako Kopia ``previous``.
+
+    ``warnings``: Komunikaty o tym, czego przywrócenie nie dokończyło (starsze Kopie zostały).
+    """
+
+    state: Literal["restored"]
+    restored: IntermaxCopy
+    previous: IntermaxCopy
+    warnings: list[Message]
+
+
+class IntermaxRestoreRefused(_Model):
+    """Przywrócenie odmówiło z Komunikatem; INTERMAX i Kopie zostały takie, jak były."""
+
+    state: Literal["refused"]
+    message: Message
+
+
+IntermaxRestore = Annotated[IntermaxRestored | IntermaxRestoreRefused, Field(discriminator="state")]
+
+
 class RunEvent(_Model):
     """Jedno zdarzenie strumienia SSE: kolejny numer i pełny widok bieżącego Uruchomienia procesu."""
 
@@ -824,8 +913,8 @@ class WorkersUnreadable(_Model):
 Workers = Annotated[WorkersReady | WorkersUnreadable, Field(discriminator="state")]
 
 
-# Klucz do Zgłoszeń na tym komputerze: ``ready`` („Zgłoszenia: gotowe”: jest, a Skrzynka go nie odrzuciła, także bez
-# sieci), ``missing_key`` albo ``refused_key`` (Skrzynka Zgłoszeń odmówiła tego klucza); nigdy jego wartość.
+# Token do Zgłoszeń na tym komputerze: ``ready`` („Zgłoszenia: gotowe”: jest, a Skrzynka go nie odrzuciła, także
+# bez sieci), ``missing_key`` albo ``refused_key`` (Skrzynka Zgłoszeń odmówiła tego tokenu); nigdy jego wartość.
 ReportKeyState = Literal["ready", "missing_key", "refused_key"]
 
 
@@ -950,17 +1039,25 @@ class DadNoteSent(_Model):
 
 
 class DadNoteWaiting(_Model):
-    """Uwaga taty czeka w kolejce (brak internetu, klucza albo odmowa) i wyjdzie sama, także po następnym starcie."""
+    """Uwaga taty czeka w Kolejce wysyłki i wyjdzie sama, także po następnym starcie, gdy będzie to, na co czeka."""
 
     state: Literal["waiting"]
+    waits_for: WaitsFor
 
 
-DadNoteState = Annotated[DadNoteSent | DadNoteWaiting, Field(discriminator="state")]
+class DadNoteRejected(_Model):
+    """Skrzynka Zgłoszeń odrzuciła treść Uwagi taty; jak ``ReportRejected``, Centrum niczego nie obiecuje."""
+
+    state: Literal["rejected"]
 
 
-# Stan sprawy taty (Uwagi albo Zgłoszenia) w Powiadomieniu: wysłana, czeka w kolejce na internet, rozwiązana
-# (Maks zamknął issue jako ``completed``: będzie w następnej wersji) albo przeczytana (``not_planned``: bez zmian).
-CaseState = Literal["wyslana", "czeka_na_internet", "rozwiazana", "przeczytana"]
+DadNoteState = Annotated[DadNoteSent | DadNoteWaiting | DadNoteRejected, Field(discriminator="state")]
+
+
+# Stan sprawy taty (Uwagi albo Zgłoszenia) w Powiadomieniu: wysłana, czeka w Kolejce wysyłki na internet albo na
+# Token do Zgłoszeń, odrzucona (Skrzynka odrzuciła jej treść), rozwiązana (Maks zamknął issue jako ``completed``:
+# będzie w następnej wersji) albo przeczytana (``not_planned``: bez zmian).
+CaseState = Literal["wyslana", "czeka_na_internet", "czeka_na_token", "odrzucona", "rozwiazana", "przeczytana"]
 
 
 class _Notification(_Model):
@@ -1048,6 +1145,10 @@ ApiOperation = Literal[
     "openWorkerSettlement",
     "getRunSetup",
     "startRun",
+    "getIntermaxSetup",
+    "startIntermax",
+    "getIntermaxCopies",
+    "restoreIntermaxCopy",
     "decideRun",
     "diagnoseRun",
     "reportRun",

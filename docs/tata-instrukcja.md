@@ -152,23 +152,28 @@ Brak internetu niczego nie psuje, dopóki niczego nie wysyłasz.
 ### Zgłoszenie → co zrobić
 
 Gdy Zgłoszenie nie może od razu wyjść, Centrum trzyma je na tym komputerze i
-wyśle je samo, bez klikania. W miejscu przycisku zobaczysz, na co czeka.
-W Powiadomieniach Zgłoszenie ma wtedy `Wyślę do Maksa, gdy będzie internet.`
+wyśle je samo, bez klikania. W miejscu przycisku zobaczysz, dlaczego czeka.
+W Powiadomieniach przy Zgłoszeniu zobaczysz to samo: na co czeka albo że
+trzeba skontaktować się z Maksem.
 
 - `Zgłoszenie czeka na internet. Wyśle się samo.` Niczego nie musisz robić.
-  Zgłoszenie wyjdzie najpóźniej minutę po powrocie internetu.
-- `Zgłoszenie czeka na klucz do Zgłoszeń. Daj znać Maksowi.` Na komputerze
-  nie ma klucza albo klucz przestał działać. Powiedz Maksowi. Gdy wpisze nowy
-  klucz, Zgłoszenie wyjdzie samo.
+  Zgłoszenie wyjdzie najpóźniej minutę po powrocie internetu. W
+  Powiadomieniach: `Wyślę do Maksa, gdy będzie internet.`
+- `Token do Zgłoszeń nie działa. Skontaktuj się z Maksem.` (z czerwoną ikoną)
+  Na komputerze nie ma Tokenu do Zgłoszeń albo przestał działać. Powiedz
+  Maksowi. Gdy go naprawi, Zgłoszenie wyjdzie samo.
+- `Tego Zgłoszenia nie da się wysłać. Skontaktuj się z Maksem.` Skrzynka
+  Zgłoszeń nie przyjęła tego Zgłoszenia. Internet tego nie naprawi. Powiedz
+  Maksowi.
 
 | Co się stało (fragment) | Co zrobić |
 |---|---|
 | „Nie udało się zapisać Zgłoszenia na tym komputerze” | Kliknij `Spróbuj ponownie`. Jeśli komunikat wraca, rozwiń `Co zostanie wysłane`, skopiuj treść i wklej ją do maila do Maksa. Po odświeżeniu karty najpierw kliknij `Diagnoza`. |
 
-Na stronie `Konfiguracja` widać `Zgłoszenia: gotowe`, gdy klucz do Zgłoszeń
-jest na komputerze, `Zgłoszenia: brak klucza`, gdy go nie ma, albo
-`Zgłoszenia: klucz odrzucony`, gdy GitHub go nie przyjmuje. Wtedy powiedz
-Maksowi. Klucz wpisuje Maks; Ty niczego tam nie wpisujesz.
+Na stronie `Konfiguracja` widać `Zgłoszenia: gotowe`, gdy Token do Zgłoszeń
+jest na komputerze, `Zgłoszenia: brak tokenu`, gdy go nie ma, albo
+`Zgłoszenia: token odrzucony`, gdy GitHub go nie przyjmuje. Wtedy powiedz
+Maksowi. Token wpisuje Maks; Ty niczego tam nie wpisujesz.
 
 ### Napisz do Maksa
 
@@ -184,13 +189,18 @@ otwiera się wtedy z tym Uruchomieniem już zaznaczonym. Maks dostanie jego
 proces, okres, tryb i wynik, więc nie musisz ich przepisywać.
 
 Bez internetu zobaczysz `Wyślę do Maksa, gdy będzie internet.` i nic więcej
-nie musisz robić: Uwaga wyjdzie sama.
+nie musisz robić: Uwaga wyjdzie sama. Gdy zobaczysz `Token do Zgłoszeń nie
+działa. Skontaktuj się z Maksem.`, Uwaga czeka na tym komputerze i wyjdzie
+sama, gdy Maks naprawi Token do Zgłoszeń. `Tej Uwagi nie da się wysłać.
+Skontaktuj się z Maksem.` znaczy, że Skrzynka Zgłoszeń jej nie przyjęła.
 
 ### Powiadomienia
 
 Dzwonek w prawym górnym rogu, obok ikony „Napisz do Maksa”, otwiera
 Powiadomienia. Widać tam Twoje Uwagi i Zgłoszenia, od najnowszych, i co się z
 nimi stało: `Wysłana do Maksa.`, `Wyślę do Maksa, gdy będzie internet.`,
+`Token do Zgłoszeń nie działa. Skontaktuj się z Maksem.`, `Tej Uwagi nie da
+się wysłać. Skontaktuj się z Maksem.` (przy Zgłoszeniu `Tego Zgłoszenia`),
 `Rozwiązana. Będzie w następnej wersji.` albo `Maks przeczytał.`.
 
 Gdy Maks wyda nową wersję narzędzia, nad listą pojawia się karta `Nowa wersja`
@@ -383,6 +393,7 @@ którego nie udało się usunąć, w Folderze okresu został wskazany plik.
 | „W Rejestrze zleceń brakuje” | Dopisz albo popraw wymieniony nagłówek w pierwszym wierszu arkusza ze zleceniami. Zapisz i zamknij Rejestr, uruchom ponownie. |
 | „więcej niż raz, więc nie wiadomo, z której kolumny brać dane” | Zostaw wymieniony nagłówek tylko w jednej kolumnie: zmień nazwę drugiej kolumny albo ją usuń. Zapisz i zamknij Rejestr, uruchom ponownie. |
 | „Zlecenia tego okresu są w więcej niż jednym arkuszu” | Przenieś zlecenia tego okresu do jednego z wymienionych arkuszy. Zapisz i zamknij Rejestr, uruchom ponownie. |
+| „Wklejone zlecenia na dole Rejestru zleceń nie są jeszcze uporządkowane, a mogą należeć do tego okresu” | W Centrum rozliczeń kliknij `Uporządkuj INTERMAX`, potem uruchom Przygotowanie ponownie. Jeśli Uporządkowanie się zatrzyma, jego komunikat mówi, który wiersz poprawić. |
 | „bez poprawnej daty w kolumnie DATA GODZ. POCZ.” | We wskazanych wierszach wpisz datę zlecenia albo wyczyść cały wiersz, jeśli jest zbędny. Zapisz i zamknij Rejestr, uruchom ponownie. |
 | „tak ani nie w SKUTECZNE” | `Gdzie` pokazuje komórki Rejestru zleceń, np. `L42081`: osobno puste i osobno z inną wartością, z jej treścią w cudzysłowie. We wszystkich wskazanych komórkach wpisz `tak` albo `nie`. Braki w `SKUTECZNE` poprawiaj w Rejestrze zleceń przed uruchomieniem, a nie w Rozliczeniu wewnętrznym, bo Rozliczenie wewnętrzne powstaje z Rejestru. Zapisz i zamknij Rejestr, uruchom ponownie. |
 | „spoza konfiguracji wykonawców” | Literówkę w `WYKONAWCA` popraw we wskazanych wierszach Rejestru. Nowego wykonawcę trzeba dopisać do konfiguracji wykonawców (`config\worker_mapping.yaml`, tej samej co w Przebiegu rozliczeń); poproś o to osobę utrzymującą narzędzie. |

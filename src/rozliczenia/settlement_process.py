@@ -78,6 +78,7 @@ def _finished(_inputs: SettlementInputs, summary: SettlementSummary) -> Finished
             "issues": len(summary.warnings),
         },
         phase_durations_ms=summary.phase_durations_ms,
+        routes=summary.routes,
     )
 
 

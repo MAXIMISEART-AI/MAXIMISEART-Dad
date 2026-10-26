@@ -42,6 +42,7 @@ from tests.fixtures.preparation import PERIOD, write_collective_template, write_
 from tests.fixtures.settlement import CellValue, write_quantity_source, write_template
 
 TODAY = date(2026, 9, 16)
+NOW = datetime(2026, 9, 16, 8, 30)
 SETTLEMENT_PERIOD = "01_07_09_2026"
 # Wiersze danych Pliku zbiorczego Przebiegu rozliczeń: znane URZĄDZENIA, nieznane (wiersz bez reguły) i prewencja.
 HEALTHY_COLLECTIVE_ROWS: tuple[dict[str, CellValue], ...] = (
@@ -56,6 +57,8 @@ GENERIC_500 = "W Centrum rozliczeń wystąpił nieoczekiwany błąd. Odśwież k
 DIAGNOSIS_UNEXPECTED = "Nie udało się sprawdzić: nieoczekiwany błąd."
 
 TEXT, LINES, XLSX, FOLDER = "tekst", "wiersze", "xlsx", "folder"
+# Kopia INTERMAX, którą Konfiguracja wymienia i przywraca: Rejestr zleceń świata sprzed dnia świata.
+INTERMAX_COPY = "INTERMAX przed uporządkowaniem 2026-09-15 08-00-00.xlsx"
 # Układ folderów taty: Foldery okresu obu procesów w folderze INEA miesiąca.
 MONTH = "Załączniki/Rozliczenia 2026/09_Wrzesien_2026"
 FILES: dict[str, tuple[str, str]] = {
@@ -72,7 +75,10 @@ FILES: dict[str, tuple[str, str]] = {
     "logi_uruchomien": ("logs/uruchomienia", FOLDER),
     "metryki_przygotowania": (".przygotowanie-pliku-zbiorczego-metrics.jsonl", LINES),
     "metryki_przebiegu": (".rozliczenia-metrics.jsonl", LINES),
+    "metryki_uporzadkowania": (".uporzadkowanie-intermax-metrics.jsonl", LINES),
     "rejestr": ("ZLECENIA INTERMAX OD 08_11_2021.xlsx", XLSX),
+    "kopia_intermax": (f"Kopie INTERMAX/{INTERMAX_COPY}", XLSX),
+    "folder_kopii_intermax": ("Kopie INTERMAX", FOLDER),
     "wzorzec_wewnetrzny": ("config/Wzorzec rozliczenia wewnętrznego.xlsx", XLSX),
     "wzorzec_zbiorczy": ("config/Wzorzec pliku zbiorczego.xlsx", XLSX),
     "wzorzec_pracownika": ("config/Wzorzec rozliczenia pracownika.xlsx", XLSX),
@@ -155,6 +161,12 @@ def _inaccessible(path: Path) -> None:
         list(path.iterdir()) if path.is_dir() else path.open("rb").close()
 
 
+def _open_in_excel(path: Path) -> None:
+    """Skoroszyt otwarty w Excelu: plik blokady ``~$…`` obok, jak zostawia go Excel taty."""
+
+    path.with_name(f"~${path.name}").write_bytes(b"\x00" * 165)
+
+
 def _readable_again(path: Path) -> None:
     if sys.platform == "win32":
         subprocess.run(["icacls", str(path), "/remove:d", os.environ["USERNAME"]], check=True, capture_output=True)
@@ -174,6 +186,7 @@ DAMAGES: dict[str, tuple[tuple[str, ...], Callable[[Path], None]]] = {
     "katalog_zamiast_pliku": ((TEXT, LINES, XLSX), _folder_instead_of_file),
     "plik_zamiast_folderu": ((FOLDER,), _file_instead_of_folder),
     "bez_odczytu": ((TEXT, LINES, XLSX, FOLDER), _inaccessible),
+    "otwarty_w_excelu": ((XLSX,), _open_in_excel),
 }
 
 
@@ -186,7 +199,11 @@ class World:
 
     @cached_property
     def engines(self) -> Engines:
-        return Engines(MetricsPaths(self.path("metryki_przygotowania"), self.path("metryki_przebiegu")))
+        return Engines(
+            MetricsPaths(
+                self.path("metryki_przygotowania"), self.path("metryki_przebiegu"), self.path("metryki_uporzadkowania")
+            )
+        )
 
     def app(self) -> FastAPI:
         log = CentrumLog(self.path("dziennik_centrum"))
@@ -210,6 +227,8 @@ class World:
             tool_freshness=FakeGitHub().freshness(),
             cloud_files=FakeOneDrive().cloud_files(),
             report_box=GitHubReportBox(transport=_offline_like_urllib),
+            intermax_copies=self.root / "Kopie INTERMAX",
+            now=lambda: NOW,
         )
 
     def client(self) -> TestClient:
@@ -237,6 +256,8 @@ def _build(root: Path) -> None:
     world.path("folder_okresu_przygotowania").mkdir()
     world.path("folder_zgloszen").mkdir(parents=True)
     write_register(world.path("rejestr"))
+    world.path("folder_kopii_intermax").mkdir()
+    shutil.copyfile(world.path("rejestr"), world.path("kopia_intermax"))
     write_internal_template(world.path("wzorzec_wewnetrzny"))
     write_collective_template(world.path("wzorzec_zbiorczy"))
     write_template(world.path("wzorzec_pracownika"))
@@ -257,12 +278,17 @@ def _build(root: Path) -> None:
         json.dumps({"schema_version": 1, "przeczytane": [READ_NOTIFICATION]}) + "\n", encoding="utf-8"
     )
     client = _remembering_choices(world)
-    assert client.post("/api/dad-notes", json=DAD_NOTE).json() == {"state": "waiting"}
+    assert client.post("/api/dad-notes", json=DAD_NOTE).json() == {"state": "waiting", "waits_for": "internet"}
     assert client.get(f"/api/periods/{SETTLEMENT_PERIOD}/quantities-to-fill").json()["state"] == "ready"
     for process, period in (("preparation", PERIOD), ("settlement", SETTLEMENT_PERIOD)):
         started = client.post("/api/runs", json={"process": process, "period": period, "dry_run": True})
         assert started.status_code == 200, started.json()
         assert finished_view(client)["result"]["ending"] == "finished"
+    # Wiersze Rejestru zleceń świata to zlecenia kilku dni bez wyglądu INTERMAX, więc Uporządkowanie INTERMAX zatrzymuje
+    # się dla taty bez zapisu; jego Logi i metryki powstają jak po każdym Uruchomieniu.
+    assert client.post("/api/intermax/run").status_code == 200
+    ordering = finished_view(client)["result"]
+    assert (ordering["ending"], ordering["stop_kind"]) == ("stop", "for_tata"), ordering["stops"]
     remembered = world.path("uruchomienia_centrum").read_text(encoding="utf-8").splitlines()
     world.path("adresy_skrzynki").write_text(
         "".join(
@@ -271,9 +297,16 @@ def _build(root: Path) -> None:
         ),
         encoding="utf-8",
     )
-    for name in ("metryki_przygotowania", "metryki_przebiegu", "uruchomienia_centrum", "dziennik_centrum", "sprawy_taty"):
+    for name in (
+        "metryki_przygotowania",
+        "metryki_przebiegu",
+        "metryki_uporzadkowania",
+        "uruchomienia_centrum",
+        "dziennik_centrum",
+        "sprawy_taty",
+    ):
         assert world.path(name).stat().st_size > 0, name
-    assert len(list(world.path("logi_uruchomien").iterdir())) == 2, "Logi Uruchomienia obu podglądów"
+    assert len(list(world.path("logi_uruchomien").iterdir())) == 3, "Logi Uruchomienia obu podglądów i Uporządkowania"
 
 
 Problems = list[str]
@@ -303,6 +336,18 @@ def _route(operation: str, method: str, path: str, body: object = None) -> Entry
     return Entry((operation,), call)
 
 
+def _start(client: TestClient, process: str, period: str, *, dry_run: bool) -> Any:
+    """Start Uruchomienia: proces z okresem przez ``startRun``, Uporządkowanie INTERMAX przez ``startIntermax``."""
+
+    if process == "intermax":
+        return client.post("/api/intermax/run")
+    return client.post("/api/runs", json={"process": process, "period": period, "dry_run": dry_run})
+
+
+def _start_operation(process: str) -> str:
+    return "startIntermax" if process == "intermax" else "startRun"
+
+
 def _process_run(process: str, period: str, *, saving: bool = False) -> Entry:
     """Uruchomienie procesu do wyniku: Podgląd bez zapisu albo Uruchomienie z zapisem.
 
@@ -312,8 +357,8 @@ def _process_run(process: str, period: str, *, saving: bool = False) -> Entry:
     where = "Uruchomienie z zapisem" if saving else "Podgląd bez zapisu"
 
     def call(client: TestClient, seen: Seen) -> Problems:
-        started = client.post("/api/runs", json={"process": process, "period": period, "dry_run": not saving})
-        problems = _http(started, "startRun", seen)
+        started = _start(client, process, period, dry_run=not saving)
+        problems = _http(started, _start_operation(process), seen)
         if started.status_code != 200:
             return problems
         result = finished_view(client)["result"]
@@ -322,7 +367,7 @@ def _process_run(process: str, period: str, *, saving: bool = False) -> Entry:
             problems.append(f"{where}: ogólny Komunikat ({result['ending']})")
         return problems + _http(client.get("/api/runs/current"), "getCurrentRun", seen)
 
-    return Entry(("startRun", "streamRunEvents", "getCurrentRun"), call)
+    return Entry((_start_operation(process), "streamRunEvents", "getCurrentRun"), call)
 
 
 def _diagnosis(process: str, period: str, *, report: bool) -> Entry:
@@ -338,7 +383,7 @@ def _diagnosis(process: str, period: str, *, report: bool) -> Entry:
             problems += _http(client.post(f"/api/runs/{run_id}/report"), "reportRun", seen)
         return problems
 
-    return Entry(("startRun", "streamRunEvents", "diagnoseRun") + (("reportRun",) if report else ()), call)
+    return Entry((_start_operation(process), "streamRunEvents", "diagnoseRun") + (("reportRun",) if report else ()), call)
 
 
 def _pinned_dad_note() -> Entry:
@@ -355,7 +400,7 @@ def _pinned_dad_note() -> Entry:
 
 def _run_with_diagnosis(client: TestClient, process: str, period: str) -> str | None:
     for _ in range(2):  # drugi raz to Powtórka, gdy pierwsze Zatrzymanie jest „dla taty”
-        started = client.post("/api/runs", json={"process": process, "period": period, "dry_run": True})
+        started = _start(client, process, period, dry_run=True)
         if started.status_code != 200:
             return None
         view = finished_view(client)
@@ -386,6 +431,7 @@ READ_NOTIFICATION = "zgloszenie-7-rozwiazana"
 LOGS_COMMENTS = [
     "https://github.com/MAXIMISEART-AI/MAXIMISEART-Dad-zgloszenia/issues/3#issuecomment-1",
     "https://github.com/MAXIMISEART-AI/MAXIMISEART-Dad-zgloszenia/issues/4#issuecomment-2",
+    "https://github.com/MAXIMISEART-AI/MAXIMISEART-Dad-zgloszenia/issues/5#issuecomment-3",
 ]
 VIEW_TIMING = {"kind": "navigation", "page": "okresy", "ready_ms": 120, "fcp_ms": None, "skeleton_ms": 40, "requests": []}
 ENTRIES: dict[str, Entry] = {
@@ -413,6 +459,11 @@ ENTRIES: dict[str, Entry] = {
         {"worker": "Adrian Testowy"},
     ),
     "getRunSetup": _route("getRunSetup", "GET", "/api/runs/setup"),
+    "getIntermaxSetup": _route("getIntermaxSetup", "GET", "/api/intermax"),
+    "getIntermaxCopies": _route("getIntermaxCopies", "GET", "/api/intermax/copies"),
+    "restoreIntermaxCopy": _route(
+        "restoreIntermaxCopy", "POST", "/api/intermax/copies/restore", {"name": INTERMAX_COPY}
+    ),
     "getMetrics": _route("getMetrics", "GET", "/api/metrics"),
     "getConfiguration": _route("getConfiguration", "GET", "/api/configuration"),
     "getNotifications": _route("getNotifications", "GET", "/api/notifications"),
@@ -427,10 +478,12 @@ ENTRIES: dict[str, Entry] = {
     "podglad[przygotowanie]": _process_run("preparation", PERIOD),
     "podglad[przebieg]": _process_run("settlement", SETTLEMENT_PERIOD),
     "zapis[przebieg]": _process_run("settlement", SETTLEMENT_PERIOD, saving=True),
+    "zapis[uporzadkowanie]": _process_run("intermax", "", saving=True),
     "diagnoza[przygotowanie]": _diagnosis("preparation", PERIOD, report=True),
     "diagnoza[przebieg]": _diagnosis("settlement", SETTLEMENT_PERIOD, report=False),
+    "diagnoza[uporzadkowanie]": _diagnosis("intermax", "", report=True),
 }
-DIAGNOSIS_ENTRIES = ("diagnoza[przygotowanie]", "diagnoza[przebieg]")
+DIAGNOSIS_ENTRIES = ("diagnoza[przygotowanie]", "diagnoza[przebieg]", "diagnoza[uporzadkowanie]")
 # Operacja kontraktu poza macierzą i powód; nowa operacja trafia do ENTRIES albo tutaj.
 NOT_SWEPT: dict[str, str] = {
     "getHealth": "tożsamość Centrum, nie czyta plików taty",

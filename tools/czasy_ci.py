@@ -3,26 +3,30 @@
 Zapis zadania. Zadania ``pytest`` i ``mutations`` kończą się poleceniem ``zadanie``, które zapisuje jeden plik JSON
 (artefakt ``czasy-zadanie-<zadanie>-<indeks macierzy>-<próba>``, 7 dni), także gdy zadanie padło:
 
-    {"wersja": 1, "run": 40259456807, "proba": 1, "szablon": "pytest", "zadanie": "pytest (Python 3.14, 1/2)",
+    {"wersja": 1, "run": 40259456807, "proba": 1, "szablon": "pytest", "zadanie": "pytest (Python 3.14, 1/4)",
      "tor": "windows-3.14", "zdarzenie": "push", "sha": "31bb7651...", "narzut_s": 17.0,
-     "jednostki": [{"klucz": "pytest:tests/test_adr.py", "s": 0.412, "status": "ok"}, ...], "bledy": []}
+     "jednostki": [{"klucz": "pytest:tests/test_adr.py", "s": 0.412, "status": "ok"}, ...], "bledy": [],
+     "plan": "9f2c...", "zadanie_planu": "windows-3.14-1"}
 
 Tor to system runnera i jego Python (``windows-3.11``, ``windows-3.14``, ``linux-3.14``). Klucz jednostki nie zależy od
 podziału na zadania, więc para tor i klucz wskazuje tę samą pracę w każdym runie:
 
     pytest:<plik testów>     suma czasów testów pliku, każdy setup + call + teardown (junit pytest, ``junit_family = "xunit1"``
                              w pyproject.toml); to nie ściana pliku, bo workery xdist biegną równolegle
-    krok:pytest              ściana kroku pytest zadania; ``krok:mutacje`` to ściana kroku Mutation checks
+    krok:pytest              ściana pytest zadania
     krok:e2e                 krok E2E (verify-rozliczenia --variant all)
-    krok:timing              trzy kroki straży czasu razem
-    skill:<skill>/ci         podstawa skilla, z linii ``OK``/``FAIL`` ``tools/mutacje_skilli.py`` (pełne sekundy)
-    skill:<skill>/<skrypt>   skrypt mutacji skilla, z tej samej linii
+    krok:timing              trzy polecenia straży czasu razem
+    krok:praca               ściana kroku, w którym ``tools/plan_ci.py wykonaj`` biegnie przez jednostki zadania
+    skill:<skill>/ci         podstawa skilla w zadaniu Mutation checks
+    skill:<skill>/<skrypt>   skrypt mutacji skilla; jego części z różnych zadań runu dają kilka obserwacji klucza
 
 Status jednostki to ``ok`` albo ``fail``; pominięty krok i pominięty skrypt nie są jednostką. Czasy kroków i start zadania
 podaje API zadań runu (``$GITHUB_API_URL/repos/<repo>/actions/runs/<run>/attempts/<próba>/jobs``, token z ``GH_TOKEN``,
 z dokładnością do sekundy), w którym zadanie znajduje się po nazwie swojego runnera. Narzut to sekundy od startu zadania do startu pierwszego kroku jednostki.
 Krok jednostki, który właśnie się skończył, API pokazuje przez chwilę bez wyniku (``conclusion: null``), więc zadanie
-czyta API ponownie, do 5 odczytów co sekundę; krok wciąż bez wyniku to błąd, a nie krok pominięty.
+czyta API ponownie, do 5 odczytów co sekundę; krok wciąż bez wyniku to błąd, a nie krok pominięty. Jednostki, które
+mierzy sam ``tools/plan_ci.py wykonaj`` (pytest, E2E, straż czasu, kroki skilli), i plan, z którego biegły (``plan`` to
+jego ``digest``), zapis bierze z jego pliku ``--wykonanie``.
 
 Scalenie. Na pushu do main ``Required CI status`` pobiera zapisy runu i poleceniem ``scal`` tworzy ``czasy-ci.json``
 (artefakt ``czasy-ci``, 30 dni), jedyne źródło czasów CI:
@@ -36,7 +40,13 @@ Obserwacje klucza idą po runie, próbie i zadaniu, więc te same zapisy dają t
 Wejście, którego brakuje albo którego nie da się odczytać, daje linię ``CZASY CI FAIL | ...`` i kod 1, a zapis powstaje
 z reszty. Pomiar nie zmienia werdyktu CI: jego kroki w ``ci.yml`` mają ``continue-on-error``.
 
-    python tools/czasy_ci.py zadanie --tor Windows-3.14.0 --junit junit.xml --wyjscie zapis.json
+Odczyt. ``z_mainu`` daje ``Czasy`` z artefaktów ``czasy-ci`` ostatnich ``ILE_RUNOW`` zielonych runów ``ci.yml`` na main
+(``gh``, w CI z ``GH_TOKEN``), które trzyma w katalogu: plan CI w świeżym katalogu runu, ``tools/szybko.py`` w
+``.git/czasy-ci`` wspólnym dla worktree, odświeżanym co ``ODSWIEZ_S``. Bez sieci, bez ``gh`` i bez artefaktu
+``Czasy`` są puste, a ``blad`` mówi dlaczego: czytający waży wtedy pracę domyślnie, zamiast padać. Obserwacje
+zadania z kilku prób runu liczą się z ostatniej.
+
+    python tools/czasy_ci.py zadanie --tor Windows-3.14.0 --junit junit.xml --wykonanie wykonanie.json --wyjscie zapis.json
     python3 tools/czasy_ci.py scal --katalog zapisy --wyjscie czasy-ci.json
 """
 
@@ -44,12 +54,15 @@ from __future__ import annotations
 
 import argparse
 from collections import defaultdict
+from collections.abc import Mapping
 from dataclasses import asdict, dataclass
 from datetime import datetime
 import json
 import os
 from pathlib import Path
-import re
+import shutil
+import statistics
+import subprocess
 import time
 from typing import Any, Literal
 import urllib.request
@@ -62,22 +75,13 @@ CZEKANIE_API_S = 1.0
 LIMIT_API_S = 20.0
 Status = Literal["ok", "fail"]
 # Kroki ci.yml, których czas jest jednostką; czasy kroków jednego klucza się sumują.
-KROKI = {
-    "Run tests": "krok:pytest",
-    "Run tests (Linux)": "krok:pytest",
-    "E2E (verify-rozliczenia --variant all)": "krok:e2e",
-    "Timing guard: generate synthetic Wzorce": "krok:timing",
-    "Timing guard: measure Przebieg rozliczeń (typowy tydzień)": "krok:timing",
-    "Timing guard: report timings and enforce the budget": "krok:timing",
-    "Run each verify skill's baseline check and prove it fails on broken variants": "krok:mutacje",
-}
-# Linia końca kroku ``tools/mutacje_skilli.py``; echo skryptów mutacji jej nie podrobi, bo nazwa kroku ma stałą postać.
-KONIEC_KROKU = re.compile(
-    r"(?P<wynik>OK {3}|FAIL )"
-    r"(?:PODSTAWA (?P<podstawa>[\w.-]+)|\.agents/skills/(?P<skill>[\w.-]+)/scripts/(?P<skrypt>check_\w+_mutations\.py))"
-    r" \((?P<s>\d+) s\)(?::|$)"
-)
-KONIEC_MUTACJI = "MUTACJE SKILLI "
+KROKI = {"Run the planned units": "krok:praca"}
+ARTEFAKT = "czasy-ci"
+ILE_RUNOW = 3
+ODSWIEZ_S = 24 * 3600
+# Tyle najnowszych artefaktów ``czasy-ci`` przegląda odczyt, szukając ``ILE_RUNOW`` z zielonych runów.
+SZUKANE_ARTEFAKTY = 30
+LIMIT_GH_S = 30.0
 
 
 @dataclass(frozen=True)
@@ -99,6 +103,46 @@ class Zapis:
     narzut_s: float | None
     jednostki: tuple[Jednostka, ...]
     bledy: tuple[str, ...]
+    plan: str | None = None  # digest planu, z którego zadanie biegło (tools/plan_ci.py)
+    zadanie_planu: str | None = None
+
+
+@dataclass(frozen=True)
+class Obserwacja:
+    run: int
+    zadanie: str
+    s: float
+
+
+@dataclass(frozen=True)
+class Czasy:
+    """Pomiary ostatnich runów main: tor -> klucz -> obserwacje z ostatniej próby każdego zadania."""
+
+    runy: tuple[int, ...]
+    tory: Mapping[str, Mapping[str, tuple[Obserwacja, ...]]]
+    blad: str | None = None
+
+    def praca(self, tor: str, klucz: str) -> float | None:
+        """Mediana po runach sumy klucza w runie: plik testów podzielony między zadania liczy się raz, cały."""
+
+        w_runie: dict[int, float] = defaultdict(float)
+        for obserwacja in self.tory.get(tor, {}).get(klucz, ()):
+            w_runie[obserwacja.run] += obserwacja.s
+        return statistics.median(w_runie.values()) if w_runie else None
+
+    def pliki(self, tor: str) -> dict[str, float]:
+        """Koszt każdego zmierzonego pliku testów toru: ``praca`` jego klucza ``pytest:``."""
+
+        return {klucz.removeprefix("pytest:"): s for klucz in self.tory.get(tor, {}) if klucz.startswith("pytest:") and (s := self.praca(tor, klucz)) is not None}
+
+    def zadania(self, tor: str) -> list[dict[str, float]]:
+        """Pomiary każdego zadania toru w każdym runie: klucz -> sekundy."""
+
+        zadania: dict[tuple[int, str], dict[str, float]] = defaultdict(dict)
+        for klucz, obserwacje in self.tory.get(tor, {}).items():
+            for obserwacja in obserwacje:
+                zadania[(obserwacja.run, obserwacja.zadanie)][klucz] = obserwacja.s
+        return [zadania[zadanie] for zadanie in sorted(zadania)]
 
 
 def _tor(runner: str) -> str:
@@ -128,16 +172,9 @@ def _junit(plik: Path) -> list[Jednostka]:
     return [Jednostka(f"pytest:{nazwa}", round(s, 3), "fail" if nazwa in porazki else "ok") for nazwa, s in sorted(sekundy.items())]
 
 
-def _mutacje(plik: Path) -> list[Jednostka]:
-    linie = plik.read_text(encoding="utf-8", errors="replace").splitlines()
-    if not any(linia.startswith(KONIEC_MUTACJI) for linia in linie):
-        raise ValueError(f"brak linii {KONIEC_MUTACJI.strip()} OK/FAIL, więc Mutation checks nie skończyły się")
-    jednostki = []
-    for linia in linie:
-        if koniec := KONIEC_KROKU.match(linia):
-            krok = f"{koniec['podstawa']}/ci" if koniec["podstawa"] else f"{koniec['skill']}/{koniec['skrypt']}"
-            jednostki.append(Jednostka(f"skill:{krok}", float(koniec["s"]), "ok" if koniec["wynik"].startswith("OK") else "fail"))
-    return jednostki
+def _wykonanie(plik: Path) -> tuple[str, str, list[Jednostka]]:
+    dane = json.loads(plik.read_text(encoding="utf-8"))
+    return dane["plan"], dane["zadanie"], [Jednostka(**jednostka) for jednostka in dane["jednostki"]]
 
 
 def _chwila(tekst: str) -> float:
@@ -195,12 +232,18 @@ def _zadanie(args: argparse.Namespace) -> int:
         jednostki += kroki
     except (OSError, ValueError, KeyError, TypeError) as error:
         bledy.append(f"API zadań runu: {error!r}")
-    for plik, czytaj in ((args.junit, _junit), (args.mutacje, _mutacje)):
-        if plik:
-            try:
-                jednostki += czytaj(plik)
-            except (OSError, ValueError) as error:
-                bledy.append(f"{plik.name}: {error!r}")
+    if args.junit:
+        try:
+            jednostki += _junit(args.junit)
+        except (OSError, ValueError) as error:
+            bledy.append(f"{args.junit.name}: {error!r}")
+    plan = zadanie_planu = None
+    if args.wykonanie:
+        try:
+            plan, zadanie_planu, wykonane = _wykonanie(args.wykonanie)
+            jednostki += wykonane
+        except (OSError, ValueError, KeyError, TypeError) as error:
+            bledy.append(f"{args.wykonanie.name}: {error!r}")
     zapis = Zapis(
         run=int(os.environ["GITHUB_RUN_ID"]),
         proba=int(os.environ["GITHUB_RUN_ATTEMPT"]),
@@ -212,6 +255,8 @@ def _zadanie(args: argparse.Namespace) -> int:
         narzut_s=narzut,
         jednostki=tuple(jednostki),
         bledy=tuple(bledy),
+        plan=plan,
+        zadanie_planu=zadanie_planu,
     )
     args.wyjscie.parent.mkdir(parents=True, exist_ok=True)
     args.wyjscie.write_text(json.dumps({"wersja": WERSJA, **asdict(zapis)}, indent=1), encoding="utf-8")
@@ -221,7 +266,7 @@ def _zadanie(args: argparse.Namespace) -> int:
     return 1 if bledy else 0
 
 
-def _wczytaj(plik: Path) -> Zapis:
+def wczytaj(plik: Path) -> Zapis:
     dane = json.loads(plik.read_text(encoding="utf-8"))
     if dane.pop("wersja") != WERSJA:
         raise ValueError(f"wersja zapisu inna niż {WERSJA}")
@@ -235,7 +280,7 @@ def _scal(args: argparse.Namespace) -> int:
     pliki = list(args.katalog.rglob("*.json"))
     for plik in pliki:
         try:
-            zapis = _wczytaj(plik)
+            zapis = wczytaj(plik)
         except (OSError, ValueError, KeyError, TypeError) as error:
             bledy.append(f"{plik.name}: {error!r}")
             continue
@@ -266,13 +311,82 @@ def _scal(args: argparse.Namespace) -> int:
     return 1 if bledy else 0
 
 
+def _gh(*argumenty: str) -> str:
+    return subprocess.run(["gh", *argumenty], capture_output=True, text=True, encoding="utf-8", check=True, timeout=LIMIT_GH_S).stdout
+
+
+def _pobierz(katalog: Path) -> None:
+    """Artefakty ``czasy-ci`` ``ILE_RUNOW`` najnowszych zielonych runów main do ``<run>.json``; starsze usuwa."""
+
+    zielone = set(_gh("api", "repos/{owner}/{repo}/actions/workflows/ci.yml/runs?branch=main&event=push&status=success&per_page=100", "--jq", ".workflow_runs[].id").split())
+    artefakty = _gh("api", f"repos/{{owner}}/{{repo}}/actions/artifacts?name={ARTEFAKT}&per_page={SZUKANE_ARTEFAKTY}", "--jq", ".artifacts[] | select(.expired | not) | .workflow_run.id")
+    runy = sorted({int(run) for run in artefakty.split() if run in zielone}, reverse=True)[:ILE_RUNOW]
+    for run in runy:
+        if not (katalog / f"{run}.json").is_file():
+            pobrany = katalog / f"{run}.pobieranie"
+            shutil.rmtree(pobrany, ignore_errors=True)
+            _gh("run", "download", str(run), "--name", ARTEFAKT, "--dir", str(pobrany))
+            (pobrany / f"{ARTEFAKT}.json").replace(katalog / f"{run}.json")
+            shutil.rmtree(pobrany)
+    for plik in katalog.glob("*.json"):
+        if plik.stem.isdigit() and int(plik.stem) not in runy:
+            plik.unlink()
+
+
+def _obserwacje(dokumenty: list[dict[str, Any]]) -> dict[str, dict[str, tuple[Obserwacja, ...]]]:
+    ostatnia: dict[tuple[str, int, str], int] = {}
+    for dokument in dokumenty:
+        for tor, klucze in dokument["tory"].items():
+            for obserwacje in klucze.values():
+                for o in obserwacje:
+                    miejsce = (tor, o["run"], o["zadanie"])
+                    ostatnia[miejsce] = max(ostatnia.get(miejsce, 0), o["proba"])
+    tory: dict[str, dict[str, tuple[Obserwacja, ...]]] = defaultdict(dict)
+    for dokument in dokumenty:
+        for tor, klucze in dokument["tory"].items():
+            for klucz, obserwacje in klucze.items():
+                wybrane = [Obserwacja(o["run"], o["zadanie"], float(o["s"])) for o in obserwacje if o["proba"] == ostatnia[(tor, o["run"], o["zadanie"])]]
+                tory[tor][klucz] = (*tory[tor].get(klucz, ()), *wybrane)
+    return tory
+
+
+def z_mainu(katalog: Path, *, odswiez_po_s: float = 0) -> Czasy:
+    """``Czasy`` z artefaktów w ``katalog``, który najpierw odświeża z GitHuba, gdy ostatnie udane pobranie jest starsze
+    niż ``odswiez_po_s``. Błąd sieci, ``gh`` albo pliku nie przerywa: ``Czasy`` mają wtedy to, co się dało, i ``blad``,
+    a następny odczyt próbuje pobrać znowu."""
+
+    blad = None
+    pobrane = katalog / "pobrane"
+    if not pobrane.is_file() or time.time() - pobrane.stat().st_mtime >= odswiez_po_s:
+        katalog.mkdir(parents=True, exist_ok=True)
+        try:
+            _pobierz(katalog)
+            pobrane.touch()
+        except (OSError, subprocess.SubprocessError) as error:
+            blad = f"pobranie {ARTEFAKT} z GitHuba: {getattr(error, 'stderr', None) or error}".strip()
+    dokumenty = []
+    for plik in sorted((plik for plik in katalog.glob("*.json") if plik.stem.isdigit()), key=lambda plik: int(plik.stem))[-ILE_RUNOW:]:
+        try:
+            dokumenty.append(json.loads(plik.read_text(encoding="utf-8")))
+        except (OSError, ValueError) as error:
+            blad = f"{plik.name}: {error}"
+    try:
+        tory = _obserwacje(dokumenty)
+        runy = tuple(sorted({run["run"] for dokument in dokumenty for run in dokument["runy"]}))
+    except (KeyError, TypeError, ValueError, AttributeError) as error:
+        return Czasy((), {}, f"{ARTEFAKT} w innym kształcie: {error!r}")
+    if not dokumenty and blad is None:
+        blad = f"brak artefaktu {ARTEFAKT} z zielonego runu main"
+    return Czasy(runy, tory, blad)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     polecenia = parser.add_subparsers(dest="polecenie", required=True)
     zadanie = polecenia.add_parser("zadanie", help="Zapis czasów jednego zadania runu (w zadaniu CI).")
     zadanie.add_argument("--tor", required=True, help="System runnera i wersja Pythona, np. Windows-3.14.0.")
     zadanie.add_argument("--junit", type=Path, help="Junit pytest (junit_family = xunit1 w pyproject.toml).")
-    zadanie.add_argument("--mutacje", type=Path, help="Wyjście tools/mutacje_skilli.py.")
+    zadanie.add_argument("--wykonanie", type=Path, help="Wynik tools/plan_ci.py wykonaj: jego jednostki i plan.")
     zadanie.add_argument("--wyjscie", type=Path, required=True)
     scal = polecenia.add_parser("scal", help="Scalenie zapisów zadań runu w czasy-ci.json (w Required na main).")
     scal.add_argument("--katalog", type=Path, required=True)

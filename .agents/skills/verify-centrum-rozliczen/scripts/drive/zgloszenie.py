@@ -8,6 +8,7 @@ import re
 
 from playwright.sync_api import Locator, Page, expect
 
+from drive import kontrola_ilosci
 from drive.common import (
     ROW_MARKER,
     Run,
@@ -25,9 +26,10 @@ PERIOD = "08_14_09_2026"
 TEMPLATE_MISSING = "Nie znaleziono wzorca, z którego powstają pliki okresu."
 NOT_FOUND = "Nie znalazłem przyczyny na tym komputerze."
 TITLE = f"BRAK_WZORCA: {TEMPLATE_MISSING} Nie utworzono żadnego pliku."
-FOR_KEY = "Zgłoszenie czeka na klucz do Zgłoszeń. Daj znać Maksowi."
+# The one element of Uwaga taty, Zgłoszenie and Powiadomienia when the Token do Zgłoszeń is missing or refused (Q17).
+FOR_KEY = "Token do Zgłoszeń nie działa. Skontaktuj się z Maksem."
 FOR_INTERNET = "Zgłoszenie czeka na internet. Wyśle się samo."
-QUEUED_NOTIFICATION = "Wyślę do Maksa, gdy będzie internet."
+REJECTED = "Tego Zgłoszenia nie da się wysłać. Skontaktuj się z Maksem."
 SENT = "Zgłoszenie wysłane do Maksa. Poczekaj na naprawę."
 WAITING = "Zgłoszenie tego problemu już jest wysłane i czeka na naprawę."
 # Synthetic key Maks would write; it must never reach the skrzynka, the log, an answer, or the browser.
@@ -179,12 +181,12 @@ def drive_report(run: Run, page: Page) -> None:
     run.capture(page, "61-zgloszenie-bez-klucza")
     page.locator("header").get_by_role("button", name="Powiadomienia", exact=False).click()
     rows = page.get_by_role("list", name="Powiadomienia").get_by_role("listitem", name=f"Zgłoszenie: {title.split(': ', 1)[1]}")
-    expect(rows.filter(has_text=QUEUED_NOTIFICATION)).to_have_count(1)
+    expect(rows.filter(has_text=FOR_KEY)).to_have_count(1)
     run.capture(page, "61b-zgloszenie-bez-klucza-powiadomienia")
 
     run.step(FEATURE, "zgloszenie-konfiguracja")
     page.get_by_role("link", name="Konfiguracja", exact=True).click()
-    expect(page.get_by_text("Zgłoszenia: brak klucza", exact=True)).to_be_visible()
+    expect(page.get_by_text("Zgłoszenia: brak tokenu", exact=True)).to_be_visible()
     run.capture(page, "62-zgloszenie-konfiguracja-brak-klucza")
     print("  harness: Maks writes the key to config/zgloszenia-klucz.txt", flush=True)
     key_file.write_text(KEY + "\n", encoding="utf-8")
@@ -200,7 +202,7 @@ def drive_report(run: Run, page: Page) -> None:
     refusing.touch()
     key_file.write_text(KEY + "_WYGASLY\n", encoding="utf-8")
     page.reload()
-    expect(page.get_by_text("Zgłoszenia: klucz odrzucony", exact=True)).to_be_visible()
+    expect(page.get_by_text("Zgłoszenia: token odrzucony", exact=True)).to_be_visible()
     refused = run.api("/api/configuration", "zgloszenie-konfiguracja-odrzucony")
     run.check(refused["reports"] == "refused_key", "Konfiguracja reports the refused key")
     run.capture(page, "63b-zgloszenie-konfiguracja-odrzucony")
@@ -362,3 +364,69 @@ def _one_open_report(run: Run, page: Page, box: Path, config: Path) -> None:
         "once the network is back the Zgłoszenie sends itself, exactly the preview, with no click",
     )
     run.capture(page, "73-zgloszenie-bez-sieci-wyslane")
+    _rejected_report(run, page, box, config)
+
+
+def _notification_ids(run: Run, name: str) -> set[str]:
+    items = run.api("/api/notifications", name)["items"]
+    assert isinstance(items, list)
+    return {str(item["id"]) for item in items}
+
+
+def _rejected_report(run: Run, page: Page, box: Path, config: Path) -> None:
+    """The skrzynka rejects the content of a Zgłoszenie: Dad is told to contact Maks, and the next start retries it."""
+
+    diagnosis = page.get_by_role("region", name="Diagnoza")
+    queue = config / "zgloszenia" / "kolejka"
+
+    run.step(FEATURE, "zgloszenie-odrzucone")
+    newest = _issues(box)[-1]
+    print(f"  harness: Maks closes Zgłoszenie {newest['number']}; the skrzynka rejects the content of every Zgłoszenie", flush=True)
+    closed = box / f"{newest['number']}.json"
+    closed.write_text(json.dumps({**json.loads(closed.read_text(encoding="utf-8")), "state": "closed"}), encoding="utf-8")
+    rejecting = box / "odrzuca-zgloszenie"
+    rejecting.touch()
+    try:
+        _stop_for_maks(run, page, "zgloszenie-odrzucone", missing="collective_template")
+        page.reload()
+        stop_banner(page).get_by_role("button", name="Diagnoza", exact=True).click()
+        diagnosis.get_by_role("button", name="Co zostanie wysłane", exact=True).click()
+        title, body = _shown_report(page)
+        diagnosis.get_by_role("button", name="Wyślij do Maksa", exact=True).click()
+        status = diagnosis.get_by_role("status").filter(has_text=REJECTED)
+        expect(status).to_be_visible()
+        run.check(status.locator("svg").count() == 1, "the rejection shows the error icon beside its sentence")
+        expect(diagnosis.get_by_text(FOR_INTERNET, exact=True)).to_have_count(0)
+        run.check(
+            _report_state(run, "zgloszenie-odrzucone") == {"state": "rejected"},
+            "the server says the skrzynka rejected the Zgłoszenie, not that it waits for the internet",
+        )
+        run.check([_queued_text(post) for post in _queued_reports(queue)] == [(title, body)], "the rejected Zgłoszenie stays in the queue")
+        run.check(len(_issues(box)) == 3, "the skrzynka got no new Zgłoszenie")
+        run.capture(page, "74-zgloszenie-odrzucone")
+        page.locator("header").get_by_role("button", name="Powiadomienia", exact=False).click()
+        rows = page.get_by_role("list", name="Powiadomienia").get_by_role("listitem", name=f"Zgłoszenie: {title.split(': ', 1)[1]}")
+        expect(rows.filter(has_text=REJECTED)).to_have_count(1)
+        run.capture(page, "74b-zgloszenie-odrzucone-powiadomienia")
+    finally:
+        rejecting.unlink(missing_ok=True)
+
+    run.step(FEATURE, "zgloszenie-odrzucone-po-starcie")
+    kontrola_ilosci._close(run, page)
+    kontrola_ilosci._start(run, "zgloszenie-start-po-odrzuceniu")
+    run.wait_for(lambda: _queued_reports(queue) == [], "at the next start the queue tries the rejected Zgłoszenie again", timeout_s=30)
+    issues = _issues(box)
+    run.check(
+        len(issues) == 4 and (issues[-1]["title"], issues[-1]["body"]) == (title, body),
+        "once the skrzynka takes it, the Zgłoszenie is exactly the preview",
+    )
+    sent_id = f"zgloszenie-{issues[-1]['number']}-wyslana"
+    run.wait_for(
+        lambda: sent_id in _notification_ids(run, "zgloszenie-odrzucone-po-starcie"),
+        "Powiadomienia show the Zgłoszenie the skrzynka took after the start as sent",
+    )
+    page.goto(run.url + "#/powiadomienia")
+    page.reload()
+    expect(page.get_by_role("list", name="Powiadomienia")).to_be_visible()
+    expect(rows.filter(has_text=REJECTED)).to_have_count(0)
+    run.capture(page, "75-zgloszenie-odrzucone-po-starcie")

@@ -1,0 +1,108 @@
+import { FileSpreadsheetIcon, HistoryIcon, InfoIcon, ListOrderedIcon, TriangleAlertIcon } from "lucide-react"
+
+import { getIntermaxSetup, type IntermaxSetup, type RunRestored } from "@/api/centrum"
+import { LoadFailure } from "@/components/load-failure"
+import { Alert, AlertTitle } from "@/components/ui/alert"
+import { Button } from "@/components/ui/button"
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
+import { Skeleton } from "@/components/ui/skeleton"
+import { dateTime } from "@/lib/format"
+import { useRuns } from "@/lib/runs"
+import { useSettings } from "@/lib/settings"
+import { useResource } from "@/lib/use-resource"
+import { RestoredCardButton } from "@/pages/runs/run-card-sheet"
+import { SettingPath } from "@/pages/runs/run-setup-card"
+
+/**
+ * Karta „Uporządkuj INTERMAX” poza okresami: INTERMAX to Rejestr zleceń z Ustawień taty, tu pod nazwą, którą zna tata,
+ * więc jest tylko jeden przycisk. INTERMAX otwarty w Excelu albo niewskazany wyłącza go, a zdanie nad nim mówi, co zrobić. Pod plikiem
+ * stoi ostatnie Uporządkowanie z Logów Uruchomienia, a jego pełna karta otwiera się z boku.
+ */
+export function IntermaxCard() {
+  const { resource: setup, reload } = useResource(getIntermaxSetup)
+
+  switch (setup.state) {
+    case "loading":
+      return <Skeleton className="h-44 w-full" aria-label="Wczytywanie Uporządkowania INTERMAX" />
+    case "failed":
+      return <LoadFailure what="Uporządkowania INTERMAX" message={setup.message} reload={reload} />
+    case "ready":
+      return <IntermaxSetupCard setup={setup.data} />
+    default: {
+      const unhandled: never = setup
+
+      return unhandled
+    }
+  }
+}
+
+function IntermaxSetupCard({ setup }: { setup: IntermaxSetup }) {
+  const { starting, start } = useRuns()
+  const { settings, picker, choose } = useSettings()
+  const blocked = setup.blocker !== null || setup.open_in_excel.length > 0
+  const notes = setup.blocker === null ? setup.open_in_excel : [setup.blocker, ...setup.open_in_excel]
+
+  return (
+    <Card role="region" aria-label="Uporządkuj INTERMAX">
+      <CardHeader>
+        <CardTitle className="text-lg">{setup.title}</CardTitle>
+        <CardDescription>Zlecenia dnia wklejone na dół INTERMAX.</CardDescription>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-4">
+        {settings.state === "ready" ? (
+          <SettingPath
+            label="INTERMAX"
+            icon={<FileSpreadsheetIcon />}
+            setting={settings.data.order_register}
+            disabled={picker !== null}
+            onChoose={() => choose("order_register")}
+          />
+        ) : null}
+        {notes.length === 0 ? null : (
+          <Alert className="wejscie">
+            <TriangleAlertIcon className="text-warning!" />
+            <AlertTitle className="flex flex-col gap-0.5">
+              {notes.map((sentence) => (
+                <span key={sentence}>{sentence}</span>
+              ))}
+            </AlertTitle>
+          </Alert>
+        )}
+        {setup.last === null ? null : <LastOrdering last={setup.last} />}
+      </CardContent>
+      <CardFooter className="gap-2">
+        <span className="flex items-center gap-2 text-sm text-muted-foreground">
+          <InfoIcon className="size-4" aria-hidden />
+          {setup.reminder}
+        </span>
+        <Button
+          size="lg"
+          className="ml-auto h-11 px-5 text-base"
+          disabled={blocked || starting}
+          onClick={() => start({ process: "intermax" })}
+        >
+          <ListOrderedIcon data-icon="inline-start" />
+          Uporządkuj INTERMAX
+        </Button>
+      </CardFooter>
+    </Card>
+  )
+}
+
+/** Ostatnie Uporządkowanie INTERMAX jednym cichym zdaniem: kiedy, wynik i uporządkowany dzień. */
+function LastOrdering({ last }: { last: RunRestored }) {
+  const day = last.result.summary?.counts?.counts[0]?.label
+
+  return (
+    <div className="flex items-center gap-2 text-sm text-muted-foreground tabular-nums">
+      <HistoryIcon className="size-4 shrink-0" aria-hidden />
+      <span className="min-w-0 truncate">
+        Ostatnio {dateTime(last.started_at)} · {last.result.headline}
+        {day === undefined ? null : ` · ${day}`}
+      </span>
+      <span className="ml-auto">
+        <RestoredCardButton card={last} />
+      </span>
+    </div>
+  )
+}

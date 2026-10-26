@@ -227,6 +227,9 @@ class AfterRun(Protocol):
 _UPDATING = "Trwa aktualizacja narzędzia. Poczekaj na jej wynik, potem {then}."
 # Odmowa po przyjętym zamknięciu: wątek, który teraz by wystartował, zginąłby z końcem serwera.
 _CLOSING = "Centrum rozliczeń się zamyka. Kliknij skrót „Centrum rozliczeń” na pulpicie, potem {then}."
+# Odmowa w trakcie przywracania Kopii INTERMAX: uruchomienia procesu, aktualizacji, zamknięcia albo drugiego przywrócenia.
+_RESTORING = "Trwa przywracanie Kopii INTERMAX. Poczekaj na jego wynik, potem {then}."
+_RESTORE = "przywróć kopię jeszcze raz"
 
 
 class RunHost:
@@ -234,9 +237,11 @@ class RunHost:
 
     To samo miejsce „jedno naraz” zajmuje Aktualizacja narzędzia (``begin_update``
     do ``end_update``): w jej trakcie start Uruchomienia jest odrzucony, a w trakcie
-    Uruchomienia ona. ``shutdown_refusal()`` odmawia zamknięcia serwera, gdy
-    Uruchomienie trwa (także gdy czeka na decyzję taty) albo trwa aktualizacja, a gdy
-    nie odmawia, od tej chwili odrzuca oba starty. Początek i koniec każdego Uruchomienia
+    Uruchomienia ona. Tak samo przywrócenie Kopii INTERMAX (``begin_restore`` do
+    ``end_restore``): podmienia INTERMAX, więc nie biegnie obok Uporządkowania INTERMAX.
+    ``shutdown_refusal()`` odmawia zamknięcia serwera, gdy Uruchomienie trwa (także gdy
+    czeka na decyzję taty), trwa aktualizacja albo przywrócenie, a gdy nie odmawia, od
+    tej chwili odrzuca każdy z tych startów. Początek i koniec każdego Uruchomienia
     trafiają do dziennika Centrum jako bezpieczne fakty, a rekord metryk każdego
     Uruchomienia z Centrum do ``CentrumRuns``. Zatrzymanie zakończonego Uruchomienia
     przejmuje jego właściciel (``stops``); Diagnoza i „Wyślij do Maksa” idą tylko do
@@ -269,6 +274,7 @@ class RunHost:
         self._events: list[contract.RunEvent] = [contract.RunEvent(sequence=0, view=first)]
         self._run: _Run | None = None
         self._updating = False
+        self._restoring = False
         self._closing = False
 
     def shutdown_refusal(self) -> str | None:
@@ -300,11 +306,28 @@ class RunHost:
         with self._lock:
             self._updating = False
 
+    def begin_restore(self) -> None:
+        """Zajmuje miejsce „jedno naraz” na przywrócenie Kopii INTERMAX; ``contract.Refusal``, gdy jest zajęte."""
+
+        with self._lock:
+            if self._closing:
+                raise contract.Refusal(409, _CLOSING.format(then=_RESTORE))
+            busy = self._busy_locked(_RESTORE)
+            if busy is not None:
+                raise contract.Refusal(409, busy)
+            self._restoring = True
+
+    def end_restore(self) -> None:
+        with self._lock:
+            self._restoring = False
+
     def _busy_locked(self, then: str) -> str | None:
         """Co teraz trwa, z prośbą, żeby poczekać i ``then``; ``None``, gdy nic."""
 
         if self._updating:
             return _UPDATING.format(then=then)
+        if self._restoring:
+            return _RESTORING.format(then=then)
         run = self._run
         if run is None or run.ended:
             return None
@@ -327,6 +350,8 @@ class RunHost:
                 raise contract.Refusal(409, _CLOSING.format(then="uruchom proces"))
             if self._updating:
                 raise contract.Refusal(409, _UPDATING.format(then="uruchom proces"))
+            if self._restoring:
+                raise contract.Refusal(409, _RESTORING.format(then="uruchom proces"))
             if self._run is not None and not self._run.ended:
                 running = self._run.info
                 raise contract.Refusal(
@@ -442,6 +467,7 @@ class _Run:
             period=prepared.period,
             dry_run=prepared.dry_run,
             confirms_readiness=prepared.view.confirms_readiness,
+            register_name=prepared.view.register_name,
         )
         self.started_at = datetime.now(timezone.utc)
         self._progress = prepared.progress_view(ProgressProjection().snapshot)
