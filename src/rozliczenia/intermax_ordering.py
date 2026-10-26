@@ -39,7 +39,7 @@ from .raw_orders import (
 from .workbook_files import WorkbookError
 from .workbook_save import WorkbookSaveError
 
-__all__ = ["OrderingSummary", "order_register", "register_problem"]
+__all__ = ["OrderingSummary", "order_register"]
 
 
 @dataclass
@@ -154,11 +154,11 @@ def _obstacle(register: Path, sheet: str, obstacle: Obstacle) -> Message:
 def register_problem(register_path: Path) -> Message | None:
     """Komunikat, którym Sprawdzanie albo Odczyt danych zatrzymałyby Uporządkowanie INTERMAX; ``None``, gdy przechodzą.
 
-    Tylko czyta, więc Diagnoza sprawdza INTERMAX tą samą regułą co proces.
+    Tylko czyta, więc Diagnoza sprawdza INTERMAX tą samą regułą co proces. Odczyt sprawdza najpierw to samo co
+    Sprawdzanie i daje ten sam Komunikat, więc wystarcza sam.
     """
 
     try:
-        _check(register_path)
         _read(register_path)
     except StopError as stop:
         return stop.message
