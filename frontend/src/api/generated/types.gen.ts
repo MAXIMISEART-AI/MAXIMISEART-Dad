@@ -707,7 +707,7 @@ export type ModeStatistics = {
     /**
      * Process
      */
-    process: 'preparation' | 'settlement';
+    process: 'preparation' | 'settlement' | 'intermax';
     /**
      * Mode
      */
@@ -1052,7 +1052,7 @@ export type ProcessRun = {
     /**
      * Process
      */
-    process: 'preparation' | 'settlement';
+    process: 'preparation' | 'settlement' | 'intermax';
     /**
      * Process Label
      */
@@ -1107,7 +1107,7 @@ export type ProcessSetup = {
     /**
      * Process
      */
-    process: 'preparation' | 'settlement';
+    process: 'preparation' | 'settlement' | 'intermax';
     /**
      * Title
      */
@@ -1580,7 +1580,7 @@ export type RunInfo = {
     /**
      * Process
      */
-    process: 'preparation' | 'settlement';
+    process: 'preparation' | 'settlement' | 'intermax';
     /**
      * Title
      */
@@ -1702,7 +1702,7 @@ export type RunRequest = {
     /**
      * Process
      */
-    process: 'preparation' | 'settlement';
+    process: 'preparation' | 'settlement' | 'intermax';
     /**
      * Period
      */

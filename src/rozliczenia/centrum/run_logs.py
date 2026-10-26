@@ -326,6 +326,8 @@ def _process(key: contract.ProcessKey) -> str:
             return "Przygotowanie pliku zbiorczego"
         case "settlement":
             return "Przebieg rozliczeń"
+        case "intermax":
+            return "Uporządkowanie INTERMAX"
         case _:
             assert_never(key)
 
