@@ -13,7 +13,7 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "tools"))
 sys.path.insert(0, str(Path(__file__).resolve().parents[4] / ".agents/skills/verify-centrum-rozliczen/scripts"))
 
-from cele_mutacji_centrum import APP, DIAGNOSIS, INTERMAX_RUN, RUN_VIEW, UPORZADKOWANIE
+from cele_mutacji_centrum import APP, BUILD, DIAGNOSIS, INTERMAX_RUN, RUN_VIEW, UPORZADKOWANIE
 from mutacje import Edit, Mutation, check_all
 
 MUTATIONS = (
@@ -70,6 +70,12 @@ MUTATIONS = (
         (Edit(RUN_VIEW, '        return ("RUN",)\n', '        return ("RUN", "DRY-RUN")\n'),),
         UPORZADKOWANIE,
         "Metryki proponują przy INTERMAX tryb DRY-RUN, którego Uporządkowanie nie ma, z pustym wykresem",
+    ),
+    Mutation(
+        "Metryki INTERMAX po DRY-RUN Przygotowania bez wciśniętego trybu",
+        (Edit(BUILD, "l=c.some(e=>e.value===i)?i:c[0]?.value??i;", "l=i;"),),
+        UPORZADKOWANIE,
+        "po DRY-RUN Przygotowania Metryki INTERMAX nie mają wciśniętego trybu, a wykres mówi, że procesu nie uruchomiono",
     ),
 )
 

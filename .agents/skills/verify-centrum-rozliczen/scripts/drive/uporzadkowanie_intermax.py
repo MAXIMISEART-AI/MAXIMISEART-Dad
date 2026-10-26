@@ -156,7 +156,9 @@ def drive_intermax_ordering(run: Run, page: Page) -> None:
     labels = [check["label"] for check in diagnosis["checks"]]
     region.get_by_role("button", name=f"Sprawdzono ({len(labels)})", exact=True).click()
     shown = region.get_by_role("list", name="Sprawdzono").get_by_role("listitem")
-    expect(shown.filter(has_text="INTERMAX")).to_have_count(1)
+    expect(shown.filter(has_text=re.compile(r"^INTERMAX · "))).to_have_count(1)
+    # Ustawienia taty name the file as the card does.
+    expect(shown.filter(has_text="Ustawienia taty · INTERMAX jest na miejscu.")).to_have_count(1)
     expect(region.get_by_role("button", name="Wyślij do Maksa", exact=True)).to_be_visible()
     run.check(
         labels[:3] == ["Ustawienia taty", "Pliki w OneDrive", "INTERMAX"]
@@ -184,9 +186,18 @@ def drive_intermax_ordering(run: Run, page: Page) -> None:
     )
     run.capture(page, "236-intermax-historia")
     page.get_by_role("link", name="Metryki", exact=True).click()
-    page.get_by_role("group", name="Proces", exact=True).get_by_role("button", name="INTERMAX", exact=True).click()
-    expect(page.get_by_role("group", name="Tryb", exact=True).get_by_role("button")).to_have_text(["RUN"])
+    processes = page.get_by_role("group", name="Proces", exact=True)
+    modes = page.get_by_role("group", name="Tryb", exact=True)
+    # Dad looks at Przygotowanie DRY-RUN first: INTERMAX has no DRY-RUN, so its RUN has to be the mode shown.
+    processes.get_by_role("button", name="Przygotowanie", exact=True).click()
+    modes.get_by_role("button", name="DRY-RUN", exact=True).click()
+    expect(modes.get_by_role("button", name="DRY-RUN", exact=True)).to_have_attribute("aria-pressed", "true")
+    processes.get_by_role("button", name="INTERMAX", exact=True).click()
+    expect(modes.get_by_role("button")).to_have_text(["RUN"])
+    expect(modes.get_by_role("button", name="RUN", exact=True)).to_have_attribute("aria-pressed", "true")
+    expect(page.get_by_text("Ten proces nie był jeszcze uruchomiony w tym trybie", exact=True)).to_have_count(0)
     run.check(True, "Metryki of INTERMAX offer only the mode RUN: Uporządkowanie INTERMAX has no Podgląd bez zapisu")
+    run.check(True, "from Przygotowanie DRY-RUN, INTERMAX shows its RUN pressed with the chart of its runs")
     run.capture(page, "237-intermax-metryki")
 
     print("  harness: the Rejestr zleceń from before this feature", flush=True)
