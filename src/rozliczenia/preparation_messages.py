@@ -367,7 +367,7 @@ def raw_orders_not_ordered(register_path: Path, sheet: str, first_row: int, last
         code="SUROWE_ZLECENIA_W_OKRESIE",
         what=(
             "Wklejone zlecenia na dole Rejestru zleceń nie są jeszcze uporządkowane, "
-            "więc nie trafią do plików okresu. Nie utworzono żadnego pliku."
+            "a mogą należeć do tego okresu. Nie utworzono żadnego pliku."
         ),
         where=f"{_register_location(register_path, sheet)}, {rows}",
         action="Najpierw uporządkuj INTERMAX w Centrum rozliczeń, potem uruchom ponownie.",

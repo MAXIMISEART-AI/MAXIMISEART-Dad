@@ -359,7 +359,7 @@ def test_surowe_zlecenia_w_okresie_zatrzymuja_sprawdzanie_bez_plikow(
 
     assert raised.value.message.text == (
         "Co się stało: Wklejone zlecenia na dole Rejestru zleceń nie są jeszcze uporządkowane, "
-        "więc nie trafią do plików okresu. Nie utworzono żadnego pliku.\n"
+        "a mogą należeć do tego okresu. Nie utworzono żadnego pliku.\n"
         f"Gdzie: plik ZLECENIA INTERMAX OD 08_11_2021.xlsx, arkusz ZLECENIA, {rows}\n"
         "Co zrobić: Najpierw uporządkuj INTERMAX w Centrum rozliczeń, potem uruchom ponownie."
     )
@@ -440,9 +440,12 @@ def test_surowe_zlecenia_na_dole_zatrzymuja_okres_mimo_wiersza_z_wygladem_z_apli
     )
 
 
-def test_surowe_zlecenia_w_arkuszu_zlecen_za_innym_arkuszem_zlecen_zatrzymuja_okres(tmp_path: Path) -> None:
+@pytest.mark.parametrize("other_first", [True, False], ids=["drugi-arkusz-przed", "drugi-arkusz-za"])
+def test_surowe_zlecenia_w_jednym_z_dwoch_arkuszy_zlecen_zatrzymuja_okres(tmp_path: Path, other_first: bool) -> None:
     fixture = make_preparation_fixture(tmp_path)
-    add_register_sheet(fixture.register_path, "archiwum 2025", [register_order(8, datetime(2025, 9, 9, 9, 0))], first=True)
+    add_register_sheet(
+        fixture.register_path, "archiwum 2025", [register_order(8, datetime(2025, 9, 9, 9, 0))], first=other_first
+    )
     paste_raw_orders(fixture.register_path, [raw_order(11, datetime(2026, 9, 13, 10)), raw_order(12, datetime(2026, 9, 13, 12))])
 
     error = stop_preparation(fixture)
