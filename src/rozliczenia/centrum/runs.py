@@ -442,6 +442,7 @@ class _Run:
             period=prepared.period,
             dry_run=prepared.dry_run,
             confirms_readiness=prepared.view.confirms_readiness,
+            register_name=prepared.view.register_name,
         )
         self.started_at = datetime.now(timezone.utc)
         self._progress = prepared.progress_view(ProgressProjection().snapshot)

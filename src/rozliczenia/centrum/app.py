@@ -288,7 +288,9 @@ def create_app(
             run_logs_address,
         )
     )
-    app.include_router(metrics_router(entry_processes, today, centrum_runs))
+    # Uporządkowanie INTERMAX nie ma Podglądu bez zapisu, więc Metryki nie mają jego trybu DRY-RUN.
+    modes = {entry.key: entry.view.modes for entry in (preparation, settlement, intermax)}
+    app.include_router(metrics_router(entry_processes, modes, today, centrum_runs))
     app.include_router(
         configuration_router(
             configuration, surroundings.tool_freshness, release, lambda: box.judge(wait_s=CONFIGURATION_WAIT_S), readers

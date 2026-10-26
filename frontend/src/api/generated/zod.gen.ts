@@ -859,7 +859,10 @@ export const zRunCardMissing = z.object({
 /**
  * RunInfo
  *
- * Uruchomienie procesu; ``confirms_readiness`` deklaruje proces: „Uruchom” potwierdza Gotowość.
+ * Uruchomienie procesu; ``confirms_readiness`` i ``register_name`` deklaruje proces.
+ *
+ * ``confirms_readiness``: „Uruchom” potwierdza Gotowość. ``register_name``: nazwa Rejestru zleceń z Komunikatów
+ * procesu, pod którą karta proponuje otworzyć go przy Zatrzymaniu.
  */
 export const zRunInfo = z.object({
     id: z.string(),
@@ -871,7 +874,8 @@ export const zRunInfo = z.object({
     title: z.string(),
     period: z.string(),
     dry_run: z.boolean(),
-    confirms_readiness: z.boolean()
+    confirms_readiness: z.boolean(),
+    register_name: z.string()
 });
 
 /**

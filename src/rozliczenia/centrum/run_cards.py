@@ -137,6 +137,7 @@ class RunCards:
             period=period,
             dry_run=mode == "podgląd",
             confirms_readiness=self._entries[process].view.confirms_readiness,
+            register_name=self._entries[process].view.register_name,
         )
 
     def _restored(self, record: RunLog) -> contract.RunRestored:

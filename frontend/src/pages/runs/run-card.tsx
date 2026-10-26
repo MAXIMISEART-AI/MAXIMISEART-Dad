@@ -370,6 +370,7 @@ function OutcomeBody({
           kind={result.stop_kind}
           headline={result.headline}
           period={run.period}
+          registerName={run.register_name}
           action={action}
           live={live}
         />
@@ -431,10 +432,11 @@ const STOPS: Record<StopKind, { kind: "stop" | "to_fix" | "declined"; note: stri
   declined: { kind: "declined", note: null },
 }
 
-const DAD_FILES: Record<DadFile, { label: string; open: (period: string) => void }> = {
-  order_register: { label: "Otwórz Rejestr zleceń", open: () => openOrderRegisterAndConfirm() },
+// Rejestr zleceń nosi nazwę z Komunikatów procesu (`register_name`), np. „INTERMAX” w Uporządkowaniu INTERMAX.
+const DAD_FILES: Record<DadFile, { label: (registerName: string) => string; open: (period: string) => void }> = {
+  order_register: { label: (registerName) => `Otwórz ${registerName}`, open: () => openOrderRegisterAndConfirm() },
   collective_file: {
-    label: "Otwórz Plik zbiorczy",
+    label: () => "Otwórz Plik zbiorczy",
     open: (period) => openAndConfirm(period, { target: "collective_file" }),
   },
 }
@@ -445,6 +447,7 @@ function RunStop({
   kind,
   headline,
   period,
+  registerName,
   action,
   live,
 }: {
@@ -452,6 +455,7 @@ function RunStop({
   kind: StopKind
   headline: string
   period: string
+  registerName: string
   action: React.ReactNode
   live: LiveStop | null
 }) {
@@ -470,7 +474,7 @@ function RunStop({
           {file === null ? null : (
             <Button size="sm" variant={live?.openFirst ? "default" : "outline"} onClick={() => file.open(period)}>
               <FileSpreadsheetIcon data-icon="inline-start" />
-              {file.label}
+              {file.label(registerName)}
             </Button>
           )}
           {action}

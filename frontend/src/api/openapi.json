@@ -4334,6 +4334,10 @@
           "confirms_readiness": {
             "type": "boolean",
             "title": "Confirms Readiness"
+          },
+          "register_name": {
+            "type": "string",
+            "title": "Register Name"
           }
         },
         "additionalProperties": false,
@@ -4344,10 +4348,11 @@
           "title",
           "period",
           "dry_run",
-          "confirms_readiness"
+          "confirms_readiness",
+          "register_name"
         ],
         "title": "RunInfo",
-        "description": "Uruchomienie procesu; ``confirms_readiness`` deklaruje proces: „Uruchom” potwierdza Gotowość."
+        "description": "Uruchomienie procesu; ``confirms_readiness`` i ``register_name`` deklaruje proces.\n\n``confirms_readiness``: „Uruchom” potwierdza Gotowość. ``register_name``: nazwa Rejestru zleceń z Komunikatów\nprocesu, pod którą karta proponuje otworzyć go przy Zatrzymaniu."
       },
       "RunInterrupted": {
         "properties": {

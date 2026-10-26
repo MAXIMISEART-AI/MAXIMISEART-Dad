@@ -1599,7 +1599,10 @@ export type RunIdle = {
 /**
  * RunInfo
  *
- * Uruchomienie procesu; ``confirms_readiness`` deklaruje proces: „Uruchom” potwierdza Gotowość.
+ * Uruchomienie procesu; ``confirms_readiness`` i ``register_name`` deklaruje proces.
+ *
+ * ``confirms_readiness``: „Uruchom” potwierdza Gotowość. ``register_name``: nazwa Rejestru zleceń z Komunikatów
+ * procesu, pod którą karta proponuje otworzyć go przy Zatrzymaniu.
  */
 export type RunInfo = {
     /**
@@ -1626,6 +1629,10 @@ export type RunInfo = {
      * Confirms Readiness
      */
     confirms_readiness: boolean;
+    /**
+     * Register Name
+     */
+    register_name: string;
 };
 
 /**

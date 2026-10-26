@@ -141,6 +141,8 @@ def test_intermax_otwarty_to_zatrzymanie_dla_taty_przed_odczytem_w_okresie_dzisi
     assert result["stops"][0]["what"] == "INTERMAX jest otwarty w Excelu. INTERMAX nie został zmieniony."
     assert result["stops"][0]["where"] == f"plik {REGISTER_NAME}, folder OneDrive"
     assert (result["opens"], result["diagnosis"], result["files_unchanged"]) == ("order_register", None, True)
+    # Karta proponuje otworzyć Rejestr zleceń pod nazwą z Komunikatu: „Otwórz INTERMAX”.
+    assert view["run"]["register_name"] == "INTERMAX"
     assert phase_states(view)["Sprawdzanie"] == "failed"
     assert view["run"]["period"] == PERIOD
     assert centrum.last_started()["period"] == PERIOD
@@ -290,7 +292,14 @@ def test_historia_metryki_i_karta_maja_uporzadkowanie_intermax(tmp_path: Path) -
         "RUN",
     )
     assert (run["result"], run["origin"], run["run_id"]) == ("OK", "centrum", run_id)
-    assert {(entry["process"], entry["mode"]) for entry in metrics["statistics"]} >= {("intermax", "RUN")}
+    # Uporządkowanie INTERMAX nie ma Podglądu bez zapisu, więc Metryki nie mają jego trybu DRY-RUN.
+    assert [(entry["process"], entry["mode"]) for entry in metrics["statistics"]] == [
+        ("preparation", "RUN"),
+        ("preparation", "DRY-RUN"),
+        ("settlement", "RUN"),
+        ("settlement", "DRY-RUN"),
+        ("intermax", "RUN"),
+    ]
     assert card["state"] == "restored"
     assert (card["run"]["title"], card["result"]["headline"]) == ("Uporządkowanie INTERMAX", "INTERMAX uporządkowany")
     assert card["result"]["summary"] == SUMMARY
@@ -316,6 +325,7 @@ def test_karta_pokazuje_ostatnie_uporzadkowanie_z_logow_takze_po_ponownym_starci
         "INTERMAX jest otwarty w Excelu. INTERMAX nie został zmieniony.",
     )
     assert previous == last
+    assert last["run"]["register_name"] == "INTERMAX"
 
 
 def _logs_like(centrum: OrderingCentrum, like: str, later: timedelta, **changes: Any) -> Path:

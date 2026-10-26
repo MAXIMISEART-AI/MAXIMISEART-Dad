@@ -81,14 +81,22 @@ class ProcessView(ResultView[InputsT, SummaryT]):
     """Widok Uruchomienia procesu na karcie Centrum: deklaracja procesu obok liczb i wyniku.
 
     Deklaracja procesu: ``reminder`` to przypomnienie przed uruchomieniem, ``confirms_readiness``
-    mówi, czy „Uruchom” potwierdza Gotowość Pliku zbiorczego, ``done`` to tytuł wyniku po zapisie, a
-    ``result_action`` otwiera to, co proces zapisał, jako akcja po wyniku.
+    mówi, czy „Uruchom” potwierdza Gotowość Pliku zbiorczego, ``done`` to tytuł wyniku po zapisie,
+    ``result_action`` otwiera to, co proces zapisał, jako akcja po wyniku, a ``register_name`` to nazwa
+    Rejestru zleceń z Komunikatów procesu, pod którą karta proponuje go otworzyć.
     """
 
     reminder: str
     confirms_readiness: bool
     done: str
     result_action: contract.ResultAction
+    register_name: str = "Rejestr zleceń"
+
+    @property
+    def modes(self) -> tuple[contract.RunMode, ...]:
+        """Tryby Uruchomienia procesu: bez Podglądu bez zapisu tylko zapis."""
+
+        return ("RUN",)
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -96,6 +104,10 @@ class PeriodProcessView(ProcessView[InputsT, SummaryT]):
     """Widok procesu, który tata uruchamia z okresem: ``preview_hint`` to podpowiedź „Podgląd bez zapisu”."""
 
     preview_hint: str
+
+    @property
+    def modes(self) -> tuple[contract.RunMode, ...]:
+        return ("RUN", "DRY-RUN")
 
 
 def _count(label: str, value: int) -> contract.Figure:
@@ -216,6 +228,7 @@ INTERMAX: Final[ProcessView[OrderingInputs, OrderingSummary]] = ProcessView(
     confirms_readiness=False,
     done="INTERMAX uporządkowany",
     result_action="open_order_register",
+    register_name="INTERMAX",
     _figures=_ordering_figures,
     _summary=_ordering_summary,
 )

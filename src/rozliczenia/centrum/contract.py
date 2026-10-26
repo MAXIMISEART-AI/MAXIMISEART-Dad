@@ -358,7 +358,11 @@ class Progress(_Model):
 
 
 class RunInfo(_Model):
-    """Uruchomienie procesu; ``confirms_readiness`` deklaruje proces: „Uruchom” potwierdza Gotowość."""
+    """Uruchomienie procesu; ``confirms_readiness`` i ``register_name`` deklaruje proces.
+
+    ``confirms_readiness``: „Uruchom” potwierdza Gotowość. ``register_name``: nazwa Rejestru zleceń z Komunikatów
+    procesu, pod którą karta proponuje otworzyć go przy Zatrzymaniu.
+    """
 
     id: str
     process: ProcessKey
@@ -366,6 +370,7 @@ class RunInfo(_Model):
     period: str
     dry_run: bool
     confirms_readiness: bool
+    register_name: str
 
     @property
     def mode(self) -> RunMode:
