@@ -505,6 +505,14 @@ def test_intermax_zapisany_z_innym_aktywnym_arkuszem_otwiera_sie_na_arkuszu_zlec
     }
 
 
+def test_intermax_zapisany_na_ostatnim_arkuszu_otwiera_sie_na_samym_arkuszu_zlecen(tmp_path: Path) -> None:
+    path, _ = _register(tmp_path, Intermax(ordered=_VIEW_DAYS, active_sheet="komentarze"))
+
+    _ordered(_run(tmp_path, now=datetime(2026, 10, 20, 7)))
+
+    assert _view(path).selected == (ORDER_SHEET,)
+
+
 def test_karta_zaznaczona_jako_true_w_innym_arkuszu_przestaje_byc_zaznaczona(tmp_path: Path) -> None:
     path, _ = _register(tmp_path, Intermax(ordered=_VIEW_DAYS, active_sheet="LISTA OD 08.11.2021."))
     rewrite_parts(
