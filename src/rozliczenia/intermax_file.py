@@ -24,6 +24,9 @@ sprawdzeniu ``before_replace`` (Kopia INTERMAX) i atomowa podmiana. Podmianę, k
 trzyma INTERMAX (OneDrive go synchronizuje), ``save`` ponawia przez ``_RETRY_S`` sekund zegara procesu (``Waiting``),
 a potem zgłasza ``HeldByOneDrive``. Przed każdą ponowną próbą czyta INTERMAX jeszcze raz: gdy OneDrive wgrał w
 przerwie inną wersję, to też ``HeldByOneDrive``, bez podmiany.
+
+``restore`` podmienia tą samą drogą cały INTERMAX bajtami Kopii INTERMAX (Przywracanie Kopii INTERMAX): plik
+tymczasowy obok musi mieć po odczycie te bajty, a ponowna próba podmienia tylko INTERMAX o bajtach sprzed przywrócenia.
 """
 
 from __future__ import annotations
@@ -633,14 +636,48 @@ def save(
     ``HeldByOneDrive``, a plik blokady Excela to ``WorkbookSaveError``.
     """
 
-    content = register.ordered(sheet, block, plan)
+    def check(written: bytes) -> None:
+        register.check(written, sheet, block, plan)
+
+    _replace(register.path, register.content, register.ordered(sheet, block, plan), check, before_replace, waiting)
+
+
+def restore(
+    path: Path, current: bytes, content: bytes, *, before_replace: Callable[[], None], waiting: Waiting
+) -> None:
+    """Podmienia cały INTERMAX ``path`` o bajtach ``current`` bajtami Kopii INTERMAX ``content``, jak ``save``.
+
+    Plik tymczasowy obok musi mieć po odczycie bajty ``content`` (inaczej ``WriteMismatch``); dalej ``before_replace``
+    i ta sama atomowa podmiana z ponowną próbą, która podmienia tylko INTERMAX o bajtach ``current``.
+    """
+
+    def check(written: bytes) -> None:
+        if written != content:
+            raise WriteMismatch("kopia")
+
+    _replace(path, current, content, check, before_replace, waiting)
+
+
+def _replace(
+    path: Path,
+    current: bytes,
+    content: bytes,
+    check: Callable[[bytes], None],
+    before_replace: Callable[[], None],
+    waiting: Waiting,
+) -> None:
+    """``content`` w pliku tymczasowym obok ``path``, ``check`` jego odczytu, ``before_replace`` i podmiana ``path``.
+
+    Podmianę, której system odmawia bez pliku blokady Excela, ponawia przez ``_RETRY_S`` sekund zegara ``waiting``,
+    a przed każdą ponowną próbą czyta ``path`` jeszcze raz: bajty inne niż ``current`` to ``HeldByOneDrive``.
+    """
 
     def write(temporary: Path) -> None:
         temporary.write_bytes(content)
         try:
             written = workbook_files.workbook_content(temporary)
             with workbook_files.unreadable_as_error(temporary):
-                register.check(written, sheet, block, plan)
+                check(written)
         except WorkbookError as error:
             raise WriteMismatch("odczyt") from error
         before_replace()
@@ -658,7 +695,7 @@ def save(
                     raise HeldByOneDrive(target.name) from error
             waiting.pause(_PAUSE_S)
             try:
-                unchanged = workbook_files.workbook_content(target) == register.content
+                unchanged = workbook_files.workbook_content(target) == current
             except WorkbookError as error:
                 if error.problem is workbook_files.Problem.OPEN_IN_EXCEL:
                     raise WorkbookSaveError(target.name) from error
@@ -666,4 +703,4 @@ def save(
             if not unchanged:
                 raise HeldByOneDrive(target.name)
 
-    write_atomically(register.path, write, replace=replace)
+    write_atomically(path, write, replace=replace)

@@ -250,6 +250,153 @@ def old_copies_kept(directory: Path) -> Message:
     )
 
 
+
+_AGAIN = "przywróć kopię jeszcze raz"
+_IF_IT_RETURNS = "Jeśli błąd wraca, przekaż ten komunikat osobie utrzymującej narzędzie."
+
+
+def copies_unreadable(directory: Path) -> Message:
+    """Folderu Kopii INTERMAX nie da się odczytać: Konfiguracja nie pokaże Kopii, a przywrócenie nie zacznie."""
+
+    return Message(
+        code="KOPIE_INTERMAX_NIEDOSTEPNE",
+        what=f"Nie można teraz odczytać folderu Kopii INTERMAX. {_UNCHANGED}",
+        where=folder_label(directory),
+        action=f"Odśwież Konfigurację za chwilę. {_IF_IT_RETURNS}",
+    )
+
+
+def copy_missing(directory: Path, name: str) -> Message:
+    """Wybranej Kopii INTERMAX nie ma już w folderze Kopii (np. usunęło ją nowsze Uporządkowanie)."""
+
+    return Message(
+        code="BRAK_KOPII_INTERMAX",
+        what=f"Tej Kopii INTERMAX już nie ma. {_UNCHANGED}",
+        where=f"{folder_label(directory)}, {name}",
+        action="Odśwież Konfigurację i wybierz kopię z listy.",
+    )
+
+
+def copy_unusable(error: WorkbookError) -> Message:
+    """Wybranej Kopii INTERMAX nie da się odczytać; ``error`` mówi dlaczego."""
+
+    match error.problem:
+        case Problem.MISSING:
+            return copy_missing(error.path.parent, error.path.name)
+        case Problem.OPEN_IN_EXCEL:
+            return Message(
+                code="KOPIA_INTERMAX_OTWARTA",
+                what=f"Ta Kopia INTERMAX jest otwarta w Excelu. {_UNCHANGED}",
+                where=file_label(error.path),
+                action=f"Zamknij ją w Excelu bez zapisywania zmian, potem {_AGAIN}.",
+            )
+        case Problem.INACCESSIBLE | Problem.UNREADABLE | Problem.LAYOUT | Problem.HAS_DATA:
+            return Message(
+                code="KOPIA_INTERMAX_NIEDOSTEPNA",
+                what=f"Nie można teraz odczytać tej Kopii INTERMAX. {_UNCHANGED}",
+                where=file_label(error.path),
+                action=f"Spróbuj za chwilę: {_AGAIN}. {_IF_IT_RETURNS}",
+            )
+
+
+def copy_damaged(copy: Path) -> Message:
+    """Wybrana Kopia INTERMAX nie jest skoroszytem Excela, więc przywrócenie zepsułoby INTERMAX."""
+
+    return Message(
+        code="KOPIA_INTERMAX_USZKODZONA",
+        what=f"Ta Kopia INTERMAX jest uszkodzona, więc nie została przywrócona. {_UNCHANGED}",
+        where=file_label(copy),
+        action="Wybierz inną kopię z listy.",
+    )
+
+
+def restore_register_unusable(error: WorkbookError) -> Message:
+    """INTERMAX, którego przywrócenie nie może zastąpić: brak pliku, otwarty w Excelu albo niedostępny."""
+
+    match error.problem:
+        case Problem.MISSING:
+            return Message(
+                code="PRZYWRACANIE_BRAK_INTERMAX",
+                what=f"Nie znaleziono INTERMAX. {_UNCHANGED}",
+                where=file_label(error.path),
+                action=f"Wybierz w Ustawieniach właściwy plik INTERMAX, potem {_AGAIN}.",
+            )
+        case Problem.OPEN_IN_EXCEL:
+            return restore_register_open(error.path)
+        case Problem.INACCESSIBLE | Problem.UNREADABLE | Problem.LAYOUT | Problem.HAS_DATA:
+            return Message(
+                code="PRZYWRACANIE_NIEDOSTEPNY_INTERMAX",
+                dad_file="order_register",
+                what=(
+                    "Nie można teraz odczytać INTERMAX. Plik może być zajęty przez inny program albo czekać na "
+                    f"pobranie z OneDrive. {_UNCHANGED}"
+                ),
+                where=file_label(error.path),
+                action=f"Poczekaj, aż OneDrive skończy synchronizację, potem {_AGAIN}. {_IF_IT_RETURNS}",
+            )
+
+
+def restore_register_open(register: Path) -> Message:
+    """INTERMAX jest otwarty w Excelu, więc przywrócenie Kopii odmawia."""
+
+    return Message(
+        code="PRZYWRACANIE_INTERMAX_OTWARTY",
+        dad_file="order_register",
+        what=f"INTERMAX jest otwarty w Excelu. {_UNCHANGED}",
+        where=file_label(register),
+        action=(
+            f"Zapisz i zamknij INTERMAX w Excelu, potem {_AGAIN}. Jeśli Excel jest zamknięty, a komunikat wraca, "
+            f"usuń z tego samego folderu pozostawiony plik ~${register.name}."
+        ),
+    )
+
+
+def restore_register_syncing(register: Path) -> Message:
+    """System odmawia podmiany INTERMAX po krótkiej ponownej próbie, a Excel go nie trzyma: OneDrive synchronizuje."""
+
+    return Message(
+        code="PRZYWRACANIE_INTERMAX_SYNCHRONIZOWANY",
+        what=f"OneDrive jeszcze synchronizuje INTERMAX. {_UNCHANGED}",
+        where=file_label(register),
+        action=f"Poczekaj, aż OneDrive skończy synchronizację, potem {_AGAIN}.",
+    )
+
+
+def restore_copy_failed(directory: Path) -> Message:
+    """Nie powstała Kopia stanu bieżącego, więc przywrócenie niczego nie podmieniło."""
+
+    return Message(
+        code="PRZYWRACANIE_KOPIA_NIEUDANA",
+        what=f"Nie udało się zrobić Kopii obecnego INTERMAX, więc kopia nie została przywrócona. {_UNCHANGED}",
+        where=folder_label(directory),
+        action=f"Sprawdź, czy na dysku jest wolne miejsce, potem {_AGAIN}. {_IF_IT_RETURNS}",
+    )
+
+
+def restore_failed(register: Path) -> Message:
+    """Plik tymczasowy obok INTERMAX nie powstał albo nie ma bajtów Kopii; INTERMAX nie został podmieniony."""
+
+    return Message(
+        code="PRZYWRACANIE_NIEUDANE",
+        what=f"Nie udało się przywrócić kopii. {_UNCHANGED}",
+        where=file_label(register),
+        action=f"Sprawdź, czy na dysku jest wolne miejsce, potem {_AGAIN}. {_IF_IT_RETURNS}",
+    )
+
+
+def old_copies_kept_after_restore(directory: Path) -> Message:
+    """Ostrzeżenie: Kopia jest przywrócona, ale starsze Kopie INTERMAX nie zostały usunięte."""
+
+    return Message(
+        code="PRZYWRACANIE_STARE_KOPIE",
+        what="Kopia została przywrócona, ale nie udało się usunąć starszych Kopii INTERMAX.",
+        where=folder_label(directory),
+        action=(
+            "Nie musisz nic robić teraz. Jeśli któraś Kopia INTERMAX jest otwarta w Excelu, zamknij ją. "
+            "Jeśli komunikat wraca, przekaż go osobie utrzymującej narzędzie."
+        ),
+    )
+
 def unexpected_failure() -> Message:
     """Nieprzewidziany błąd; treść wyjątku nie trafia do taty."""
 
