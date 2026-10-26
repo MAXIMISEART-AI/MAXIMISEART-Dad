@@ -22,6 +22,7 @@ from tests.fixtures.fake_process import fail
 from tests.fixtures.interlocutor import Tata
 from tests.fixtures.preparation import PreparationFixture, incomplete_period_fixture, make_preparation_fixture, register_order
 from tests.fixtures.settlement import NOT_A_PERIOD, PERIOD, make_fixture, make_preview_fixture
+from tests.fixtures.workbooks import refused_by_copy
 
 PHASES = {"Sprawdzanie", "Odczyt danych", "Planowanie", "Zapisywanie"}
 
@@ -32,6 +33,7 @@ class ProcessCase:
     inputs: Callable[[bool], ProcessInputs]
     period_files: tuple[Path, ...]
     client_data_markers: tuple[str, ...]
+    templates: tuple[Path, ...]
 
 
 def settlement(tmp_path: Path, *, period: str = PERIOD) -> ProcessCase:
@@ -42,6 +44,7 @@ def settlement(tmp_path: Path, *, period: str = PERIOD) -> ProcessCase:
         inputs=lambda dry_run: SettlementInputs(source, dry_run, config, worker_template),
         period_files=(target_directory,),
         client_data_markers=("syntetyczny adres", "#1"),
+        templates=(worker_template,),
     )
 
 
@@ -60,6 +63,7 @@ def preparation(tmp_path: Path, *, period: str = PERIOD, fixture: PreparationFix
         ),
         period_files=(fixture.internal_settlement_path, fixture.collective_file_path),
         client_data_markers=("SYN-",),
+        templates=(fixture.internal_template_path, fixture.collective_template_path),
     )
 
 
@@ -108,18 +112,23 @@ SETTLEMENT_COUNTERS = {
 PREPARATION_COUNTERS = {"period_orders": 4, "successful_orders": 3, "skipped_empty_rows": 5, "warnings": 2}
 
 
+NO_ROUTES = {"kopia": 0, "openpyxl": 0}
+
+
+# Syntetyczny Wzorzec rozliczenia pracownika i Wzorzec pliku zbiorczego przyjmuje kopia, a Rozliczenie wewnętrzne
+# powstaje zawsze drogą openpyxl; Podgląd bez zapisu nie zapisuje żadnego pliku.
 @pytest.mark.parametrize(
-    ("name", "dry_run", "counters", "result"),
+    ("name", "dry_run", "counters", "result", "routes"),
     [
-        ("przebieg-rozliczen", False, SETTLEMENT_COUNTERS, "OK"),
-        ("przebieg-rozliczen", True, SETTLEMENT_COUNTERS | {"written": 0, "planned": 2}, "OK"),
-        ("przygotowanie-pliku-zbiorczego", False, PREPARATION_COUNTERS, "WYMAGA_SPRAWDZENIA"),
-        ("przygotowanie-pliku-zbiorczego", True, PREPARATION_COUNTERS, "OK"),
+        ("przebieg-rozliczen", False, SETTLEMENT_COUNTERS, "OK", {"kopia": 3, "openpyxl": 0}),
+        ("przebieg-rozliczen", True, SETTLEMENT_COUNTERS | {"written": 0, "planned": 2}, "OK", NO_ROUTES),
+        ("przygotowanie-pliku-zbiorczego", False, PREPARATION_COUNTERS, "WYMAGA_SPRAWDZENIA", {"kopia": 1, "openpyxl": 1}),
+        ("przygotowanie-pliku-zbiorczego", True, PREPARATION_COUNTERS, "OK", NO_ROUTES),
     ],
     ids=["przebieg-RUN", "przebieg-DRY-RUN", "przygotowanie-RUN", "przygotowanie-DRY-RUN"],
 )
-def test_rekord_metryk_ma_liczniki_procesu_bez_sciezek_i_danych_klientow(
-    tmp_path: Path, name: str, dry_run: bool, counters: dict[str, int], result: str
+def test_rekord_metryk_ma_liczniki_procesu_i_drogi_zapisu_bez_sciezek_i_danych_klientow(
+    tmp_path: Path, name: str, dry_run: bool, counters: dict[str, int], result: str, routes: dict[str, int]
 ) -> None:
     case = CASES[name](tmp_path)
     metrics_path = tmp_path / "metrics.jsonl"
@@ -137,10 +146,28 @@ def test_rekord_metryk_ma_liczniki_procesu_bez_sciezek_i_danych_klientow(
         result,
     )
     assert record["counters"] == counters
+    assert record["routes"] == routes
     assert set(record["phase_durations_ms"]) == PHASES
     assert str(tmp_path) not in metrics_text
     assert [marker for marker in case.client_data_markers if marker in metrics_text] == []
     assert MetricsStore(metrics_path, case.process.counter_names).read() == [record]
+
+
+@pytest.mark.parametrize(
+    ("name", "routes"),
+    [("przebieg-rozliczen", {"kopia": 0, "openpyxl": 3}), ("przygotowanie-pliku-zbiorczego", {"kopia": 0, "openpyxl": 2})],
+)
+def test_rekord_metryk_liczy_pliki_z_wzorca_ktorego_kopia_nie_przyjmuje_jako_droge_openpyxl(
+    tmp_path: Path, name: str, routes: dict[str, int]
+) -> None:
+    case = CASES[name](tmp_path)
+    for template in case.templates:
+        refused_by_copy(template)
+
+    run(case, tmp_path / "metrics.jsonl")
+
+    [record] = MetricsStore(tmp_path / "metrics.jsonl", case.process.counter_names).read()
+    assert record["routes"] == routes
 
 
 @pytest.mark.parametrize(
@@ -162,6 +189,7 @@ def test_okres_ktorego_nie_da_sie_ustalic_trafia_do_metryk_jako_nieznany(
     [record] = MetricsStore(tmp_path / "metrics.jsonl", case.process.counter_names).read()
     assert (record["period"], record["completed"], record["result"]) == ("nieznany", False, "BLAD_KRYTYCZNY")
     assert record["counters"] == dict.fromkeys(case.process.counter_names, 0)
+    assert record["routes"] == NO_ROUTES
 
 
 def test_problem_przebiegu_rozliczen_i_ostrzezenie_przygotowania_sa_licznikami_rekordu_metryk(tmp_path: Path) -> None:

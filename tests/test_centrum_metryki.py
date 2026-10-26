@@ -258,7 +258,7 @@ def test_niepoprawne_rekordy_metryk_sa_pomijane(tmp_path: Path) -> None:
         "{nie json",
         preparation("2026-09-02T08:00:00"),  # czas bez strefy
         preparation("2026-09-03T08:00:00+00:00", total=True),
-        {**preparation("2026-09-04T08:00:00+00:00"), "schema_version": 3},
+        {**preparation("2026-09-04T08:00:00+00:00"), "schema_version": 4},  # wersja nowszego narzędzia
         settlement("2026-09-05T08:00:00+00:00"),  # liczniki Przebiegu rozliczeń w pliku Przygotowania
         '{"schema_version":1,"started_at":"2026-09-06T08:00:00+00:00","mode":"RUN"',
     )

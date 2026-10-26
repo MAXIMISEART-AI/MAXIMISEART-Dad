@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import Counter
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
@@ -12,6 +13,7 @@ from typing import ClassVar, Literal
 from .inea_only_quantities import Cleared
 from .message import Message
 from .order_facts import CollectiveOrders
+from .template_file import Route
 
 
 class ProgressPhase(StrEnum):
@@ -36,12 +38,13 @@ StopKind = Literal["for_tata", "for_maks"]
 
 @dataclass(frozen=True)
 class WorkerResult:
-    """Bezpieczny wynik dla jednego szablonu."""
+    """Bezpieczny wynik dla jednego szablonu; ``route`` to droga zapisu Rozliczenia pracownika, w planie żadna."""
 
     worker_name: str
     output_file: Path
     rows: int
     status: WorkerStatus
+    route: Route | None = None
 
 
 @dataclass(frozen=True)
@@ -166,6 +169,10 @@ class SettlementSummary:
     @property
     def template_count(self) -> int:
         return len(self.results)
+
+    @property
+    def routes(self) -> Mapping[Route, int]:
+        return Counter(result.route for result in self.results if result.route is not None)
 
     @property
     def ok(self) -> bool:
