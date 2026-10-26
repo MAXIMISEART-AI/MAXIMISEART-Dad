@@ -320,11 +320,12 @@ def raw_order(number: int, started: datetime | None, worker: str = "adrian.testo
     ("pasted", "rows"),
     [
         ([raw_order(11, datetime(2026, 9, 13, 10)), raw_order(12, datetime(2026, 9, 13, 12))], "wiersze 16–17"),
+        ([raw_order(11, datetime(2026, 9, 8, 10)), raw_order(12, datetime(2026, 9, 8, 12))], "wiersze 16–17"),
         ([raw_order(11, datetime(2026, 9, 14, 10)), raw_order(12, datetime(2026, 9, 14, 12))], "wiersze 16–17"),
         ([raw_order(11, datetime(2026, 9, 14, 10)), raw_order(12, datetime(2026, 9, 15, 12))], "wiersze 16–17"),
         ([raw_order(11, None), raw_order(12, datetime(2026, 9, 21, 12))], "wiersz 16"),
     ],
-    ids=["dzien-okresu", "dzien-okresu-juz-uporzadkowany", "dzien-okresu-i-nastepny", "bez-daty"],
+    ids=["dzien-okresu", "pierwszy-dzien-okresu", "ostatni-dzien-okresu-juz-uporzadkowany", "dzien-okresu-i-nastepny", "bez-daty"],
 )
 @pytest.mark.parametrize("dry_run", [False, True])
 def test_surowe_zlecenia_w_okresie_zatrzymuja_sprawdzanie_bez_plikow(
