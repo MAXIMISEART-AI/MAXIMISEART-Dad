@@ -373,10 +373,11 @@ def test_skrypt_mutacji_czyta_kazdy_plik_repozytorium_ladowany_przez_jego_sprawd
         "for checker in {mutation.command[0] for mutation in script['MUTATIONS']}:\n"
         "    sys.path.insert(0, os.path.dirname(os.path.abspath(checker)))  # jak `python <sprawdzenie>`\n"
         "    runpy.run_path(checker, run_name='_sprawdzenie')\n"
-        "print(json.dumps([getattr(module, '__file__', None) for name, module in list(sys.modules.items()) if name not in started]))\n"
+        "files = [getattr(module, '__file__', None) for name, module in list(sys.modules.items()) if name not in started]\n"
+        "print(json.dumps({'start': 'pokrycie_procesu' in started, 'pliki': files}))\n"
     )
     scripts = sorted((ROOT / ".agents" / "skills").glob("*/scripts/check_*_mutations.py"))
-    unread, nothing_loaded = {}, []
+    unread, nothing_loaded, not_preloaded = {}, [], []
     for script in scripts:
         out = subprocess.run(
             [sys.executable, "-c", loader, str(script)],
@@ -387,15 +388,19 @@ def test_skrypt_mutacji_czyta_kazdy_plik_repozytorium_ladowany_przez_jego_sprawd
             encoding="utf-8",
             check=True,
         ).stdout
-        loaded = {Path(name).resolve() for name in json.loads(out.splitlines()[-1]) if name}
+        measured = json.loads(out.splitlines()[-1])
+        loaded = {Path(name).resolve() for name in measured["pliki"] if name}
         in_repo = {path.relative_to(ROOT).as_posix() for path in loaded if path.is_relative_to(ROOT) and ".venv" not in path.parts}
-        unread[script.parents[1].name] = sorted(in_repo - tool.reads(script))
+        unread[script.relative_to(ROOT).as_posix()] = sorted(in_repo - tool.reads(script))
         if not in_repo:
             nothing_loaded.append(script.name)
+        if not measured["start"]:
+            not_preloaded.append(script.name)
 
     assert scripts
+    assert not_preloaded == []  # bez modułu ze startu filtr ``started`` niczego nie sprawdza
     assert nothing_loaded == []  # skrypt mutacji ładuje co najmniej ``tools/mutacje.py``, więc pusty pomiar jest zepsuty
-    assert unread == {script.parents[1].name: [] for script in scripts}
+    assert unread == {script.relative_to(ROOT).as_posix(): [] for script in scripts}
 
 
 def test_czesci_uruchamiaja_kazdy_skrypt_dokladnie_raz(tmp_path: Path) -> None:
