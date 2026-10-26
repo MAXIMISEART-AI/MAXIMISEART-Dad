@@ -851,8 +851,13 @@ def test_nieudany_zapis_rozliczenia_pracownika_wstrzymuje_publikacje(
     assert worker_template_path.read_bytes() == worker_template_before
 
 
+@pytest.mark.parametrize(
+    "held",
+    [PermissionError("wymuszony: plik tymczasowy trzyma OneDrive"), OSError(errno.EIO, "wymuszony: dostawca plików w chmurze nie odpowiada")],
+    ids=["bez-uprawnien", "dostawca-w-chmurze"],
+)
 def test_plik_tymczasowy_trzymany_przez_onedrive_po_nieudanym_zapisie_nazywa_rozliczenie_pracownika(
-    complete_run: tuple[Path, Path, Path, Path], monkeypatch: pytest.MonkeyPatch
+    complete_run: tuple[Path, Path, Path, Path], monkeypatch: pytest.MonkeyPatch, held: OSError
 ) -> None:
     source_path, _, config_path, worker_template_path = complete_run
     real_replace, real_unlink = os.replace, os.unlink
@@ -864,7 +869,7 @@ def test_plik_tymczasowy_trzymany_przez_onedrive_po_nieudanym_zapisie_nazywa_roz
 
     def hold_temporary_workbook(path: str | os.PathLike[str], **kwargs: object) -> None:
         if Path(path).name.startswith(".Rozliczenie ") and Path(path).suffix == ".xlsx":
-            raise PermissionError("wymuszony: plik tymczasowy trzyma OneDrive")
+            raise held
         real_unlink(path, **kwargs)  # type: ignore[arg-type]
 
     monkeypatch.setattr(os, "replace", fail_replacing_workbook)

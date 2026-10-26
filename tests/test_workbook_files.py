@@ -936,3 +936,25 @@ def test_wzorzec_rozliczenia_pracownika_z_wartoscia_w_wierszu_danych_nie_daje_pl
 
     assert raised.value.problem is Problem.HAS_DATA
     assert not target.exists()
+
+
+@pytest.mark.parametrize("copied", [True, False], ids=["kopia", "openpyxl"])
+def test_wzorzec_rozliczenia_pracownika_ze_scaleniem_w_wierszu_danych_nie_daje_pliku_na_zadnej_drodze(
+    tmp_path: Path, copied: bool
+) -> None:
+    template_path = tmp_path / "Wzorzec rozliczenia pracownika.xlsx"
+    write_template(template_path)
+    workbook = load_workbook(template_path)
+    try:
+        active_worksheet(workbook).merge_cells("A19:B19")
+        workbook.save(template_path)
+    finally:
+        workbook.close()
+    (marked_for_copy if copied else refused_by_copy)(template_path)
+    target = tmp_path / "Rozliczenie - Wykonawca.xlsx"
+
+    with pytest.raises(WorkbookError) as raised:
+        TemplateFile.worker_settlement(template_path).create(target, [_data_row(_row(A="syntetyczne miasto"))] * 2)
+
+    assert raised.value.problem is Problem.LAYOUT
+    assert not target.exists()
