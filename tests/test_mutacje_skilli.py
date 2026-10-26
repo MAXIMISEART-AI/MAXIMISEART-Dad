@@ -370,6 +370,25 @@ def test_kazdy_glob_pilnuje_trafia_w_plik_repozytorium(monkeypatch: pytest.Monke
     assert dead == []
 
 
+POZA_VERIFY_ROZLICZENIA = {
+    "src/rozliczenia/settings.py": "ustawienia taty importuje tylko Centrum rozliczeń, a skrypty skilla i tools/uruchom_proces.py go nie wykonują",
+}
+
+
+def test_kazdy_modul_silnika_jest_w_pilnuje_verify_rozliczenia_albo_na_liscie_wylaczen(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Glob ``pilnuje:`` ``verify-rozliczenia`` wymienia moduły silnika z nazwy, więc nowy moduł musi trafić do globu albo
+    do ``POZA_VERIFY_ROZLICZENIA``; inaczej jego zmiana na PR nie uruchamia podstawy skilla. Plik spoza gita też się
+    liczy, bo nowy moduł istnieje przed commitem."""
+
+    globs = _load_tool(monkeypatch).guarded(ROOT / ".agents" / "skills" / "verify-rozliczenia" / "SKILL.md")
+    engine = (ROOT / "src" / "rozliczenia").rglob("*.py")
+    modules = {name for path in engine if "centrum" not in (name := path.relative_to(ROOT).as_posix()).split("/")}
+    covered = {name for name in modules if any(fnmatch.fnmatchcase(name, glob) for glob in globs)}
+
+    assert sorted(modules - covered - POZA_VERIFY_ROZLICZENIA.keys()) == [], "dopisz moduł do pilnuje: verify-rozliczenia albo do POZA_VERIFY_ROZLICZENIA"
+    assert sorted(POZA_VERIFY_ROZLICZENIA.keys() - (modules - covered)) == [], "usuń z POZA_VERIFY_ROZLICZENIA moduł, którego nie ma albo który glob obejmuje"
+
+
 def test_polecenie_ci_kazdego_skilla_to_skrypt_z_repozytorium(monkeypatch: pytest.MonkeyPatch) -> None:
     tool = _load_tool(monkeypatch)
 
