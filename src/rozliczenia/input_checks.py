@@ -17,7 +17,7 @@ from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Final
+from typing import Final, TypeAlias
 
 from . import preparation_files, preparation_register, raw_orders, settlement_files, settlement_messages, workbook_files
 from . import preparation_messages as messages
@@ -56,6 +56,9 @@ class Readers:
 
 
 FILE_READERS: Final = Readers(register=preparation_register.read_register, template=TemplateFile.check)
+
+WorkerConfigExplanation: TypeAlias = Callable[[Path, WorkerConfigError], Message]
+"""Komunikat procesu o konfiguracji wykonawców, której nie da się użyć."""
 
 
 @dataclass(frozen=True)
@@ -202,11 +205,11 @@ def check_settlement(
     return folder, mapping, ProcessTemplate.worker(worker_template).checked(readers)
 
 
-def workers(config: Path) -> dict[str, str] | Message:
-    """Wykonawcy z konfiguracji wykonawców albo Komunikat, którym zatrzymałby się na niej Przebieg rozliczeń."""
+def workers(config: Path, explain: WorkerConfigExplanation) -> dict[str, str] | Message:
+    """Wykonawcy z konfiguracji wykonawców albo Komunikat ``explain``, którym zatrzymałby się na niej proces."""
 
     try:
-        return _worker_mapping(config, settlement_messages.worker_config_problem)
+        return _worker_mapping(config, explain)
     except StopError as stop:
         return stop.message
 
@@ -219,7 +222,7 @@ def _stops(explain: Callable[[WorkbookError], Message]) -> Iterator[None]:
         raise StopError(explain(error)) from error
 
 
-def _worker_mapping(config: Path, explain: Callable[[Path, WorkerConfigError], Message]) -> dict[str, str]:
+def _worker_mapping(config: Path, explain: WorkerConfigExplanation) -> dict[str, str]:
     try:
         return load_worker_mapping(config)
     except WorkerConfigError as error:

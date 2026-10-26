@@ -173,6 +173,7 @@ REQUIRED_SCREENSHOTS = {
         "58-diagnoza-nieoczekiwany-wyjatek.png",
         "59-diagnoza-nieoczekiwany-wyjatek-zgloszenie.png",
         "59b-diagnoza-klucz-odrzucony.png",
+        "59c-diagnoza-konfiguracja-wykonawcow.png",
     ),
     "aktualnosc-i-onedrive": (
         "76-aktualnosc-nowsza-wersja.png",

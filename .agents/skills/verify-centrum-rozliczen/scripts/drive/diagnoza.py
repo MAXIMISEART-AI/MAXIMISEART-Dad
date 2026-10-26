@@ -26,6 +26,8 @@ PERIOD = "08_14_09_2026"
 REGISTER_OPEN = "Rejestr zleceń jest otwarty w Excelu. Nie utworzono żadnego pliku."
 NO_ORDERS = "W Rejestrze zleceń nie ma żadnego zlecenia z tego okresu."
 TEMPLATE_MISSING = "Nie znaleziono wzorca, z którego powstają pliki okresu."
+# Przygotowanie's own Komunikat; Przebieg rozliczeń says „Konfiguracja wykonawców jest niepoprawna.” about the same file.
+WORKER_CONFIG_NOT_UTF8 = "Nie można odczytać konfiguracji wykonawców. Plik nie jest zapisany w kodowaniu UTF-8."
 NOT_FOUND = "Nie znalazłem przyczyny na tym komputerze."
 CONFIRMS = "Diagnoza potwierdza ten komunikat."
 FILES_UNCHANGED = "Nic nie zapisano, Twoje pliki są bez zmian."
@@ -387,3 +389,37 @@ def drive_diagnosis(run: Run, page: Page) -> None:
     finally:
         refusing.unlink()
         key_file.unlink()
+
+    run.step(FEATURE, "diagnoza-konfiguracja-wykonawcow")
+    worker_config = Path(configuration["worker_config"])
+    kept = worker_config.with_name(f"{worker_config.name}.odlozony")
+    worker_config.rename(kept)
+    worker_config.write_bytes(b"\xff\xfe nie UTF-8")
+    try:
+        page.get_by_role("button", name="Nowe Uruchomienie procesu").click()
+        page.get_by_role("radio", name="Przygotowanie pliku zbiorczego").click()
+        page.get_by_role("combobox", name="Okres").click()
+        page.get_by_role("option", name=period_choice(PERIOD, "Brak plików okresu"), exact=True).click()
+        page.get_by_role("button", name="Podgląd bez zapisu", exact=True).click()
+        expect(stop_banner(page)).to_contain_text(WORKER_CONFIG_NOT_UTF8)
+        result = finished_result(run, "diagnoza-konfiguracja-wykonawcow")
+        run.check(result["stop_kind"] == "for_maks", "a konfiguracja wykonawców Przygotowanie cannot read is „do Maksa”")
+        stop_banner(page).get_by_role("button", name="Diagnoza", exact=True).click()
+        expect(diagnosis).to_contain_text(CONFIRMS)
+        expect(diagnosis.get_by_label("Wyjaśnienie Diagnozy")).to_have_count(0)
+        run.check(True, "the Diagnoza confirms the stop on the konfiguracja wykonawców instead of a second Komunikat")
+        config_run = current_run(run, "diagnoza-konfiguracja-wykonawcow")["run"]
+        assert isinstance(config_run, dict)
+        answer = diagnosis_answer(run, str(config_run["id"]), "diagnoza-konfiguracja-wykonawcow")
+        explanation = answer["explanation"]
+        assert isinstance(explanation, dict) and isinstance(answer["checks"], list)
+        run.check(
+            explanation["what"] == WORKER_CONFIG_NOT_UTF8
+            and answer["confirms_stop"] is True
+            and {"label": "Konfiguracja wykonawców", "state": "failed", "detail": WORKER_CONFIG_NOT_UTF8} in answer["checks"],
+            "the check of the konfiguracja wykonawców explains it with Przygotowanie's Komunikat, the one the stop showed",
+        )
+        run.capture(page, "59c-diagnoza-konfiguracja-wykonawcow")
+    finally:
+        worker_config.unlink()
+        kept.rename(worker_config)
