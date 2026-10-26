@@ -8,7 +8,7 @@ import re
 import zipfile
 from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 from io import BytesIO
 from pathlib import Path
@@ -16,8 +16,8 @@ from typing import Literal
 
 import pytest
 from openpyxl import load_workbook
-from openpyxl.styles import Font
-from openpyxl.utils.cell import get_column_letter
+from openpyxl.styles import Color, Font, PatternFill
+from openpyxl.utils.cell import coordinate_from_string, get_column_letter
 from openpyxl.worksheet.worksheet import Worksheet
 
 from rozliczenia import TOOL_ROOT
@@ -31,9 +31,12 @@ from rozliczenia.progress import PhaseState
 
 from tests.fixtures.clock import ManualClock
 from tests.fixtures.intermax import (
+    ACTIVITIES,
     APP_LAST,
     BLANK_HEIGHT,
+    CONTRACT_NUMBER,
     DATE,
+    DEVICES,
     DATE_FORMAT,
     FIRST,
     HEADERS,
@@ -242,6 +245,91 @@ def test_zlecenia_maja_wyglad_reszty_intermax_a_kolumny_za_uwagi_zostaja_jak_prz
             assert (cell.font.name, cell.font.sz, cell.font.b, cell.fill.fill_type) == ("Roboto", 4, True, "solid")
 
 
+_GREEN, _ORANGE, _DARK_BLUE, _LIGHT_BLUE, _PINK = "FF99FF66", "FFFFC000", "FF69D8FF", "FF00FFFF", "FFE89CA7"
+
+
+def _fills(sheet: Worksheet, row: int) -> dict[int, str | None]:
+    """Wypełnienie RGB każdej komórki kolumn zlecenia wiersza ``row``; ``None``: bez wypełnienia."""
+
+    return {
+        column: cell.fill.fgColor.rgb if (cell := sheet.cell(row, column)).fill.fill_type == "solid" else None
+        for column in range(FIRST, LAST + 1)
+    }
+
+
+def _colored(activities: str | None, contract_number: str | None, devices: str | None) -> dict[int, str | None]:
+    return {column: None for column in range(FIRST, LAST + 1)} | {
+        ACTIVITIES: activities,
+        CONTRACT_NUMBER: contract_number,
+        DEVICES: devices,
+    }
+
+
+@pytest.mark.parametrize(
+    ("operator", "kind", "expected"),
+    [
+        ("TMOBILE", "Instalacja Hurt", _colored(_GREEN, _GREEN, None)),
+        ("T-Mobile", "Instalacja", _colored(_GREEN, _GREEN, None)),
+        (" t mobile ", "Instalacja", _colored(_GREEN, _GREEN, None)),
+        ("ORANGE", "Instalacja Hurt", _colored(_ORANGE, _ORANGE, None)),
+        ("Netia", "Instalacja Hurt", _colored(_DARK_BLUE, _LIGHT_BLUE, None)),
+        ("P4", "Instalacja Hurt", _colored(_LIGHT_BLUE, _LIGHT_BLUE, None)),
+        ("VECTRA", "Instalacja Hurt", _colored(_LIGHT_BLUE, _LIGHT_BLUE, None)),
+        ("INEA", "Instalacja Hurt", _colored(None, None, None)),
+        (None, "Instalacja", _colored(None, None, None)),
+        ("TMOBILE", "Usterka", _colored(None, None, _PINK)),
+        ("TMOBILE", "Usterka Hurt", _colored(None, None, _PINK)),
+        ("ORANGE", "USTERKA  HURT", _colored(None, None, _PINK)),
+        (None, "Usterka", _colored(None, None, _PINK)),
+    ],
+    ids=[
+        "tmobile",
+        "t-mobile",
+        "t mobile ze spacjami",
+        "orange",
+        "netia",
+        "p4",
+        "vectra",
+        "inea",
+        "puste czynnosci",
+        "usterka przy tmobile",
+        "usterka hurt przy tmobile",
+        "usterka hurt wielkimi literami",
+        "usterka bez operatora",
+    ],
+)
+def test_kolor_operatora_w_czynnosciach_numerze_umowy_i_urzadzeniach_a_inne_komorki_bez_wypelnienia(
+    tmp_path: Path, operator: str | None, kind: str, expected: dict[int, str | None]
+) -> None:
+    raw = (
+        Order(datetime(2026, 10, 26, 14), "jan.nowak", 101, operator, kind),
+        Order(datetime(2026, 10, 26, 8), "jan.nowak", 102, operator, kind),
+    )
+    path, layout = _register(tmp_path, Intermax(raw=raw))
+
+    _ordered(_run(tmp_path))
+
+    assert layout.yellow is not None
+    sheet = load_workbook(path).worksheets[1]
+    assert order_rows(path, layout.yellow + 2, layout.yellow + 3) == [_expected(raw[1]), _expected(raw[0])]
+    assert _fills(sheet, layout.yellow + 2) == expected, "zlecenie na miejscu"
+    assert _fills(sheet, layout.yellow + 3) == expected, "przesunięty pierwszy wiersz"
+
+
+def test_pusta_komorka_numeru_umowy_dostaje_kolor_operatora(tmp_path: Path) -> None:
+    raw = (Order(datetime(2026, 10, 26, 8), "jan.nowak", 101, "TMOBILE"),)
+    path, layout = _register(tmp_path, Intermax(raw=raw, shifted=False))
+    contract = rb'<c r="%s%d"[^>]*?(?:/>|>.*?</c>)' % (get_column_letter(CONTRACT_NUMBER).encode(), layout.first_raw)
+    rewrite_parts(path, lambda name, data: re.sub(contract, b"", data, flags=re.S) if name == _SHEET else data)
+
+    _ordered(_run(tmp_path))
+
+    assert layout.yellow is not None
+    sheet = load_workbook(path).worksheets[1]
+    assert sheet.cell(layout.yellow + 2, CONTRACT_NUMBER).value is None
+    assert _fills(sheet, layout.yellow + 2) == _colored(_GREEN, _GREEN, None)
+
+
 def _links(path: Path, first: int, last: int) -> dict[str, str | None]:
     sheet = load_workbook(path)[ORDER_SHEET]
     return {
@@ -252,6 +340,8 @@ def _links(path: Path, first: int, last: int) -> dict[str, str | None]:
 
 
 def test_inne_czesci_pliku_i_wiersze_nad_dniem_zostaja_bajt_w_bajt_a_hiperlacza_ida_ze_zleceniem(tmp_path: Path) -> None:
+    """Arkusz zleceń był aktywny, więc poza nim i stylami nic się nie zmienia; nad dniem zmienia się tylko widok."""
+
     path, layout = _register(tmp_path)
     before = parts(path)
     ordered_links = _links(path, 2, layout.last_ordered)
@@ -267,9 +357,9 @@ def test_inne_czesci_pliku_i_wiersze_nad_dniem_zostaja_bajt_w_bajt_a_hiperlacza_
     assert {name for name in before if before[name] != after[name]} <= {sheet_part, styles_part}
     assert layout.yellow is not None
     region = next(row for row in re.finditer(rb'<row r="(\d+)"', before[sheet_part]) if int(row.group(1)) > layout.yellow)
-    without_dimension = re.compile(rb"<dimension [^>]*>")
-    above = without_dimension.sub(b"", before[sheet_part][: region.start()])
-    assert b"<sheetData>" in above and without_dimension.sub(b"", after[sheet_part]).startswith(above)
+    without_dimension_and_view = re.compile(rb"<dimension [^>]*>|<sheetViews>.*?</sheetViews>")
+    above = without_dimension_and_view.sub(b"", before[sheet_part][: region.start()])
+    assert b"<sheetData>" in above and without_dimension_and_view.sub(b"", after[sheet_part]).startswith(above)
     sheet = load_workbook(path).worksheets[1]
     links = {
         cell.value: link.target
@@ -277,6 +367,223 @@ def test_inne_czesci_pliku_i_wiersze_nad_dniem_zostaja_bajt_w_bajt_a_hiperlacza_
         if (link := (cell := sheet.cell(row, NUMBER)).hyperlink) is not None
     }
     assert links == {f"ZL-{order.number}": order.link for order in layout.raw}
+
+
+@dataclass(frozen=True)
+class _View:
+    """Jak INTERMAX otwiera się w Excelu: aktywny arkusz, zaznaczone karty, górny wiersz widoku i zaznaczenie."""
+
+    active: str
+    selected: tuple[str, ...]
+    top_row: int
+    selection: str
+    frozen_header: bool
+
+
+def _view(path: Path) -> _View:
+    workbook = load_workbook(path)
+    sheet = workbook[ORDER_SHEET]
+    view = sheet.sheet_view
+    pane = view.pane
+    top = pane.topLeftCell if pane is not None else view.topLeftCell
+    [selection] = view.selection
+    assert top is not None and selection.activeCell == selection.sqref
+    assert selection.pane == (pane.activePane if pane is not None else None)
+    assert workbook.active is not None
+    return _View(
+        workbook.active.title,
+        tuple(sheet.title for sheet in workbook.worksheets if sheet.sheet_view.tabSelected),
+        coordinate_from_string(top)[1],
+        selection.activeCell,
+        pane is not None and (pane.ySplit, pane.state, pane.activePane) == (1, "frozen", "bottomLeft"),
+    )
+
+
+# Uporządkowane dni fixture'u ``_VIEW_DAYS``: 19.10 w wierszu 2, 20.10 od wiersza 3 (dwóch Wykonawców, pusty wiersz 5).
+_VIEW_DAYS = (
+    Order(datetime(2026, 10, 19, 9), "anna.kowalska", 1),
+    Order(datetime(2026, 10, 20, 9), "anna.kowalska", 2),
+    Order(datetime(2026, 10, 20, 12), "anna.kowalska", 3),
+    Order(datetime(2026, 10, 20, 8), "jan.nowak", 4),
+)
+
+
+@pytest.mark.parametrize(
+    ("today", "top_row"),
+    [(datetime(2026, 10, 20, 7), 3), (datetime(2026, 10, 19, 7), 2), (datetime(2026, 10, 23, 7), 3)],
+    ids=["dzis-ze-zleceniami", "dzis-wczesniejszy-dzien", "dzis-bez-zlecen-ostatni-wczesniejszy-dzien"],
+)
+def test_intermax_otwiera_sie_na_pierwszym_zleceniu_dzisiejszego_dnia_choc_uporzadkowany_dzien_jest_inny(
+    tmp_path: Path, today: datetime, top_row: int
+) -> None:
+    path, _ = _register(tmp_path, Intermax(ordered=_VIEW_DAYS))
+
+    _ordered(_run(tmp_path, now=today))
+
+    assert _view(path) == _View(ORDER_SHEET, (ORDER_SHEET,), top_row, f"B{top_row}", frozen_header=True)
+
+
+@pytest.mark.parametrize(
+    "today", [datetime(2026, 10, 26, 7), datetime(2026, 10, 28, 7), datetime(2026, 10, 1, 7)], ids=["dzis", "pozniej", "przed"]
+)
+def test_intermax_otwiera_sie_na_uporzadkowanym_dniu_gdy_to_dzis_ostatni_dzien_przed_dzis_albo_nie_ma_wczesniejszych(
+    tmp_path: Path, today: datetime
+) -> None:
+    path, layout = _register(tmp_path, Intermax(ordered=_VIEW_DAYS))
+
+    _ordered(_run(tmp_path, now=today))
+
+    assert layout.yellow is not None
+    assert _view(path).top_row == layout.yellow + 2
+
+
+def test_usterka_poprzedniego_dnia_dopisana_pod_dzisiejszym_dniem_nie_przesuwa_widoku(tmp_path: Path) -> None:
+    ordered = (*_VIEW_DAYS[1:3], Order(datetime(2026, 10, 19, 15), "anna.kowalska", 5))
+    path, _ = _register(tmp_path, Intermax(ordered=ordered))
+
+    _ordered(_run(tmp_path, now=datetime(2026, 10, 20, 7)))
+
+    assert _view(path).top_row == 2
+
+
+# Zlecenie na dziś w wierszu 2, pod nim ``below`` zleceń z 19.10, pusty wiersz i dzisiejszy dzień Wykonawcy jan.nowak.
+@pytest.mark.parametrize(("below", "top_row"), [(9, 2), (10, 14)])
+def test_zlecenie_na_dzis_wpisane_we_wczesniejszym_dniu_jest_poczatkiem_widoku_tylko_tuz_nad_dzisiejszym_dniem(
+    tmp_path: Path, below: int, top_row: int
+) -> None:
+    earlier = (Order(datetime(2026, 10, 19, 8 + hour % 10), "anna.kowalska", 10 + hour) for hour in range(below))
+    ordered = (Order(datetime(2026, 10, 20, 7), "anna.kowalska", 1), *earlier, Order(datetime(2026, 10, 20, 9), "jan.nowak", 2))
+    path, _ = _register(tmp_path, Intermax(ordered=ordered))
+
+    _ordered(_run(tmp_path, now=datetime(2026, 10, 20, 7)))
+
+    assert _view(path).top_row == top_row
+
+
+def test_zlecenie_na_dzis_wsrod_wczesniejszych_zaczyna_widok_gdy_10_wczesniejszych_nie_stoi_pod_rzad(tmp_path: Path) -> None:
+    """Granica 10 wierszy liczy wcześniejsze dni pod rząd, jak przegląd nad wklejeniem: zlecenie na dziś ją zeruje."""
+
+    earlier = tuple(Order(datetime(2026, 10, 19, 8 + hour), "anna.kowalska", 10 + hour) for hour in range(10))
+    ordered = (
+        Order(datetime(2026, 10, 20, 7), "anna.kowalska", 1),
+        *earlier[:9],
+        Order(datetime(2026, 10, 20, 8), "anna.kowalska", 2),
+        earlier[9],
+        Order(datetime(2026, 10, 20, 9), "jan.nowak", 3),
+    )
+    path, _ = _register(tmp_path, Intermax(ordered=ordered))
+
+    _ordered(_run(tmp_path, now=datetime(2026, 10, 20, 7)))
+
+    assert _view(path).top_row == 2
+
+
+def test_dzien_bez_zoltego_wiersza_z_jedynym_zleceniem_dzisiaj_w_ostatnim_uporzadkowanym_wierszu_jest_widokiem(
+    tmp_path: Path,
+) -> None:
+    ordered = (_VIEW_DAYS[0], _VIEW_DAYS[3])
+    path, layout = _register(tmp_path, Intermax(ordered=ordered, yellow=None))
+
+    _ordered(_run(tmp_path, now=datetime(2026, 10, 20, 7)))
+
+    assert _view(path).top_row == layout.last_ordered == 4
+
+
+def test_intermax_zapisany_z_innym_aktywnym_arkuszem_otwiera_sie_na_arkuszu_zlecen(tmp_path: Path) -> None:
+    path, _ = _register(tmp_path, Intermax(ordered=_VIEW_DAYS, active_sheet="LISTA OD 08.11.2021."))
+    before = parts(path)
+
+    _ordered(_run(tmp_path, now=datetime(2026, 10, 20, 7)))
+
+    assert _view(path) == _View(ORDER_SHEET, (ORDER_SHEET,), 3, "B3", frozen_header=True)
+    after = parts(path)
+    assert {name for name in before if before[name] != after[name]} == {
+        _SHEET,
+        _STYLES,
+        "xl/workbook.xml",
+        "xl/worksheets/sheet3.xml",
+    }
+
+
+def test_intermax_zapisany_na_ostatnim_arkuszu_otwiera_sie_na_samym_arkuszu_zlecen(tmp_path: Path) -> None:
+    path, _ = _register(tmp_path, Intermax(ordered=_VIEW_DAYS, active_sheet="komentarze"))
+
+    _ordered(_run(tmp_path, now=datetime(2026, 10, 20, 7)))
+
+    assert _view(path).selected == (ORDER_SHEET,)
+
+
+def test_karta_zaznaczona_jako_true_w_innym_arkuszu_przestaje_byc_zaznaczona(tmp_path: Path) -> None:
+    path, _ = _register(tmp_path, Intermax(ordered=_VIEW_DAYS, active_sheet="LISTA OD 08.11.2021."))
+    rewrite_parts(
+        path, lambda name, data: data.replace(b'tabSelected="1"', b'tabSelected="true"') if name == _LIST_SHEET else data
+    )
+
+    _ordered(_run(tmp_path, now=datetime(2026, 10, 20, 7)))
+
+    assert _view(path).selected == (ORDER_SHEET,)
+    assert b"tabSelected" not in parts(path)[_LIST_SHEET]
+
+
+def test_w_drugim_oknie_excela_intermax_tez_otwiera_sie_na_arkuszu_zlecen_i_dzisiejszym_dniu(tmp_path: Path) -> None:
+    """Każde okno skoroszytu ma własny ``<workbookView>`` i własny ``<sheetView>`` w każdym arkuszu."""
+
+    path, _ = _register(tmp_path, Intermax(ordered=_VIEW_DAYS, active_sheet="LISTA OD 08.11.2021."))
+
+    def second_window(name: str, data: bytes) -> bytes:
+        if name == "xl/workbook.xml":
+            return re.sub(rb"(<workbookView\b[^>]*/>)", rb"\1\1", data)
+        if name == _SHEET:
+            view = re.search(rb"<sheetView\b.*?</sheetView>", data, re.S)
+            assert view is not None
+            second = view.group(0).replace(b'workbookViewId="0"', b'workbookViewId="1"')
+            return data.replace(view.group(0), view.group(0) + second)
+        return data
+
+    rewrite_parts(path, second_window)
+
+    _ordered(_run(tmp_path, now=datetime(2026, 10, 20, 7)))
+
+    after = parts(path)
+    assert re.findall(rb'<workbookView\b[^>]*\sactiveTab="(\d+)"', after["xl/workbook.xml"]) == [b"1", b"1"]
+    views = re.findall(rb"<sheetView\b.*?</sheetView>", after[_SHEET], re.S)
+    assert len(views) == 2
+    for view in views:
+        assert b'tabSelected="1"' in view and b'topLeftCell="A3"' in view and b'activeCell="B3"' in view
+
+
+def test_intermax_zapisany_na_pierwszym_arkuszu_bez_activetab_otwiera_sie_na_arkuszu_zlecen(tmp_path: Path) -> None:
+    """Excel nie zapisuje ``activeTab``, gdy aktywny jest pierwszy arkusz."""
+
+    path, _ = _register(tmp_path, Intermax(ordered=_VIEW_DAYS))
+    rewrite_parts(path, lambda name, data: data.replace(b' activeTab="1"', b"") if name == "xl/workbook.xml" else data)
+    assert load_workbook(path).active.title == "Arkusz1"  # type: ignore[union-attr]
+
+    _ordered(_run(tmp_path, now=datetime(2026, 10, 20, 7)))
+
+    assert _view(path).active == ORDER_SHEET
+
+
+def test_zamrozony_naglowek_bez_activepane_ma_zaznaczenie_w_gornym_panelu(tmp_path: Path) -> None:
+    """Bez ``activePane`` aktywny jest górny lewy panel, więc zaznaczenie staje w nim."""
+
+    path, _ = _register(tmp_path, Intermax(ordered=_VIEW_DAYS))
+    rewrite_parts(path, lambda name, data: data.replace(b' activePane="bottomLeft"', b"") if name == _SHEET else data)
+
+    _ordered(_run(tmp_path, now=datetime(2026, 10, 20, 7)))
+
+    view = load_workbook(path)[ORDER_SHEET].sheet_view
+    assert view.pane is not None and (view.pane.ySplit, view.pane.state, view.pane.topLeftCell) == (1, "frozen", "A3")
+    assert [(selection.pane, selection.activeCell) for selection in view.selection] == [("topLeft", "B3")]
+
+
+def test_bez_zamrozonego_naglowka_widok_bez_panelu_otwiera_sie_na_dzisiejszym_dniu(tmp_path: Path) -> None:
+    path, _ = _register(tmp_path, Intermax(ordered=_VIEW_DAYS, frozen=False))
+
+    _ordered(_run(tmp_path, now=datetime(2026, 10, 20, 7)))
+
+    assert _view(path) == _View(ORDER_SHEET, (ORDER_SHEET,), 3, "B3", frozen_header=False)
+    assert load_workbook(path)[ORDER_SHEET].sheet_view.pane is None
 
 
 def test_kopia_intermax_ma_nazwe_z_zegara_procesu_i_bajty_sprzed_uporzadkowania(tmp_path: Path) -> None:
@@ -325,6 +632,8 @@ def _parts_reordered(content: bytes) -> bytes:
 
 
 _SHEET, _STYLES = "xl/worksheets/sheet2.xml", "xl/styles.xml"
+_LIST_SHEET = "xl/worksheets/sheet3.xml"
+"""Arkusz ``LISTA OD 08.11.2021.`` fixture'u, za arkuszem zleceń."""
 
 
 def _in_sheet(change: Callable[[bytes], bytes]) -> Callable[[bytes, Layout], bytes]:
@@ -372,10 +681,22 @@ CORRUPTIONS: dict[str, Callable[[bytes, Layout], bytes]] = {
     "nie zip": lambda _content, _layout: b"to nie jest skoroszyt",
     "kolejność części": lambda content, _layout: _parts_reordered(content),
     "inna część": lambda content, _layout: _part_changed(content, "docProps/app.xml", lambda xml: xml + b" "),
+    "skoroszyt poza aktywną kartą": lambda content, _layout: _part_changed(
+        content, "xl/workbook.xml", lambda xml: xml.replace(b'tabRatio="600"', b'tabRatio="601"', 1)
+    ),
+    "inny arkusz poza zaznaczeniem karty": lambda content, _layout: _part_changed(
+        content, _LIST_SHEET, lambda xml: xml.replace(b'activeCell="A1" sqref="A1"', b'activeCell="A2" sqref="A2"', 1)
+    ),
+    "inna aktywna karta": lambda content, _layout: _part_changed(
+        content, "xl/workbook.xml", lambda xml: xml.replace(b'activeTab="1"', b'activeTab="2"', 1)
+    ),
+    "inny arkusz zaznaczony": lambda content, _layout: _part_changed(
+        content, _LIST_SHEET, lambda xml: xml.replace(b"<sheetView ", b'<sheetView tabSelected="true" ', 1)
+    ),
     "istniejący styl": lambda content, _layout: _part_changed(
         content, _STYLES, lambda xml: xml.replace(b'<sz val="11"', b'<sz val="12"', 1)
     ),
-    "wypełnienie poza dopisywanymi listami": lambda content, _layout: _part_changed(
+    "istniejące wypełnienie": lambda content, _layout: _part_changed(
         content, _STYLES, lambda xml: xml.replace(b'patternType="gray125"', b'patternType="gray0625"', 1)
     ),
     "lista stylów": lambda content, _layout: _part_changed(
@@ -987,11 +1308,21 @@ def _style_entries(xml: bytes, tag: bytes, item: bytes) -> tuple[int, list[bytes
     return int(found.group(1)), entries
 
 
-_LISTS = ((b"fonts", b"font"), (b"borders", b"border"), (b"cellXfs", b"xf"))
+_LISTS = ((b"fonts", b"font"), (b"fills", b"fill"), (b"borders", b"border"), (b"cellXfs", b"xf"))
+_COLORED = Intermax(
+    raw=(
+        Order(datetime(2026, 10, 26, 14), "jan.nowak", 101, "TMOBILE"),
+        Order(datetime(2026, 10, 26, 10), "anna.kowalska", 102, "NETIA"),
+        Order(datetime(2026, 10, 26, 16), "anna.kowalska", 103, "T-Mobile"),
+        Order(datetime(2026, 10, 26, 8), "jan.nowak", 104, None, "Usterka"),
+        Order(datetime(2026, 10, 26, 9), "bartek.zielinski", 105, "P4"),
+    )
+)
+"""Surowe zlecenia z Kolorami operatora, które powtarzają wypełnienia."""
 
 
 def test_dopisane_style_sa_raz_kazdy_a_licznik_count_zgadza_sie_z_lista(tmp_path: Path) -> None:
-    path, _ = _register(tmp_path)
+    path, _ = _register(tmp_path, _COLORED)
     before = parts(path)[_STYLES]
 
     _ordered(_run(tmp_path))
@@ -1003,6 +1334,8 @@ def test_dopisane_style_sa_raz_kazdy_a_licznik_count_zgadza_sie_z_lista(tmp_path
         assert count == len(entries), tag
         assert len(set(added)) == len(added), tag
     assert len(_style_entries(after, b"cellXfs", b"xf")[1]) > len(_style_entries(before, b"cellXfs", b"xf")[1])
+    # Zielony, ciemniejszy i jasny niebieski oraz różowy, każdy raz.
+    assert len(_style_entries(after, b"fills", b"fill")[1]) == len(_style_entries(before, b"fills", b"fill")[1]) + 4
 
 
 def _pasted_again(path: Path, original: bytes, layout: Layout, *, days: int = 0) -> int:
@@ -1032,8 +1365,21 @@ def _pasted_again(path: Path, original: bytes, layout: Layout, *, days: int = 0)
     return last + 3
 
 
+def test_kolor_operatora_bierze_wypelnienie_ktore_tata_juz_ma_w_intermax(tmp_path: Path) -> None:
+    path, layout = _register(tmp_path, Intermax(raw=(Order(datetime(2026, 10, 26, 8), "jan.nowak", 101, "TMOBILE"),)))
+    green = PatternFill(patternType="solid", fgColor=Color(rgb=_GREEN), bgColor=Color(indexed=64))
+    _edited(path, lambda sheet: setattr(sheet.cell(2, ACTIVITIES), "fill", green))
+    before = _style_entries(parts(path)[_STYLES], b"fills", b"fill")
+
+    _ordered(_run(tmp_path))
+
+    assert layout.yellow is not None
+    assert _fills(load_workbook(path).worksheets[1], layout.yellow + 2)[ACTIVITIES] == _GREEN
+    assert _style_entries(parts(path)[_STYLES], b"fills", b"fill") == before
+
+
 def test_kolejne_uporzadkowanie_nie_dopisuje_stylow_ktore_juz_sa(tmp_path: Path) -> None:
-    path, layout = _register(tmp_path, Intermax(grid=False))
+    path, layout = _register(tmp_path, replace(_COLORED, grid=False))
     original = path.read_bytes()
     _ordered(_run(tmp_path))
     first = parts(path)[_STYLES]

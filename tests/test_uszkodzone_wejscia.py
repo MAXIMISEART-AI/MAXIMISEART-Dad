@@ -57,6 +57,8 @@ GENERIC_500 = "W Centrum rozliczeń wystąpił nieoczekiwany błąd. Odśwież k
 DIAGNOSIS_UNEXPECTED = "Nie udało się sprawdzić: nieoczekiwany błąd."
 
 TEXT, LINES, XLSX, FOLDER = "tekst", "wiersze", "xlsx", "folder"
+# Kopia INTERMAX, którą Konfiguracja wymienia i przywraca: Rejestr zleceń świata sprzed dnia świata.
+INTERMAX_COPY = "INTERMAX przed uporządkowaniem 2026-09-15 08-00-00.xlsx"
 # Układ folderów taty: Foldery okresu obu procesów w folderze INEA miesiąca.
 MONTH = "Załączniki/Rozliczenia 2026/09_Wrzesien_2026"
 FILES: dict[str, tuple[str, str]] = {
@@ -75,6 +77,8 @@ FILES: dict[str, tuple[str, str]] = {
     "metryki_przebiegu": (".rozliczenia-metrics.jsonl", LINES),
     "metryki_uporzadkowania": (".uporzadkowanie-intermax-metrics.jsonl", LINES),
     "rejestr": ("ZLECENIA INTERMAX OD 08_11_2021.xlsx", XLSX),
+    "kopia_intermax": (f"Kopie INTERMAX/{INTERMAX_COPY}", XLSX),
+    "folder_kopii_intermax": ("Kopie INTERMAX", FOLDER),
     "wzorzec_wewnetrzny": ("config/Wzorzec rozliczenia wewnętrznego.xlsx", XLSX),
     "wzorzec_zbiorczy": ("config/Wzorzec pliku zbiorczego.xlsx", XLSX),
     "wzorzec_pracownika": ("config/Wzorzec rozliczenia pracownika.xlsx", XLSX),
@@ -252,6 +256,8 @@ def _build(root: Path) -> None:
     world.path("folder_okresu_przygotowania").mkdir()
     world.path("folder_zgloszen").mkdir(parents=True)
     write_register(world.path("rejestr"))
+    world.path("folder_kopii_intermax").mkdir()
+    shutil.copyfile(world.path("rejestr"), world.path("kopia_intermax"))
     write_internal_template(world.path("wzorzec_wewnetrzny"))
     write_collective_template(world.path("wzorzec_zbiorczy"))
     write_template(world.path("wzorzec_pracownika"))
@@ -454,6 +460,10 @@ ENTRIES: dict[str, Entry] = {
     ),
     "getRunSetup": _route("getRunSetup", "GET", "/api/runs/setup"),
     "getIntermaxSetup": _route("getIntermaxSetup", "GET", "/api/intermax"),
+    "getIntermaxCopies": _route("getIntermaxCopies", "GET", "/api/intermax/copies"),
+    "restoreIntermaxCopy": _route(
+        "restoreIntermaxCopy", "POST", "/api/intermax/copies/restore", {"name": INTERMAX_COPY}
+    ),
     "getMetrics": _route("getMetrics", "GET", "/api/metrics"),
     "getConfiguration": _route("getConfiguration", "GET", "/api/configuration"),
     "getNotifications": _route("getNotifications", "GET", "/api/notifications"),

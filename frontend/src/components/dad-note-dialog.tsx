@@ -89,45 +89,50 @@ export function DadNoteForm({ openedFrom, close }: { openedFrom: string | null; 
       <DialogHeader>
         <DialogTitle>Napisz do Maksa</DialogTitle>
       </DialogHeader>
-      <Field>
-        <FieldLabel htmlFor="uwaga-tytul">Tytuł</FieldLabel>
-        <Input
-          id="uwaga-tytul"
-          required
-          autoFocus
-          maxLength={TITLE_MAX_LENGTH}
-          placeholder="Np. Brakuje kolumny z kilometrami"
-          value={title}
-          onChange={(event) => setTitle(event.target.value)}
-        />
-      </Field>
-      <Field>
-        <FieldLabel htmlFor="uwaga-tresc">
-          Treść <span className="font-normal text-muted-foreground">(niekonieczna)</span>
-        </FieldLabel>
-        <Textarea
-          id="uwaga-tresc"
-          rows={3}
-          maxLength={BODY_MAX_LENGTH}
-          className="max-h-48"
-          value={body}
-          onChange={(event) => setBody(event.target.value)}
-        />
-      </Field>
-      <Field className="min-h-0">
-        <FieldTitle>Dotyczy</FieldTitle>
-        <SegmentedFilter label="Dotyczy" options={SCOPES} value={scope} onChange={setScope} />
-        {scope === "run" ? (
-          <DadNoteRuns
-            runs={runs}
-            reload={reloadRuns}
-            openedFrom={openedFrom}
-            checked={checked}
-            onCheck={setChecked}
+      {/* Nagłówek i „Wyślij” zostają w oknie. Między nimi wysokość oddają jak dotąd lista Uruchomień i „Maks dostanie”,
+          a pola przewijają się dopiero wtedy, gdy obie są najniższe: „Dotyczy” z przełącznikiem i jednym wierszem listy
+          (wyżej o zdanie nad listą), podgląd z podpisem i pierwszą linią. `-m-1 p-1` zostawia miejsce na obwódkę fokusu. */}
+      <div className="-m-1 flex flex-col gap-5 overflow-y-auto p-1">
+        <Field>
+          <FieldLabel htmlFor="uwaga-tytul">Tytuł</FieldLabel>
+          <Input
+            id="uwaga-tytul"
+            required
+            autoFocus
+            maxLength={TITLE_MAX_LENGTH}
+            placeholder="Np. Brakuje kolumny z kilometrami"
+            value={title}
+            onChange={(event) => setTitle(event.target.value)}
           />
-        ) : null}
-      </Field>
-      <Preview shown={shown} />
+        </Field>
+        <Field>
+          <FieldLabel htmlFor="uwaga-tresc">
+            Treść <span className="font-normal text-muted-foreground">(niekonieczna)</span>
+          </FieldLabel>
+          <Textarea
+            id="uwaga-tresc"
+            rows={3}
+            maxLength={BODY_MAX_LENGTH}
+            className="max-h-48"
+            value={body}
+            onChange={(event) => setBody(event.target.value)}
+          />
+        </Field>
+        <Field className="has-data-[slot=radio-group]:min-h-32 has-[>p+[data-slot=radio-group]]:min-h-44">
+          <FieldTitle>Dotyczy</FieldTitle>
+          <SegmentedFilter label="Dotyczy" options={SCOPES} value={scope} onChange={setScope} />
+          {scope === "run" ? (
+            <DadNoteRuns
+              runs={runs}
+              reload={reloadRuns}
+              openedFrom={openedFrom}
+              checked={checked}
+              onCheck={setChecked}
+            />
+          ) : null}
+        </Field>
+        <Preview shown={shown} />
+      </div>
       <DialogFooter>
         <Button type="submit" disabled={title.trim() === "" || sendable === null || sending}>
           {sending ? <Spinner data-icon="inline-start" /> : <SendIcon data-icon="inline-start" />}
@@ -260,7 +265,7 @@ function Preview({ shown }: { shown: Shown | null }) {
   const title = shown?.kind === "draft" ? shown.draft.title : ""
 
   return (
-    <figure aria-label="Co dostanie Maks" className="flex min-h-0 flex-col gap-1 overflow-y-auto rounded-lg bg-muted/50 p-3 text-sm">
+    <figure aria-label="Co dostanie Maks" className="flex min-h-16 flex-col gap-1 overflow-y-auto rounded-lg bg-muted/50 p-3 text-sm">
       <figcaption className="text-xs text-muted-foreground">Maks dostanie</figcaption>
       <p className={cn("font-medium break-words", title === "" && "text-muted-foreground/60")}>
         {title === "" ? "Tytuł" : title}

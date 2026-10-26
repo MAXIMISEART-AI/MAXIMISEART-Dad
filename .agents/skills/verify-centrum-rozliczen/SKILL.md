@@ -35,7 +35,7 @@ py -3 .agents\skills\verify-centrum-rozliczen\scripts\run_centrum_verification.p
 
 `--feature ustawienia`, `--feature tablica-okresow`, `--feature uklad-folderow-taty`, `--feature konfiguracja`, `--feature aktualizacja`,
 `--feature metryki`, `--feature blad-odczytu`, `--feature przygotowanie-pliku-zbiorczego`, `--feature uzupelnienie`,
-`--feature przebieg-rozliczen`, `--feature uporzadkowanie-intermax`, `--feature kontrola-ilosci`, `--feature diagnoza`, `--feature aktualnosc-i-onedrive`, `--feature zgloszenie`, `--feature uwaga-taty`, `--feature logi-uruchomienia`, `--feature karta-z-logow`, `--feature powiadomienia`, `--feature pomiar-u-taty`, or `--feature start-i-zamykanie` drives one
+`--feature przebieg-rozliczen`, `--feature uporzadkowanie-intermax`, `--feature kopie-intermax`, `--feature kontrola-ilosci`, `--feature diagnoza`, `--feature aktualnosc-i-onedrive`, `--feature zgloszenie`, `--feature uwaga-taty`, `--feature logi-uruchomienia`, `--feature karta-z-logow`, `--feature powiadomienia`, `--feature pomiar-u-taty`, or `--feature start-i-zamykanie` drives one
 feature; the default `all` drives every feature in `features/` except `wydajnosc`, ending
 with `start-i-zamykanie`, which closes Centrum through its own button. In `all`,
 Dad's whole week runs in order: Przygotowanie pliku zbiorczego, the summary of
@@ -217,6 +217,7 @@ Then confirm the evidence directory still exists.
   `scripts/check_centrum_aktualizacja_mutations.py`,
   `scripts/check_centrum_diagnoza_mutations.py`,
   `scripts/check_centrum_karta_z_logow_mutations.py`,
+  `scripts/check_centrum_kopie_intermax_mutations.py`,
   `scripts/check_centrum_przebieg_rozliczen_mutations.py`,
   `scripts/check_centrum_przygotowanie_pliku_zbiorczego_mutations.py`,
   `scripts/check_centrum_uporzadkowanie_intermax_mutations.py`,

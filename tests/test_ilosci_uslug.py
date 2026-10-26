@@ -246,7 +246,7 @@ def test_plik_zbiorczy_ma_ilosci_uslug_z_kazdej_linii_instrukcji_taty(tmp_path: 
     preview = run_preparation(fixture, dry_run=True)
     summary = run_preparation(fixture)
 
-    assert replace(preview, phase_durations_ms={}) == replace(summary, phase_durations_ms={})
+    assert replace(preview, phase_durations_ms={}, routes={}) == replace(summary, phase_durations_ms={}, routes={})
     written = _quantity_rows(fixture.collective_file_path, len(CASES))
     template = _quantity_rows(fixture.collective_template_path, len(CASES))
     assert {value for row in template for value in row.values()} == {0, None}

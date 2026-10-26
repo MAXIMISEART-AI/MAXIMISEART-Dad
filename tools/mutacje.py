@@ -24,8 +24,10 @@ przekroczony czas, przerwanie (Ctrl-C) i zabicie narzędzia kończą polecenie i
 Plik JSON to lista ``{"nazwa", "zmiany": [[plik, kotwica, zamiana], ...]}`` z opcjonalnym
 ``"polecenie"`` (argumenty Pythona), które zastępuje polecenie po ``--``, i opcjonalnym
 ``"oczekiwane"``, początkiem ostatniej linii wyjścia, który wykrywa mutację zamiast kodu wyjścia.
-Skrypty ``check_<co>_mutations.py`` skilli ``verify-*`` używają tego samego silnika przez
-``check_all``.
+Lista dłuższa niż ``ciezkie_ci.TARGETED`` mutacji to ręczne ``change-mutations``: poza CI narzędzie odmawia
+jej startu (kod 2 i linia ``CIĘŻKIE CI ODMOWA``) na zasadach ``tools/ciezkie_ci.py``. Skrypty
+``check_<co>_mutations.py`` skilli ``verify-*`` używają tego samego silnika przez ``check_all``, który
+takiego limitu nie ma.
 """
 
 from __future__ import annotations
@@ -45,6 +47,7 @@ import subprocess
 import sys
 import threading
 
+import ciezkie_ci
 import potomne
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -241,6 +244,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--plik", type=Path, help="Plik JSON z listą mutacji.")
     parser.add_argument("--rownolegle", action="store_true", help="Mutacje naraz, każda w swojej kopii.")
     parser.add_argument("--limit-s", type=float, default=TIMEOUT, help="Limit czasu jednego polecenia w sekundach.")
+    ciezkie_ci.argument(parser)
     args = parser.parse_args(arguments[:split])
     try:
         mutations = _from_file(args.plik, command) if args.plik else []
@@ -251,6 +255,9 @@ def main(argv: list[str] | None = None) -> int:
         parser.error(str(error))
     if not mutations or not all(mutation.command for mutation in mutations):
         parser.error("podaj mutację (--zmiana albo --plik) i polecenie po --, np. -- -m pytest -q tests/test_x.py")
+    if refused := ciezkie_ci.mutations_refusal(len(mutations), args.odtwarzam, root=ROOT):
+        print(refused)
+        return 2
     return check_all(mutations, parallel=args.rownolegle, limit_s=args.limit_s)
 
 

@@ -29,7 +29,9 @@ waits that many milliseconds first. One version on the origin's branch
 ``<root>/INTERMAX/`` holds two synthetic INTERMAX files for ``uporzadkowanie-intermax``: one with the Surowe
 zlecenia of Monday 26.10.2026 pasted under the ordered days (6 orders of 3 Wykonawcy, the first row shifted), and
 one whose pasted rows hold a formula, which Uporządkowanie INTERMAX stops „do Maksa”. Kopie INTERMAX go to
-``<root>/Kopie INTERMAX``.
+``<root>/Kopie INTERMAX``. ``<root>/INTERMAX/przywracanie/`` holds a third INTERMAX for ``kopie-intermax`` and the
+bytes of three Kopie of both names (one ordered order fewer in the oldest), which that feature puts into the folder
+of Kopie only while it runs.
 
 ``--wariant rok-pracy`` (for ``wydajnosc``) adds a year of Dad's work on top:
 ``<root>/Rok pracy/Załączniki`` with 52 periods up to the last complete one in
@@ -294,6 +296,20 @@ def _intermax(root: Path) -> dict[str, object]:
     workbook = load_workbook(with_formula)
     workbook[ORDER_SHEET].cell(layout.first_raw + 1, 4).value = "=1+1"
     workbook.save(with_formula)
+    restore = folder / "przywracanie"
+    (restore / "kopie").mkdir(parents=True)
+    restored = restore / register.name
+    Intermax().write(restored)
+    earlier = Intermax()
+    earlier.ordered = earlier.ordered[:-1]
+    # Kopie of both names; by name „przed przywróceniem” sorts before „przed uporządkowaniem”, in time it is between.
+    copies = {
+        "INTERMAX przed uporządkowaniem 2026-10-16 07-30-00.xlsx": earlier,
+        "INTERMAX przed przywróceniem 2026-10-17 12-15-00.xlsx": earlier,
+        "INTERMAX przed uporządkowaniem 2026-10-18 18-45-00.xlsx": Intermax(),
+    }
+    for name, intermax in copies.items():
+        intermax.write(restore / "kopie" / name)
     return {
         "register": str(register),
         "with_formula": str(with_formula),
@@ -301,6 +317,10 @@ def _intermax(root: Path) -> dict[str, object]:
         "orders": len(layout.raw),
         "workers": len({order.worker for order in layout.raw}),
         "day": "pon 26.10.2026",
+        "restore": {
+            "register": str(restored),
+            "copies": [str(restore / "kopie" / name) for name in copies],
+        },
     }
 
 
