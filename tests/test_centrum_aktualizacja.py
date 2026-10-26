@@ -804,6 +804,10 @@ def test_stara_wersja_po_cofnieciu_pokazuje_komunikat_bez_czekania_na_skrzynke_z
 def guardian_finishes(centrum: PreparingCentrum, code: str, *, rolled_back: bool = False) -> None:
     """Opiekun ponownego startu po ostatnim kliknięciu: kończy aktualizację albo cofa klon, potem zapisuje wynik."""
 
+    assert centrum.surroundings.restarts, (
+        f"Aktualizacja skończyła się bez ponownego startu: {centrum.client.get('/api/tool-update').json()}, "
+        f"dziennik: {centrum.log_path.read_text(encoding='utf-8')}"
+    )
     restart = centrum.surroundings.restarts[-1]
     clone = ToolClone(restart.root)
     if rolled_back:
@@ -884,6 +888,16 @@ def test_dziennik_rozpoznaje_zapisany_wynik_aktualizacji_bez_commitow(tmp_path: 
     assert awaited
     assert not log.update_awaits(result=NEW_VERSION_FAILED, before=None, after=None)
     assert log.update_awaits(result=UNEXPECTED, before=None, after=None)
+
+
+def test_dziennik_pomija_wynik_starszej_aktualizacji_do_tej_samej_wersji_po_koncu_nowszej(tmp_path: Path) -> None:
+    log = CentrumLog(tmp_path / "centrum.log")
+    log.update_started(before="a" * 40)
+    log.update_started(before="b" * 40)
+    log.update_finished(result=UPDATED, before="b" * 40, after="c" * 40, installed=False)
+
+    # Plik wyniku z pierwszej Aktualizacji (z „a” do tego samego „c”), który dysk nie dał usunąć.
+    assert not log.update_awaits(result=NEW_VERSION_FAILED, before="a" * 40, after="c" * 40)
 
 
 def test_zgloszony_wynik_nie_wraca_gdy_dysk_nie_pozwala_usunac_jego_pliku(

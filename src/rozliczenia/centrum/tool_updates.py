@@ -151,7 +151,7 @@ class ToolUpdates:
             result = replace(result, code=UNEXPECTED)
         if not self._log.update_awaits(result=result.code, before=result.before, after=result.after):
             with suppress(OSError):  # dziennik już wie, że ten wynik nie jest nowy
-                self._result_file.unlink(missing_ok=True)
+                self._result_file.unlink()
             return
         self._finished(result)
         try:

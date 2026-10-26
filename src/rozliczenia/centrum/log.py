@@ -22,6 +22,7 @@ VIEW_TIMING_EVENT = "pomiar"
 MAX_VIEW_TIMINGS = 200
 # Wpisy o Aktualizacji narzędzia i jej Zgłoszeniach mówią, skąd są, tym samym słowem.
 _UPDATE = "aktualizacja"
+# Zdarzenia, które piszą ``update_started`` i ``update_finished``, dla ``update_awaits``.
 _UPDATE_STARTED = "aktualizacja-start"
 _UPDATE_FINISHED = "aktualizacja-koniec"
 # Okres wysyłki w tle z Uruchomienia, którego okresu nie ustalono.
@@ -77,13 +78,13 @@ class CentrumLog:
     def update_started(self, *, before: str | None) -> None:
         """Tata kliknął „Zaktualizuj narzędzie”; ``before`` to commit narzędzia przed aktualizacją."""
 
-        self._write(_UPDATE_STARTED, przed=before or "-")
+        self._write("aktualizacja-start", przed=before or "-")
 
     def update_finished(self, *, result: str, before: str | None, after: str | None, installed: bool) -> None:
         """Wynik Aktualizacji narzędzia (``ok``, ``AKTUALNA`` albo kod Komunikatu), bez wyjścia Gita ani pip."""
 
         self._write(
-            _UPDATE_FINISHED,
+            "aktualizacja-koniec",
             wynik=result,
             przed=before or "-",
             po=after or "-",
@@ -117,11 +118,10 @@ class CentrumLog:
             return True
         last = updates[-1]
         facts = _facts(last)
-        if facts.get("przed") != (before or "-"):
-            return False
+        same_before = facts.get("przed") == (before or "-")
         if event_of(last) == _UPDATE_STARTED:
-            return True
-        return facts.get("po") == (after or "-") and facts.get("wynik") != result
+            return same_before
+        return same_before and facts.get("po") == (after or "-") and facts.get("wynik") != result
 
     def update_skipped_releases(self, *, tags: tuple[str, ...]) -> None:
         """Wydania wyższe od wybranego, których commit nie leży na `main`: Aktualizacja narzędzia je pominęła."""
