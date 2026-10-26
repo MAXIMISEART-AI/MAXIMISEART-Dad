@@ -33,7 +33,7 @@ from rozliczenia.centrum.contract import Health, Problem, Refusal
 from rozliczenia.centrum.dad_cases import DadCases
 from rozliczenia.centrum.dad_notes import after_delivery, dad_notes_router, with_logs
 from rozliczenia.centrum.diagnosis import Surroundings, diagnose, files_of_process
-from rozliczenia.centrum.filling import filling_router
+from rozliczenia.centrum.filling import FillingReads, filling_router
 from rozliczenia.centrum.intermax_run import IntermaxEntry, intermax_router
 from rozliczenia.centrum.log import CentrumLog
 from rozliczenia.centrum.metrics import metrics_router, read_runs
@@ -179,7 +179,8 @@ def create_app(
         cloud_files or CloudFiles.of_system(),
         lambda: box.judge(wait_s=report_search_deadline_s),
     )
-    app.include_router(filling_router(store, log, surroundings.cloud_files, clock=clock))
+    filling = FillingReads(clock=clock)
+    app.include_router(filling_router(store, log, surroundings.cloud_files, filling))
     # Kontrola ilości, Logi Uruchomienia, Uwagi taty i Zgłoszenia: w kolejce Skrzynki, wysyłane w tle (ADR 0007, 0013,
     # 0015); numer issue Uwagi albo Zgłoszenia trafia do jego Sprawy taty.
 
@@ -258,7 +259,7 @@ def create_app(
         stops,
         previous=cards.last(),
         run_started=cards.run_started,
-        after_run=[run_logs, QuantityCheckAfterRun(outbox, surroundings.tool_freshness.local)],
+        after_run=[run_logs, QuantityCheckAfterRun(outbox, surroundings.tool_freshness.local), filling],
     )
     shutdown.refuse_while(runs.shutdown_refusal)
     # Klon narzędzia, które Centrum aktualizuje (ADR 0009); w testach klon z lokalnym „origin”. Po sukcesie

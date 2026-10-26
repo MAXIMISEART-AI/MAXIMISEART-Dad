@@ -2,7 +2,8 @@
 
 Każde żądanie czyta zapisany Plik zbiorczy jedynym odczytem skoroszytu, także gdy trzyma go Excel, i przelicza
 Ilości do uzupełnienia w silniku (``quantities_to_fill``); Centrum nigdy nie zmienia pliku. Na żywo (``live_file``):
-tani znacznik zapisu, a podczas nieudanych prób przez minutę ostatni dobry odczyt z godziną.
+tani znacznik zapisu, a podczas nieudanych prób przez minutę ostatni dobry odczyt z godziną, ale nie sprzed
+Uruchomienia, które zmieniło pliki okresu (``FillingReads``).
 Podsumowanie dostaje tylko numery wierszy, stan „zrobione” i liczniki kolumn, a strona rodzaju też teksty
 wiersza, komórki N:AP i nazwy pozycji cennika, nigdy adres, numer zlecenia ani UMOWA. Nieudany odczyt to
 Komunikat, który nazywa Plik zbiorczy, i wpis w dzienniku Centrum z przyczyną, bez treści wierszy. Czy Przebieg
@@ -24,6 +25,7 @@ from rozliczenia.centrum.cloud_files import CloudFiles
 from rozliczenia.centrum.live_file import GoodRead, LastGoodReads, saved_version
 from rozliczenia.centrum.log import CentrumLog
 from rozliczenia.centrum.period_board import located_period_folder, requested_period
+from rozliczenia.centrum.runs import EndedRun
 from rozliczenia.collective_file import NumberedOrders
 from rozliczenia.message import Message
 from rozliczenia.order_facts import MissingHeaders
@@ -33,11 +35,25 @@ from rozliczenia.settings import SettingsStore
 from rozliczenia.workbook_files import WorkbookError, excel_lock_file
 
 
-def filling_router(
-    store: SettingsStore, log: CentrumLog, cloud_files: CloudFiles, *, clock: Callable[[], float]
-) -> APIRouter:
+class FillingReads:
+    """Ostatnie dobre odczyty Plików zbiorczych dla stron Uzupełnienia i działanie po wyniku Uruchomienia.
+
+    Uruchomienie, które zmieniło pliki okresu (``files_unchanged`` fałszywe), mogło podmienić jego Plik zbiorczy, więc
+    ostatni dobry odczyt sprzed niego nie zastępuje już nieudanego odczytu: ``run_ended`` (``runs.AfterRun``) zapomina
+    odczyty wszystkich plików, zanim karta wyniku dostanie wynik. Pliki innych okresów tracą przez to tylko minutę
+    pokazywania ostatniego dobrego odczytu podczas porażki.
+    """
+
+    def __init__(self, *, clock: Callable[[], float]) -> None:
+        self.reads: LastGoodReads[NumberedOrders] = LastGoodReads(clock=clock)
+
+    def run_ended(self, run: EndedRun) -> None:
+        if not run.files_unchanged:
+            self.reads.forget_all()
+
+
+def filling_router(store: SettingsStore, log: CentrumLog, cloud_files: CloudFiles, filling: FillingReads) -> APIRouter:
     router = APIRouter(prefix="/api/periods", tags=["okresy"])
-    reads: LastGoodReads[NumberedOrders] = LastGoodReads(clock=clock)
 
     def folder_of(token: str) -> PeriodFolder:
         periods_directory = store.load().periods_directory
@@ -46,6 +62,7 @@ def filling_router(
         return located_period_folder(periods_directory, requested_period(token))
 
     def read(token: str, path: Path) -> GoodRead[NumberedOrders] | contract.QuantitiesToFillProblem:
+        reads = filling.reads
         attempt = reads.attempt(path)
         found = _attempt(path, cloud_files)
         if not isinstance(found, _Unreadable):
