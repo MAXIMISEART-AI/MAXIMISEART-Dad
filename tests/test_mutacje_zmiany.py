@@ -5,6 +5,7 @@ Przebiegi idą w małym repozytorium z narzędziami checkoutu: baza ma ``return 
 
 from __future__ import annotations
 
+import contextlib
 import datetime
 import json
 import os
@@ -51,19 +52,29 @@ def _repo(tmp_path: Path, test: str, changed: str = CHANGED, base: str = BASE, c
     return repo
 
 
-def _run(repo: Path, *arguments: str, trial: bool = False) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        [sys.executable, str(repo / "tools" / "mutacje_zmiany.py"), "--baza", "baza", "--rownolegle", "2", *arguments],
-        cwd=repo,
-        # Jeden worker xdist: testy biegną w kolejności z pliku, więc fixture sesji ustawia zawsze pierwszy z nich.
-        # Narzędzie biegnie jak w zadaniu CI, bo poza nim odmawia startu (tools/ciezkie_ci.py).
-        env={**os.environ, "PYTEST_XDIST_AUTO_NUM_WORKERS": "1", "GITHUB_ACTIONS": "true", "MAXIMISEART_NA_SCALONYCH_PR": str(int(trial))},
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        timeout=300,
-        check=False,
-    )
+def _run(repo: Path, *arguments: str, trial: bool = False, log: Path | None = None) -> subprocess.CompletedProcess[str]:
+    """Wyjście narzędzia w ``stdout``, a z ``log`` w pliku ``log`` jak w CI, którego ścieżkę testy widzą w ``LOG_NARZEDZIA``."""
+
+    with log.open("w", encoding="utf-8") if log else contextlib.nullcontext() as output:
+        return subprocess.run(
+            [sys.executable, str(repo / "tools" / "mutacje_zmiany.py"), "--baza", "baza", "--rownolegle", "2", *arguments],
+            cwd=repo,
+            # Jeden worker xdist: testy biegną w kolejności z pliku, więc fixture sesji ustawia zawsze pierwszy z nich.
+            # Narzędzie biegnie jak w zadaniu CI, bo poza nim odmawia startu (tools/ciezkie_ci.py).
+            env={
+                **os.environ,
+                "PYTEST_XDIST_AUTO_NUM_WORKERS": "1",
+                "GITHUB_ACTIONS": "true",
+                "MAXIMISEART_NA_SCALONYCH_PR": str(int(trial)),
+                "LOG_NARZEDZIA": str(log),
+            },
+            stdout=output or subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            encoding="utf-8",
+            timeout=300,
+            check=False,
+        )
 
 
 def test_zmiana_bez_testu_ktory_ja_widzi_konczy_sie_fail_z_nazwa_mutacji(tmp_path: Path) -> None:
@@ -82,6 +93,17 @@ def test_zmiana_z_testami_ktore_widza_kazda_mutacje_konczy_sie_ok(tmp_path: Path
     assert done.returncode == 0, done.stdout + done.stderr
     assert "NIEWYKRYTA" not in done.stdout
     assert done.stdout.splitlines()[-1] == "MUTACJE ZMIANY OK | mutacje=4 | wyjątki=0 | innego systemu=0"
+
+
+def test_liczbe_mutacji_widac_w_logu_ci_zanim_pobiegna_testy(tmp_path: Path) -> None:
+    # Log CI to plik, więc linia bez ``flush`` czekałaby w buforze przez cały pierwszy przebieg testów.
+    line = "Mutacje: 4 w 1 plikach src/ i tools/ od baza. Testy dotknięte zmianą: 1."
+    reads_log = f"\n\ndef test_log() -> None:\n    assert {line!r} in Path(os.environ['LOG_NARZEDZIA']).read_text(encoding='utf-8')\n"
+    log = tmp_path / "log.txt"
+
+    done = _run(_repo(tmp_path / "repo", "import os\nfrom pathlib import Path\n" + ALL_CASES + reads_log), log=log)
+
+    assert done.returncode == 0, log.read_text(encoding="utf-8") + done.stderr
 
 
 def test_czesci_dziela_mutacje_miedzy_siebie(tmp_path: Path) -> None:
@@ -139,6 +161,76 @@ def test_mutacje_kodu_w_procesie_z_flaga_izolacji_wykrywa_test_ktory_go_uruchomi
 
     assert done.returncode == 0, done.stdout + done.stderr
     assert "WYKRYTA: src/rozliczenia/warunek.py:6 `return 2` → `return None`" in done.stdout
+
+
+INNE = "def oba(a: bool, b: bool) -> bool:\n    return a and b\n"
+# Tak jak tools/ci_lokalnie.py nazywa tools/mutacje_zmiany.py, a git_repo.py kopiuje tools/ci_lokalnie.py.
+KROKI = 'KROK = "tools/pomoc/inne.py"\n'
+KROKI_TEST = "import subprocess\n\nNARZEDZIE = 'tools/kroki.py'\n\n\ndef test_krok() -> None:\n    subprocess.run(['git', '--version'], check=True, capture_output=True)\n"
+
+
+def _isolated(reference: str, call: str = "oba(True, True)") -> str:
+    """Test, który dochodzi do ``tools/pomoc/inne.py`` przez ``reference`` i wywołuje ``call`` w procesie z ``-I``."""
+
+    return (
+        f"import subprocess\nimport sys\n\n{reference}\n\n\n"
+        "def test_oba_w_izolowanym_procesie() -> None:\n"
+        f"    code = f'import runpy; assert runpy.run_path({{SKRYPT!r}})[\"oba\"]{call.removeprefix('oba')}'\n"
+        "    subprocess.run([sys.executable, '-I', '-c', code], check=True)\n"
+    )
+
+
+@pytest.mark.parametrize(
+    ("reference", "helper"),
+    [
+        ("SKRYPT = 'tools/pomoc/inne.py'", ""),
+        ("from pathlib import Path\nSKRYPT = str(sorted(Path('tools').glob('pomoc/*.py'))[0])", ""),
+        ("from pomocnik import SKRYPT", "SKRYPT = 'tools/pomoc/inne.py'\n"),
+    ],
+)
+def test_kodu_procesu_nie_sprawdza_test_z_procesem_ktory_dochodzi_do_pliku_tylko_przez_inne_narzedzie(
+    tmp_path: Path, reference: str, helper: str
+) -> None:
+    repo = _repo(tmp_path, ONE_CASE, BASE)
+    (repo / "tools" / "pomoc").mkdir()
+    (repo / "tools" / "pomoc" / "inne.py").write_text(INNE, encoding="utf-8")
+    (repo / "tools" / "kroki.py").write_text(KROKI, encoding="utf-8")
+    (repo / "tests" / "test_a_kroki.py").write_text(KROKI_TEST, encoding="utf-8")
+    (repo / "tests" / "test_inne.py").write_text(_isolated(reference), encoding="utf-8")
+    if helper:
+        (repo / "tests" / "pomocnik.py").write_text(helper, encoding="utf-8")
+
+    done = _run(repo)
+
+    assert done.returncode == 1, done.stdout + done.stderr
+    survived = next(line for line in done.stdout.splitlines() if line.startswith("NIEWYKRYTA: tools/pomoc/inne.py:2 bez `b` w `and`"))
+    # Tylko test, który dochodzi do pliku importem, nazwą albo globem; test kroków (git) w tym przebiegu nie biegnie.
+    assert "→ 1 passed in" in survived, done.stdout
+
+
+def test_kod_procesu_sprawdza_test_narzedzia_ktore_wykonalo_kod_pliku(tmp_path: Path) -> None:
+    repo = _repo(tmp_path, ONE_CASE, BASE)
+    (repo / "tools" / "pomoc").mkdir()
+    (repo / "tools" / "pomoc" / "inne.py").write_text(INNE, encoding="utf-8")
+    # Narzędzie wykonuje kod pliku u siebie (zapis to widzi), a jego funkcję w procesie z -I (tego zapis nie widzi).
+    (repo / "tools" / "kroki.py").write_text(
+        "from pathlib import Path\nimport runpy\nimport subprocess\nimport sys\n\n"
+        + KROKI
+        + "runpy.run_path(str(Path(KROK).resolve()))\n"
+        "code = f'import runpy; assert runpy.run_path({KROK!r})[\"oba\"](True, False) is False'\n"
+        "subprocess.run([sys.executable, '-I', '-c', code], check=True)\n",
+        encoding="utf-8",
+    )
+    (repo / "tests" / "test_a_kroki.py").write_text(
+        "import subprocess\nimport sys\n\nNARZEDZIE = 'tools/kroki.py'\n\n\n"
+        "def test_krok() -> None:\n    subprocess.run([sys.executable, NARZEDZIE], check=True)\n",
+        encoding="utf-8",
+    )
+    (repo / "tests" / "test_inne.py").write_text(_isolated("SKRYPT = 'tools/pomoc/inne.py'"), encoding="utf-8")
+
+    done = _run(repo)
+
+    assert any(line.startswith("WYKRYTA: tools/pomoc/inne.py:2 bez `b` w `and`") for line in done.stdout.splitlines()), done.stdout + done.stderr
 
 
 def test_mutacje_stalej_modulu_wykrywa_test_innego_modulu_ktory_ja_czyta_przy_imporcie(tmp_path: Path) -> None:
@@ -293,15 +385,19 @@ def test_narzedzia_podstawione_przez_probe_na_scalonych_pr_nie_sa_zmiana(tmp_pat
     assert "NIESPRAWDZONA: tools/inne.py → commit go zmienia" in trial.stdout
     assert trial.stdout.splitlines()[-1] == "MUTACJE ZMIANY OK | brak mutacji zmienionych linii src/ i tools/ od baza"
     assert checkout.returncode == 1, checkout.stdout + checkout.stderr
+    assert "NIEWYKRYTA: tools/inne.py:2 bez `b` w `and`" in checkout.stdout
     assert "NIEWYKRYTA: tools/nowe.py:2 bez `b` w `or`" in checkout.stdout
     assert "NIESPRAWDZONA" not in checkout.stdout
 
 
-def test_zmiana_skryptu_skilla_nie_daje_mutacji(tmp_path: Path) -> None:
+def test_zmiana_skryptu_skilla_i_pliku_narzedzi_spoza_pythona_nie_daje_mutacji(tmp_path: Path) -> None:
     repo = _repo(tmp_path, ONE_CASE, BASE)
     script = repo / ".agents" / "skills" / "verify-proba" / "scripts" / "sprawdz.py"
     script.parent.mkdir(parents=True)
     script.write_text("def f(a: bool, b: bool) -> bool:\n    return a and b\n", encoding="utf-8")
+    hook = repo / "tools" / "hooks" / "pre-push"
+    hook.parent.mkdir()
+    hook.write_text("#!/bin/sh\nexec python3 tools/brama.py\n", encoding="utf-8")
 
     done = _run(repo)
 
@@ -331,6 +427,7 @@ def _described(text: str, changed: list[int], old: tuple[str, ...] = ()) -> dict
         ("ok = tekst.startswith(slowo)\n", "`tekst.startswith(slowo)` → `slowo in tekst`", "ok = ((slowo) in (tekst))\n"),
         ("ok = tekst.startswith(slowo)\n", "`tekst.startswith(slowo)` → `tekst.endswith(slowo)`", "ok = ((tekst).endswith(slowo))\n"),
         ("ok = tekst.endswith(slowo)\n", "`tekst.endswith(slowo)` → `tekst.startswith(slowo)`", "ok = ((tekst).startswith(slowo))\n"),
+        ("ok = '/' in sciezka\n", "`'/' in sciezka` → `sciezka.startswith('/')`", "ok = ((sciezka).startswith('/'))\n"),
         ("odpowiedz(stan, wersja=wersja)\n", "`wersja=wersja` → `wersja=None`", "odpowiedz(stan, wersja=None)\n"),
     ],
 )
@@ -348,10 +445,20 @@ def test_kazdy_rodzaj_mutacji_psuje_zmieniona_linie(code: str, description: str,
         "x = a in [1, 2] or b in {c: d}\n",
         "x = 1 in liczby\n",
         "x = t.startswith(('a', 'b')) or t.endswith(a, 2)\n",
+        "x = t.startswith(a, start=1) or t.endswith(*koncowki)\n",
+        "x = a in b in c\n",
+        "x = t.split(a)\n",
     ],
 )
 def test_argument_pozycyjny_stala_i_kolekcja_nie_dostaja_mutacji_none_ani_predykatu(code: str) -> None:
     assert [description for description in _described(code, [1]) if "w `or`" not in description] == []
+
+
+def test_predykat_nie_dostaje_zamiany_na_samego_siebie() -> None:
+    assert _described("ok = slowo not in tekst\n", [1]).keys() == {
+        "`slowo not in tekst` → `not tekst.startswith(slowo)`",
+        "`slowo not in tekst` → `not tekst.endswith(slowo)`",
+    }
 
 
 def test_niezmieniona_linia_nie_dostaje_mutacji() -> None:
