@@ -124,8 +124,13 @@ Covered files: `src/rozliczenia/centrum/tool_update.py`,
 `src/rozliczenia/centrum/restart_guardian.py`,
 `src/rozliczenia/centrum/launcher.py`.
 
-Sync commit: `9d31b08c` (2026-10-26, #490 and #491). At this commit every
-row above was checked against the code. Since `55b84059` only
+Sync commit: `7acf755b` (2026-10-26, #490 and #491). At this commit every
+row above was checked against the code. Since `9d31b08c` only the skipped
+result's `unlink` in `_after_restart` lost `missing_ok`; it stays inside
+`suppress(OSError)`, so a missing file is still skipped and the model did not
+change.
+
+`9d31b08c`: since `55b84059` only
 `ToolUpdates._after_restart` changed: „ok” with a running commit other than its
 `po` is `NIEOCZEKIWANY_BLAD` (`KartaZ` reads `head`), and a result the Centrum
 log already has is skipped (`StartCentrumZ` may leave the card empty). Both
