@@ -55,7 +55,7 @@ from openpyxl.utils.datetime import MAC_EPOCH, WINDOWS_EPOCH, from_excel
 from openpyxl.workbook.properties import WorkbookProperties
 
 from . import workbook_files
-from .preparation_register import ACTIVITIES, COLUMNS, CONTRACT_NUMBER, DATE, DEVICES, WORKER
+from .preparation_register import ACTIVITIES, COLUMNS, DATE, DEVICES, WORKER
 from .raw_orders import SHIFT, CellFacts, DayPlan, OperatorColor, OrderColumns, RawBlock, RowFacts
 from .row_look import BORDER
 from .workbook_files import WorkbookError, header_columns, is_blank
@@ -91,6 +91,8 @@ _ROW_LOOK: Final = (b"s", b"customFormat", b"ht", b"customHeight", b"x14ac:dyDes
 _SHEET_VIEWS: Final = re.compile(rb"<sheetViews\b.*?</sheetViews>", re.S)
 _SHEET_VIEW: Final = re.compile(rb"<sheetView\b([^>]*?)(?:/>|>.*?</sheetView>)", re.S)
 _PANE: Final = re.compile(rb"<pane\b([^>]*?)\s*/>")
+_CONTRACT_NUMBER: Final = "NUMER UMOWY/ZLECENIA ORANGE"
+"""Nagłówek docelowy kolumny ``NUMER UMOWY`` w ``COLUMNS`` Rejestru."""
 _TAB_SELECTED: Final = re.compile(rb'(<sheetView\b[^>]*?)\stabSelected="(?:1|true)"')
 _ACTIVE_TAB: Final = re.compile(rb'(<workbookView\b[^>]*?)\sactiveTab="[^"]*"')
 _WORKBOOK_VIEW: Final = re.compile(rb"<workbookView\b([^>]*?)(/?>)")
@@ -305,7 +307,7 @@ class Register:
             last,
             devices=cast(int, named[DEVICES.target_header]),
             activities=cast(int, named[ACTIVITIES.target_header]),
-            contract_number=cast(int, named[CONTRACT_NUMBER.target_header]),
+            contract_number=cast(int, named[_CONTRACT_NUMBER]),
         )
 
     def _value(self, cell: _Cell) -> object:
