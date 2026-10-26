@@ -13,15 +13,21 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from datetime import date, datetime, timedelta
-from pathlib import Path
+import importlib
+from pathlib import Path, PurePosixPath
 import subprocess
 import sys
 
 import pytest
 
+from tests import conftest
 from tests.fixtures.kwarantanna import KWARANTANNA, Kwarantanna
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "tools"))
+
+import niestabilne_testy  # noqa: E402
+
 NAJDLUZEJ = timedelta(days=7)
 
 
@@ -69,3 +75,15 @@ def test_wpis_testu_ktorego_nie_ma_czerwieni_straznika_a_wazny_wpis_nie() -> Non
     wpisy = {istnieje: Kwarantanna(12, date(2026, 11, 2)), brak: Kwarantanna(13, date(2026, 10, 26)), bez_pliku: Kwarantanna(14, date(2026, 10, 27))}
 
     assert problemy(wpisy, date(2026, 10, 26)) == [f"{brak}: nie ma takiego testu", f"{bez_pliku}: nie ma takiego testu"]
+
+
+def test_wydanie_czyta_kwarantanne_z_pliku_ktory_importuje_conftest() -> None:
+    """``tools/wydanie.py`` czyta ``KWARANTANNA`` z Gita spod ``PLIK_KWARANTANNY``; inny plik dałby każdemu commitowi
+    stan sprzed kwarantanny i Wydanie bez jej zapisu."""
+
+    plik = niestabilne_testy.PLIK_KWARANTANNY
+    modul = importlib.import_module(".".join(PurePosixPath(plik).with_suffix("").parts))
+    uzywana = vars(conftest)["KWARANTANNA"]
+
+    assert modul.KWARANTANNA is uzywana
+    assert niestabilne_testy.ma_wpisy((ROOT / plik).read_text(encoding="utf-8")) == bool(uzywana)

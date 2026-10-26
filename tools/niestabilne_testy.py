@@ -97,13 +97,16 @@ def kwarantanna_z_json(tekst: str) -> ZapisKwarantanny:
 
 
 def ma_wpisy(zrodlo: str) -> bool:
-    """Czy ``KWARANTANNA`` w źródle ``PLIK_KWARANTANNY`` ma wpis, odczytane bez wykonania kodu. Słownik, którego nie
-    da się odczytać jako dosłownego ``{...}``, liczy się jak słownik z wpisami."""
+    """Czy ``KWARANTANNA`` w źródle ``PLIK_KWARANTANNY`` ma wpis, odczytane bez wykonania kodu. Pusta jest tylko wtedy,
+    gdy jedynym użyciem nazwy w module jest jedno przypisanie dosłownego ``{}`` na poziomie modułu; każde inne (dopisany
+    klucz, ``.update``, ``|=``, drugie przypisanie, słownik spoza literału) liczy się jak wpisy."""
 
     try:
         modul = ast.parse(zrodlo)
     except SyntaxError:
         return True
+    # Nazwa w polu węzła: ``Name``, ``Attribute``, import albo napis (``globals()["KWARANTANNA"]``).
+    uzycia = [wezel for wezel in ast.walk(modul) if any(pole == "KWARANTANNA" for _, pole in ast.iter_fields(wezel))]
     for instrukcja in modul.body:
         cele: list[ast.expr]
         if isinstance(instrukcja, ast.AnnAssign):
@@ -112,7 +115,7 @@ def ma_wpisy(zrodlo: str) -> bool:
             cele, wartosc = instrukcja.targets, instrukcja.value
         else:
             continue
-        if any(isinstance(cel, ast.Name) and cel.id == "KWARANTANNA" for cel in cele):
+        if cele == uzycia:
             return not (isinstance(wartosc, ast.Dict) and not wartosc.keys)
     return True
 

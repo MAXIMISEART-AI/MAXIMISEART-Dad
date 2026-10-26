@@ -29,6 +29,7 @@ SECRET = "TREŚĆ-SPRAWY-TATY"
 # Chwila każdego commitu w testach; sprawy taty zamyka się przed nią albo po niej.
 COMMITTED = "2026-10-10T10:00:00+00:00"
 QUARANTINE_FILE = "tests/fixtures/kwarantanna.py"
+EMPTY = "KWARANTANNA: dict[str, Kwarantanna] = {}\n"
 QUARANTINED = 'KWARANTANNA: dict[str, Kwarantanna] = {"tests/test_x.py::test_niestabilny": Kwarantanna(1, date(2026, 10, 30))}\n'
 FAKE_GH = """\
 import io, json, pathlib, sys, urllib.parse, zipfile
@@ -298,7 +299,7 @@ def test_plan_pomija_zielony_commit_na_ktorym_test_z_kwarantanny_padl_albo_nie_m
 
 @pytest.mark.parametrize(
     "files",
-    [{}, {QUARANTINE_FILE: "KWARANTANNA: dict[str, Kwarantanna] = {}\n"}],
+    [{}, {QUARANTINE_FILE: EMPTY}],
     ids=["sprzed kwarantanny", "pusta kwarantanna"],
 )
 def test_commit_bez_wpisow_kwarantanny_jest_do_wydania_bez_jej_zapisu(releasing: Releasing, files: dict[str, str]) -> None:
@@ -310,10 +311,30 @@ def test_commit_bez_wpisow_kwarantanny_jest_do_wydania_bez_jej_zapisu(releasing:
 
 @pytest.mark.parametrize(
     "source",
-    ["KWARANTANNA: dict[str, Kwarantanna] = dict(WPISY)\n", "KWARANTANNA = {\n", "WPISY = {}\n"],
-    ids=["nie dosłowny słownik", "błąd składni", "bez słownika"],
+    [
+        "KWARANTANNA: dict[str, Kwarantanna] = dict(WPISY)\n",
+        "KWARANTANNA = {\n",
+        "WPISY = {}\n",
+        EMPTY + 'KWARANTANNA["tests/test_x.py::test_niestabilny"] = Kwarantanna(1, date(2026, 10, 30))\n',
+        EMPTY + "KWARANTANNA.update(WPISY)\n",
+        EMPTY + "KWARANTANNA |= WPISY\n",
+        EMPTY + 'KWARANTANNA = {"tests/test_x.py::test_niestabilny": Kwarantanna(1, date(2026, 10, 30))}\n',
+        EMPTY + "KWARANTANNA: dict[str, Kwarantanna] = dict(WPISY)\n",
+        EMPTY + 'globals()["KWARANTANNA"].update(WPISY)\n',
+    ],
+    ids=[
+        "nie dosłowny słownik",
+        "błąd składni",
+        "bez słownika",
+        "dopisany klucz",
+        "update",
+        "|=",
+        "drugie przypisanie",
+        "drugie przypisanie z adnotacją",
+        "przez globals()",
+    ],
 )
-def test_kwarantanna_nie_do_odczytania_bez_wykonania_wymaga_zapisu(releasing: Releasing, source: str) -> None:
+def test_kwarantanna_inna_niz_jedno_puste_przypisanie_wymaga_zapisu(releasing: Releasing, source: str) -> None:
     passed = releasing.merge(1, "fix: pierwsza naprawa", {"src/a.py": "a = 1\n"})
     skipped = releasing.merge(2, "fix: druga", {QUARANTINE_FILE: source})
     releasing.ci(skipped, "success", "brak")

@@ -30,8 +30,9 @@ postaci, i dopiero po zielonym ``Required CI status``, którego nie blokują: pl
 ``tools/mutacje_zmiany.py`` (``selected``), bez testów i bez instalacji.
 
 Na pull request zadanie po porażce pytest uruchamia raz same testy, które padły (``niestabilne_testy``, najwyżej
-``PONOWIENIE_NAJWIECEJ``; więcej porażek to nie flak), jeśli id każdego da się zgłosić w issue. Gdy wszystkie przejdą, pytest przechodzi, a każdy z nich trafia do
-zapisu flaków; druga porażka to porażka. Każde zadanie z pytest zapisuje też wynik swoich testów z kwarantanny.
+``PONOWIENIE_NAJWIECEJ``; więcej porażek to nie flak), jeśli id każdego da się zgłosić w issue. Gdy wszystkie
+przejdą, pytest przechodzi, a każdy z nich trafia do zapisu flaków; druga porażka to porażka. Każde zadanie z pytest
+zapisuje też wynik swoich testów z kwarantanny.
 
 Plan ma ``digest``: zadanie wykonuje tylko plan, którego treść się z nim zgadza, i zapisuje go w swoim zapisie czasów,
 a ``Required CI status`` (``werdykt``) przyjmuje tylko zapisy tego planu. Werdykt przepuszcza run, gdy każde zadanie

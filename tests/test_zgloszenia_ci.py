@@ -427,3 +427,19 @@ def test_issue_zderzenia_wymienia_najwyzej_dwadziescia_nowych_porazek(main: dict
 
     assert isinstance(akcja, Zaloz)
     assert _blok_kodu(akcja.tresc.split("Porażki, których nie było na czerwonym rodzicu:")[1]) == ["```", *nowe[:20], "… i 1 więcej", "```"]
+
+
+@pytest.mark.parametrize(
+    ("na_rodzicu", "etykiety"),
+    [("pytest (Python 3.11, 2/3)", ("czerwony-main",)), ("pytest (Python 3.14, Linux, 1/2)", ("czerwony-main", "zderzenie"))],
+    ids=["ten sam tor w innym kawałku", "inny tor"],
+)
+def test_zadanie_bez_podsumowania_pytest_porownuje_sie_z_rodzicem_po_torze(main: dict[str, str], na_rodzicu: str, etykiety: tuple[str, ...]) -> None:
+    github = _czerwony_run(main, bramka_b="2026-10-26T09:50:00Z", main_10="failure")
+    for run_id, nazwa in ((200, na_rodzicu), (300, "pytest (Python 3.11, 1/2)")):
+        github.odpowiedzi[f"{REPO}/actions/runs/{run_id}/jobs?per_page=100"]["jobs"].append({"id": run_id * 10 + 5, "name": nazwa, "conclusion": "failure"})
+        github.odpowiedzi[f"{REPO}/actions/jobs/{run_id * 10 + 5}/logs"] = b"2026-10-26T10:40:00.1Z Error: The operation was canceled.\n"
+
+    [akcja] = zgloszenia_ci.akcje(github, Path.cwd(), 300, TERAZ)
+
+    assert isinstance(akcja, Zaloz) and akcja.etykiety == etykiety

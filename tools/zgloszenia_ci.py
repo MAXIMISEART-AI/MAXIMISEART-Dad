@@ -17,7 +17,8 @@ potem je wykonuje; z ``--bez-zapisu`` tylko je drukuje.
   utworzeniu runu tej bramki weszły do `main` PR-y A (także z zielonym Required na HEAD), których bramka B nie widziała,
   issue dostaje etykietę ``zderzenie`` z numerami A i B i liczbą zderzeń z ostatnich 7 dni. Porażka jest nowa, gdy
   `main` był zielony tuż przed scaleniem albo gdy czerwony rodzic nie miał tej porażki (test z linii ``FAILED``/``ERROR``
-  pytest, a zadanie bez takiej linii po nazwie). Zderzenie na już czerwonym `main` zakłada własne issue obok otwartego.
+  pytest, a zadanie bez takiej linii po nazwie toru, bez numeru kawałka). Zderzenie na już czerwonym `main` zakłada
+  własne issue obok otwartego.
 
 Historię `main` narzędzie czyta z Gita checkoutu (w workflow pełna historia `main`), a resztę z ``gh api`` (w workflow
 z ``GH_TOKEN``, lokalnie z logowaniem Maksa).
@@ -63,6 +64,9 @@ _ZNACZNIK = re.compile(r"<!-- czerwony-main (?P<sha>[0-9a-f]{40}) -->")
 _RUN = re.compile(r"/actions/runs/(?P<run>[0-9]+)")
 _PLIK_PYTEST = re.compile(r"pytest:(tests/[\w/]+\.py)")
 # Linia podsumowania pytest w logu zadania, po znaczniku czasu GitHuba i kolorach terminala.
+# Numer kawałka toru w nazwie zadania pytest (``pytest (Python 3.11, 2/3)``): plan dzieli tor na inną liczbę zadań w
+# każdym runie, więc zadanie bez linii pytest porównuje się z rodzicem po torze.
+_KAWALEK = re.compile(r", \d+/\d+(?=\)$)")
 _PORAZKA = re.compile(r"(?:\S+Z )?(?:FAILED|ERROR) (?P<test>tests/[^\s\[]+(?:\[.*?\])?)(?: - .*)?")
 _KOLOR = re.compile(r"\x1b\[[0-9;]*m")
 
@@ -350,7 +354,7 @@ def _nowe_porazki(github: GitHub, run: Run, rodzic: str) -> tuple[str, ...] | No
 
 def _porazki(github: GitHub, run_id: int) -> frozenset[str]:
     """Testy z porażką w zadaniach runu, które padły (z linii ``FAILED``/``ERROR`` podsumowania pytest), a zadanie bez
-    takiej linii po nazwie."""
+    takiej linii po nazwie bez numeru kawałka toru."""
 
     porazki: set[str] = set()
     for zadanie in github.json(f"{REPO}/actions/runs/{run_id}/jobs?per_page=100")["jobs"]:
@@ -358,7 +362,7 @@ def _porazki(github: GitHub, run_id: int) -> frozenset[str]:
             continue
         log = _KOLOR.sub("", github.bajty(f"{REPO}/actions/jobs/{zadanie['id']}/logs").decode("utf-8", errors="replace"))
         testy = {znalezione["test"] for linia in log.splitlines() if (znalezione := _PORAZKA.fullmatch(linia.strip()))}
-        porazki |= testy or {f"zadanie {zadanie['name']}"}
+        porazki |= testy or {f"zadanie {_KAWALEK.sub('', zadanie['name'])}"}
     return frozenset(porazki)
 
 
