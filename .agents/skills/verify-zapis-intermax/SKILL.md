@@ -35,7 +35,7 @@ workers edit it on their own computers (ADR 0019).
   exactly the bytes it replaced (ADR 0019: „Przed każdą podmianą powstaje Kopia
   INTERMAX”). Harm: restoring the Kopia does not bring back what was there.
 - **ZATRZYMANIE_BEZ_SLADU**: a run that stops, or ends in any other
-  exception, leaves INTERMAX as it was, no temporary file next to it, and the
+  exception before the replace, leaves INTERMAX as it was, no temporary file next to it, and the
   same Kopie, names and bytes, as before
   (docstring of `order_register`: „INTERMAX zostaje wtedy nietknięty”, „gdy
   podmiana się nie uda, Kopia znika”). Harm: a stray file in Dad's OneDrive, a
