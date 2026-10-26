@@ -324,7 +324,8 @@ def run_process(
         result=finished.result if finished else "BLAD_KRYTYCZNY",
         counters=finished.counters if finished else dict.fromkeys(process.counter_names, 0),
         stop=stop,
-        # Bez podsumowania silnika drogi zapisu są nieznane; zatrzymanie w silniku nie zostawia plików z Wzorca.
+        # Bez wyniku drogi zapisu są nieznane i rekord ma ich zero, tak jak liczników: także gdy zatrzymanie przyszło
+        # dopiero przy pokazaniu wyniku, a pliki z Wzorca już powstały.
         routes=finished.routes if finished else {},
     )
     technical_notes: list[str] = []

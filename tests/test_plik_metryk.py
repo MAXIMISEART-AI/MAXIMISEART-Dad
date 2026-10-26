@@ -86,13 +86,14 @@ NO_FILES = {"kopia": 0, "openpyxl": 0}
         {"worker_settlement": NO_FILES, "collective_file": NO_FILES, "internal_settlement": NO_FILES, "Anna Testowa": NO_FILES},
         {"worker_settlement": NO_FILES, "collective_file": NO_FILES},
         {"worker_settlement": NO_FILES, "collective_file": NO_FILES, "internal_settlement": {"kopia": 1}},
+        {"worker_settlement": {**NO_FILES, "Anna Testowa": 1}, "collective_file": NO_FILES, "internal_settlement": NO_FILES},
         {"worker_settlement": NO_FILES, "collective_file": NO_FILES, "internal_settlement": {"kopia": -1, "openpyxl": 0}},
         {"worker_settlement": NO_FILES, "collective_file": NO_FILES, "internal_settlement": {"kopia": True, "openpyxl": 0}},
         {"worker_settlement": NO_FILES, "collective_file": NO_FILES, "internal_settlement": ["kopia", "openpyxl"]},
         ["worker_settlement", "collective_file", "internal_settlement"],
         "brak",
     ],
-    ids=["nazwa-wykonawcy", "bez-rodzaju", "bez-drogi", "ujemna", "nie-liczba", "drogi-lista", "lista", "bez-pola"],
+    ids=["nazwa-wykonawcy", "bez-rodzaju", "bez-drogi", "nazwa-wykonawcy-obok-drog", "ujemna", "nie-liczba", "drogi-lista", "lista", "bez-pola"],
 )
 def test_plik_metryk_odrzuca_rekord_bez_licznika_kazdej_drogi_zapisu(tmp_path: Path, routes: Any) -> None:
     metrics_path = tmp_path / "metrics.jsonl"
