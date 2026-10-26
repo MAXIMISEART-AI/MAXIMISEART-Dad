@@ -920,6 +920,22 @@ def test_dziennik_pomija_wynik_starszej_aktualizacji_do_tej_samej_wersji_po_konc
     assert not log.update_awaits(result=NEW_VERSION_FAILED, before="a" * 40, after="c" * 40)
 
 
+def test_wynik_aktualizacji_trafia_na_karte_gdy_dziennika_nie_da_sie_przeczytac(tmp_path: Path) -> None:
+    centrum, repository = updating_centrum(tmp_path)
+    before = repository.head()
+    newest = repository.publish({"src/narzedzie.py": "WERSJA = 2\n"})
+    write_result(tmp_path / "config" / RESULT_FILE, UpdateResult(NEW_VERSION_FAILED, before, newest))
+    # Na miejscu dziennika stoi folder: żaden system nie da go przeczytać jak pliku.
+    centrum.log_path.mkdir(parents=True)
+
+    centrum.restart()
+    view = centrum.client.get("/api/tool-update").json()
+
+    assert (view["state"], view["message"]["what"]) == ("failed", "Nowa wersja narzędzia nie wystartowała.")
+    assert view["report"] == {"state": "ready"}
+    assert view["draft"]["title"] == "NOWA_WERSJA_NIE_WYSTARTOWALA: Nowa wersja narzędzia nie wystartowała."
+
+
 def test_zgloszony_wynik_nie_wraca_gdy_dysk_nie_pozwala_usunac_jego_pliku(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

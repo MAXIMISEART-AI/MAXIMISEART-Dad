@@ -112,7 +112,7 @@ Every action that starts a Centrum (`Skrot`, `SkrotOddajePort`, `SkrotWynik`,
 not its `po` becomes `NIEOCZEKIWANY_BLAD` (#490; in the model every „ok” has
 `po` = `"nowa"`, so „ok” on `head = "stara"` is a failure);
 `CentrumLog.update_awaits` (#491) lets the result through only when the
-Centrum log has no `aktualizacja-start`, or its last update entry is
+Centrum log cannot be read or has no `aktualizacja-start`, or its last update entry is
 `aktualizacja-start` with the result's `przed`, or `aktualizacja-koniec
 wynik=ok` with the result's `przed` and `po` and a result other than „ok” (the
 new version wrote „ok”, then the guardian rolled it back); any other result
@@ -120,7 +120,13 @@ new version wrote „ok”, then the guardian rolled it back); any other result
 an older Aktualizacja) is skipped and its file removed in
 `suppress(OSError)`; otherwise the log gets `aktualizacja-koniec`, `unlink`
 (a refused removal keeps the file and logs `aktualizacja-wynik-zostaje`, and
-the next start skips it), and the card from `_view_of`. The model does not
+the next start skips it), and the card from `_view_of`. An already reported
+result still comes through once when its file stays and a later click with
+the same `przed` works: `NOWA_WERSJA_NIE_WYSTARTOWALA` from A to B is
+reported, the disk lets the guardian neither remove nor overwrite the file,
+the next click from A to B works but the guardian cannot write „ok”, so B
+shows the old failure and a second Zgłoszenie is made (the last update entry
+is `aktualizacja-start przed=A`). The model does not
 hold the Centrum log, so it lets every start skip the result: the card then
 says nothing, never „updated”.
 
