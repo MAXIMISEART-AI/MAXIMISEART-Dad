@@ -11,8 +11,9 @@ NIEAKTUALNA. Pusta kotwica w pliku, którego nie ma, tworzy go razem z katalogam
 zepsuje kod, polecenie musi przejść na kopii bez mutacji, a jeśli mutacja oczekuje ostatniej
 linii wyjścia, polecenie bez mutacji nie może się nią kończyć. Mutacja jest WYKRYTA, gdy polecenie
 pada albo kończy się oczekiwaną linią; PRZEKROCZONY CZAS (``--limit-s``) nie jest wykryciem.
-Mutacje biegną po kolei, bo równoległe testy przekraczają swoje limity czasu; ``--rownolegle`` je
-zrównolegla.
+Mutacje biegną po kolei, bo równoległe testy przekraczają swoje limity czasu; ``--rownolegle`` puszcza
+naraz najwyżej ``PARALLEL``, a ich polecenia dostają ``PYTEST_XDIST_AUTO_NUM_WORKERS=1`` (chyba że wywołujący je
+ustawił), bo gołe ``pytest -n auto`` w teście każdej z nich bierze wszystkie rdzenie komputera.
 Polecenia i kopie biegną przez ``tools/potomne.py``: procesy potomne polecenia giną z jego końcem, a
 przekroczony czas, przerwanie (Ctrl-C) i zabicie narzędzia kończą polecenie i usuwają kopie.
 
@@ -48,6 +49,8 @@ import potomne
 
 ROOT = Path(__file__).resolve().parents[1]
 TIMEOUT = 600
+# Tyle mutacji naraz dawał ThreadPoolExecutor (rdzenie + 4) na 4 vCPU runnera CI; na 16 rdzeniach Maca dawał 20.
+PARALLEL = 8
 
 
 @dataclass(frozen=True)
@@ -70,8 +73,10 @@ class Mutation:
     expected: str | None = None  # początek ostatniej linii wyjścia; None: polecenie kończy się błędem
 
 
-def environment(copy: Path) -> dict[str, str]:
+def environment(copy: Path, *, concurrent: bool = False) -> dict[str, str]:
+    nested = {"PYTEST_XDIST_AUTO_NUM_WORKERS": "1"} if concurrent else {}
     return {
+        **nested,
         **os.environ,
         "PYTHONPATH": os.pathsep.join([str(copy / "src"), os.environ.get("PYTHONPATH", "")]).rstrip(os.pathsep),
         "PYTHONDONTWRITEBYTECODE": "1",
@@ -130,23 +135,26 @@ def _apply(copy: Path, edits: Sequence[Edit]) -> str | None:
     return None
 
 
-def _run(copy: Path, command: Sequence[str], limit_s: float, stop: threading.Event | None = None) -> tuple[int | None, str]:
+def _run(
+    copy: Path, command: Sequence[str], limit_s: float, stop: threading.Event | None = None, *, concurrent: bool = False
+) -> tuple[int | None, str]:
     """Uruchamia polecenie w kopii; zwraca kod wyjścia (None po przekroczeniu czasu) i ostatnią linię."""
 
     try:
-        done = potomne.run([sys.executable, *command], cwd=copy, env=environment(copy), timeout=limit_s, stop=stop)
+        env = environment(copy, concurrent=concurrent)
+        done = potomne.run([sys.executable, *command], cwd=copy, env=env, timeout=limit_s, stop=stop)
     except subprocess.TimeoutExpired:
         return None, f"brak wyniku po {limit_s:g} s"
     lines = (done.stdout.strip() or done.stderr.strip()).splitlines()
     return done.returncode, lines[-1] if lines else f"kod wyjścia {done.returncode}"
 
 
-def _verdict(mutation: Mutation, *, limit_s: float, stop: threading.Event) -> tuple[str, str]:
+def _verdict(mutation: Mutation, *, limit_s: float, stop: threading.Event, concurrent: bool) -> tuple[str, str]:
     with checkout_copy() as copy:
         stale = _apply(copy, mutation.edits)
         if stale:
             return "NIEAKTUALNA", stale
-        code, last = _run(copy, mutation.command, limit_s, stop)
+        code, last = _run(copy, mutation.command, limit_s, stop, concurrent=concurrent)
     if code is None:
         return "PRZEKROCZONY CZAS", last
     caught = last.startswith(mutation.expected) if mutation.expected is not None else code != 0
@@ -168,13 +176,13 @@ def _baseline(mutations: Sequence[Mutation], limit_s: float) -> list[str]:
     return red
 
 
-def verdicts(mutations: Sequence[Mutation], *, workers: int | None, limit_s: float = TIMEOUT) -> Iterator[tuple[str, str]]:
+def verdicts(mutations: Sequence[Mutation], *, workers: int, limit_s: float = TIMEOUT) -> Iterator[tuple[str, str]]:
     """Werdykt i ostatnia linia wyjścia każdej mutacji po kolei, bez sprawdzenia podstawy; ``workers`` mutacji naraz."""
 
     stop = threading.Event()
     pool = ThreadPoolExecutor(max_workers=workers)
     try:
-        yield from pool.map(partial(_verdict, limit_s=limit_s, stop=stop), mutations)
+        yield from pool.map(partial(_verdict, limit_s=limit_s, stop=stop, concurrent=workers > 1), mutations)
     except BaseException:
         # Przerwanie w głównym wątku nie dociera do wątków, które czekają na swoje polecenia.
         stop.set()
@@ -194,7 +202,7 @@ def check_all(mutations: Sequence[Mutation], *, parallel: bool = True, limit_s: 
         print("MUTACJE: polecenie bez mutacji pada albo daje wynik mutacji, więc wynik po mutacji niczego nie dowodzi")
         return 2
     failures = 0
-    found = list(verdicts(mutations, workers=None if parallel else 1, limit_s=limit_s))
+    found = list(verdicts(mutations, workers=PARALLEL if parallel else 1, limit_s=limit_s))
     for mutation, (verdict, last) in zip(mutations, found, strict=True):
         failures += verdict != "WYKRYTA"
         harm = f" ({mutation.harm})" if mutation.harm else ""

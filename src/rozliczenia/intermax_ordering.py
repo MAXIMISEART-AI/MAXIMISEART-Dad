@@ -165,3 +165,17 @@ def _obstacle(register: Path, sheet: str, obstacle: Obstacle) -> Message:
             return messages.several_days(register, sheet, days, first_row, last_row)
         case DayOrdered(day, first_row, last_row):
             return messages.day_already_ordered(register, sheet, day, first_row, last_row)
+
+
+def register_problem(register_path: Path) -> Message | None:
+    """Komunikat, którym Sprawdzanie albo Odczyt danych zatrzymałyby Uporządkowanie INTERMAX; ``None``, gdy przechodzą.
+
+    Tylko czyta, więc Diagnoza sprawdza INTERMAX tą samą regułą co proces. ``Register.read`` sprawdza najpierw to
+    samo co Sprawdzanie i daje ten sam Komunikat, więc wystarcza sam.
+    """
+
+    try:
+        register = Register.read(register_path)
+    except WorkbookError as error:
+        return messages.register_unusable(error)
+    return None if register.order_sheets else messages.no_order_sheet(register_path)

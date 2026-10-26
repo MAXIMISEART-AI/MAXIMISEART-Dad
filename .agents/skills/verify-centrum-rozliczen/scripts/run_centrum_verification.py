@@ -222,6 +222,16 @@ REQUIRED_SCREENSHOTS = {
         "213-karta-z-historii.png",
         "214-karta-bez-logow.png",
     ),
+    "uporzadkowanie-intermax": (
+        "230-intermax-bez-intermax.png",
+        "231-intermax-karta.png",
+        "232-intermax-otwarty.png",
+        "233-intermax-wynik.png",
+        "234-intermax-zatrzymanie-dla-taty.png",
+        "235-intermax-do-maksa.png",
+        "236-intermax-historia.png",
+        "237-intermax-metryki.png",
+    ),
     "powiadomienia": (
         "180-powiadomienia-dzwonek.png",
         "181-powiadomienia-kropka.png",
