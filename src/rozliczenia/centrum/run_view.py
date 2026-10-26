@@ -14,9 +14,12 @@ from typing import Final, Generic, Protocol, TypeVar
 from rozliczenia.centrum import contract
 from rozliczenia.collective_preparation import PreparationSummary
 from rozliczenia.domain import SettlementSummary
+from rozliczenia.intermax_ordering import OrderingSummary
+from rozliczenia.intermax_process import OrderingInputs
 from rozliczenia.message import Message
 from rozliczenia.preparation_process import PreparationInputs
 from rozliczenia.process_run import ProcessInputs
+from rozliczenia.quantity_rules import WEEKDAY_LABELS
 from rozliczenia.progress import ProgressSnapshot
 from rozliczenia.settlement_process import SettlementInputs
 
@@ -45,20 +48,9 @@ class Shown(Generic[SummaryT]):
 
 
 @dataclass(frozen=True)
-class ProcessView(Generic[InputsT, SummaryT]):
-    """Widok Uruchomienia jednego procesu: deklaracja procesu, liczby na żywo i wynik w kształcie kontraktu.
+class ResultView(Generic[InputsT, SummaryT]):
+    """Liczby na żywo i wynik jednego procesu w kształcie kontraktu, te same w Skrypcie dla maszyn i na karcie."""
 
-    Deklaracja procesu: ``reminder`` to przypomnienie przed uruchomieniem, ``confirms_readiness``
-    mówi, czy „Uruchom” potwierdza Gotowość Pliku zbiorczego, ``preview_hint`` to podpowiedź
-    „Podgląd bez zapisu”, ``done`` to tytuł wyniku po zapisie, a ``result_action`` otwiera to, co proces
-    zapisał, jako akcja po wyniku.
-    """
-
-    reminder: str
-    confirms_readiness: bool
-    preview_hint: str
-    done: str
-    result_action: contract.ResultAction
     _figures: Callable[[ProgressSnapshot, bool], list[contract.Figure]]
     _summary: Callable[[SummaryT, bool], contract.RunSummary]
 
@@ -82,6 +74,23 @@ class ProcessView(Generic[InputsT, SummaryT]):
         """Wynik zakończonego procesu; rdzeń woła go w swojej osłonie (``run_process(view=...)``)."""
 
         return Shown(self._summary(summary, inputs.dry_run), tuple(summary.warnings), summary)
+
+
+@dataclass(frozen=True, kw_only=True)
+class ProcessView(ResultView[InputsT, SummaryT]):
+    """Widok Uruchomienia procesu na karcie Centrum: deklaracja procesu obok liczb i wyniku.
+
+    Deklaracja procesu: ``reminder`` to przypomnienie przed uruchomieniem, ``confirms_readiness``
+    mówi, czy „Uruchom” potwierdza Gotowość Pliku zbiorczego, ``preview_hint`` to podpowiedź
+    „Podgląd bez zapisu”, ``done`` to tytuł wyniku po zapisie, a ``result_action`` otwiera to, co proces
+    zapisał, jako akcja po wyniku.
+    """
+
+    reminder: str
+    confirms_readiness: bool
+    preview_hint: str
+    done: str
+    result_action: contract.ResultAction
 
 
 def _count(label: str, value: int) -> contract.Figure:
@@ -179,4 +188,24 @@ PREPARATION: Final[ProcessView[PreparationInputs, PreparationSummary]] = Process
     result_action="open_collective_file",
     _figures=_preparation_figures,
     _summary=_preparation_summary,
+)
+
+
+def _ordering_figures(snapshot: ProgressSnapshot, _dry_run: bool) -> list[contract.Figure]:
+    return [contract.Figure(label="Czas uruchomienia", value=snapshot.total_elapsed_ms, unit="ms")]
+
+
+def _ordering_summary(summary: OrderingSummary, _dry_run: bool) -> contract.RunSummary:
+    day = f"{WEEKDAY_LABELS[summary.day.weekday()]} {summary.day:%d.%m.%Y}"
+    return contract.RunSummary(
+        figures=[_count("Zlecenia", summary.order_count), _count("Wykonawcy", summary.worker_count)],
+        counts=contract.CountGroup(title="Uporządkowany dzień", counts=[contract.Count(label=day, count=summary.order_count)]),
+        files=[],
+        worker_settlements=None,
+    )
+
+
+# Karta Uporządkowania INTERMAX w Centrum dostaje deklarację procesu osobno (#470).
+INTERMAX: Final[ResultView[OrderingInputs, OrderingSummary]] = ResultView(
+    _figures=_ordering_figures, _summary=_ordering_summary
 )

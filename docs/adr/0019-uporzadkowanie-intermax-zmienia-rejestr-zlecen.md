@@ -36,6 +36,25 @@ od 2021 roku: około 42 tys. wierszy, cztery arkusze, około 6,5 MB, w OneDrive.
   Każda inna część pliku i każdy wiersz nad blokiem, także kolumny za `UWAGI`,
   zostają bajt w bajt. Nie wczytuje i nie zapisuje całego skoroszytu w
   openpyxl.
+- **Zapis dotyka w arkuszu zleceń jeszcze dwóch miejsc** (sprawdzone na kopii
+  INTERMAX taty z doklejonym wklejeniem z aplikacji, #467): `<dimension ref>`
+  rośnie, gdy dzień sięga dalej niż ostatni wiersz albo przesunięty pierwszy
+  wiersz dalej niż ostatnia kolumna, a `ref` Hiperłączy `NUMER ZL.` Surowych
+  zleceń idzie razem z ich komórką; relacje arkusza zostają. Zmieniane wiersze
+  to wszystkie pod żółtym wierszem albo pod ostatnim uporządkowanym zleceniem,
+  także puste między nimi a wklejeniem: pusty wiersz, który zostaje pusty, ma
+  te same bajty, a wiersz, z którego zlecenie odeszło, jest pustym wierszem
+  taty. Wiersze nowego dnia biorą wygląd `<row>` (styl wiersza, wysokość) z
+  ostatniego uporządkowanego dnia: wiersz zlecenia i pusty wiersz między
+  segmentami z ostatniego uporządkowanego wiersza, a inny pusty wiersz z
+  pierwszego pustego, nieżółtego wiersza pod nim. Żółty wiersz to u taty styl
+  całego wiersza bez komórek, więc rozpoznanie patrzy na styl wiersza i komórek. Autofiltr,
+  formatowanie warunkowe, sprawdzanie poprawności i scalenia nie zmieniają się:
+  gdy któreś sięga tych wierszy, Uporządkowanie zatrzymuje się „do Maksa”, tak
+  samo przy formule albo Hiperłączu na kilka komórek w Surowych zleceniach. Na
+  kopii INTERMAX taty nie ma ich pod uporządkowanymi dniami. „Bajt w bajt”
+  znaczy tę samą treść części po rozpakowaniu: zip jest zapisany od nowa, bo
+  arkusz zleceń i tak trzeba skompresować w całości (~0,4 s dla 43 MB XML).
 - **Przed podmianą narzędzie sprawdza swój zapis.** Plik tymczasowy obok
   INTERMAX zostaje odczytany jeszcze raz i porównany z oryginałem: poza
   zmianami z poprzedniego punktu wszystko musi się zgadzać, a zlecenia bloku
