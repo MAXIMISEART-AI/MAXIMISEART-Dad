@@ -183,16 +183,17 @@ jobs:
 
       - name: Run tests
         if: ${{ runner.os == 'Windows' }}
+        # Quoted: unquoted, PowerShell split them and pytest got "-o junit_family" without "=xunit1".
         run: |
           $files = py -3 tools/czesci_pytest.py ${{ matrix.part }}
           if ($LASTEXITCODE -ne 0) {
             throw "Splitting the test files failed (exit code $LASTEXITCODE)"
           }
-          py -3 -m pytest -n auto $files --junitxml=.ci-czasy/junit.xml -o junit_family=xunit1
+          py -3 -m pytest -n auto $files "--junitxml=.ci-czasy/junit.xml" -o "junit_family=xunit1"
 
       - name: Run tests (Linux)
         if: ${{ runner.os == 'Linux' }}
-        run: python -m pytest -n auto $(python tools/czesci_pytest.py --linux ${{ matrix.part }}) --junitxml=.ci-czasy/junit.xml -o junit_family=xunit1
+        run: python -m pytest -n auto $(python tools/czesci_pytest.py --linux ${{ matrix.part }}) "--junitxml=.ci-czasy/junit.xml" -o "junit_family=xunit1"
 
       - name: E2E (verify-rozliczenia --variant all)
         id: e2e

@@ -321,7 +321,7 @@ def test_kazdy_krok_jednostki_jest_krokiem_ci_a_pytest_w_ci_zapisuje_junit_z_pli
 
     assert set(KROKI) - names == set()
     assert len(pytest_runs) == 2
-    assert all(line.endswith(" --junitxml=.ci-czasy/junit.xml -o junit_family=xunit1") for line in pytest_runs), pytest_runs
+    assert all(line.endswith(' "--junitxml=.ci-czasy/junit.xml" -o "junit_family=xunit1"') for line in pytest_runs), pytest_runs
     for job in ("pytest", "mutations"):
         recorded = [step["run"] for step in workflow[job]["steps"] if "tools/czasy_ci.py zadanie" in step.get("run", "")]
         assert len(recorded) == 1 and "--kroki .ci-czasy/zadania.json" in recorded[0], job
