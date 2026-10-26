@@ -118,7 +118,7 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "tools"))
 sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "src"))
 
-from rozliczenia import preparation_process, settlement_process
+from rozliczenia import intermax_process, preparation_process, settlement_process
 from rozliczenia.centrum.app import create_app
 from rozliczenia.centrum.cloud_files import CloudFiles
 from rozliczenia.centrum.configuration import ConfigurationFiles
@@ -394,6 +394,7 @@ def main(argv: list[str] | None = None) -> int:
     processes = Processes(
         preparation=replace(preparation_process.PROCESS, metrics_path=lambda: Path(metrics["preparation"])),
         settlement=replace(settlement_process.PROCESS, metrics_path=lambda: Path(metrics["settlement"])),
+        intermax=replace(intermax_process.PROCESS, metrics_path=lambda: Path(metrics["intermax"])),
     )
     configuration = {name: Path(path) for name, path in fixture["configuration"].items()}
     clone = Path(fixture["tool"]["clone"])
@@ -418,6 +419,8 @@ def main(argv: list[str] | None = None) -> int:
             clone, origin=str(Path(fixture["tool"]["origin"])), find_git=_paced_git(root), install=_paced_install(root)
         ),
         readers=_register_failing_on_hook(root),
+        intermax_copies=Path(fixture["intermax"]["copies"]),
+        now=lambda: datetime.combine(today, datetime.now().astimezone().timetz()),
     )
 
     def record_bound_server(url: str) -> None:

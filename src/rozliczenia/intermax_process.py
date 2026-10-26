@@ -37,6 +37,8 @@ def _local_now() -> datetime:
 class OrderingInputs:
     """Wejście procesu Uporządkowania INTERMAX: INTERMAX z Ustawień taty, folder Kopii i zegar procesu.
 
+    ``period`` to okres dzisiejszej daty z zegara procesu, ustalony przy tworzeniu wejścia, czyli przy starcie:
+    Uruchomienie po północy z poniedziałku na wtorek dalej należy do okresu, w którym wystartowało.
     ``waiting``: zegar w sekundach i przerwa krótkiej ponownej próby podmiany, której odmawia OneDrive.
     """
 
@@ -44,16 +46,16 @@ class OrderingInputs:
     copies_directory: Path = field(default_factory=intermax_copies.default_directory)
     now: Callable[[], datetime] = _local_now
     waiting: Waiting = field(default_factory=Waiting)
+    period: str = field(init=False)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "period", period_of(self.now().date()).token)
 
     @property
     def dry_run(self) -> bool:
         """Uporządkowanie INTERMAX nie ma podglądu bez zapisu."""
 
         return False
-
-    @property
-    def period(self) -> str:
-        return period_of(self.now().date()).token
 
 
 def _execute(inputs: OrderingInputs, observer: ProgressObserver, _conversation: Conversation) -> OrderingSummary:

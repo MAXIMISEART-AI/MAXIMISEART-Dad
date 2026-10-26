@@ -28,7 +28,6 @@ from rozliczenia.process_run import Process
 from rozliczenia.settlement_process import SettlementInputs
 from rozliczenia.telemetry import MetricsStore
 
-_KEY: Final[contract.ProcessKey] = "settlement"
 _VIEW: Final = run_view.SETTLEMENT
 _ELIGIBLE: Final[PeriodStatus] = "collective_file_prepared"
 
@@ -44,8 +43,8 @@ class SettlementEntry:
     readers: Readers
 
     @property
-    def key(self) -> contract.ProcessKey:
-        return _KEY
+    def key(self) -> contract.PeriodProcessKey:
+        return "settlement"
 
     @property
     def view(self) -> run_view.ProcessView[Any, Any]:
@@ -61,9 +60,9 @@ class SettlementEntry:
         )
         previewed = previewed_periods(MetricsStore(self.process.metrics_path(), self.process.counter_names))
         collective_files = _collective_files(periods_directory, rows) if periods_directory is not None else {}
-        open_templates = open_in_excel(self.configuration.template_inputs(_KEY))
+        open_templates = open_in_excel(self.configuration.template_inputs(self.key))
         return contract.ProcessSetup(
-            process=_KEY,
+            process=self.key,
             title=self.process.name,
             creates="Rozliczenia pracowników",
             reminder=_VIEW.reminder,
@@ -97,7 +96,7 @@ class SettlementEntry:
         )
 
         return PreparedRun(
-            key=_KEY,
+            key=self.key,
             period=period.token,
             process=self.process,
             inputs=inputs,

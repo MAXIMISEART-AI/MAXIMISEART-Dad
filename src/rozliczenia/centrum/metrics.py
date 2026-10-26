@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterable, Mapping
 from datetime import date, datetime, timedelta, timezone
-from typing import Any, Final
+from typing import Any
 
 from fastapi import APIRouter
 
@@ -19,7 +19,6 @@ from rozliczenia.domain import PHASES
 from rozliczenia.process_run import Process
 from rozliczenia.telemetry import MINIMUM_STATISTIC_SAMPLES, MetricsStore, comparable_records, statistics_for
 
-_MODES: Final[tuple[contract.RunMode, ...]] = ("RUN", "DRY-RUN")
 _RECENT_WEEKS = 8
 
 
@@ -36,8 +35,13 @@ def read_runs(
 
 
 def read_metrics(
-    processes: Mapping[contract.ProcessKey, Process[Any, Any]], today: date, centrum_started: CentrumStarted
+    processes: Mapping[contract.ProcessKey, Process[Any, Any]],
+    modes: Mapping[contract.ProcessKey, tuple[contract.RunMode, ...]],
+    today: date,
+    centrum_started: CentrumStarted,
 ) -> contract.Metrics:
+    """Metryki procesów ``processes``; statystyki każdego procesu tylko w jego trybach z ``modes``."""
+
     records = _records(processes)
     runs = _runs(processes, records, centrum_started)
     since = today - timedelta(weeks=_RECENT_WEEKS)
@@ -48,7 +52,7 @@ def read_metrics(
         statistics=[
             _statistics(process, mode, processes[process].counter_names, records[process], runs)
             for process in processes
-            for mode in _MODES
+            for mode in modes[process]
         ],
         recent=contract.RecentResults(
             weeks=_RECENT_WEEKS,
@@ -158,14 +162,17 @@ def previewed_periods(store: MetricsStore) -> frozenset[str]:
 
 
 def metrics_router(
-    processes: Mapping[contract.ProcessKey, Process[Any, Any]], today: Callable[[], date], centrum_runs: CentrumRuns
+    processes: Mapping[contract.ProcessKey, Process[Any, Any]],
+    modes: Mapping[contract.ProcessKey, tuple[contract.RunMode, ...]],
+    today: Callable[[], date],
+    centrum_runs: CentrumRuns,
 ) -> APIRouter:
     router = APIRouter(prefix="/api/metrics", tags=["metryki"])
 
     @router.get("", operation_id="getMetrics", responses={500: {"model": contract.Problem}})
     def metrics() -> contract.Metrics:
         try:
-            return read_metrics(processes, today(), centrum_runs.started())
+            return read_metrics(processes, modes, today(), centrum_runs.started())
         except OSError:
             raise contract.Refusal(500, "Nie udało się odczytać plików metryk. Odśwież kartę.") from None
 

@@ -23,7 +23,7 @@ def register_unusable(error: WorkbookError) -> Message:
 
     match error.problem:
         case Problem.MISSING:
-            return _register_missing(error.path)
+            return register_missing(error.path)
         case Problem.OPEN_IN_EXCEL:
             return register_open(error.path)
         case Problem.INACCESSIBLE:
@@ -32,7 +32,9 @@ def register_unusable(error: WorkbookError) -> Message:
             return _register_unreadable(error.path)
 
 
-def _register_missing(register: Path) -> Message:
+def register_missing(register: Path) -> Message:
+    """Nie ma INTERMAX pod ścieżką z Ustawień taty."""
+
     return Message(
         code="BRAK_INTERMAX",
         what=f"Nie znaleziono INTERMAX. {_UNCHANGED}",

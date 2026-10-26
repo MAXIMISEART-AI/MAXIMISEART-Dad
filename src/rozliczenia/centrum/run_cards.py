@@ -26,6 +26,7 @@ from pydantic import BaseModel, ConfigDict
 
 from rozliczenia.centrum import contract
 from rozliczenia.centrum.atomic_file import replace_atomically
+from rozliczenia.centrum.intermax_run import IntermaxEntry
 from rozliczenia.centrum.run_logs import RunLog
 from rozliczenia.centrum.preparation_run import PreparationEntry
 from rozliczenia.centrum.runs import verdict
@@ -58,14 +59,19 @@ class StartedRun(BaseModel):
 class RunCards:
     """Karty Uruchomień z dysku: ostatnie Uruchomienie sprzed startu Centrum i karta po identyfikatorze.
 
-    ``logs`` to katalog Logów Uruchomienia, ``last_started`` plik ostatniego startu, a ``entries`` procesy Centrum,
+    ``logs`` to katalog Logów Uruchomienia, ``last_started`` plik ostatniego startu, a ``processes`` procesy Centrum,
     z których karta bierze tytuł procesu i deklarację procesu (Gotowość, tytuł wyniku po zapisie), jak przy starcie.
     """
 
-    def __init__(self, logs: Path, last_started: Path, entries: Mapping[contract.ProcessKey, PreparationEntry | SettlementEntry]) -> None:
+    def __init__(
+        self,
+        logs: Path,
+        last_started: Path,
+        processes: Mapping[contract.ProcessKey, PreparationEntry | SettlementEntry | IntermaxEntry],
+    ) -> None:
         self._logs = logs
         self._last_started = last_started
-        self._entries = entries
+        self._entries = processes
 
     def run_started(self, info: contract.RunInfo, started_at: datetime) -> None:
         started = StartedRun(
@@ -98,6 +104,22 @@ class RunCards:
         record = None if path is None else _read(path, RunLog)
         return contract.RunCardMissing(state="missing") if record is None else self._restored(record)
 
+    def latest(self, process: contract.ProcessKey) -> contract.RunRestored | None:
+        """Karta ostatniego Uruchomienia procesu ``process`` z Logów; ``None``: żadnego albo nie da się go odczytać.
+
+        Nazwa pliku Logów zaczyna się sekundą startu w UTC, a po niej stoi klucz procesu, więc ostatnie pliki procesu
+        są ostatnie w kolejności nazw; z tych z tej samej sekundy wygrywa późniejszy start w Logach.
+        """
+
+        try:
+            names = sorted(path.name for path in self._logs.iterdir() if f"-{process}-" in path.name)
+        except OSError:
+            return None
+        second = names[-1][:16] if names else None
+        records = [_read(self._logs / name, RunLog) for name in names if name[:16] == second]
+        read = [record for record in records if record is not None]
+        return self._restored(max(read, key=lambda record: record.started_at)) if read else None
+
     def _logged(self, run_id: str) -> Path | None:
         """Plik Logów Uruchomienia ``run_id`` (nazwa kończy się identyfikatorem); ``None`` bez pliku albo katalogu."""
 
@@ -115,6 +137,7 @@ class RunCards:
             period=period,
             dry_run=mode == "podgląd",
             confirms_readiness=self._entries[process].view.confirms_readiness,
+            register_name=self._entries[process].view.register_name,
         )
 
     def _restored(self, record: RunLog) -> contract.RunRestored:
