@@ -25,8 +25,10 @@ robi mutacje, które przeglądy PR-ów robiły ręcznie i które przeżywały te
 Biegnie każde cofnięcie fragmentu i najwyżej jedna inna mutacja na linię (``selected``): ta z najgłębszego węzła
 drzewa składni linii, czyli ostatnia, którą daje przejście drzewa wszerz (``ast.walk``), a z kilku na tym samym węźle
 ostatnia z nich. Psuje ona najmniejszy kawałek linii, więc przeżywa test, który sprawdza tylko ogólny skutek linii;
-ogólny skutek fragmentu sprawdza już jego cofnięcie. Cofnięcie, które daje ten sam kod co inna mutacja (bez elementu
-krotki, ``False`` → ``True``), biegnie jako cofnięcie pod jej opisem. Linia mutacji to linia jej wyjątku (``Mutant.line``).
+ogólny skutek fragmentu sprawdza już jego cofnięcie. Predykat napisu biegnie tylko na linii bez innej mutacji: przy
+zbiorze albo słowniku po prawej ``startswith`` tylko rzuca ``AttributeError``. Cofnięcie, które daje ten sam kod co
+inna mutacja (bez elementu krotki, ``False`` → ``True``), biegnie jako cofnięcie pod jej opisem. Linia mutacji to linia
+jej wyjątku (``Mutant.line``).
 
 Mutacja, która zmienia tylko docstringi, komentarze, adnotacje argumentów i wyników funkcji, importy albo aliasy
 typów (``Nazwa = Callable[...]``, ``A | B`` czytane tylko w adnotacjach), nie zmienia zachowania, więc jej nie ma.
@@ -132,6 +134,7 @@ class Mutant:
     other_system: bool = False  # kod gałęzi innego systemu niż ten, na którym biegną testy
     shared_state: bool = False  # kod funkcji z ``@cache``: wynik pierwszego wywołania dostają następne testy
     revert: bool = False  # cofnięcie fragmentu zmiany do bazy
+    last_resort: bool = False  # predykat napisu: biegnie tylko na linii bez innej mutacji
 
 
 @dataclass(frozen=True)
@@ -380,7 +383,7 @@ _PREDICATES = ("startswith", "endswith")
 _COLLECTIONS = (ast.List, ast.Tuple, ast.Set, ast.Dict, ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp)
 
 
-def _predicates(node: ast.Compare | ast.Call, source: _Source) -> Iterator[tuple[Node, Node, str, str]]:
+def _predicates(node: ast.AST, source: _Source) -> Iterator[tuple[Node, Node, str, str]]:
     """Zamiana predykatu napisu ``in``, ``startswith`` albo ``endswith`` na każdy z pozostałych dwóch."""
 
     if (
@@ -405,7 +408,7 @@ def _predicates(node: ast.Compare | ast.Call, source: _Source) -> Iterator[tuple
         return
     item_code, text_code = source.segment(item), source.segment(text)
     # ``selected`` bierze ostatnią zamianę węzła, więc ``in`` dostaje ``startswith``: na #460 r1 test wykrył ``endswith``,
-    # a przeżyło ``startswith``, które znalazł przegląd.
+    # a przeżyło ``startswith``, które znalazł przegląd. Biegnie ona tylko na linii bez innej mutacji (``selected``).
     for method in ("in", "endswith", "startswith"):
         if method == now:
             continue
@@ -437,8 +440,6 @@ def _candidates(node: ast.AST, source: _Source, exit_codes: dict[int, tuple[ast.
         left, right = source.segment(node.left), source.segment(node.comparators[0])
         swapped = _BOUNDARY[type(node.ops[0])]
         yield node, node, f"({left} {swapped} {right})", f"granica `{_short(source.segment(node))}` → `{swapped}`"
-    elif isinstance(node, ast.Compare):
-        yield from _predicates(node, source)
     elif id(node) in exit_codes:
         returned, code = exit_codes[id(node)]
         yield returned, returned, str(code), f"`return {source.segment(returned)}` → `return {code}`"
@@ -453,7 +454,6 @@ def _candidates(node: ast.AST, source: _Source, exit_codes: dict[int, tuple[ast.
             if keyword.arg is not None and not isinstance(keyword.value, ast.Constant):
                 shown = f"{keyword.arg}={_short(source.segment(keyword.value), 30)}"
                 yield keyword.value, keyword.value, "None", f"`{shown}` → `{keyword.arg}=None`"
-        yield from _predicates(node, source)
     elif (
         isinstance(node, ast.Tuple)
         and isinstance(node.ctx, ast.Load)
@@ -561,7 +561,9 @@ def mutants(path: str, text: str, hunks: Sequence[Hunk], platform: str = sys.pla
     found: dict[str, Mutant] = {}
     meaning = _meaning(text)
 
-    def add(lines: frozenset[int], line: int, description: str, mutated: str, *, other_system: bool, revert: bool = False) -> None:
+    def add(
+        lines: frozenset[int], line: int, description: str, mutated: str, *, other_system: bool, revert: bool = False, last_resort: bool = False
+    ) -> None:
         if revert and mutated in found:
             # Cofnięcie, które daje kod innej mutacji, to ta mutacja: biegnie jako cofnięcie.
             found[mutated] = replace(found[mutated], revert=True)
@@ -573,16 +575,18 @@ def mutants(path: str, text: str, hunks: Sequence[Hunk], platform: str = sys.pla
         except (SyntaxError, ValueError):
             return
         if _meaning(mutated) != meaning:
-            found[mutated] = Mutant(path, line, lines, description, mutated, other_system, bool(lines & cached), revert)
+            found[mutated] = Mutant(path, line, lines, description, mutated, other_system, bool(lines & cached), revert, last_resort)
 
     for node in ast.walk(tree):
         if id(node) in skipped:
             continue
-        for replaced, broken, replacement, description in _candidates(node, source, exit_codes):
-            lines = _span_lines(broken) & changed
-            if lines:
-                mutated = source.replaced(replaced, replacement)
-                add(lines, broken.lineno, description, mutated, other_system=id(broken) in other or id(node) in other)
+        for last_resort, candidates in ((False, _candidates(node, source, exit_codes)), (True, _predicates(node, source))):
+            for replaced, broken, replacement, description in candidates:
+                lines = _span_lines(broken) & changed
+                if lines:
+                    mutated = source.replaced(replaced, replacement)
+                    other_system = id(broken) in other or id(node) in other
+                    add(lines, broken.lineno, description, mutated, other_system=other_system, last_resort=last_resort)
     rows = _rows(text)
     for hunk in hunks:
         if not hunk.count or (not hunk.old and hunk.count == len(rows)):
@@ -600,10 +604,18 @@ def mutants(path: str, text: str, hunks: Sequence[Hunk], platform: str = sys.pla
 
 
 def selected(path: str, text: str, hunks: Sequence[Hunk], platform: str = sys.platform) -> list[Mutant]:
-    """Mutacje, które biegną w CI i liczy plan: każde cofnięcie fragmentu i ostatnia inna mutacja każdej linii."""
+    """Mutacje, które biegną w CI i liczy plan: każde cofnięcie fragmentu i ostatnia inna mutacja każdej linii.
+
+    Predykat napisu biegnie tylko na linii bez innej mutacji: ``x in y`` → ``y.startswith(x)`` przy ``y`` będącym
+    zbiorem albo słownikiem tylko rzuca ``AttributeError``, a wypierał ``bez członu`` i stały warunek (#486
+    ``tools/sciezki_w_kodzie.py:67``: przeżywa ``bez `node.func.attr in GLOBS` w `and` ``).
+    """
 
     found = mutants(path, text, hunks, platform)
-    last = {mutant.line: mutant for mutant in found if not mutant.revert}
+    last: dict[int, Mutant] = {}
+    for mutant in found:
+        if not mutant.revert and (mutant.line not in last or not mutant.last_resort or last[mutant.line].last_resort):
+            last[mutant.line] = mutant
     return [mutant for mutant in found if mutant.revert or last[mutant.line] is mutant]
 
 

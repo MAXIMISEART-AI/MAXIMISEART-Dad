@@ -474,7 +474,7 @@ def test_argument_pozycyjny_stala_i_kolekcja_nie_dostaja_mutacji_none_ani_predyk
 
 def test_z_predykatu_napisu_biegnie_in_na_startswith() -> None:
     # #460 r1: ``word in text`` → ``text.endswith(word)`` wykrył test, a przeżyło ``text.startswith(word)``.
-    code = "def f(a, t):\n    x = a in t\n    y = t.startswith(a)\n    return t.endswith(a)\n"
+    code = "def f(a, t):\n    x = a in t\n    y = t.startswith(a)\n    z = t.endswith(a)\n"
 
     chosen = [(mutant.line, mutant.description) for mutant in selected("m.py", code, [Hunk(2, 3, ())]) if not mutant.revert]
 
@@ -483,6 +483,24 @@ def test_z_predykatu_napisu_biegnie_in_na_startswith() -> None:
         (3, "`t.startswith(a)` → `t.endswith(a)`"),
         (4, "`t.endswith(a)` → `t.startswith(a)`"),
     ]
+
+
+def test_predykat_napisu_biegnie_tylko_na_linii_bez_innej_mutacji() -> None:
+    # #486 ``tools/sciezki_w_kodzie.py:67``: przy zbiorze ``GLOBS.startswith(name)`` tylko rzuca ``AttributeError``, a
+    # przeżywało ``bez `name in GLOBS` w `and` ``.
+    code = 'GLOBS = frozenset({"glob", "rglob"})\n\n\ndef f(node, name, t):\n    if isinstance(node, str) and name in GLOBS:\n        return t\n'
+    hunks = [Hunk(5, 1, ())]
+
+    chosen = [mutant.description for mutant in selected("m.py", code, hunks) if not mutant.revert]
+
+    assert "`name in GLOBS` → `GLOBS.startswith(name)`" in {mutant.description for mutant in mutants("m.py", code, hunks)}
+    assert chosen == ["bez `name in GLOBS` w `and`"]
+
+
+def test_mutacja_glebiej_niz_predykat_napisu_wygrywa_z_nim() -> None:
+    chosen = [mutant.description for mutant in selected("m.py", "x = a in (b if c else d)\n", [Hunk(1, 1, ())]) if not mutant.revert]
+
+    assert chosen == ["`b if c else d` zawsze `d`"]
 
 
 def test_predykat_nie_dostaje_zamiany_na_samego_siebie() -> None:
