@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import itertools
 import json
 import threading
 import time
+import weakref
 from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import date, datetime, timezone
@@ -282,23 +284,42 @@ class MetricsPaths:
         )
 
 
+# Numer startu przodka każdego wątku, którego uruchomił wątek testu (pierwszego wątku tej linii).
+_LINE_STARTS: weakref.WeakKeyDictionary[threading.Thread, int] = weakref.WeakKeyDictionary()
+_STARTS = itertools.count()
+_thread_start = threading.Thread.start
+
+
+def _start_in_line(self: threading.Thread) -> None:
+    """Wątek dziedziczy numer startu linii po wątku, który go uruchamia; wątek testu zaczyna nową linię."""
+
+    line = _LINE_STARTS.get(threading.current_thread())
+    _LINE_STARTS[self] = next(_STARTS) if line is None else line
+    _thread_start(self)
+
+
+threading.Thread.start = _start_in_line  # type: ignore[method-assign]
+
+
 class CentrumClient(TestClient):
     """Klient HTTP Centrum w teście, który zatrzymuje Centrum, zanim test przeczyta albo usunie jego pliki.
 
     Na Windows pliku, który wątek Centrum w tle w tej chwili pisze albo czyta, nie da się otworzyć ani usunąć
-    (``PermissionError``), więc test dotyka plików Centrum dopiero po ``stop``. Wątki Centrum to wątki, które
-    powstały od ``alive_before``: Centrum po ponownym starcie dostaje ``alive_before`` poprzedniego, żeby ``stop``
+    (``PermissionError``), więc test dotyka plików Centrum dopiero po ``stop``. Wątki Centrum to wątki z linii, które
+    wątek testu zaczął od ``since``, także uruchomione później przez wątki tej linii. Wątek z linii sprzed ``since``
+    należy do Centrum innego testu, nawet gdy powstał po ``since`` (budzik kolejki z ``SYSTEM_CLOCK`` co
+    ``RETRY_S`` uruchamia następny). Centrum po ponownym starcie dostaje ``since`` poprzedniego, żeby ``stop``
     czekał też na wątki jego poprzedniej pracy.
     """
 
-    def __init__(self, app: FastAPI, *, alive_before: frozenset[threading.Thread] | None = None) -> None:
+    def __init__(self, app: FastAPI, *, since: int | None = None) -> None:
         super().__init__(app, base_url=CENTRUM, headers={"Origin": CENTRUM})
-        self.alive_before = frozenset(threading.enumerate()) if alive_before is None else alive_before
+        self.since = next(_STARTS) if since is None else since
 
     def threads(self) -> list[threading.Thread]:
         """Żywe wątki Centrum: serwera i jego pracy w tle."""
 
-        return [thread for thread in threading.enumerate() if thread not in self.alive_before]
+        return [thread for thread in threading.enumerate() if _LINE_STARTS.get(thread, -1) >= self.since]
 
     def stop(self, timeout_s: float = STOP_S) -> None:
         """Zamyka serwer (``lifespan``) i czeka, aż skończy się każdy wątek Centrum; drugie ``stop`` nic nie robi.

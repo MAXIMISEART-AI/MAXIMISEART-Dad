@@ -177,7 +177,7 @@ def _client(
     configuration: ConfigurationFiles,
     engines: Engines,
     surroundings: Surroundings,
-    alive_before: frozenset[threading.Thread] | None = None,
+    since: int | None = None,
 ) -> CentrumClient:
     log = CentrumLog(tmp_path / "logs" / "centrum-rozliczen.log")
     onedrive = surroundings.onedrive
@@ -199,7 +199,7 @@ def _client(
         guardian=surroundings.guardian,
         readers=surroundings.readers,
     )
-    return CentrumClient(app, alive_before=alive_before)
+    return CentrumClient(app, since=since)
 
 
 @dataclass
@@ -228,7 +228,7 @@ class PreparingCentrum:
             FakePlatform(),
             self.surroundings,
             self.engines,
-            alive_before=self.client.alive_before,
+            since=self.client.since,
         )
 
 
@@ -239,7 +239,7 @@ def _preparation_client(
     surroundings: Surroundings,
     engines: Engines,
     *,
-    alive_before: frozenset[threading.Thread] | None = None,
+    since: int | None = None,
 ) -> CentrumClient:
     configuration = ConfigurationFiles(
         worker_config=fixture.config_path,
@@ -247,7 +247,7 @@ def _preparation_client(
         collective_template=fixture.collective_template_path,
         worker_template=tmp_path / "config" / "Wzorzec rozliczenia pracownika.xlsx",
     )
-    return _client(tmp_path, platform, configuration, engines, surroundings, alive_before)
+    return _client(tmp_path, platform, configuration, engines, surroundings, since)
 
 
 def _metrics(tmp_path: Path) -> MetricsPaths:
@@ -323,7 +323,7 @@ class SettlingCentrum:
             self.configuration,
             self.engines,
             self.surroundings,
-            self.client.alive_before,
+            self.client.since,
         )
 
 

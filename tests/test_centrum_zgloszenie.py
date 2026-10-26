@@ -403,6 +403,30 @@ def test_zatrzymanie_centrum_czeka_na_kazdy_jego_watek_takze_sprzed_ponownego_st
     assert [thread.name for thread in running if thread.is_alive()] == []
 
 
+def test_zatrzymanie_centrum_nie_czeka_na_budzik_centrum_poprzedniego_testu_nastawiony_po_jego_starcie(
+    tmp_path: Path,
+) -> None:
+    rings = threading.Event()
+    next_rings = threading.Event()
+
+    def ring() -> None:
+        rings.wait()
+        threading.Thread(target=next_rings.wait, name="budzik", daemon=True).start()
+
+    # Budzik kolejki Centrum z poprzedniego testu (``SYSTEM_CLOCK``): dzwoni co ``RETRY_S`` i nastawia następny.
+    earlier = threading.Thread(target=ring, name="budzik", daemon=True)
+    earlier.start()
+    started = plain_centrum(tmp_path)
+    rings.set()
+    earlier.join()
+
+    try:
+        assert started.client.threads() == []
+        started.client.stop(timeout_s=0)
+    finally:
+        next_rings.set()
+
+
 def current_report(centrum: PreparingCentrum) -> object:
     view = centrum.client.get("/api/runs/current").json()
     return view["result"]["report"]
