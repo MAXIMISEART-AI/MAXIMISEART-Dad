@@ -479,7 +479,11 @@ export const zProblem = z.object({
  * Uruchomieniu z Centrum sprzed #322, które identyfikatora nie zapamiętało.
  */
 export const zProcessRun = z.object({
-    process: z.enum(['preparation', 'settlement']),
+    process: z.enum([
+        'preparation',
+        'settlement',
+        'intermax'
+    ]),
     process_label: z.string(),
     started_at: z.iso.datetime(),
     mode: z.enum(['RUN', 'DRY-RUN']),
@@ -505,7 +509,11 @@ export const zProcessRun = z.object({
  * uruchomieniem, czy „Uruchom” potwierdza Gotowość, i podpowiedź „Podgląd bez zapisu”.
  */
 export const zProcessSetup = z.object({
-    process: z.enum(['preparation', 'settlement']),
+    process: z.enum([
+        'preparation',
+        'settlement',
+        'intermax'
+    ]),
     title: z.string(),
     creates: z.string(),
     reminder: z.string(),
@@ -728,7 +736,11 @@ export const zResultCounts = z.object({
  * Statystyki jednego procesu w jednym trybie; bez ``percentiles`` poniżej minimum ukończonych obserwacji.
  */
 export const zModeStatistics = z.object({
-    process: z.enum(['preparation', 'settlement']),
+    process: z.enum([
+        'preparation',
+        'settlement',
+        'intermax'
+    ]),
     mode: z.enum(['RUN', 'DRY-RUN']),
     completed_runs: z.int(),
     percentiles: zPercentiles.nullable(),
@@ -853,7 +865,11 @@ export const zRunCardMissing = z.object({
  */
 export const zRunInfo = z.object({
     id: z.string(),
-    process: z.enum(['preparation', 'settlement']),
+    process: z.enum([
+        'preparation',
+        'settlement',
+        'intermax'
+    ]),
     title: z.string(),
     period: z.string(),
     dry_run: z.boolean(),
@@ -893,7 +909,11 @@ export const zRunInterrupted = z.object({
  * Start Uruchomienia procesu; pliki wejściowe wylicza serwer z ustawień i okresu.
  */
 export const zRunRequest = z.object({
-    process: z.enum(['preparation', 'settlement']),
+    process: z.enum([
+        'preparation',
+        'settlement',
+        'intermax'
+    ]),
     period: z.string(),
     dry_run: z.boolean()
 });

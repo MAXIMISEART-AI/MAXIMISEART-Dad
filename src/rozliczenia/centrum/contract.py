@@ -176,7 +176,7 @@ class Opened(_Model):
 
 
 # Każdy proces ma klucz, ten sam w Uruchomieniach i w Metrykach.
-ProcessKey = Literal["preparation", "settlement"]
+ProcessKey = Literal["preparation", "settlement", "intermax"]
 RunMode = Literal["RUN", "DRY-RUN"]
 RunResult = Literal["OK", "WYMAGA_SPRAWDZENIA", "BLAD_KRYTYCZNY"]
 # Rodzaj Zatrzymania zapisany w metrykach, bez powtórki, którą Centrum pamięta tylko do zamknięcia.

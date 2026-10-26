@@ -58,6 +58,10 @@ SUMMARY_LINES: dict[str, tuple[dict[str, Any], list[str]]] = {
         {"process": "preparation", "mode": "podgląd"},
         ["**Logi Uruchomienia**: Przygotowanie pliku zbiorczego, podgląd, okres 08_14_09_2026"],
     ),
+    "uporzadkowanie-intermax": (
+        {"process": "intermax"},
+        ["**Logi Uruchomienia**: Uporządkowanie INTERMAX, zapis, okres 08_14_09_2026"],
+    ),
     "ostrzezenia-z-powtorzeniami": (
         {"result": "WYMAGA_SPRAWDZENIA", "messages": [warning("BRAK_MAPOWANIA"), warning("NIEZNANE_URZADZENIA"), warning("BRAK_MAPOWANIA")]},
         [
