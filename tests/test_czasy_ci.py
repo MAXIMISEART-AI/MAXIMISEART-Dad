@@ -7,9 +7,12 @@ pomiaru zostaje.
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 from pathlib import Path
 import sys
+import threading
 import tomllib
 
 import pytest
@@ -29,6 +32,8 @@ ENV = {
     "GITHUB_RUN_ATTEMPT": "2",
     "GITHUB_EVENT_NAME": "push",
     "GITHUB_SHA": "31bb76513d0bce91cdba28d09f61d07431ee4028",
+    "GITHUB_REPOSITORY": "MAXIMISEART-AI/MAXIMISEART-Dad",
+    "GH_TOKEN": "token-testu",
 }
 # junit pytest -n 4 z junit_family = xunit1: na Windows ścieżka z ukośnikami wstecznymi, test w klasie, porażka
 # testu, błąd fixture, pominięty test i plik, którego nie dało się zaimportować.
@@ -96,18 +101,50 @@ PYTEST_UNITS = [
 ]
 
 
-@pytest.fixture(autouse=True)
-def _github_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    for name, value in ENV.items():
+class _Api:
+    """API zadań runu: odpowiada na każde GET tym, co test ustawi, i zapamiętuje ścieżkę i nagłówek autoryzacji."""
+
+    def __init__(self) -> None:
+        self.status = 200
+        self.body = json.dumps(_api(PYTEST_STEPS))
+        self.requests: list[tuple[str, str | None]] = []
+
+    def steps(self, steps: list[dict[str, str]]) -> None:
+        self.body = json.dumps(_api(steps))
+
+
+@pytest.fixture
+def api(monkeypatch: pytest.MonkeyPatch) -> Iterator[_Api]:
+    state = _Api()
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self) -> None:
+            state.requests.append((self.path, self.headers.get("Authorization")))
+            body = state.body.encode("utf-8")
+            self.send_response(state.status)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *_: object) -> None:
+            pass
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True)
+    thread.start()
+    for name, value in {**ENV, "GITHUB_API_URL": f"http://127.0.0.1:{server.server_port}", "NO_PROXY": "127.0.0.1"}.items():
         monkeypatch.setenv(name, value)
+    yield state
+    server.shutdown()
+    server.server_close()
+    thread.join()
 
 
-def _inputs(folder: Path, steps: list[dict[str, str]] = PYTEST_STEPS) -> dict[str, Path]:
+def _inputs(folder: Path) -> dict[str, Path]:
     folder.mkdir(parents=True, exist_ok=True)
-    paths = {"junit": folder / "junit.xml", "mutacje": folder / "mutacje.log", "kroki": folder / "zadania.json"}
+    paths = {"junit": folder / "junit.xml", "mutacje": folder / "mutacje.log"}
     paths["junit"].write_text(JUNIT, encoding="utf-8")
     paths["mutacje"].write_bytes(MUTATIONS_LOG.encode("utf-8"))
-    paths["kroki"].write_text(json.dumps(_api(steps)), encoding="utf-8")
     return paths
 
 
@@ -118,10 +155,13 @@ def _record(tmp_path: Path, paths: dict[str, Path], *sources: str, tor: str = "W
     return code, json.loads(record.read_text(encoding="utf-8"))
 
 
-def test_zadanie_pytest_zapisuje_czas_kazdego_pliku_testow_i_kazdego_kroku_z_narzutem(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    code, record = _record(tmp_path, _inputs(tmp_path / "wejscie"), "kroki", "junit")
+def test_zadanie_pytest_zapisuje_czas_kazdego_pliku_testow_i_kazdego_kroku_z_narzutem(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], api: _Api
+) -> None:
+    code, record = _record(tmp_path, _inputs(tmp_path / "wejscie"), "junit")
 
     assert code == 0
+    assert api.requests == [("/repos/MAXIMISEART-AI/MAXIMISEART-Dad/actions/runs/40259456807/attempts/2/jobs?per_page=100", "Bearer token-testu")]
     assert record == {
         "wersja": 1,
         "run": 40259456807,
@@ -138,21 +178,23 @@ def test_zadanie_pytest_zapisuje_czas_kazdego_pliku_testow_i_kazdego_kroku_z_nar
     assert capsys.readouterr().out.splitlines() == ["CZASY CI | pytest (Python 3.14, 1/2) | windows-3.14 | 8 jednostek | narzut 17 s | pytest-0-2.json"]
 
 
-def test_zadanie_mutation_checks_zapisuje_czas_kazdego_kroku_skilla_takze_nieudanego(tmp_path: Path) -> None:
-    steps = [
-        _step("Run each verify skill's baseline check and prove it fails on broken variants", "failure", "02:32:00", "02:42:00"),
-        _step("Upload baseline evidence on failure", "success", "02:42:00", "02:42:03"),
-    ]
-    code, record = _record(tmp_path, _inputs(tmp_path / "wejscie", steps), "kroki", "mutacje", tor="Windows-3.14.2")
+def test_zadanie_mutation_checks_zapisuje_czas_kazdego_kroku_skilla_takze_nieudanego(tmp_path: Path, api: _Api) -> None:
+    api.steps(
+        [
+            _step("Run each verify skill's baseline check and prove it fails on broken variants", "failure", "02:32:00", "02:42:00"),
+            _step("Upload baseline evidence on failure", "success", "02:42:00", "02:42:03"),
+        ]
+    )
+    code, record = _record(tmp_path, _inputs(tmp_path / "wejscie"), "mutacje", tor="Windows-3.14.2")
 
     assert code == 0
     assert (record["tor"], record["narzut_s"], record["bledy"]) == ("windows-3.14", 69.0, [])
     assert record["jednostki"] == [{"klucz": "krok:mutacje", "s": 600.0, "status": "fail"}, *MUTATION_UNITS]
 
 
-def test_zadanie_bez_kroku_jednostki_nie_ma_narzutu(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    steps = [_step("Set up job", "success", "02:30:51", "02:30:54"), _step("Run tests (Linux)", "skipped", "02:31:00", "02:31:00")]
-    code, record = _record(tmp_path, _inputs(tmp_path / "wejscie", steps), "kroki", tor="Linux-3.14.0")
+def test_zadanie_bez_kroku_jednostki_nie_ma_narzutu(tmp_path: Path, capsys: pytest.CaptureFixture[str], api: _Api) -> None:
+    api.steps([_step("Set up job", "success", "02:30:51", "02:30:54"), _step("Run tests (Linux)", "skipped", "02:31:00", "02:31:00")])
+    code, record = _record(tmp_path, {}, tor="Linux-3.14.0")
 
     assert code == 0
     assert (record["tor"], record["narzut_s"], record["jednostki"]) == ("linux-3.14", None, [])
@@ -175,30 +217,41 @@ def _replace(path: Path, content: str | None) -> None:
         ("junit", '<testsuite name="pytest" tests="0"></testsuite>', "junit.xml: ValueError('brak testów')"),
         ("mutacje", None, "mutacje.log: FileNotFoundError("),
         ("mutacje", "OK   PODSTAWA verify-b (23 s)\n", "mutacje.log: ValueError('brak linii MUTACJE SKILLI OK/FAIL"),
-        ("kroki", None, "zadania.json: FileNotFoundError("),
-        ("kroki", "", "zadania.json: JSONDecodeError("),
-        ("kroki", '{"message": "Bad credentials"}', "zadania.json: KeyError('jobs')"),
-        ("kroki", '{"jobs": null}', "zadania.json: TypeError("),
-        ("kroki", json.dumps({"jobs": []}), "zadania.json: ValueError(\"0 zadań na runnerze 'GitHub Actions 1000012606' zamiast jednego\")"),
+        ("api", None, "API zadań runu: URLError(ConnectionRefusedError("),
+        ("api", (401, '{"message": "Bad credentials"}'), "API zadań runu: <HTTPError 401: "),
+        ("api", (200, ""), "API zadań runu: JSONDecodeError("),
+        ("api", (200, '{"message": "Bad credentials"}'), "API zadań runu: KeyError('jobs')"),
+        ("api", (200, '{"jobs": null}'), "API zadań runu: TypeError("),
+        ("api", (200, json.dumps({"jobs": []})), "API zadań runu: ValueError(\"0 zadań na runnerze 'GitHub Actions 1000012606' zamiast jednego\")"),
     ],
 )
 def test_brakujace_albo_zepsute_wejscie_jest_zgloszone_a_reszta_pomiaru_zostaje(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str], source: str, content: str | None, error: str
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+    api: _Api,
+    source: str,
+    content: str | tuple[int, str] | None,
+    error: str,
 ) -> None:
     paths = _inputs(tmp_path / "wejscie")
-    _replace(paths[source], content)
-    sources = ("kroki", "junit", "mutacje")
+    if source != "api":
+        _replace(paths[source], content if isinstance(content, str) else None)
+    elif isinstance(content, tuple):
+        api.status, api.body = content
+    else:
+        monkeypatch.setenv("GITHUB_API_URL", "http://127.0.0.1:1")
 
-    code, record = _record(tmp_path, paths, *sources)
+    code, record = _record(tmp_path, paths, "junit", "mutacje")
     errors = record["bledy"]
     out = capsys.readouterr().out.splitlines()
 
     assert code == 1
     assert isinstance(errors, list) and len(errors) == 1 and errors[0].startswith(error), errors
     assert out[0] == f"CZASY CI FAIL | {errors[0]}"
-    kept = {"kroki": PYTEST_UNITS[:3], "junit": PYTEST_UNITS[3:], "mutacje": MUTATION_UNITS}
-    assert record["jednostki"] == [unit for other in sources if other != source for unit in kept[other]]
-    assert record["zadanie"] == ("pytest" if source == "kroki" else "pytest (Python 3.14, 1/2)")
+    kept = {"api": PYTEST_UNITS[:3], "junit": PYTEST_UNITS[3:], "mutacje": MUTATION_UNITS}
+    assert record["jednostki"] == [unit for other in ("api", "junit", "mutacje") if other != source for unit in kept[other]]
+    assert record["zadanie"] == ("pytest" if source == "api" else "pytest (Python 3.14, 1/2)")
 
 
 def _merge(folder: Path, output: Path) -> int:
@@ -223,10 +276,11 @@ def _saved(folder: Path, name: str, *, run: int, attempt: int, job: str, tor: st
     (folder / name).write_text(json.dumps(record), encoding="utf-8")
 
 
-def test_scalenie_zapisow_runu_daje_obserwacje_kazdego_klucza_na_torze(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+def test_scalenie_zapisow_runu_daje_obserwacje_kazdego_klucza_na_torze(tmp_path: Path, capsys: pytest.CaptureFixture[str], api: _Api) -> None:
     for lane, (python, steps) in {"windows": ("Windows-3.14.0", PYTEST_STEPS), "linux": ("Linux-3.14.0", PYTEST_STEPS[1:2])}.items():
-        paths = _inputs(tmp_path / lane, steps)
-        main(["zadanie", "--tor", python, "--kroki", str(paths["kroki"]), "--junit", str(paths["junit"]), "--wyjscie", str(tmp_path / "zapisy" / f"{lane}.json")])
+        api.steps(steps)
+        paths = _inputs(tmp_path / lane)
+        main(["zadanie", "--tor", python, "--junit", str(paths["junit"]), "--wyjscie", str(tmp_path / "zapisy" / f"{lane}.json")])
     capsys.readouterr()
 
     code = _merge(tmp_path / "zapisy", tmp_path / "czasy-ci.json")
@@ -326,7 +380,7 @@ def test_kazdy_krok_jednostki_jest_krokiem_ci_a_pytest_w_ci_zapisuje_junit_z_pli
     assert all(line.endswith(" --junitxml .ci-czasy/junit.xml") for line in pytest_runs), pytest_runs
     for job in ("pytest", "mutations"):
         recorded = [step["run"] for step in workflow[job]["steps"] if "tools/czasy_ci.py zadanie" in step.get("run", "")]
-        assert len(recorded) == 1 and "--kroki .ci-czasy/zadania.json" in recorded[0], job
+        assert len(recorded) == 1, job
 
 
 
@@ -334,9 +388,8 @@ def test_kazdy_krok_jednostki_jest_krokiem_ci_a_pytest_w_ci_zapisuje_junit_z_pli
     ("arguments", "missing"),
     [
         ([], "polecenie"),
-        (["zadanie", "--kroki", "k.json", "--wyjscie", "z.json"], "--tor"),
-        (["zadanie", "--tor", "Linux-3.14", "--wyjscie", "z.json"], "--kroki"),
-        (["zadanie", "--tor", "Linux-3.14", "--kroki", "k.json"], "--wyjscie"),
+        (["zadanie", "--wyjscie", "z.json"], "--tor"),
+        (["zadanie", "--tor", "Linux-3.14"], "--wyjscie"),
         (["scal", "--wyjscie", "c.json"], "--katalog"),
         (["scal", "--katalog", "zapisy"], "--wyjscie"),
     ],

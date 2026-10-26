@@ -279,13 +279,9 @@ jobs:
       - name: Record the time of each unit of work
         if: ${{ !cancelled() }}
         continue-on-error: true
-        shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          mkdir -p .ci-czasy
-          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT/jobs?per_page=100" > .ci-czasy/zadania.json || echo "CZASY CI FAIL | gh api: no step times of this run"
-          python tools/czasy_ci.py zadanie --tor "${{ runner.os }}-${{ steps.python.outputs.python-version }}" --kroki .ci-czasy/zadania.json --junit .ci-czasy/junit.xml --wyjscie ".ci-czasy/zapis/${{ github.job }}-${{ strategy.job-index }}-${{ github.run_attempt }}.json"
+        run: python tools/czasy_ci.py zadanie --tor "${{ runner.os }}-${{ steps.python.outputs.python-version }}" --junit .ci-czasy/junit.xml --wyjscie ".ci-czasy/zapis/${{ github.job }}-${{ strategy.job-index }}-${{ github.run_attempt }}.json"
 
       - name: Upload the unit times
         if: ${{ !cancelled() }}
@@ -408,13 +404,9 @@ jobs:
       - name: Record the time of each unit of work
         if: ${{ !cancelled() }}
         continue-on-error: true
-        shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          mkdir -p .ci-czasy
-          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT/jobs?per_page=100" > .ci-czasy/zadania.json || echo "CZASY CI FAIL | gh api: no step times of this run"
-          python tools/czasy_ci.py zadanie --tor "${{ runner.os }}-${{ steps.python.outputs.python-version }}" --kroki .ci-czasy/zadania.json --mutacje .ci-czasy/mutacje.log --wyjscie ".ci-czasy/zapis/${{ github.job }}-${{ strategy.job-index }}-${{ github.run_attempt }}.json"
+        run: python tools/czasy_ci.py zadanie --tor "${{ runner.os }}-${{ steps.python.outputs.python-version }}" --mutacje .ci-czasy/mutacje.log --wyjscie ".ci-czasy/zapis/${{ github.job }}-${{ strategy.job-index }}-${{ github.run_attempt }}.json"
 
       - name: Upload the unit times
         if: ${{ !cancelled() }}

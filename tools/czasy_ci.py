@@ -18,8 +18,8 @@ podziału na zadania, więc para tor i klucz wskazuje tę samą pracę w każdym
     skill:<skill>/<skrypt>   skrypt mutacji skilla, z tej samej linii
 
 Status jednostki to ``ok`` albo ``fail``; pominięty krok i pominięty skrypt nie są jednostką. Czasy kroków i start zadania
-podaje API zadań runu (``/actions/runs/<run>/attempts/<próba>/jobs``, z dokładnością do sekundy), w którym zadanie
-znajduje się po nazwie swojego runnera. Narzut to sekundy od startu zadania do startu pierwszego kroku jednostki.
+podaje API zadań runu (``$GITHUB_API_URL/repos/<repo>/actions/runs/<run>/attempts/<próba>/jobs``, token z ``GH_TOKEN``,
+z dokładnością do sekundy), w którym zadanie znajduje się po nazwie swojego runnera. Narzut to sekundy od startu zadania do startu pierwszego kroku jednostki.
 
 Scalenie. Na pushu do main ``Required CI status`` pobiera zapisy runu i poleceniem ``scal`` tworzy ``czasy-ci.json``
 (artefakt ``czasy-ci``, 30 dni), jedyne źródło czasów CI:
@@ -33,7 +33,7 @@ Obserwacje klucza idą po runie, próbie i zadaniu, więc te same zapisy dają t
 Wejście, którego brakuje albo którego nie da się odczytać, daje linię ``CZASY CI FAIL | ...`` i kod 1, a zapis powstaje
 z reszty. Pomiar nie zmienia werdyktu CI: jego kroki w ``ci.yml`` mają ``continue-on-error``.
 
-    python tools/czasy_ci.py zadanie --tor Windows-3.14.0 --junit junit.xml --kroki zadania.json --wyjscie zapis.json
+    python tools/czasy_ci.py zadanie --tor Windows-3.14.0 --junit junit.xml --wyjscie zapis.json
     python3 tools/czasy_ci.py scal --katalog zapisy --wyjscie czasy-ci.json
 """
 
@@ -48,6 +48,7 @@ import os
 from pathlib import Path
 import re
 from typing import Literal
+import urllib.request
 from xml.etree import ElementTree
 
 WERSJA = 1
@@ -135,10 +136,17 @@ def _chwila(tekst: str) -> float:
     return datetime.fromisoformat(tekst.replace("Z", "+00:00")).timestamp()
 
 
-def _kroki(plik: Path, runner: str) -> tuple[str, float | None, list[Jednostka]]:
-    """Nazwa zadania, narzut i jednostki-kroki zadania na runnerze ``runner`` z odpowiedzi API zadań runu."""
+def _kroki(runner: str) -> tuple[str, float | None, list[Jednostka]]:
+    """Nazwa zadania, narzut i jednostki-kroki zadania na runnerze ``runner`` z API zadań tej próby runu."""
 
-    zadania = [zadanie for zadanie in json.loads(plik.read_text(encoding="utf-8"))["jobs"] if zadanie["runner_name"] == runner]
+    adres = (
+        f"{os.environ['GITHUB_API_URL']}/repos/{os.environ['GITHUB_REPOSITORY']}/actions/runs/{os.environ['GITHUB_RUN_ID']}"
+        f"/attempts/{os.environ['GITHUB_RUN_ATTEMPT']}/jobs?per_page=100"
+    )
+    prosba = urllib.request.Request(adres, headers={"Authorization": f"Bearer {os.environ['GH_TOKEN']}"})
+    with urllib.request.urlopen(prosba, timeout=20) as odpowiedz:
+        dane = json.load(odpowiedz)
+    zadania = [zadanie for zadanie in dane["jobs"] if zadanie["runner_name"] == runner]
     if len(zadania) != 1:
         raise ValueError(f"{len(zadania)} zadań na runnerze {runner!r} zamiast jednego")
     zadanie = zadania[0]
@@ -164,10 +172,10 @@ def _zadanie(args: argparse.Namespace) -> int:
     jednostki: list[Jednostka] = []
     nazwa, narzut = os.environ["GITHUB_JOB"], None
     try:
-        nazwa, narzut, kroki = _kroki(args.kroki, os.environ["RUNNER_NAME"])
+        nazwa, narzut, kroki = _kroki(os.environ["RUNNER_NAME"])
         jednostki += kroki
     except (OSError, ValueError, KeyError, TypeError) as error:
-        bledy.append(f"{args.kroki.name}: {error!r}")
+        bledy.append(f"API zadań runu: {error!r}")
     for plik, czytaj in ((args.junit, _junit), (args.mutacje, _mutacje)):
         if plik:
             try:
@@ -246,7 +254,6 @@ def main(argv: list[str] | None = None) -> int:
     zadanie.add_argument("--tor", required=True, help="System runnera i wersja Pythona, np. Windows-3.14.0.")
     zadanie.add_argument("--junit", type=Path, help="Junit pytest (junit_family = xunit1 w pyproject.toml).")
     zadanie.add_argument("--mutacje", type=Path, help="Wyjście tools/mutacje_skilli.py.")
-    zadanie.add_argument("--kroki", type=Path, required=True, help="Odpowiedź API zadań runu (gh api .../attempts/<próba>/jobs).")
     zadanie.add_argument("--wyjscie", type=Path, required=True)
     scal = polecenia.add_parser("scal", help="Scalenie zapisów zadań runu w czasy-ci.json (w Required na main).")
     scal.add_argument("--katalog", type=Path, required=True)
