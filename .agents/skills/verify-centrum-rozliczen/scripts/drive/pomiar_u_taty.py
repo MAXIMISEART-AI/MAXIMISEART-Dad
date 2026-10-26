@@ -194,6 +194,15 @@ def drive_measurement(run: Run, page: Page) -> None:
         if request.method == "POST" and urllib.parse.urlsplit(request.url).path == "/api/view-timings":
             measured.append(list(reads))
 
+    # The tool card reads Aktualizacja narzędzia together with Kopie INTERMAX but shows nothing until it answers, so
+    # the view is ready without it, and its answer could land after the page measured the view but before it sent
+    # the measurement. Held until the measurement is logged, it cannot pass for the read that made the view ready.
+    tool_updates: list[Route] = []
+
+    def hold_tool_update(route: Route) -> None:
+        tool_updates.append(route)
+
+    page.route("**/api/tool-update", hold_tool_update)
     page.route("**/api/configuration", hold_first)
     page.on("requestfinished", finished)
     page.on("request", sent)
@@ -215,8 +224,16 @@ def drive_measurement(run: Run, page: Page) -> None:
         [timing] = _wait_for_timings(run, since, 1, "the menu click with more requests than one measurement is logged")
     finally:
         page.unroute("**/api/configuration", hold_first)
+        for tool_update in tool_updates:
+            tool_update.continue_()
+        page.unroute("**/api/tool-update", hold_tool_update)
         page.remove_listener("requestfinished", finished)
         page.remove_listener("request", sent)
+    run.check(
+        bool(tool_updates),
+        f"Konfiguracja measured itself while its read of Aktualizacja narzędzia was held ({len(tool_updates)} reads, "
+        "harness)",
+    )
     requests = timing.get("zapytania", "").split(",")
     last_read = measured[0][-1] if measured and measured[0] else None
     run.check(
