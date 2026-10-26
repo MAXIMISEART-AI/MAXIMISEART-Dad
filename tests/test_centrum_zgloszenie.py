@@ -425,6 +425,29 @@ def test_ponowny_start_centrum_zaczyna_sie_po_koncu_przejscia_kolejki_poprzednie
     assert (queued, len(box.sent)) == (FOR_INTERNET, 1)
 
 
+@pytest.mark.parametrize("started", [preparing_centrum, settling_centrum], ids=["przygotowanie", "przebieg"])
+def test_po_ponownym_starcie_kolejke_ponawia_tylko_budzik_nowego_centrum_jak_w_nowym_procesie(
+    tmp_path: Path, started: Callable[[Path], PreparingCentrum | SettlingCentrum]
+) -> None:
+    centrum = started(tmp_path)
+    stopped_for_maks(centrum)  # bez klucza Logi Uruchomienia czekają, a kolejka nastawia ponowienie za ``RETRY_S``
+    box, clock = centrum.surroundings.report_box, centrum.surroundings.clock
+    centrum.restart()
+    clock.advance(RETRY_S / 2)
+    with centrum.client:  # nowe Centrum przy starcie przechodzi kolejkę i bez klucza ponowi ją za ``RETRY_S``
+        pass
+    centrum.client.stop()
+    with_key(centrum)
+
+    clock.advance(RETRY_S / 2)  # chwila ponowienia poprzedniego Centrum
+    centrum.client.stop()
+    after_previous_alarm = len(box.background_issues)
+    clock.advance(RETRY_S / 2)  # chwila ponowienia nowego Centrum
+    centrum.client.stop()
+
+    assert (after_previous_alarm, len(box.background_issues)) == (0, 1)
+
+
 def test_zatrzymanie_centrum_nie_czeka_na_budzik_centrum_poprzedniego_testu_nastawiony_po_jego_starcie(
     tmp_path: Path,
 ) -> None:
