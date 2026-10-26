@@ -411,12 +411,14 @@ def _check(world: World, outcome: Outcome, failure: str) -> list[tuple[str, str]
 def _worker_change_lost(world: World, faults: Sequence[tuple[str, str]]) -> bool:
     """A worker's change arrived after the read and before the replace, and the replace put the run's file over it.
 
-    Not when OneDrive refused a replace after the change arrived: the run then waits before it tries again, and the
-    worker's change it puts the run's file over is one it had time to see.
+    Not when OneDrive refused a replace after the change arrived, nor when the change arrived in the pause before a
+    retry: the run reads INTERMAX again after that pause, so the worker's change it puts the run's file over is one it
+    had time to see.
     """
 
     return (
         any(kind == AFTER_READ for kind, _ in faults)
+        and all(step != PAUSE for kind, step in faults if kind == AFTER_READ)
         and world.changed_at == world.refused
         and world.read == world.original
         and world.replaced == world.worker_bytes

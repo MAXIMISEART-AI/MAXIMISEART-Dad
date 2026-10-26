@@ -114,6 +114,20 @@ MUTATIONS = (
         NEW,
     ),
     Mutation(
+        "ponowny odczyt INTERMAX przed przerwą zamiast po niej",
+        (
+            Edit(FILE, "            waiting.pause(_PAUSE_S)\n            try:\n", "            try:\n"),
+            Edit(
+                FILE,
+                "            if not unchanged:\n                raise HeldByOneDrive(target.name)\n",
+                "            if not unchanged:\n                raise HeldByOneDrive(target.name)\n            waiting.pause(_PAUSE_S)\n",
+            ),
+        ),
+        EXPLORER,
+        "zmiana pracownika, którą OneDrive wgrał w przerwie przed ponowną próbą, przepada przy tej próbie",
+        NEW,
+    ),
+    Mutation(
         "stare Kopie sortowane odwrotnie",
         (
             Edit(

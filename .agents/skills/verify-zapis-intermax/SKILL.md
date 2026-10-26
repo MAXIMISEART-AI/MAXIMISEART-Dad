@@ -172,10 +172,12 @@ Not covered:
    Windows replaces only a file that is unchanged.
 
    BEZ_UTRATY_ZMIAN is excused only when a worker's change arrived after the
-   read and before the replace with no OneDrive refusal between them, the run
-   read the original and replaced the worker's version
-   (`_worker_change_lost`). A worker's change followed by a refusal is one the
-   run had a pause to see, so losing it is a new violation. KOPIA_ZASTAPIONEGO
+   read and before the replace, neither followed by an OneDrive refusal nor in
+   the pause before a retry, the run read the original and replaced the
+   worker's version (`_worker_change_lost`). A worker's change followed by a
+   refusal is one the run had a pause to see, and one that arrived in that
+   pause is one the re-read after it sees, so losing either is a new violation.
+   KOPIA_ZASTAPIONEGO
    is excused only in the same story with a Kopia of the bytes read
    (`_copy_of_what_was_read`).
    The same rules broken in any other schedule are a new violation.
@@ -234,6 +236,8 @@ temporary copy of the checkout (`tools/mutacje.py`) and must end with
 - one Kopia kept instead of 10;
 - a failed replace that removes every Kopia;
 - a retried replace that does not read INTERMAX again after the pause;
+- a retried replace that reads INTERMAX again before the pause instead of
+  after it;
 - the Kopia made before the write check.
 
 A mutation reported as `NIEAKTUALNA` no longer matches its file: rewrite its
