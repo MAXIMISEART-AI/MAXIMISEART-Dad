@@ -16,6 +16,8 @@ from pathlib import Path
 import threading
 from typing import Literal
 
+from rozliczenia.centrum.tool_update import UPDATED
+
 VIEW_TIMING_EVENT = "pomiar"
 # Pomiar przychodzi po każdym widoku, więc na jedno uruchomienie Centrum dziennik przyjmuje ich najwyżej
 # tyle (spec #164, US29); kolejne przepadają po cichu, a wpisy o pracy serwera są zapisywane dalej.
@@ -101,11 +103,13 @@ class CentrumLog:
 
         Patrzy na cały dziennik, nie tylko od ostatniego startu. Ma trafić, gdy
         ostatni wpis Aktualizacji to ``aktualizacja-start`` z commitem
-        ``before`` albo ``aktualizacja-koniec`` z tymi samymi commitami i innym
-        wynikiem (nowa wersja zapisała „ok”, a potem nie odpowiedziała na czas,
-        więc opiekun ją cofnął). Wynik już zapisany i wynik starszej
-        Aktualizacji nie trafiają. Bez dziennika albo bez żadnego
-        ``aktualizacja-start`` nie wiadomo, co już zapisano, więc wynik trafia.
+        ``before`` albo ``aktualizacja-koniec`` z wynikiem „ok”, tymi samymi
+        commitami i innym ``result`` (nowa wersja zapisała „ok”, a potem nie
+        odpowiedziała na czas, więc opiekun ją cofnął). Koniec z porażką
+        znaczy, że wynik już zgłoszono, nawet gdy kolejne kliknięcie padło z
+        tymi samymi commitami. Wynik starszej Aktualizacji nie trafia. Bez
+        dziennika albo bez żadnego ``aktualizacja-start`` nie wiadomo, co już
+        zapisano, więc wynik trafia.
         """
 
         try:
@@ -121,7 +125,7 @@ class CentrumLog:
         same_before = facts.get("przed") == (before or "-")
         if event_of(last) == _UPDATE_STARTED:
             return same_before
-        return same_before and facts.get("po") == (after or "-") and facts.get("wynik") != result
+        return same_before and facts.get("po") == (after or "-") and facts.get("wynik") == UPDATED != result
 
     def update_skipped_releases(self, *, tags: tuple[str, ...]) -> None:
         """Wydania wyższe od wybranego, których commit nie leży na `main`: Aktualizacja narzędzia je pominęła."""

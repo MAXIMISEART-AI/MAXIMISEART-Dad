@@ -110,9 +110,14 @@ Every action that starts a Centrum (`Skrot`, `SkrotOddajePort`, `SkrotWynik`,
 `ToolUpdates._after_restart` (`StartCentrumZ` in the model): `read_result`;
 „ok” while the running commit (`self._commit()`, read when Centrum started) is
 not its `po` becomes `NIEOCZEKIWANY_BLAD` (#490; in the model every „ok” has
-`po` = `"nowa"`, so „ok” on `head = "stara"` is a failure); a result the
-Centrum log already has, or one of an older Aktualizacja
-(`CentrumLog.update_awaits`, #491), is skipped and its file removed in
+`po` = `"nowa"`, so „ok” on `head = "stara"` is a failure);
+`CentrumLog.update_awaits` (#491) lets the result through only when the
+Centrum log has no `aktualizacja-start`, or its last update entry is
+`aktualizacja-start` with the result's `przed`, or `aktualizacja-koniec
+wynik=ok` with the result's `przed` and `po` and a result other than „ok” (the
+new version wrote „ok”, then the guardian rolled it back); any other result
+(already reported, also when a later click failed with the same commits, or of
+an older Aktualizacja) is skipped and its file removed in
 `suppress(OSError)`; otherwise the log gets `aktualizacja-koniec`, `unlink`
 (a refused removal keeps the file and logs `aktualizacja-wynik-zostaje`, and
 the next start skips it), and the card from `_view_of`. The model does not
@@ -125,7 +130,12 @@ Covered files: `src/rozliczenia/centrum/tool_update.py`,
 `src/rozliczenia/centrum/launcher.py`.
 
 Sync commit: `7acf755b` (2026-10-26, #490 and #491). At this commit every
-row above was checked against the code. Since `9d31b08c` only the skipped
+row above was checked against the code. After it only
+`CentrumLog.update_awaits` in `log.py`, outside the covered files, changed:
+an `aktualizacja-koniec` lets a result through only with `wynik=ok`. The
+model lets every start skip the result anyway, so it did not change.
+
+`7acf755b`: since `9d31b08c` only the skipped
 result's `unlink` in `_after_restart` lost `missing_ok`; it stays inside
 `suppress(OSError)`, so a missing file is still skipped and the model did not
 change.

@@ -224,8 +224,9 @@ KartaSlowami(w) == CASE w = "ok" /\ head = "nowa" -> "karta mowi 'Narzedzie zakt
                      [] OTHER -> "karta nic nie mowi o aktualizacji"
 
 \* Centrum startuje w wersji head przy pliku wyniku w: ToolUpdates._after_restart czyta plik, usuwa go
-\* (przy odmowie dysku plik zostaje do następnego startu) i ustawia kartę. Wynik, który dziennik Centrum już
-\* ma, albo wynik starszej Aktualizacji (CentrumLog.update_awaits, #491) Centrum pomija: karta nic nie mówi.
+\* (przy odmowie dysku plik zostaje do następnego startu) i ustawia kartę. Wynik już zgłoszony (ostatni wpis
+\* Aktualizacji w dzienniku Centrum to jej koniec, chyba że „ok” nowej wersji, a plik mówi co innego) albo wynik
+\* starszej Aktualizacji (CentrumLog.update_awaits, #491) Centrum pomija: karta nic nie mówi.
 \* Dziennika Centrum model nie opisuje, więc każdy start może wynik pominąć; pominięcie nigdy nie daje
 \* „zaktualizowano”.
 StartCentrumZ(w) ==
