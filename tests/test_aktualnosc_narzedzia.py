@@ -12,7 +12,9 @@ from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 from pathlib import Path
+import re
 import socket
+import subprocess
 import threading
 import time
 
@@ -370,6 +372,16 @@ def test_brak_sieci_to_nie_wiadomo() -> None:
         port = closed.getsockname()[1]  # port zwolniony po wyjściu: połączenie zostaje odrzucone
 
     assert releases_from(f"http://127.0.0.1:{port}/tagi", timeout_s=30) is None
+
+
+def test_aktualnosc_pyta_repozytorium_tego_checkoutu_bez_przekierowania() -> None:
+    # Pod starym adresem GitHub przekierowuje każde pytanie: 8 zapytań zamiast 4 i „Nie sprawdzono” po 3 s (#536).
+    origin = subprocess.run(
+        ["git", "remote", "get-url", "origin"], cwd=Path(__file__).parent, capture_output=True, text=True, check=True
+    ).stdout.strip()
+    repository = re.sub(r"^(https://github\.com/|git@github\.com:)|\.git$", "", origin)
+
+    assert tool_freshness.REPOSITORY_API == f"https://api.github.com/repos/{repository}"
 
 
 def test_lista_wydan_ma_tylko_opublikowane_wydania_z_notka_i_czasem_publikacji(github: str) -> None:
