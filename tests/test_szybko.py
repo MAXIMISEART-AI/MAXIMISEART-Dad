@@ -176,9 +176,15 @@ def _base_moved_on(repo: Path, on_main: tuple[str, str], on_branch: tuple[str, s
 
 
 def _commit_times(repo: Path, expensive: dict[str, float]) -> None:
+    """Czasy CI z main, jakie szybko pobrał dziś do ``.git/czasy-ci`` (artefakt ``czasy-ci``, ``tools/czasy_ci.py``), i
+    commit dotychczasowych zmian jako ``origin/main``."""
+
     times = {test: 0.1 for test in BASE_FILES if szybko._is_test(test)} | expensive
-    _write(repo, str(szybko.TIMES), json.dumps(times))
-    commit(repo, "tabela czasów")
+    keys = {f"pytest:{test}": [{"run": 7, "proba": 1, "zadanie": "pytest (Python 3.14, Linux, 1/2)", "s": s, "status": "ok"}] for test, s in times.items()}
+    artifact = {"wersja": 1, "runy": [{"run": 7, "proba": 1, "sha": "0" * 40, "zdarzenie": "push"}], "tory": {szybko.TIMES_TOR: keys}}
+    _write(repo, ".git/czasy-ci/7.json", json.dumps(artifact))
+    _write(repo, ".git/czasy-ci/pobrane", "")
+    commit(repo, "pliki testów z czasami")
     git(repo, "update-ref", "refs/remotes/origin/main", "HEAD")
 
 

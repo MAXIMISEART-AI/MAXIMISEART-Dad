@@ -23,8 +23,9 @@ leży w katalogu gita worktree. Krok pytest bierze ``WORKERS`` workerów, chyba 
 ``PYTEST_XDIST_AUTO_NUM_WORKERS``.
 
 Z wybranych testów biegną zawsze pliki w odległości najwyżej 1 od zmiany w grafie zależności (``plan``), czyli
-zmienione albo zależne wprost od zmienionego pliku, a dalsze po odległości i czasie z tabeli CI (``TIMES``) rosnąco,
-dopóki mieszczą się w budżecie ``BUDGET_S``. Odległość liczy się od zmiany bez plików ``FULL``, a test, który
+zmienione albo zależne wprost od zmienionego pliku, a dalsze po odległości i czasie w CI rosnąco, dopóki mieszczą
+się w budżecie ``BUDGET_S``. Czas pliku to jego koszt na Linuksie z ostatnich runów main (``tools/czasy_ci.py``,
+kopia w ``.git/czasy-ci`` odświeżana raz na dobę); bez niej, na przykład bez sieci, każdy plik waży 0 i biegnie. Odległość liczy się od zmiany bez plików ``FULL``, a test, który
 importuje albo czyta plik ``FULL``, ma najwyżej 2, więc przy zmianie konfiguracji biegnie w budżecie przed testami
 bez drogi w grafie. Resztę liczy pełny pytest w CI, a szybko wypisuje ją przed wynikiem
 jako „zostawione CI”, więc ``SZYBKO OK`` znaczy, że przeszły uruchomione testy.
@@ -68,6 +69,7 @@ import tomllib
 import xml.etree.ElementTree as ET
 
 import ci_lokalnie
+import czasy_ci
 from mutacje import environment
 import potomne
 from sciezki_w_kodzie import Glob, references
@@ -111,8 +113,9 @@ MODULE_ROOTS = ("src", ".", "tools")
 SKILL_SCRIPTS = ".agents/skills/*/scripts"
 GREEN = "szybko-zielone.json"
 WORKERS = "4"
-TIMES = Path("tools", "czasy_testow_ci_linux.json")
-# Sekundy tabeli ``TIMES`` na workera. Porażki pytest w szybko z 23–24.10 łapie ten sam plan od 20 s wzwyż, bo prawie
+# Tor CI, którego czasy plików waży szybko: Linux, jak komputer agenta, nie Windows.
+TIMES_TOR = "linux-3.14"
+# Sekundy czasów CI na workera. Porażki pytest w szybko z 23–24.10 łapie ten sam plan od 20 s wzwyż, bo prawie
 # wszystkie padły w odległości 0–1 albo w testach struktury, więc budżet stoi blisko tej granicy.
 BUDGET_S = 45.0
 # Importuje każdy moduł ``src/`` i wypisuje te, które padają; moduł, który się nie importuje, wywraca każdy test.
@@ -150,7 +153,7 @@ class Selection:
 
 @dataclass(frozen=True)
 class Plan:
-    """Pliki testów, które biegną, i te zostawione CI (``deferred_s`` to ich czas z tabeli ``TIMES``)."""
+    """Pliki testów, które biegną, i te zostawione CI (``deferred_s`` to ich czas w CI)."""
 
     run: tuple[str, ...]
     deferred: tuple[str, ...]
@@ -159,8 +162,8 @@ class Plan:
 
 def plan(tests: Iterable[str], distances: dict[str, int], times: dict[str, float], budget_s: float = BUDGET_S) -> Plan:
     """Pliki w odległości najwyżej 1 od zmiany biegną zawsze, także ponad budżet. Dalsze, po odległości i koszcie
-    rosnąco, biegną, gdy suma kosztów na ``WORKERS`` workerów mieści się jeszcze w ``budget_s``. Koszt pliku spoza
-    tabeli to mediana tabeli."""
+    rosnąco, biegną, gdy suma kosztów na ``WORKERS`` workerów mieści się jeszcze w ``budget_s``. Koszt pliku bez
+    pomiaru to mediana pomiarów."""
 
     default = statistics.median(times.values()) if times else 0.0
     cost = {test: times.get(test, default) for test in tests}
@@ -384,10 +387,8 @@ def select(root: Path, changed: frozenset[str]) -> Selection:
 
 
 def _times(root: Path) -> dict[str, float]:
-    try:
-        return {str(test): float(seconds) for test, seconds in json.loads((root / TIMES).read_text(encoding="utf-8")).items()}
-    except (OSError, ValueError, AttributeError):
-        return {}
+    folder = root / _git("rev-parse", "--git-common-dir").strip() / "czasy-ci"
+    return czasy_ci.z_mainu(folder, odswiez_po_s=czasy_ci.ODSWIEZ_S).pliki(TIMES_TOR)
 
 
 def _fingerprint(root: Path, inputs: Iterable[str]) -> str:

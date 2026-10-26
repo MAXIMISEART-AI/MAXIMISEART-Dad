@@ -105,14 +105,48 @@ jobs:
         if: ${{ !cancelled() && steps.deps.outcome == 'success' }}
         run: python -m mypy --platform linux
 
+  plan:
+    # Decides the pytest jobs of this run and whether Change mutations start (tools/plan_ci.py), from the unit times
+    # of the last green main runs (artifact czasy-ci). Standard library only, so the runner's python3 runs it as is.
+    name: Plan CI
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      # tools/czasy_ci.py downloads the artifact czasy-ci of earlier runs.
+      actions: read
+    outputs:
+      pytest: ${{ steps.plan.outputs.pytest }}
+      mutacje-zmiany: ${{ steps.plan.outputs.mutacje-zmiany }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # On a pull request HEAD is the merge commit and HEAD^1 the base it merges into.
+          fetch-depth: 2
+
+      - name: Plan the units of work from the times of the last main runs
+        id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 tools/plan_ci.py plan --zdarzenie "${{ github.event_name }}" --baza HEAD^1 --czasy .ci-plan/czasy --wyjscie .ci-plan/plan.json
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: plan
+          path: .ci-plan/plan.json
+          retention-days: 7
+          include-hidden-files: true
+          # Re-running all jobs plans again; the jobs and Required read the plan of their attempt.
+          overwrite: true
+
   pytest:
-    # Tata has Windows, so both Pythons run there, each in two parts of similar CI time from
-    # tools/czesci_pytest.py. Linux runs all files once, in two parts, for the tests Windows skips (POSIX
-    # signals, process groups, the pre-push hook). Both pass the files longest first.
-    # E2E and the timing guard are steps of the Windows parts, not jobs of their own: every job takes one of the
-    # account's 20 runners. Each goes to the part that ends sooner without it (CI medians 25.10: 3.11 1/2 324 s
-    # + E2E 60 s, 2/2 388 s; 3.14 1/2 320 s + E2E 61 s, 2/2 353 s + timing 26 s).
-    name: pytest (Python ${{ matrix.python-version }}${{ matrix.os == 'ubuntu-latest' && ', Linux' || '' }}, ${{ matrix.part }})
+    # Tata has Windows, so both Pythons run there; Linux runs every file once more, for the tests Windows skips (POSIX
+    # signals, process groups, the pre-push hook). The plan decides how many jobs each runs and which files (or crc32
+    # shares of a long file) each takes, so that every job ends near the same time; E2E and the timing guard are units
+    # of the Windows jobs it puts them in.
+    name: ${{ matrix.nazwa }}
+    needs: plan
+    if: ${{ needs.plan.outputs.pytest != '[]' }}
     runs-on: ${{ matrix.os }}
     permissions:
       contents: read
@@ -121,31 +155,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest]
-        python-version: ['3.11', '3.14']
-        part: ['1/2', '2/2']
-        include:
-          # E2E and the timing guard run where the flag is: an entry that matches no combination adds a job instead.
-          - os: windows-latest
-            python-version: '3.11'
-            part: '1/2'
-            e2e: true
-          - os: windows-latest
-            python-version: '3.14'
-            part: '1/2'
-            e2e: true
-          - os: windows-latest
-            python-version: '3.14'
-            part: '2/2'
-            timing: true
-          - os: ubuntu-latest
-            python-version: '3.14'
-            part: '1/2'
-          - os: ubuntu-latest
-            python-version: '3.14'
-            part: '2/2'
+        include: ${{ fromJSON(needs.plan.outputs.pytest) }}
     env:
-      EXPECTED_PYTHON_VERSION: ${{ matrix.python-version }}
+      EXPECTED_PYTHON_VERSION: ${{ matrix.python }}
       PYTHONUTF8: '1'
     steps:
       - uses: actions/checkout@v7
@@ -153,7 +165,7 @@ jobs:
       - id: python
         uses: actions/setup-python@v7
         with:
-          python-version: ${{ matrix.python-version }}
+          python-version: ${{ matrix.python }}
 
       - uses: astral-sh/setup-uv@v10.3.2
         with:
@@ -181,107 +193,36 @@ jobs:
         # The pre-push hook test runs the real ruff and mypy from tools/ci_lokalnie.py.
         run: uv pip install --system --python "${{ steps.python.outputs.python-path }}" -e ".[dev]"
 
-      - name: Run tests
-        if: ${{ runner.os == 'Windows' }}
-        # No '=' in the arguments: the py shim (cmd) splits an argument at '=', so junit_family is in pyproject.toml.
-        run: |
-          $files = py -3 tools/czesci_pytest.py ${{ matrix.part }}
-          if ($LASTEXITCODE -ne 0) {
-            throw "Splitting the test files failed (exit code $LASTEXITCODE)"
-          }
-          py -3 -m pytest -n auto $files --junitxml .ci-czasy/junit.xml
+      - uses: actions/download-artifact@v8
+        with:
+          name: plan
+          path: .ci-plan
 
-      - name: Run tests (Linux)
-        if: ${{ runner.os == 'Linux' }}
-        run: python -m pytest -n auto $(python tools/czesci_pytest.py --linux ${{ matrix.part }}) --junitxml .ci-czasy/junit.xml
+      # pytest with the job's files longest first, then its steps (E2E, timing guard), each with its own time limit,
+      # also after red tests.
+      - name: Run the planned units
+        id: units
+        run: python tools/plan_ci.py wykonaj --plan .ci-plan/plan.json --zadanie ${{ matrix.id }}
 
-      - name: E2E (verify-rozliczenia --variant all)
-        id: e2e
-        if: ${{ !cancelled() && matrix.e2e }}
-        timeout-minutes: 15
-        shell: pwsh
-        run: |
-          py -3 .agents/skills/verify-rozliczenia/scripts/run_verification.py --variant all
-          if ($LASTEXITCODE -ne 0) {
-            throw "E2E verification failed (exit code $LASTEXITCODE)"
-          }
-
-      - name: Upload E2E evidence on failure
-        if: ${{ failure() && steps.e2e.outcome == 'failure' }}
+      - name: Upload E2E and timing guard evidence on failure
+        if: ${{ failure() && steps.units.outcome == 'failure' }}
         uses: actions/upload-artifact@v7
         with:
-          name: e2e-evidence-python-${{ matrix.python-version }}
-          path: .verification/evidence/
-          retention-days: 7
-          if-no-files-found: warn
-          include-hidden-files: true
-
-      # Straż czasu Przebiegu rozliczeń (spec #141, #145): benchmark „typowy tydzień” na syntetycznych
-      # Wzorcach kształtu Wzorców taty (tools/syntetyczne_wzorce.py), bo prawdziwych nie ma w repozytorium.
-      - name: 'Timing guard: generate synthetic Wzorce'
-        id: timing-templates
-        if: ${{ !cancelled() && matrix.timing }}
-        timeout-minutes: 10
-        shell: pwsh
-        run: |
-          python tools/syntetyczne_wzorce.py "$env:RUNNER_TEMP\syntetyczne-wzorce"
-          if ($LASTEXITCODE -ne 0) {
-            throw "Synthetic Wzorce generation failed (exit code $LASTEXITCODE)"
-          }
-
-      - name: 'Timing guard: measure Przebieg rozliczeń (typowy tydzień)'
-        id: timing-measure
-        if: ${{ !cancelled() && steps.timing-templates.outcome == 'success' }}
-        # The longest Timing guard job took 13 min (CI 20.10–25.10), its median 1 min.
-        timeout-minutes: 30
-        shell: pwsh
-        run: |
-          $templates = "$env:RUNNER_TEMP\syntetyczne-wzorce"
-          python tools/benchmark_przebiegu.py measure --scenario typowy-tydzien `
-            --templates-dir $templates --config "$templates\worker_mapping.yaml" `
-            --mirror-dir "$env:RUNNER_TEMP\lustro" --journal "$env:RUNNER_TEMP\przebieg.jsonl" `
-            --machine github-windows-latest
-          if ($LASTEXITCODE -ne 0) {
-            throw "Benchmark failed (exit code $LASTEXITCODE)"
-          }
-
-      - name: 'Timing guard: report timings and enforce the budget'
-        id: timing-guard
-        if: ${{ !cancelled() && steps.timing-measure.outcome == 'success' }}
-        timeout-minutes: 10
-        shell: pwsh
-        env:
-          # Budżet mediany czasu ściany typowego tygodnia na runnerze; krok pada tylko powyżej niego.
-          # Docelowo 3 × cel twardy po przeliczeniu na runner: 3 × 18 s (Mac M4 Max) × ~3,3 ≈ 180 000 ms.
-          # Przelicznik 3,3 to Mac → komputer taty (i7-10875H); windows-latest ma podobną wydajność
-          # jednego rdzenia.
-          # Po #147 (ADR 0008) Przebieg trwa ~3 s na Macu, czyli ~10 s na runnerze: budżet przepuszcza
-          # szum współdzielonych runnerów, a łapie powrót do pełnego zapisu przez openpyxl (~240 s).
-          # To jedyne miejsce budżetu.
-          PRZEBIEG_BUDGET_MS: '180000'
-        run: |
-          python tools/benchmark_przebiegu.py guard --journal "$env:RUNNER_TEMP\przebieg.jsonl" `
-            --budget-ms $env:PRZEBIEG_BUDGET_MS --summary $env:GITHUB_STEP_SUMMARY
-          if ($LASTEXITCODE -ne 0) {
-            throw "Przebieg rozliczeń exceeded the timing budget of $env:PRZEBIEG_BUDGET_MS ms (exit code $LASTEXITCODE)"
-          }
-
-      - name: Upload benchmark failure output
-        if: ${{ failure() && (steps.timing-measure.outcome == 'failure' || steps.timing-guard.outcome == 'failure') }}
-        uses: actions/upload-artifact@v7
-        with:
-          name: timing-guard-output
-          path: ${{ runner.temp }}/lustro/ostatni-blad-*.txt
+          name: evidence-${{ matrix.id }}-${{ github.run_attempt }}
+          path: |
+            .verification/evidence/
+            ${{ runner.temp }}/lustro/ostatni-blad-*.txt
           retention-days: 7
           if-no-files-found: ignore
+          include-hidden-files: true
 
-      # Measurement only: a missing or broken record prints CZASY CI FAIL and does not fail the job.
+      # Measurement and the proof that the planned units ran: Required checks the record against the plan.
       - name: Record the time of each unit of work
         if: ${{ !cancelled() }}
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
-        run: python tools/czasy_ci.py zadanie --tor "${{ runner.os }}-${{ steps.python.outputs.python-version }}" --junit .ci-czasy/junit.xml --wyjscie ".ci-czasy/zapis/${{ github.job }}-${{ strategy.job-index }}-${{ github.run_attempt }}.json"
+        run: python tools/czasy_ci.py zadanie --tor "${{ runner.os }}-${{ steps.python.outputs.python-version }}" --junit .ci-czasy/junit.xml --wykonanie .ci-czasy/wykonanie.json --wyjscie ".ci-czasy/zapis/${{ github.job }}-${{ strategy.job-index }}-${{ github.run_attempt }}.json"
 
       - name: Upload the unit times
         if: ${{ !cancelled() }}
@@ -300,7 +241,8 @@ jobs:
     # so there the job does not start and takes no runner.
     # Each part takes every third mutation: 90 mutations of a seven-module refactor (#382) took 25 min on one busy Mac.
     name: Change mutations (${{ matrix.part }}/3)
-    if: ${{ github.event_name == 'pull_request' }}
+    needs: plan
+    if: ${{ needs.plan.outputs.mutacje-zmiany != '0' }}
     runs-on: ubuntu-latest
     timeout-minutes: 60
     strategy:
@@ -421,47 +363,30 @@ jobs:
 
   required:
     # Configure only this stable status as required in branch protection.
+    # It passes when every job succeeded, a job was skipped only because the plan gave it no work, and every pytest
+    # job of the plan reported each of its units (no test file lost between jobs).
     name: Required CI status
     runs-on: ubuntu-latest
     needs:
+      - plan
       - szybkie
       - pytest
       - mutations
       - change-mutations
     if: ${{ always() }}
     steps:
-      - name: Require every CI check to succeed
-        shell: python3 {0}
-        env:
-          NEEDS: ${{ toJSON(needs) }}
-          EVENT: ${{ github.event_name }}
-        run: |
-          import json
-          import os
-          import sys
-
-          # On a push to main Change mutations does not start: there is no change to mutate.
-          may_skip = {"change-mutations"} if os.environ["EVENT"] == "push" else set()
-          failed = [
-              f"{job}={need['result']}"
-              for job, need in json.loads(os.environ["NEEDS"]).items()
-              if need["result"] != "success" and not (job in may_skip and need["result"] == "skipped")
-          ]
-          if failed:
-              sys.exit(f"Required CI checks did not all succeed: {', '.join(failed)}")
-          print("All required CI checks succeeded.")
-
-      # On a push to main the unit times of every job of the run become the artifact czasy-ci, the one source of CI
-      # times (tools/czasy_ci.py). Measurement only: a failure here prints CZASY CI FAIL and leaves the verdict above.
       - uses: actions/checkout@v7
-        if: ${{ !cancelled() && github.event_name == 'push' }}
+        with:
+          sparse-checkout: tools
+
+      # A missing plan or record is the verdict's to judge, not a failed download.
+      - uses: actions/download-artifact@v8
         continue-on-error: true
         with:
-          sparse-checkout: tools/czasy_ci.py
-          sparse-checkout-cone-mode: false
+          name: plan
+          path: .ci-plan
 
       - name: Download the unit times of every job of this run
-        if: ${{ !cancelled() && github.event_name == 'push' }}
         continue-on-error: true
         uses: actions/download-artifact@v8
         with:
@@ -469,6 +394,13 @@ jobs:
           merge-multiple: true
           path: .ci-czasy/zapisy
 
+      - name: Require every CI check to succeed and every planned unit to report
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: python3 tools/plan_ci.py werdykt --plan .ci-plan/plan.json --zapisy .ci-czasy/zapisy
+
+      # On a push to main the unit times of every job of the run become the artifact czasy-ci, the one source of CI
+      # times (tools/czasy_ci.py). Measurement only: a failure here prints CZASY CI FAIL and leaves the verdict above.
       - name: Merge the unit times into czasy-ci
         if: ${{ !cancelled() && github.event_name == 'push' }}
         continue-on-error: true
