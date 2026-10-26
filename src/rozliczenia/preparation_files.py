@@ -12,7 +12,7 @@ from __future__ import annotations
 import os
 import tempfile
 from collections import Counter
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -22,7 +22,7 @@ from .message import StopError
 from .period_folder import PeriodFolder
 from .preparation_plan import CollectiveRow, PeriodOrder
 from .quantity_rules import FromDescription, WithoutRule
-from .template_file import Route, TemplateFile
+from .template_file import Route, RouteCounts, TemplateFile, TemplateKind
 from .workbook_files import RegisterRow, WorkbookError
 from .workbook_save import WorkbookSaveError
 
@@ -103,7 +103,7 @@ def write_period_files(
     files: PeriodFiles,
     orders: Sequence[PeriodOrder],
     collective_rows: Sequence[CollectiveRow],
-) -> Mapping[Route, int]:
+) -> RouteCounts:
     """Zapisywanie: przygotowuje oba pliki w katalogu tymczasowym, publikuje je razem i podaje ich drogi zapisu.
 
     Katalog tymczasowy leży w folderze okresów, obok Folderu okresu. Błąd nie
@@ -163,11 +163,13 @@ def _template_stops() -> Iterator[None]:
         raise StopError(messages.template_unusable(error)) from error
 
 
-def _write_period_file(template: TemplateFile, target: Path, rows: Sequence[RegisterRow]) -> Route:
-    """Plik z Wzorca z Wierszami danych od pierwszego Wiersza danych i jego droga zapisu (ADR 0008)."""
+def _write_period_file(
+    template: TemplateFile, target: Path, rows: Sequence[RegisterRow]
+) -> tuple[TemplateKind, Route]:
+    """Plik z Wzorca z Wierszami danych od pierwszego Wiersza danych, jego rodzaj i droga zapisu (ADR 0008)."""
 
     with _template_stops():
-        return template.create(target, rows)
+        return template.kind, template.create(target, rows)
 
 
 def _with_quantities(row: CollectiveRow) -> RegisterRow:

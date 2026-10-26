@@ -30,7 +30,7 @@ from .domain import ProgressEvent, ProgressObserver, ProgressPhase, StopKind
 from .message import Message, StopError
 from .progress import PhaseState, ProgressProjection, ProgressSnapshot
 from .telemetry import MetricsStore, RecordedStop, metric_record
-from .template_file import Route
+from .template_file import RouteCounts
 
 __all__ = [
     "Finished",
@@ -109,14 +109,14 @@ class Stop:
 class Finished:
     """Fakty zakończonego procesu, te same w metrykach: wynik, liczniki, czasy etapów i drogi zapisu.
 
-    Klucze ``counters`` to dokładnie ``Process.counter_names``. ``routes``: ile zapisanych plików z Wzorca
-    powstało każdą drogą zapisu (ADR 0008); proces, który nie pisze z Wzorca, nie ma żadnej.
+    Klucze ``counters`` to dokładnie ``Process.counter_names``. ``routes``: ile zapisanych plików każdego rodzaju
+    powstało każdą drogą zapisu z Wzorca (ADR 0008); proces, który nie pisze z Wzorca, nie ma żadnej.
     """
 
     result: Literal["OK", "WYMAGA_SPRAWDZENIA"]
     counters: Mapping[str, int]
     phase_durations_ms: Mapping[ProgressPhase, int]
-    routes: Mapping[Route, int] = field(default_factory=lambda: MappingProxyType({}))
+    routes: RouteCounts = field(default_factory=lambda: MappingProxyType({}))
 
 
 @dataclass(frozen=True)

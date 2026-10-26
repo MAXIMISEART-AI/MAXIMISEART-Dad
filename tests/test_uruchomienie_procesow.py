@@ -112,7 +112,16 @@ SETTLEMENT_COUNTERS = {
 PREPARATION_COUNTERS = {"period_orders": 4, "successful_orders": 3, "skipped_empty_rows": 5, "warnings": 2}
 
 
-NO_ROUTES = {"kopia": 0, "openpyxl": 0}
+def written(**copy_and_openpyxl: tuple[int, int]) -> dict[str, dict[str, int]]:
+    """Drogi zapisu w rekordzie metryk: pliki kopią i drogą openpyxl dla podanych rodzajów pliku, dla reszty zera."""
+
+    return {
+        kind: dict(zip(("kopia", "openpyxl"), copy_and_openpyxl.get(kind, (0, 0)), strict=True))
+        for kind in ("worker_settlement", "collective_file", "internal_settlement")
+    }
+
+
+NO_ROUTES = written()
 
 
 # Syntetyczny Wzorzec rozliczenia pracownika i Wzorzec pliku zbiorczego przyjmuje kopia, a Rozliczenie wewnętrzne
@@ -120,15 +129,26 @@ NO_ROUTES = {"kopia": 0, "openpyxl": 0}
 @pytest.mark.parametrize(
     ("name", "dry_run", "counters", "result", "routes"),
     [
-        ("przebieg-rozliczen", False, SETTLEMENT_COUNTERS, "OK", {"kopia": 3, "openpyxl": 0}),
+        ("przebieg-rozliczen", False, SETTLEMENT_COUNTERS, "OK", written(worker_settlement=(3, 0))),
         ("przebieg-rozliczen", True, SETTLEMENT_COUNTERS | {"written": 0, "planned": 2}, "OK", NO_ROUTES),
-        ("przygotowanie-pliku-zbiorczego", False, PREPARATION_COUNTERS, "WYMAGA_SPRAWDZENIA", {"kopia": 1, "openpyxl": 1}),
+        (
+            "przygotowanie-pliku-zbiorczego",
+            False,
+            PREPARATION_COUNTERS,
+            "WYMAGA_SPRAWDZENIA",
+            written(collective_file=(1, 0), internal_settlement=(0, 1)),
+        ),
         ("przygotowanie-pliku-zbiorczego", True, PREPARATION_COUNTERS, "OK", NO_ROUTES),
     ],
     ids=["przebieg-RUN", "przebieg-DRY-RUN", "przygotowanie-RUN", "przygotowanie-DRY-RUN"],
 )
 def test_rekord_metryk_ma_liczniki_procesu_i_drogi_zapisu_bez_sciezek_i_danych_klientow(
-    tmp_path: Path, name: str, dry_run: bool, counters: dict[str, int], result: str, routes: dict[str, int]
+    tmp_path: Path,
+    name: str,
+    dry_run: bool,
+    counters: dict[str, int],
+    result: str,
+    routes: dict[str, dict[str, int]],
 ) -> None:
     case = CASES[name](tmp_path)
     metrics_path = tmp_path / "metrics.jsonl"
@@ -155,10 +175,13 @@ def test_rekord_metryk_ma_liczniki_procesu_i_drogi_zapisu_bez_sciezek_i_danych_k
 
 @pytest.mark.parametrize(
     ("name", "routes"),
-    [("przebieg-rozliczen", {"kopia": 0, "openpyxl": 3}), ("przygotowanie-pliku-zbiorczego", {"kopia": 0, "openpyxl": 2})],
+    [
+        ("przebieg-rozliczen", written(worker_settlement=(0, 3))),
+        ("przygotowanie-pliku-zbiorczego", written(collective_file=(0, 1), internal_settlement=(0, 1))),
+    ],
 )
 def test_rekord_metryk_liczy_pliki_z_wzorca_ktorego_kopia_nie_przyjmuje_jako_droge_openpyxl(
-    tmp_path: Path, name: str, routes: dict[str, int]
+    tmp_path: Path, name: str, routes: dict[str, dict[str, int]]
 ) -> None:
     case = CASES[name](tmp_path)
     for template in case.templates:

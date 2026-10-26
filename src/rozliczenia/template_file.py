@@ -19,7 +19,7 @@ from enum import Enum
 from functools import lru_cache
 from pathlib import Path
 from types import MappingProxyType
-from typing import Never, cast
+from typing import Never, TypeAlias, cast
 from xml.parsers import expat
 
 from openpyxl.cell.cell import Cell, MergedCell
@@ -67,12 +67,32 @@ from .worker_config import normalize_text
 _INTERNAL_LOOK_COLUMNS = range(1, 14)  # A:M Rozliczenia wewnętrznego, z ``zwrot`` i ``UWAGI``
 
 
+class Route(Enum):
+    """Droga, którą powstał plik z Wzorca (ADR 0008); oba dają ten sam plik, a kopia jest szybsza."""
+
+    COPY = "kopia"
+    OPENPYXL = "openpyxl"
+
+
+class TemplateKind(Enum):
+    """Plik, który powstaje z Wzorca, nazwany jak konstruktor ``TemplateFile``."""
+
+    WORKER_SETTLEMENT = "worker_settlement"
+    COLLECTIVE_FILE = "collective_file"
+    INTERNAL_SETTLEMENT = "internal_settlement"
+
+
+RouteCounts: TypeAlias = Mapping[tuple[TemplateKind, Route], int]
+"""Drogi zapisu: ile plików każdego rodzaju powstało każdą drogą; para bez plików może nie mieć wpisu."""
+
+
 @dataclass(frozen=True)
 class _Rules:
     """Układ Wzorca jednego pliku: jego arkusz (``SheetLayout``, ten sam dla kopii i drogi przez openpyxl) i reguły,
     którymi zapis tego pliku różni się od pozostałych."""
 
     sheet: SheetLayout
+    kind: TemplateKind
     worker_header: bool
     """Nagłówek w kolumnach danych wejściowych z WYKONAWCA w H; bez niego nagłówek to cały wiersz."""
     copy: bool
@@ -99,6 +119,7 @@ _WORKER_SETTLEMENT = _Rules(
         look_columns=LOOK_COLUMNS[-1],
         period_file=False,
     ),
+    kind=TemplateKind.WORKER_SETTLEMENT,
     worker_header=True,
     copy=True,
 )
@@ -112,6 +133,7 @@ _COLLECTIVE_FILE = _Rules(
         period_file=True,
         quantity_columns=QUANTITY_COLUMNS,
     ),
+    kind=TemplateKind.COLLECTIVE_FILE,
     worker_header=True,
     copy=True,
     headers=TARGET_HEADERS,
@@ -125,6 +147,7 @@ _INTERNAL_SETTLEMENT = _Rules(
         look_columns=_INTERNAL_LOOK_COLUMNS[-1],
         period_file=True,
     ),
+    kind=TemplateKind.INTERNAL_SETTLEMENT,
     worker_header=False,
     copy=False,
     headers=TARGET_HEADERS,
@@ -236,13 +259,6 @@ def _merged_ranges(content: bytes, sheet_title: str, cell_style_count: int) -> t
     return tuple(MultiCellRange([CellRange(reference) for reference in references]).ranges)
 
 
-class Route(Enum):
-    """Droga, którą powstał plik z Wzorca (ADR 0008); oba dają ten sam plik, a kopia jest szybsza."""
-
-    COPY = "kopia"
-    OPENPYXL = "openpyxl"
-
-
 @dataclass(frozen=True)
 class TemplatePlan:
     """Planowanie Wierszy danych we Wzorcu: wiersze, do których trafią, ile kolejnych Wierszy danych ma zera w N:AP
@@ -290,6 +306,10 @@ class TemplateFile:
         """Wzorzec rozliczenia wewnętrznego z nagłówkami docelowymi w wierszu 1."""
 
         return cls(path, _INTERNAL_SETTLEMENT)
+
+    @property
+    def kind(self) -> TemplateKind:
+        return self._rules.kind
 
     def check(self) -> None:
         """Sprawdzanie bez zapisu: ``WorkbookError``, gdy Wzorzec nie może posłużyć jako wzór.

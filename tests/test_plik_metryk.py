@@ -10,7 +10,7 @@ import pytest
 
 from rozliczenia import preparation_process, settlement_process
 from rozliczenia.telemetry import COUNTER_NAMES, MetricsStore, metric_record
-from rozliczenia.template_file import Route
+from rozliczenia.template_file import Route, TemplateKind
 from tests.fixtures.message_samples import PREPARATION_SAMPLES, SETTLEMENT_SAMPLES, Samples
 from tests.fixtures.preparation import PERIOD
 
@@ -25,7 +25,7 @@ def completed_record() -> dict[str, Any]:
         result="OK",
         counters=dict.fromkeys(COUNTER_NAMES, 1),
         stop=None,
-        routes={Route.OPENPYXL: 1},
+        routes={(TemplateKind.COLLECTIVE_FILE, Route.OPENPYXL): 1, (TemplateKind.WORKER_SETTLEMENT, Route.COPY): 2},
     )
 
 
@@ -66,22 +66,33 @@ def test_plik_metryk_czyta_rekordy_wersji_1_bez_rodzaju_zatrzymania_i_wersji_2_b
     ]
 
 
-def test_rekord_metryk_liczy_zapisane_pliki_kazdej_drogi_zapisu() -> None:
-    assert completed_record()["routes"] == {"kopia": 0, "openpyxl": 1}
-    assert stopped_record(None)["routes"] == {"kopia": 0, "openpyxl": 0}
+def test_rekord_metryk_liczy_zapisane_pliki_kazdego_rodzaju_kazdej_drogi_zapisu() -> None:
+    assert completed_record()["routes"] == {
+        "worker_settlement": {"kopia": 2, "openpyxl": 0},
+        "collective_file": {"kopia": 0, "openpyxl": 1},
+        "internal_settlement": {"kopia": 0, "openpyxl": 0},
+    }
+    assert stopped_record(None)["routes"] == dict.fromkeys(
+        ("worker_settlement", "collective_file", "internal_settlement"), {"kopia": 0, "openpyxl": 0}
+    )
+
+
+NO_FILES = {"kopia": 0, "openpyxl": 0}
 
 
 @pytest.mark.parametrize(
     "routes",
     [
-        {"kopia": 1, "openpyxl": 0, "C:\\Users\\tata\\Rozliczenie.xlsx": 1},
-        {"kopia": 1},
-        {"kopia": -1, "openpyxl": 0},
-        {"kopia": True, "openpyxl": 0},
-        ["kopia", "openpyxl"],
+        {"worker_settlement": NO_FILES, "collective_file": NO_FILES, "internal_settlement": NO_FILES, "Anna Testowa": NO_FILES},
+        {"worker_settlement": NO_FILES, "collective_file": NO_FILES},
+        {"worker_settlement": NO_FILES, "collective_file": NO_FILES, "internal_settlement": {"kopia": 1}},
+        {"worker_settlement": NO_FILES, "collective_file": NO_FILES, "internal_settlement": {"kopia": -1, "openpyxl": 0}},
+        {"worker_settlement": NO_FILES, "collective_file": NO_FILES, "internal_settlement": {"kopia": True, "openpyxl": 0}},
+        {"worker_settlement": NO_FILES, "collective_file": NO_FILES, "internal_settlement": ["kopia", "openpyxl"]},
+        ["worker_settlement", "collective_file", "internal_settlement"],
         "brak",
     ],
-    ids=["sciezka", "bez-drogi", "ujemna", "nie-liczba", "lista", "bez-pola"],
+    ids=["nazwa-wykonawcy", "bez-rodzaju", "bez-drogi", "ujemna", "nie-liczba", "drogi-lista", "lista", "bez-pola"],
 )
 def test_plik_metryk_odrzuca_rekord_bez_licznika_kazdej_drogi_zapisu(tmp_path: Path, routes: Any) -> None:
     metrics_path = tmp_path / "metrics.jsonl"

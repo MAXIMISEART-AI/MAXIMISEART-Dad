@@ -13,11 +13,11 @@ from typing import Any, TypedDict, get_args
 
 from .domain import PHASES, ProgressPhase, StopKind
 from .settlement_period import PERIOD_TOKEN_PATTERN
-from .template_file import Route
+from .template_file import Route, RouteCounts, TemplateKind
 
 
 # Wersja 2 dodaje ``stop``: Rodzaj Zatrzymania i kod Komunikatu przerwanego Uruchomienia procesu.
-# Wersja 3 dodaje ``routes``: ile zapisanych plików z Wzorca powstało każdą drogą zapisu (ADR 0008).
+# Wersja 3 dodaje ``routes``: ile zapisanych plików każdego rodzaju powstało każdą drogą zapisu z Wzorca (ADR 0008).
 METRICS_SCHEMA_VERSION = 3
 MINIMUM_STATISTIC_SAMPLES = 5
 METRIC_MODES = frozenset({"RUN", "DRY-RUN"})
@@ -32,6 +32,7 @@ STOP_KINDS = frozenset(get_args(StopKind))
 # Kod Komunikatu, nigdy jego treść (ADR 0004): wielkie litery, cyfry i podkreślenia, bez ścieżek i danych klientów.
 STOP_CODE_PATTERN = re.compile(r"[A-Z][A-Z0-9_]{0,63}")
 ROUTE_NAMES = frozenset(route.value for route in Route)
+TEMPLATE_KIND_NAMES = frozenset(kind.value for kind in TemplateKind)
 _V1_FIELDS = frozenset(
     {
         "schema_version",
@@ -66,14 +67,16 @@ def metric_record(
     result: str,
     counters: Mapping[str, int],
     stop: RecordedStop | None,
-    routes: Mapping[Route, int] = MappingProxyType({}),
+    routes: RouteCounts = MappingProxyType({}),
 ) -> dict[str, Any]:
     """Rekord jednego Uruchomienia procesu w schemacie sprawdzanym przez ``MetricsStore``.
 
     Rekord z wynikiem ``BLAD_KRYTYCZNY`` jest niezakończony i ma ``stop``; każdy
     inny ma ``stop`` równe ``None``. Okres spoza wzorca okresu trafia jako
-    ``nieznany``, a etap bez zmierzonego czasu ma ``0`` ms. ``routes`` ma liczbę
-    zapisanych plików każdej drogi zapisu, a droga bez plików ``0``; domyślnie nie ma żadnego pliku.
+    ``nieznany``, a etap bez zmierzonego czasu ma ``0`` ms. ``routes`` ma dla
+    każdego rodzaju pliku z Wzorca liczbę zapisanych plików każdej drogi zapisu, a droga bez plików ``0``;
+    domyślnie nie ma żadnego pliku. Rozliczenie wewnętrzne powstaje zawsze drogą openpyxl, więc dopiero
+    rodzaj pliku mówi, czy kopia nie przyjęła Wzorca, który przyjmuje.
     """
 
     return {
@@ -87,7 +90,7 @@ def metric_record(
         "phase_durations_ms": {phase: phase_durations_ms.get(ProgressPhase(phase), 0) for phase in PHASES},
         "counters": dict(counters),
         "stop": stop,
-        "routes": {route.value: routes.get(route, 0) for route in Route},
+        "routes": {kind.value: {route.value: routes.get((kind, route), 0) for route in Route} for kind in TemplateKind},
     }
 
 
@@ -105,9 +108,14 @@ def _is_valid_stop(stop: object, result: object) -> bool:
 
 
 def _are_valid_routes(routes: object) -> bool:
-    if not isinstance(routes, dict) or set(routes) != ROUTE_NAMES:
+    if not isinstance(routes, dict) or set(routes) != TEMPLATE_KIND_NAMES:
         return False
-    return all(_is_nonnegative_int(value) for value in routes.values())
+    return all(
+        isinstance(counts, dict)
+        and set(counts) == ROUTE_NAMES
+        and all(_is_nonnegative_int(count) for count in counts.values())
+        for counts in routes.values()
+    )
 
 
 def _is_valid_record(record: object, counter_names: frozenset[str] = COUNTER_NAMES) -> bool:

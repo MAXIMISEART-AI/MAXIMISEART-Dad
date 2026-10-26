@@ -13,7 +13,7 @@ from typing import ClassVar, Literal
 from .inea_only_quantities import Cleared
 from .message import Message
 from .order_facts import CollectiveOrders
-from .template_file import Route
+from .template_file import Route, RouteCounts, TemplateKind
 
 
 class ProgressPhase(StrEnum):
@@ -171,8 +171,8 @@ class SettlementSummary:
         return len(self.results)
 
     @property
-    def routes(self) -> Mapping[Route, int]:
-        return Counter(result.route for result in self.results if result.route is not None)
+    def routes(self) -> RouteCounts:
+        return Counter((TemplateKind.WORKER_SETTLEMENT, result.route) for result in self.results if result.route is not None)
 
     @property
     def ok(self) -> bool:
