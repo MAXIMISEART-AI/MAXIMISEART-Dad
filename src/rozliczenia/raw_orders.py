@@ -2,16 +2,17 @@
 
 Rozpoznanie (``recognize``) dostaje wiersze arkusza zleceń od dołu i oddaje blok Surowych zleceń (``RawBlock``),
 przeszkodę, przez którą bloku nie da się uporządkować (``Obstacle``), albo ``None``, gdy na dole arkusza nie ma
-wierszy z wyglądem z aplikacji ani nie ma ich nad ostatnimi uporządkowanymi wierszami. Wiersz uporządkowany ma w kolumnach zlecenia (od ``AKCJE`` do
-``UWAGI``, bez ``WYKONAWCA``, którą tata pisze też Calibri 9) choć jedną komórkę z wartością w Calibri 8; wiersz z
-wartościami bez niej ma wygląd z aplikacji. Blok to wiersze z wartościami pod ostatnim uporządkowanym wierszem.
-Pierwszy wiersz bloku jest przesunięty o dwie kolumny w lewo, gdy w ``DATA GODZ. POCZ.`` nie ma daty; gdy data
-stoi na miejscu (ktoś przesunął wiersz ręcznie), wiersz się nie przesuwa. Miejsce dnia wyznacza żółty wiersz, którym tata oddziela dni: najniższy pusty wiersz między
+wierszy z wyglądem z aplikacji ani nie ma ich nad ostatnimi uporządkowanymi wierszami. Wiersz uporządkowany ma w
+kolumnach zlecenia (od ``AKCJE`` do ``UWAGI``, bez ``WYKONAWCA``, którą tata pisze też Calibri 9) choć jedną
+komórkę z wartością w Calibri 8; wiersz z wartościami bez niej ma wygląd z aplikacji. Blok to wiersze z
+wartościami pod ostatnim uporządkowanym wierszem. Pierwszy wiersz bloku jest przesunięty o dwie kolumny w lewo,
+gdy w ``DATA GODZ. POCZ.`` nie ma daty; gdy data stoi na miejscu (ktoś przesunął wiersz ręcznie), wiersz się nie
+przesuwa. Miejsce dnia wyznacza żółty wiersz, którym tata oddziela dni: najniższy pusty wiersz między
 ostatnim uporządkowanym a blokiem, w którym co najmniej połowa kolumn zlecenia ma żółte wypełnienie. Kolumna bez
 komórki ma wypełnienie stylu wiersza: u taty żółty wiersz to zwykle styl całego wiersza bez żadnej komórki.
 
 Przeszkody: wiersz z wyglądem z aplikacji nad uporządkowanym wierszem, Surowe zlecenie bez daty z godziną albo bez
-Wykonawcy, blok z więcej niż jednego dnia i dzień, który już jest uporządkowany. Dwie ostatnie i pierwsza wymagają
+Wykonawcy, blok z więcej niż jednego dnia i dzień, który już jest uporządkowany. Pierwsza i ostatnia wymagają
 przeglądu nad blokiem: od ostatniego uporządkowanego wiersza w górę, aż ``_EARLIER_ROWS`` kolejnych uporządkowanych
 wierszy ma dzień wcześniejszy niż dzień bloku (bez bloku: niż dzień ostatniego uporządkowanego wiersza z datą).
 Pojedyncze wcześniejsze dni (usterka z poprzedniego dnia dopisana pod dniem) nie kończą przeglądu.
