@@ -52,7 +52,7 @@ A rule that a check enforces sits in its section's table, one line per rule, bes
 | Rule | Guard |
 |---|---|
 | A file or folder of Dad's in a bad state (corrupt, with a BOM, in UTF-16, without access) gives a Komunikat that names it, and a file without access is „niedostępny” in it, never „uszkodzony”: read a workbook through `_file_bytes` (`workbook_files.py`) and a period folder through `reading` (`period_folder.py`). | `tests/test_uszkodzone_wejscia.py`, `tests/test_jeden_odczyt_skoroszytu.py` |
-| Only `template_file.py`, `template_copy.py`, `row_look.py` and `workbook_save.py` write a workbook. | `tests/test_jeden_zapis_skoroszytu.py` |
+| Only `template_file.py`, `template_copy.py`, `row_look.py`, `workbook_save.py` and `intermax_file.py` write a workbook. | `tests/test_jeden_zapis_skoroszytu.py` |
 | The engine decides on the facts of a process's plan, never on a Komunikat's code: one place per process (`collective_preparation`, `engine`) translates the facts into warnings, Zatrzymania, the result and Decyzja taty. | `tests/test_decyzje_na_faktach.py` |
 
 ## Test Surface
@@ -99,6 +99,7 @@ A rule that a check enforces sits in its section's table, one line per rule, bes
 |---|---|
 | Check the operating system with `sys.platform == "win32"`. | ruff `TID251` (`pyproject.toml`), mypy for both systems in `tools/ci_lokalnie.py` |
 | A command of a tool in `tools/` that takes time or starts its own processes runs through `potomne.run`, and a copy of a commit comes from `potomne.commit_copy` ([`tools/potomne.py`](tools/potomne.py)), because they die together with the tool, even one killed by SIGKILL. | `tests/test_potomne.py` |
+| A concurrent mutation run (`tools/mutacje.py --rownolegle`, a skill's `check_all`) runs at most `PARALLEL` mutations at once and gives each mutation's command `PYTEST_XDIST_AUTO_NUM_WORKERS=1` unless the caller set it, so a test's nested `pytest -n auto` does not multiply over the cores of the Mac that agents share. | `tests/test_mutacje.py` |
 | The files that the system Python runs before `.venv` (the list in `per-file-target-version` in `pyproject.toml`) work under the Python 3.9 of macOS. | ruff `per-file-target-version`, `tests/test_systemowy_python.py` |
 | A tool or skill script that runs as its own process adds `src` to `sys.path` itself, because CI on Windows does not install the package. | `tests/test_skrypty_bez_instalacji.py` |
 

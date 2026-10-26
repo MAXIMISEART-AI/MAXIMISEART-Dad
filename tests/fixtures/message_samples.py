@@ -87,6 +87,10 @@ PREPARATION_SAMPLES: Samples = {
     "period_orders_in_many_sheets": [
         lambda: messages.period_orders_in_many_sheets(REGISTER, ["ZLECENIA", "ZLECENIA 2"], PERIOD)
     ],
+    "raw_orders_not_ordered": [
+        lambda: messages.raw_orders_not_ordered(REGISTER, SHEET, 120, 140),
+        lambda: messages.raw_orders_not_ordered(REGISTER, SHEET, 120, 120),
+    ],
     "periods_directory_missing": [lambda: messages.periods_directory_missing(PERIODS)],
     "folder_inaccessible": [lambda: messages.folder_inaccessible(PERIODS)],
     "period_folder_lookup_problem": [

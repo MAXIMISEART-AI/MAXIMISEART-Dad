@@ -31,6 +31,7 @@ const FIELDS_OUTSIDE_UI = new Map([
 // Pliki, które wolno rozgałęziać po nazwie procesu; każdy z uzasadnieniem.
 const PROCESS_COMPARISON_FILES = new Map([
   ["src/pages/runs/run-setup-card.tsx", "wybór wejścia w karcie ustawień: Plik zbiorczy albo Rejestr zleceń"],
+  ["src/lib/runs.tsx", "ponowne Uruchomienie: Uporządkowanie INTERMAX startuje bez okresu własną operacją kontraktu"],
 ])
 
 // Pliki, które wolno łączyć z serwerem; każdy z uzasadnieniem. Plik bez połączenia trzeba stąd usunąć.
@@ -92,7 +93,7 @@ function fieldName(key) {
 }
 
 function processNames(contract) {
-  return new Set(contract.components.schemas.RunRequest.properties.process.enum)
+  return new Set(contract.components.schemas.RunInfo.properties.process.enum)
 }
 
 function isProcessName(node, names) {

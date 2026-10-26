@@ -69,7 +69,11 @@ class Engines:
 
     def processes(self) -> Processes:
         real = self.metrics.processes()
-        return Processes(preparation=self._steered(real.preparation), settlement=self._steered(real.settlement))
+        return Processes(
+            preparation=self._steered(real.preparation),
+            settlement=self._steered(real.settlement),
+            intermax=self._steered(real.intermax),
+        )
 
     def _steered(self, real: Process[InputsT, SummaryT]) -> Process[InputsT, SummaryT]:
         def execute(inputs: InputsT, observer: ProgressObserver, conversation: Conversation) -> SummaryT:
@@ -254,6 +258,7 @@ def _metrics(tmp_path: Path) -> MetricsPaths:
     return MetricsPaths(
         preparation=tmp_path / ".przygotowanie-pliku-zbiorczego-metrics.jsonl",
         settlement=tmp_path / ".rozliczenia-metrics.jsonl",
+        intermax=tmp_path / ".uporzadkowanie-intermax-metrics.jsonl",
     )
 
 
@@ -333,10 +338,12 @@ def settling_centrum(
     include_unmapped: bool = False,
     dad_layout: bool = False,
     surroundings: Surroundings | None = None,
+    register: Path | None = None,
 ) -> SettlingCentrum:
     """Centrum z zapamiętanym folderem okresów, w którym okres ma tylko syntetyczny Plik zbiorczy.
 
     ``dad_layout`` kładzie Folder okresu w ``Załączniki\\Rozliczenia 2026\\09_Wrzesień_2026\\INEA``.
+    ``register``: tata wskazał też ten Rejestr zleceń, którego Przebieg rozliczeń nie czyta.
     """
 
     periods_directory = tmp_path / ("Załączniki" if dad_layout else "INEA")
@@ -355,8 +362,11 @@ def settling_centrum(
     )
     engines = Engines(_metrics(tmp_path))
     surroundings = surroundings or Surroundings()
-    client = _client(tmp_path, FakePlatform(chosen_folders=[periods_directory]), configuration, engines, surroundings)
+    platform = FakePlatform(chosen_files=[register], chosen_folders=[periods_directory])
+    client = _client(tmp_path, platform, configuration, engines, surroundings)
     client.post("/api/settings/periods-directory/choose")
+    if register is not None:
+        client.post("/api/settings/register/choose")
     log_path = tmp_path / "logs" / "centrum-rozliczen.log"
     return SettlingCentrum(
         client,

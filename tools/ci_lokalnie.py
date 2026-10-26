@@ -51,6 +51,7 @@ COMMANDS_ELSEWHERE = {
     "verify-rozliczenia/scripts/run_verification.py --variant all": "E2E: skill verify-rozliczenia",
     "tools/syntetyczne_wzorce.py": "Timing guard: tools/benchmark_przebiegu.py measure --scenario typowy-tydzien",
     "tools/benchmark_przebiegu.py": "Timing guard: tools/benchmark_przebiegu.py measure --scenario typowy-tydzien",
+    "tools/czasy_ci.py": "pomiar czasów zadania (artefakt czasy-ci), nic nie sprawdza",
 }
 OUTPUT_ON_FAILURE = 40
 EVERY_COMMIT_JOBS = ("ruff", "mypy", "pytest")

@@ -114,6 +114,10 @@ jobs:
     # + E2E 60 s, 2/2 388 s; 3.14 1/2 320 s + E2E 61 s, 2/2 353 s + timing 26 s).
     name: pytest (Python ${{ matrix.python-version }}${{ matrix.os == 'ubuntu-latest' && ', Linux' || '' }}, ${{ matrix.part }})
     runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+      # tools/czasy_ci.py reads the step times of this job from the run's jobs API.
+      actions: read
     strategy:
       fail-fast: false
       matrix:
@@ -179,16 +183,17 @@ jobs:
 
       - name: Run tests
         if: ${{ runner.os == 'Windows' }}
+        # No '=' in the arguments: the py shim (cmd) splits an argument at '=', so junit_family is in pyproject.toml.
         run: |
           $files = py -3 tools/czesci_pytest.py ${{ matrix.part }}
           if ($LASTEXITCODE -ne 0) {
             throw "Splitting the test files failed (exit code $LASTEXITCODE)"
           }
-          py -3 -m pytest -n auto $files
+          py -3 -m pytest -n auto $files --junitxml .ci-czasy/junit.xml
 
       - name: Run tests (Linux)
         if: ${{ runner.os == 'Linux' }}
-        run: python -m pytest -n auto $(python tools/czesci_pytest.py --linux ${{ matrix.part }})
+        run: python -m pytest -n auto $(python tools/czesci_pytest.py --linux ${{ matrix.part }}) --junitxml .ci-czasy/junit.xml
 
       - name: E2E (verify-rozliczenia --variant all)
         id: e2e
@@ -270,6 +275,25 @@ jobs:
           retention-days: 7
           if-no-files-found: ignore
 
+      # Measurement only: a missing or broken record prints CZASY CI FAIL and does not fail the job.
+      - name: Record the time of each unit of work
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python tools/czasy_ci.py zadanie --tor "${{ runner.os }}-${{ steps.python.outputs.python-version }}" --junit .ci-czasy/junit.xml --wyjscie ".ci-czasy/zapis/${{ github.job }}-${{ strategy.job-index }}-${{ github.run_attempt }}.json"
+
+      - name: Upload the unit times
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        uses: actions/upload-artifact@v7
+        with:
+          name: czasy-zadanie-${{ github.job }}-${{ strategy.job-index }}-${{ github.run_attempt }}
+          path: .ci-czasy/zapis/
+          retention-days: 7
+          if-no-files-found: warn
+          include-hidden-files: true
+
   change-mutations:
     # Each mutation of a line the pull request changes in src/ must fail a test (tools/mutacje_zmiany.py):
     # a reviewer used to find these by hand, after CI was green. A push to main has no change to mutate,
@@ -311,10 +335,14 @@ jobs:
     # Besides a skill's mutations it runs the skill's own check on unchanged code (the ci: key of its SKILL.md), so
     # agents need not run it on the Mac: Centrum --feature all and the TLA+ model of Aktualizacja narzędzia run only here.
     # A pull request runs only the skills whose verdict its changes can alter; a push to main runs them all.
-    # Each part runs a third of the steps (a baseline or one mutation script) by their CI time: side by side on one
+    # Each part runs a third of the selected steps (a baseline or one mutation script) by their CI time: side by side on one
     # runner they exceed their time limits.
     name: Mutation checks (${{ matrix.part }}/3)
     runs-on: windows-latest
+    permissions:
+      contents: read
+      # tools/czasy_ci.py reads the step times of this job from the run's jobs API.
+      actions: read
     # tools/mutacje_skilli.py limits each script to 30 min; this catches a hang in the runner itself.
     timeout-minutes: 60
     strategy:
@@ -350,16 +378,16 @@ jobs:
 
       - name: Run each verify skill's baseline check and prove it fails on broken variants
         id: skills
-        shell: pwsh
+        # tee keeps the step lines (OK/FAIL <step> (N s)) for tools/czasy_ci.py; bash passes the output bytes through
+        # unchanged and, with pipefail, fails with the exit code of tools/mutacje_skilli.py.
+        shell: bash
         run: |
-          if ($env:GITHUB_EVENT_NAME -eq 'pull_request') {
-            python tools/mutacje_skilli.py --czesc ${{ matrix.part }}/3 --zmiany-od HEAD^1
-          } else {
-            python tools/mutacje_skilli.py --czesc ${{ matrix.part }}/3
-          }
-          if ($LASTEXITCODE -ne 0) {
-            throw "Mutation checks failed (exit code $LASTEXITCODE)"
-          }
+          mkdir -p .ci-czasy
+          if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
+            python tools/mutacje_skilli.py --czesc ${{ matrix.part }}/3 --zmiany-od HEAD^1 | tee .ci-czasy/mutacje.log
+          else
+            python tools/mutacje_skilli.py --czesc ${{ matrix.part }}/3 | tee .ci-czasy/mutacje.log
+          fi
 
       # A red baseline (e.g. Centrum --feature all) leaves its screenshots and logs here; mutation copies keep none.
       - name: Upload baseline evidence on failure
@@ -370,6 +398,25 @@ jobs:
           path: .verification/evidence/
           retention-days: 7
           if-no-files-found: ignore
+          include-hidden-files: true
+
+      # Measurement only: a missing or broken record prints CZASY CI FAIL and does not fail the job.
+      - name: Record the time of each unit of work
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python tools/czasy_ci.py zadanie --tor "${{ runner.os }}-${{ steps.python.outputs.python-version }}" --mutacje .ci-czasy/mutacje.log --wyjscie ".ci-czasy/zapis/${{ github.job }}-${{ strategy.job-index }}-${{ github.run_attempt }}.json"
+
+      - name: Upload the unit times
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        uses: actions/upload-artifact@v7
+        with:
+          name: czasy-zadanie-${{ github.job }}-${{ strategy.job-index }}-${{ github.run_attempt }}
+          path: .ci-czasy/zapis/
+          retention-days: 7
+          if-no-files-found: warn
           include-hidden-files: true
 
   required:
@@ -403,3 +450,38 @@ jobs:
           if failed:
               sys.exit(f"Required CI checks did not all succeed: {', '.join(failed)}")
           print("All required CI checks succeeded.")
+
+      # On a push to main the unit times of every job of the run become the artifact czasy-ci, the one source of CI
+      # times (tools/czasy_ci.py). Measurement only: a failure here prints CZASY CI FAIL and leaves the verdict above.
+      - uses: actions/checkout@v7
+        if: ${{ !cancelled() && github.event_name == 'push' }}
+        continue-on-error: true
+        with:
+          sparse-checkout: tools/czasy_ci.py
+          sparse-checkout-cone-mode: false
+
+      - name: Download the unit times of every job of this run
+        if: ${{ !cancelled() && github.event_name == 'push' }}
+        continue-on-error: true
+        uses: actions/download-artifact@v8
+        with:
+          pattern: czasy-zadanie-*
+          merge-multiple: true
+          path: .ci-czasy/zapisy
+
+      - name: Merge the unit times into czasy-ci
+        if: ${{ !cancelled() && github.event_name == 'push' }}
+        continue-on-error: true
+        run: python3 tools/czasy_ci.py scal --katalog .ci-czasy/zapisy --wyjscie .ci-czasy/czasy-ci.json
+
+      - name: Upload czasy-ci
+        if: ${{ !cancelled() && github.event_name == 'push' }}
+        continue-on-error: true
+        uses: actions/upload-artifact@v7
+        with:
+          name: czasy-ci
+          path: .ci-czasy/czasy-ci.json
+          retention-days: 30
+          if-no-files-found: warn
+          include-hidden-files: true
+          overwrite: true

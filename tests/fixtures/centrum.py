@@ -16,7 +16,7 @@ from typing import Any
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from rozliczenia import preparation_process, settlement_process
+from rozliczenia import intermax_process, preparation_process, settlement_process
 from rozliczenia.centrum.app import create_app
 from rozliczenia.centrum.cloud_files import CloudFiles
 from rozliczenia.centrum.dad_cases import DAD_CASES_FILE, REPORT
@@ -272,15 +272,17 @@ class FakeOneDrive:
 
 @dataclass(frozen=True)
 class MetricsPaths:
-    """Pliki metryk obu procesów w Centrum testu zamiast historii z katalogu narzędzia."""
+    """Pliki metryk trzech procesów w Centrum testu zamiast historii z katalogu narzędzia."""
 
     preparation: Path
     settlement: Path
+    intermax: Path
 
     def processes(self) -> Processes:
         return Processes(
             preparation=replace(preparation_process.PROCESS, metrics_path=lambda: self.preparation),
             settlement=replace(settlement_process.PROCESS, metrics_path=lambda: self.settlement),
+            intermax=replace(intermax_process.PROCESS, metrics_path=lambda: self.intermax),
         )
 
 
@@ -376,7 +378,11 @@ def centrum(tmp_path: Path, *, today: date = date(2026, 10, 19)) -> Centrum:
     clock = ManualClock()
     report_box = FakeReportBox(background=RUN_LOGS_IN_BACKGROUND)
     settings_path = tmp_path / "config" / "centrum-ustawienia.yaml"
-    metrics = MetricsPaths(preparation=tmp_path / "przygotowanie-metrics.jsonl", settlement=tmp_path / "metrics.jsonl")
+    metrics = MetricsPaths(
+        preparation=tmp_path / "przygotowanie-metrics.jsonl",
+        settlement=tmp_path / "metrics.jsonl",
+        intermax=tmp_path / "intermax-metrics.jsonl",
+    )
     log_path = tmp_path / "logs" / "centrum-rozliczen.log"
     log = CentrumLog(log_path)
     app = create_app(

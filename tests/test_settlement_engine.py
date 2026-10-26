@@ -37,14 +37,20 @@ from rozliczenia.workbook_files import read_data_rows
 from tests.fixtures.benchmark import WORKER_TEMPLATE, write_synthetic_templates
 from tests.fixtures.porownanie import compare_worker_settlements
 from tests.fixtures.workbooks import (
+    TEMPLATE_VIEW,
+    View,
     active_worksheet,
     add_external_link_fixture,
     column_widths,
     cut_sheet_after_data_rows,
     hyperlinks,
+    marked_for_copy,
+    opening_view,
     refused_by_copy,
     rewrite_parts,
+    view_of,
     without_sheet,
+    written_by_copy,
 )
 from tests.fixtures.settlement import (
     NOT_A_PERIOD,
@@ -55,6 +61,7 @@ from tests.fixtures.settlement import (
     make_fixture,
     projected,
     write_source,
+    write_template,
 )
 
 
@@ -358,6 +365,36 @@ def test_kazde_rozliczenie_pracownika_takze_puste_ma_szerokosci_kolumn_wzorca_ro
             assert column_widths(active_worksheet(workbook), 47) == expected, path.name
         finally:
             workbook.close()
+
+
+# Widok Wzorca przewinięty w bok i powiększony inaczej niż Wzorce taty: Rozliczenie bierze widok ze swojego Wzorca.
+SCROLLED_VIEW = View("C1", "D30", 60)
+
+
+@pytest.mark.parametrize("view", [TEMPLATE_VIEW, SCROLLED_VIEW], ids=["lewy-gorny-rog-75", "przewiniety"])
+@pytest.mark.parametrize("copied", [True, False], ids=["kopia", "openpyxl"])
+def test_kazde_rozliczenie_pracownika_takze_puste_otwiera_sie_z_widokiem_wzorca_rozliczenia_pracownika(
+    tmp_path: Path, copied: bool, view: View
+) -> None:
+    source_path, target_directory, config_path, worker_template_path = make_complete_run_fixture(tmp_path)
+    write_template(worker_template_path, view=view)
+    marked_for_copy(worker_template_path)
+    if not copied:
+        refused_by_copy(worker_template_path)
+    expected = opening_view(worker_template_path)
+
+    summary = run_settlements(source_path, config_path, worker_template_path=worker_template_path)
+
+    assert summary.empty_count == 1
+    assert view_of(expected) == view
+    published = sorted(target_directory.glob("*.xlsx"))
+    assert len(published) == 3
+    assert {path.name: written_by_copy(path) for path in published} == dict.fromkeys(
+        (path.name for path in published), copied
+    )
+    assert {path.name: opening_view(path) for path in published} == dict.fromkeys(
+        (path.name for path in published), expected
+    )
 
 
 def with_unmapped_worker(source_path: Path) -> None:
@@ -770,13 +807,14 @@ def test_wzorzec_rozliczenia_pracownika_zepsuty_po_sprawdzaniu_wstrzymuje_publik
     assert [(type(event), event.template_index) for event in failed] == [(WorkerFailed, 1)]
 
 
+@pytest.mark.parametrize("merged", ["A18:B18", "A19:B19"], ids=["pierwszy-wiersz", "drugi-wiersz"])
 def test_wzorzec_rozliczenia_pracownika_ze_scaleniem_w_wierszach_danych_zatrzymuje_zapisywanie(
-    complete_run: tuple[Path, Path, Path, Path],
+    complete_run: tuple[Path, Path, Path, Path], merged: str
 ) -> None:
     source_path, target_directory, config_path, worker_template_path = complete_run
     workbook = load_workbook(worker_template_path)
     try:
-        active_worksheet(workbook).merge_cells("A18:B18")
+        active_worksheet(workbook).merge_cells(merged)
         workbook.save(worker_template_path)
     finally:
         workbook.close()
@@ -848,6 +886,37 @@ def test_nieudany_zapis_rozliczenia_pracownika_wstrzymuje_publikacje(
     assert not list(target_directory.parent.glob(f".{target_directory.name}.staging-*"))
     assert sorted(path.name for path in target_directory.parent.iterdir()) == [SOURCE_NAME]
     assert worker_template_path.read_bytes() == worker_template_before
+
+
+@pytest.mark.parametrize(
+    "held",
+    [PermissionError("wymuszony: plik tymczasowy trzyma OneDrive"), OSError(errno.EIO, "wymuszony: dostawca plików w chmurze nie odpowiada")],
+    ids=["bez-uprawnien", "dostawca-w-chmurze"],
+)
+def test_plik_tymczasowy_trzymany_przez_onedrive_po_nieudanym_zapisie_nazywa_rozliczenie_pracownika(
+    complete_run: tuple[Path, Path, Path, Path], monkeypatch: pytest.MonkeyPatch, held: OSError
+) -> None:
+    source_path, _, config_path, worker_template_path = complete_run
+    real_replace, real_unlink = os.replace, os.unlink
+
+    def fail_replacing_workbook(source: str | os.PathLike[str], target: str | os.PathLike[str]) -> None:
+        if Path(target).suffix == ".xlsx":
+            raise OSError("synthetic write failure")
+        real_replace(source, target)
+
+    def hold_temporary_workbook(path: str | os.PathLike[str], **kwargs: object) -> None:
+        if Path(path).name.startswith(".Rozliczenie ") and Path(path).suffix == ".xlsx":
+            raise held
+        real_unlink(path, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(os, "replace", fail_replacing_workbook)
+    monkeypatch.setattr(os, "unlink", hold_temporary_workbook)
+
+    with pytest.raises(StopError) as raised:
+        run_settlements(source_path, config_path, worker_template_path=worker_template_path)
+
+    assert raised.value.message.code == "BLAD_SZABLONU_PRACOWNIKA"
+    assert "Adrian Testowy" in raised.value.message.what
 
 
 def fail_renaming_staging_folder(monkeypatch: pytest.MonkeyPatch, target_directory: Path) -> None:
@@ -1058,13 +1127,20 @@ def test_plik_zbiorczy_z_tokenem_ktory_nie_jest_okresem_zatrzymuje_przebieg_rozl
 
 
 @pytest.mark.parametrize(
-    "failure",
-    [OSError(errno.EIO, "synthetic failure"), RuntimeError("synthetic failure")],
-    ids=["blad-zapisu", "nieoczekiwany-blad"],
+    ("failure", "stopped_as"),
+    [
+        (OSError(errno.EIO, "synthetic failure"), StopError),
+        (RuntimeError("synthetic failure"), RuntimeError),
+        (KeyError("synthetic failure"), KeyError),
+    ],
+    ids=["blad-zapisu", "nieoczekiwany-blad", "nieoczekiwany-blad-wyszukiwania"],
 )
 def test_failed_przetworzenie_szablonu_pracownika_emits_failure_without_false_completion(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failure: Exception
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failure: Exception, stopped_as: type[Exception]
 ) -> None:
+    """Błąd zapisu pliku to Komunikat dla taty; każdy inny wyjątek wychodzi z silnika bez zmian, więc granica procesu
+    zgłasza go jako błąd nieoczekiwany ze śladem wywołań."""
+
     source_path, target_directory, config_path = make_fixture(tmp_path)
     real_replace = os.replace
     saved = 0
@@ -1080,7 +1156,7 @@ def test_failed_przetworzenie_szablonu_pracownika_emits_failure_without_false_co
 
     monkeypatch.setattr(os, "replace", fail_on_second_save)
 
-    with pytest.raises(StopError) as raised:
+    with pytest.raises(stopped_as) as raised:
         run_settlements(
             source_path,
             config_path,
@@ -1088,8 +1164,11 @@ def test_failed_przetworzenie_szablonu_pracownika_emits_failure_without_false_co
             observer=recorded.append,
         )
 
-    assert raised.value.message.code == "BLAD_SZABLONU_PRACOWNIKA"
-    assert "Darek Fikcyjny" in raised.value.message.what
+    if isinstance(raised.value, StopError):
+        assert raised.value.message.code == "BLAD_SZABLONU_PRACOWNIKA"
+        assert "Darek Fikcyjny" in raised.value.message.what
+    else:
+        assert raised.value is failure
     assert not target_directory.exists()
     assert not list(target_directory.parent.glob(f".{target_directory.name}.staging-*"))
 

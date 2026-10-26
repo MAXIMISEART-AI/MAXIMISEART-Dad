@@ -24,6 +24,8 @@ export const zApiTiming = z.object({
         'openWorkerSettlement',
         'getRunSetup',
         'startRun',
+        'getIntermaxSetup',
+        'startIntermax',
         'decideRun',
         'diagnoseRun',
         'reportRun',
@@ -479,7 +481,11 @@ export const zProblem = z.object({
  * Uruchomieniu z Centrum sprzed #322, które identyfikatora nie zapamiętało.
  */
 export const zProcessRun = z.object({
-    process: z.enum(['preparation', 'settlement']),
+    process: z.enum([
+        'preparation',
+        'settlement',
+        'intermax'
+    ]),
     process_label: z.string(),
     started_at: z.iso.datetime(),
     mode: z.enum(['RUN', 'DRY-RUN']),
@@ -728,7 +734,11 @@ export const zResultCounts = z.object({
  * Statystyki jednego procesu w jednym trybie; bez ``percentiles`` poniżej minimum ukończonych obserwacji.
  */
 export const zModeStatistics = z.object({
-    process: z.enum(['preparation', 'settlement']),
+    process: z.enum([
+        'preparation',
+        'settlement',
+        'intermax'
+    ]),
     mode: z.enum(['RUN', 'DRY-RUN']),
     completed_runs: z.int(),
     percentiles: zPercentiles.nullable(),
@@ -849,15 +859,23 @@ export const zRunCardMissing = z.object({
 /**
  * RunInfo
  *
- * Uruchomienie procesu; ``confirms_readiness`` deklaruje proces: „Uruchom” potwierdza Gotowość.
+ * Uruchomienie procesu; ``confirms_readiness`` i ``register_name`` deklaruje proces.
+ *
+ * ``confirms_readiness``: „Uruchom” potwierdza Gotowość. ``register_name``: nazwa Rejestru zleceń z Komunikatów
+ * procesu, pod którą karta proponuje otworzyć go przy Zatrzymaniu.
  */
 export const zRunInfo = z.object({
     id: z.string(),
-    process: z.enum(['preparation', 'settlement']),
+    process: z.enum([
+        'preparation',
+        'settlement',
+        'intermax'
+    ]),
     title: z.string(),
     period: z.string(),
     dry_run: z.boolean(),
-    confirms_readiness: z.boolean()
+    confirms_readiness: z.boolean(),
+    register_name: z.string()
 });
 
 /**
@@ -1180,7 +1198,8 @@ export const zRunSummary = z.object({
     figures: z.array(zFigure),
     counts: zCountGroup.nullable(),
     files: z.array(zPeriodFile),
-    worker_settlements: z.array(zWorkerSettlement).nullable()
+    worker_settlements: z.array(zWorkerSettlement).nullable(),
+    intermax_copy: z.string().nullish()
 });
 
 /**
@@ -1213,7 +1232,8 @@ export const zLoggedOutcome = z.object({
         'run',
         'rerun',
         'open_collective_file',
-        'open_worker_settlements_folder'
+        'open_worker_settlements_folder',
+        'open_order_register'
     ]),
     stop_kind: z.enum([
         'for_tata',
@@ -1256,7 +1276,8 @@ export const zRunOutcome = z.object({
         'run',
         'rerun',
         'open_collective_file',
-        'open_worker_settlements_folder'
+        'open_worker_settlements_folder',
+        'open_order_register'
     ]),
     stop_kind: z.enum([
         'for_tata',
@@ -1306,6 +1327,23 @@ export const zRunRestored = z.object({
     started_at: z.iso.datetime(),
     phases: z.array(zPhaseProgress),
     result: zLoggedOutcome
+});
+
+/**
+ * IntermaxSetup
+ *
+ * Karta „Uporządkuj INTERMAX” poza okresami: INTERMAX to Rejestr zleceń z Ustawień taty.
+ *
+ * ``reminder`` to przypomnienie przed uruchomieniem, ``blocker`` mówi, czego brakuje w Ustawieniach taty,
+ * ``open_in_excel`` to zdanie o INTERMAX otwartym w Excelu, a ``last`` to karta ostatniego Uporządkowania
+ * INTERMAX z jego Logów Uruchomienia (``None``: żadnego albo jego Logów nie da się odczytać).
+ */
+export const zIntermaxSetup = z.object({
+    title: z.string(),
+    reminder: z.string(),
+    blocker: z.string().nullable(),
+    open_in_excel: z.array(z.string()),
+    last: zRunRestored.nullable()
 });
 
 /**
@@ -1434,6 +1472,23 @@ export const zGetDadNoteRunsResponse = z.array(zPinnableRun);
  * Successful Response
  */
 export const zGetHealthResponse = zHealth;
+
+/**
+ * Successful Response
+ */
+export const zGetIntermaxSetupResponse = zIntermaxSetup;
+
+/**
+ * Response Startintermax
+ *
+ * Successful Response
+ */
+export const zStartIntermaxResponse = z.discriminatedUnion('state', [
+    zRunIdle,
+    zRunRunning,
+    zRunAwaitingDecision,
+    zRunFinished
+]);
 
 /**
  * Successful Response

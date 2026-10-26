@@ -15,8 +15,8 @@ ci: .agents/skills/verify-aktualizacja-narzedzia/scripts/sprawdz_aktualizacje.py
 
 CI runs `sprawdz_aktualizacje.py` (the `ci:` key) in Mutation checks on Windows whenever a change
 touches this skill, so run it locally only while you bring the model in line or to reproduce a red
-Mutation checks step. It checks the model as committed, so it stays green on a code change the model
-does not describe yet. What stays with you on every change to the covered code is „Bring the model in
+Mutation checks step. It fails with `AKTUALIZACJA: ROZJAZD MODELU Z KODEM` when covered code changed since the
+model's Sync commit, but it cannot tell whether your change to the model is right. What stays with you on every change to the covered code is „Bring the model in
 line, then run”: read the diff against the table, change the model, break a new path in it, and run
 the check while you do. A change whose model nobody brought in line is not verified, whatever CI says.
 
@@ -89,7 +89,7 @@ model action is one indivisible step of this code:
 | `PrzywroceniePoOdmowie`, `PrzywroceniePoScaleniu` | `tool_update.py` `_DadFiles.set_aside` `finally` (`_put_back`; its `OSError` becomes `_NotPutBack`) and `except _NotPutBack` in `ToolClone.update`: after the merge it calls `_moved_back`, before it returns `ROLLBACK_FAILED` and keeps the journal. After a refused merge or `except _NotSetAside` (`git checkout HEAD --` failed), `journal.end()`. |
 | `PrzywroceniePoWyjatku` | `tool_update.py` `_DadFiles.set_aside` `finally` after `TimeoutExpired` or `OSError` from `git checkout HEAD --` or `git merge --ff-only`: `_put_back`, then the exception passes both `except` in `ToolClone.update` to `ToolUpdates._result` (`NIEOCZEKIWANY_BLAD`), and the journal stays; an `OSError` from `_put_back` is `_NotPutBack` and, with `moved = False`, `ROLLBACK_FAILED`, also with the journal kept |
 | `Instalacja`, `InstalacjaKoniec` | `tool_update.py` `ToolClone._install_libraries` (`_Git.changed`, `pip_install`), the `try`/`except Exception` around it, and the `if installed is False` branch after it (both through `_moved_back`) |
-| `CofanieUsun`, `CofanieReset`, `CofaniePrzywroc` | `tool_update.py` `_roll_back` (`_Journal.read` and `rev-parse HEAD` first; when `rev-parse` raises, nothing changes and the rollback fails; a `reset --keep` that raises fails the rollback after `finally` puts Dad's file back, also when the clone already stood on `before`), called by `ToolClone.update` through `_moved_back` or by `tool_updates.py` `ToolUpdates._moved_back` through `ToolClone.roll_back` (`cofa = "centrum"`), by `restart_guardian._rolled_back` through `ToolClone.roll_back` (`cofa = "opiekun"`, or `"opiekun_bez_portu"` when the port was never released), by `launcher._roll_back` through `ToolClone.roll_back` (`cofa = "skrot"`), or by `ToolClone.update` before fetching through `_moved_back` (`cofa = "klik"`) |
+| `CofanieUsun`, `CofanieReset`, `CofaniePrzywroc` | `tool_update.py` `_roll_back` (`_Journal.read` and `rev-parse HEAD` first; when `rev-parse` raises, or the `unlink` of Dad's file before the `try` raises `OSError`, nothing changes and the rollback fails; a `reset --keep` that raises fails the rollback after `finally` puts Dad's file back, also when the clone already stood on `before`), called by `ToolClone.update` through `_moved_back` or by `tool_updates.py` `ToolUpdates._moved_back` through `ToolClone.roll_back` (`cofa = "centrum"`), by `restart_guardian._rolled_back` through `ToolClone.roll_back` (`cofa = "opiekun"`, or `"opiekun_bez_portu"` when the port was never released), by `launcher._roll_back` through `ToolClone.roll_back` (`cofa = "skrot"`), or by `ToolClone.update` before fetching through `_moved_back` (`cofa = "klik"`) |
 | `KoniecDziennika` | `tool_update.py` `_Journal.end` at the end of `_roll_back` and in `ToolClone.update` after a refusal; then the guardian goes on to `OpiekunWynik`, the shortcut to `SkrotWynik`, and for `cofa = "klik"` `ToolClone.update` goes on to `rev-parse HEAD` and the fetch |
 | `SkrotWynik` | `launcher.py` `_roll_back` after `ToolClone.roll_back`: `write_result` (`NIEOCZEKIWANY_BLAD`), then `subprocess.call(restart_from_disk)` in `launcher._start`, whose Centrum reads that result. An `OSError` from the write goes to `launcher.main`: the dialog `unexpected_start_failure`, nothing starts, and the old result file stays |
 | `Restart` | `tool_updates.py` `ToolUpdates._update` (restarts only on `UPDATED`), `_restart` (`ToolClone.leased_to_guardian` around `restart_guardian.launch`: it writes the lease, and an `OSError` from that write leaves `stan.json` without it; it removes the lease when `launch` raises, and that removal can fail too), and `_moved_back` when either raises |
@@ -116,9 +116,11 @@ Covered files: `src/rozliczenia/centrum/tool_update.py`,
 `src/rozliczenia/centrum/restart_guardian.py`,
 `src/rozliczenia/centrum/launcher.py`.
 
-Sync commit: `11588db1` (2026-10-25, `main` after #474). At this commit every
-row above was checked against the code. Since the previous sync commit
-`bd7c9ff8`:
+Sync commit: `55b84059` (2026-10-26, `main` after #509). At this commit every
+row above was checked against the code. The covered files did not change since
+`11588db1`; this sync added the `OSError` from the `unlink` of Dad's file in
+`_roll_back` (`CofanieUsun` under `AwariaKopiowania`), a path the review of
+#478 found. Before it, since `bd7c9ff8`:
 
 - `c89f75c0` and `18db7e34` (#401) run every Git command through `_run_tree`.
   On Windows it raises `OSError` when the Job Object is not created, `_join`
@@ -210,7 +212,7 @@ guardian's rollback meets every other failure too.
 | --- | --- | --- |
 | `zwykle-awarie` | merge refused (`ZMIANY_NA_KOMPUTERZE`), fetch fails (`BRAK_POLACZENIA`), pip fails (`INSTALACJA_BIBLIOTEK`), guardian does not start or the port is not released | passes |
 | `git` | the above + a new version that may not start + `GitFailed` from `git checkout HEAD --`, `git diff`, `git reset --keep`, and `TimeoutExpired` or `OSError` (`_run_tree`) from `git checkout HEAD --`, `git merge --ff-only`, `git diff`, `rev-parse HEAD` and `git reset --keep` in `_roll_back` | passes |
-| `kopiowanie` | the above without git + `OSError` from `shutil.copy2` of Dad's file, a write of `stan.json` (also the lease), or a write or removal of the result file | known finding `ok_po_dwoch_odmowach` |
+| `kopiowanie` | the above without git + `OSError` from `shutil.copy2` of Dad's file, a write of `stan.json` (also the lease), a write or removal of the result file, or the `unlink` of Dad's file in `_roll_back` | known finding `ok_po_dwoch_odmowach` |
 | `nieudany-start` | `zwykle-awarie` + the new version does not answer in `START_TIMEOUT_S` | passes |
 | `wylaczenie` | `nieudany-start` + the computer switches off at any step | known finding `skrot_gasnie_przed_wynikiem` |
 | `skrot-w-trakcie` | `nieudany-start` + Dad clicks the desktop shortcut up to twice (`MaxSkrotowWTrakcie = 2`) while the guardian runs | passes |

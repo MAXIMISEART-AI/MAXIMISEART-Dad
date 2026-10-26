@@ -14,6 +14,7 @@ from .message import Message, StopError
 from .order_facts import CollectiveOrders
 from .phase_runner import PhaseRunner
 from .workbook_files import DataRow, WorkbookError
+from .workbook_save import WorkbookSaveError
 from .worker_config import normalize_text
 
 
@@ -136,7 +137,7 @@ def run_settlements(
             raise StopError(
                 settlement_messages.worker_template_unusable_in_saving(target_directory, worker_name, error)
             ) from error
-        except Exception as exc:
+        except (OSError, WorkbookSaveError) as exc:
             raise StopError(settlement_messages.worker_file_failed(target_directory, worker_name)) from exc
         return WorkerResult(worker_name, target_path, len(rows), "ZAPISANO" if rows else "PUSTY_SZABLON")
 

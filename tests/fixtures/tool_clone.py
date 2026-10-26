@@ -9,6 +9,9 @@ komputerze taty; ``state`` to wszystko, co aktualizacja mogłaby w klonie
 zmienić. ``unreachable_origin`` i ``origin_asking_for_login`` to GitHub bez
 internetu i GitHub, który prosi o logowanie, oba na tym komputerze. Żaden
 pomocnik nie łączy się z siecią.
+
+Każdy test dostaje własne trzy repozytoria, ale proces testów buduje Gitem każdą
+pierwszą wersję tylko raz i potem ją kopiuje (``built_once``).
 """
 
 from __future__ import annotations
@@ -28,6 +31,8 @@ import threading
 
 from rozliczenia.centrum.tool_freshness import GitHubReleases, PublishedRelease
 from rozliczenia.centrum.tool_update import Release, newest_on_main
+
+from tests.fixtures.git_repo import built_once
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 
@@ -97,8 +102,18 @@ def git_failing_on(tmp_path: Path, *words: str) -> Path:
     return git_command(tmp_path, script)
 
 
+def _comparison(origin: Path, base: str, head: str) -> dict[str, object]:
+    """Strona porównania GitHuba bez commitów i plików: stan ``head`` względem ``base`` i liczby commitów."""
+
+    ahead = int(git(origin, "rev-list", "--count", f"{base}..{head}"))
+    behind = int(git(origin, "rev-list", "--count", f"{head}..{base}"))
+    status = "identical" if ahead == behind == 0 else "ahead" if behind == 0 else "behind" if ahead == 0 else "diverged"
+    return {"status": status, "ahead_by": ahead, "behind_by": behind, "commits": [], "files": []}
+
+
 def _succeeds(directory: Path, *args: str) -> bool:
-    return subprocess.run(["git", "-C", str(directory), *args], env=isolated_git_environment(), check=False).returncode == 0
+    command = ["git", "-C", str(directory), *args]
+    return subprocess.run(command, env=isolated_git_environment(), capture_output=True, check=False).returncode == 0
 
 
 def _write(root: Path, files: Mapping[str, str | None]) -> None:
@@ -147,11 +162,8 @@ class ToolRepository:
         """Odpowiedź „origin” o najnowszym Wydaniu na `main`, wybranym jak w Centrum (``newest_on_main``)."""
 
         commits = {tag: git(self.origin, "rev-parse", f"{tag}^{{commit}}") for tag in git(self.origin, "tag").split()}
-
-        def on_main(commit: str) -> bool:
-            return _succeeds(self.origin, "merge-base", "--is-ancestor", commit, "main")
-
-        newest = newest_on_main(commits, on_main)
+        tips = frozenset(git(self.origin, "rev-list", "--first-parent", "main").split())
+        newest = newest_on_main(commits, lambda commit: commit in tips)
         return GitHubReleases(newest.commit, None if newest.release is None else newest.release.tag)
 
     def published(self) -> tuple[PublishedRelease, ...]:
@@ -203,10 +215,13 @@ def copy_centrum_runtime(destination: Path) -> Path:
 def tool_repository(directory: Path, files: Mapping[str, str] = FIRST_VERSION) -> ToolRepository:
     """Wydawca z pierwszą wersją ``files``, „origin” bez katalogu roboczego i klon taty na tym samym commicie."""
 
-    publisher = directory / "wydawca"
-    publisher.mkdir(parents=True)
-    _write(publisher, files)
-    return _published(directory, publisher)
+    def build(template: Path) -> None:
+        (template / "wydawca").mkdir()
+        _write(template / "wydawca", files)
+        _publish_first_version(template)
+
+    built_once(directory, build, *sorted(files.items()))
+    return ToolRepository(directory / "wydawca", directory / "origin.git", directory / "narzedzie")
 
 
 def centrum_tool_repository(directory: Path, files: Mapping[str, str] | None = None) -> ToolRepository:
@@ -215,23 +230,26 @@ def centrum_tool_repository(directory: Path, files: Mapping[str, str] | None = N
     ``files`` podmienia albo dodaje pliki tej pierwszej wersji.
     """
 
-    publisher = copy_centrum_runtime(directory / "wydawca")
-    _write(publisher, files or {})
-    return _published(directory, publisher)
+    def build(template: Path) -> None:
+        _write(copy_centrum_runtime(template / "wydawca"), files or {})
+        _publish_first_version(template)
+
+    built_once(directory, build, *sorted((files or {}).items()))
+    return ToolRepository(directory / "wydawca", directory / "origin.git", directory / "narzedzie")
 
 
-def _published(directory: Path, publisher: Path) -> ToolRepository:
+def _publish_first_version(directory: Path) -> None:
+    """Commit i Wydanie ``v0.1.0`` plików wydawcy w ``directory``, „origin” i klon taty obok niego."""
+
+    publisher, origin = directory / "wydawca", directory / "origin.git"
     git(publisher, "init", "--quiet", "--initial-branch", "main")
     git(publisher, "add", "--all")
     git(publisher, "commit", "--quiet", "--message", "Pierwsza wersja narzędzia")
-    origin = directory / "origin.git"
     git(directory, "clone", "--quiet", "--bare", str(publisher), str(origin))
     git(publisher, "remote", "add", "origin", str(origin))
     git(publisher, "tag", "v0.1.0")
     git(publisher, "push", "--quiet", "origin", "refs/tags/v0.1.0")
-    clone = directory / "narzedzie"
-    git(directory, "clone", "--quiet", str(origin), str(clone))
-    return ToolRepository(publisher, origin, clone)
+    git(directory, "clone", "--quiet", str(origin), str(directory / "narzedzie"))
 
 
 def _next_release(tags: list[str]) -> str:
@@ -299,24 +317,31 @@ class FakeInstaller:
 
 
 @contextmanager
-def github_api_of(origin: Path) -> Iterator[str]:
-    """API GitHuba (lista tagów i porównanie z `main`) dla repozytorium ``origin``, liczone Gitem w ``origin``.
+def github_api_of(origin: Path, *, asked: list[str] | None = None) -> Iterator[str]:
+    """API GitHuba (lista tagów, czubek `main` i porównanie commitów) dla repozytorium ``origin``, liczone Gitem w
+    ``origin``; ścieżka każdego pytania trafia do ``asked``.
 
-    Adres zwrócony przez blok to repozytorium w tym API (``REPOSITORY_API``).
+    Adres zwrócony przez blok to repozytorium w tym API (``REPOSITORY_API``). Porównanie przyjmuje commity tak jak
+    GitHub, także ``<commit>~k``, a commitu, którego nie ma (``~k`` sprzed pierwszego commitu), nie zna (404).
     """
 
     class _Api(BaseHTTPRequestHandler):
         def do_GET(self) -> None:
+            if asked is not None:
+                asked.append(self.path)
+            compared = self.path.removeprefix("/repo/compare/").removesuffix("?per_page=1&page=2").split("...")
             if self.path == "/repo/tags?per_page=100":
                 tags = [
                     {"name": tag, "commit": {"sha": git(origin, "rev-parse", f"{tag}^{{commit}}")}}
                     for tag in git(origin, "tag").split()
                 ]
                 self._answer(json.dumps(tags))
-            elif self.path.startswith("/repo/compare/") and self.path.endswith("...main?per_page=1&page=2"):
-                commit = self.path.removeprefix("/repo/compare/").partition("...")[0]
-                on_main = _succeeds(origin, "merge-base", "--is-ancestor", commit, "main")
-                self._answer(json.dumps({"status": "ahead" if on_main else "diverged"}))
+            elif self.path == "/repo/git/ref/heads/main":
+                self._answer(json.dumps({"ref": "refs/heads/main", "object": {"sha": git(origin, "rev-parse", "main")}}))
+            elif self.path.startswith("/repo/compare/") and len(compared) == 2 and _succeeds(
+                origin, "rev-parse", "--quiet", "--verify", f"{compared[1]}^{{commit}}"
+            ):
+                self._answer(json.dumps(_comparison(origin, *compared)))
             else:
                 self.send_response(404)
                 self.end_headers()

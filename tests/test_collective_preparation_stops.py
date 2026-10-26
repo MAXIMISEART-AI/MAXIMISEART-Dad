@@ -11,8 +11,12 @@ from pathlib import Path
 import sys
 
 from openpyxl import load_workbook
+from openpyxl.styles import Font
 import pytest
 
+from rozliczenia.domain import PhaseFailed, PhaseStarted, ProgressEvent, ProgressPhase
+from rozliczenia.intermax_file import Waiting
+from rozliczenia.intermax_ordering import order_register
 from rozliczenia.message import StopError
 
 from tests.fixtures.preparation import (
@@ -26,11 +30,13 @@ from tests.fixtures.preparation import (
     make_dad_layout_fixture,
     make_preparation_fixture,
     month_periods_folder,
+    paste_raw_orders,
     register_order,
     run_preparation,
     write_register,
     write_register_sheet,
 )
+from tests.fixtures.clock import ManualClock
 from tests.fixtures.workbooks import (
     break_row_far_below_data_rows,
     cut_sheet_after_data_rows,
@@ -299,6 +305,175 @@ def test_sheet_with_orders_of_other_periods_does_not_block_period(tmp_path: Path
     summary = run_preparation(fixture)
 
     assert (summary.period_order_count, summary.successful_order_count) == (4, 3)
+
+
+def raw_order(number: int, started: datetime | None, worker: str | None = "adrian.testowy") -> dict[str, object]:
+    """Zlecenie z aplikacji do wklejenia na dół Rejestru; ``None``: bez daty albo bez Wykonawcy."""
+
+    order = register_order(number, datetime(2026, 9, 1) if started is None else started)
+    if started is None:
+        del order["DATA GODZ. POCZ."]
+    if worker is None:
+        del order["WYKONAWCA"]
+    else:
+        order["WYKONAWCA"] = worker
+    return order
+
+
+# Domyślny Rejestr kończy się uporządkowanym zleceniem z poniedziałku 14.09 w wierszu 13; wklejenie zaczyna się w 16.
+@pytest.mark.parametrize(
+    ("pasted", "rows"),
+    [
+        ([raw_order(11, datetime(2026, 9, 13, 10)), raw_order(12, datetime(2026, 9, 13, 12))], "wiersze 16–17"),
+        ([raw_order(11, datetime(2026, 9, 8, 10)), raw_order(12, datetime(2026, 9, 8, 12))], "wiersze 16–17"),
+        ([raw_order(11, datetime(2026, 9, 14, 10)), raw_order(12, datetime(2026, 9, 14, 12))], "wiersze 16–17"),
+        ([raw_order(11, datetime(2026, 9, 14, 10)), raw_order(12, datetime(2026, 9, 15, 12))], "wiersze 16–17"),
+        ([raw_order(11, datetime(2026, 9, 7, 10)), raw_order(12, datetime(2026, 9, 8, 12))], "wiersze 16–17"),
+        ([raw_order(11, None), raw_order(12, datetime(2026, 9, 21, 12))], "wiersz 16"),
+        ([raw_order(11, datetime(2026, 9, 21, 10)), raw_order(12, None)], "wiersz 17"),
+        ([raw_order(11, datetime(2026, 9, 21, 10)), raw_order(12, datetime(2026, 9, 21, 12), worker=None)], "wiersz 17"),
+    ],
+    ids=[
+        "dzien-okresu",
+        "pierwszy-dzien-okresu",
+        "ostatni-dzien-okresu-juz-uporzadkowany",
+        "dzien-okresu-i-nastepny",
+        "dzien-poprzedniego-okresu-i-pierwszy-dzien-okresu",
+        "bez-daty",
+        "bez-daty-w-drugim-wierszu",
+        "bez-wykonawcy",
+    ],
+)
+@pytest.mark.parametrize("dry_run", [False, True])
+def test_surowe_zlecenia_w_okresie_zatrzymuja_sprawdzanie_bez_plikow(
+    tmp_path: Path, pasted: list[dict[str, object]], rows: str, dry_run: bool
+) -> None:
+    fixture = make_preparation_fixture(tmp_path)
+    paste_raw_orders(fixture.register_path, pasted)
+    recorded: list[ProgressEvent] = []
+    periods_before = sorted(path.name for path in fixture.periods_directory.iterdir())
+    register_before = fixture.register_path.read_bytes()
+
+    with pytest.raises(StopError) as raised:
+        run_preparation(fixture, dry_run=dry_run, observer=recorded.append)
+
+    assert raised.value.message.text == (
+        "Co się stało: Wklejone zlecenia na dole Rejestru zleceń nie są jeszcze uporządkowane, "
+        "a mogą należeć do tego okresu. Nie utworzono żadnego pliku.\n"
+        f"Gdzie: plik ZLECENIA INTERMAX OD 08_11_2021.xlsx, arkusz ZLECENIA, {rows}\n"
+        "Co zrobić: Najpierw uporządkuj INTERMAX w Centrum rozliczeń, potem uruchom ponownie."
+    )
+    assert not raised.value.message.reports_to_maintainer
+    assert [(event.phase, type(event)) for event in recorded] == [
+        (ProgressPhase.CHECKING, PhaseStarted),
+        (ProgressPhase.CHECKING, PhaseFailed),
+    ]
+    assert sorted(path.name for path in fixture.periods_directory.iterdir()) == periods_before
+    assert fixture.register_path.read_bytes() == register_before
+
+
+@pytest.mark.parametrize(
+    "pasted",
+    [
+        [raw_order(11, datetime(2026, 9, 15, 10)), raw_order(12, datetime(2026, 9, 15, 12))],
+        [raw_order(11, datetime(2026, 9, 15, 10)), raw_order(12, datetime(2026, 9, 16, 12))],
+        [raw_order(11, datetime(2026, 9, 7, 10)), raw_order(12, datetime(2026, 9, 7, 12))],
+    ],
+    ids=["dzien-nastepnego-okresu", "dni-nastepnego-okresu", "dzien-poprzedniego-okresu-juz-uporzadkowany"],
+)
+def test_surowe_zlecenia_z_dnia_spoza_okresu_nie_zatrzymuja_przygotowania(
+    tmp_path: Path, pasted: list[dict[str, object]]
+) -> None:
+    fixture = make_preparation_fixture(tmp_path)
+    paste_raw_orders(fixture.register_path, pasted)
+
+    summary = run_preparation(fixture)
+
+    assert (summary.period_order_count, summary.successful_order_count) == (4, 3)
+    assert fixture.collective_file_path.exists()
+
+
+def register_with_app_look_row(tmp_path: Path, day: int) -> PreparationFixture:
+    """Rejestr, którego dół to trzy uporządkowane zlecenia z ``day``.09, a środkowe ma wygląd z aplikacji (Roboto 8).
+
+    Tak wygląda zlecenie dopisane do uporządkowanego dnia przez skopiowanie z aplikacji albo notatka taty w innej
+    czcionce: wiersz bez Calibri 8 nad uporządkowanym, a na dole nic nie jest wklejone. Środkowe zlecenie jest w
+    wierszu 17.
+    """
+
+    fixture = make_preparation_fixture(
+        tmp_path,
+        [*default_register_rows(), None, None, *(register_order(7 + hour, datetime(2026, 9, day, 8 + hour)) for hour in range(3))],
+    )
+    workbook = load_workbook(fixture.register_path)
+    for cell in workbook["ZLECENIA"][17]:
+        if cell.value is not None:
+            cell.font = Font(name="Roboto", size=8)
+    workbook.save(fixture.register_path)
+    workbook.close()
+    return fixture
+
+
+@pytest.mark.parametrize(("day", "period", "period_orders"), [(16, PERIOD, 4), (16, "15_21_09_2026", 4), (14, PERIOD, 7)])
+@pytest.mark.parametrize("dry_run", [False, True])
+def test_wiersz_z_wygladem_z_aplikacji_w_uporzadkowanym_dniu_bez_wklejenia_nie_zatrzymuje_przygotowania(
+    tmp_path: Path, day: int, period: str, period_orders: int, dry_run: bool
+) -> None:
+    fixture = register_with_app_look_row(tmp_path, day)
+
+    summary = run_preparation(fixture, period, dry_run=dry_run)
+
+    assert summary.period_order_count == period_orders
+
+
+def test_surowe_zlecenia_na_dole_zatrzymuja_okres_mimo_wiersza_z_wygladem_z_aplikacji_nad_nimi(tmp_path: Path) -> None:
+    fixture = register_with_app_look_row(tmp_path, 16)
+    first = paste_raw_orders(
+        fixture.register_path, [raw_order(11, datetime(2026, 9, 13, 10)), raw_order(12, datetime(2026, 9, 13, 12))]
+    )
+
+    error = stop_preparation(fixture)
+
+    assert (error.message.code, error.message.where) == (
+        "SUROWE_ZLECENIA_W_OKRESIE",
+        f"plik ZLECENIA INTERMAX OD 08_11_2021.xlsx, arkusz ZLECENIA, wiersze {first}–{first + 1}",
+    )
+
+
+@pytest.mark.parametrize("other_first", [True, False], ids=["drugi-arkusz-przed", "drugi-arkusz-za"])
+def test_surowe_zlecenia_w_jednym_z_dwoch_arkuszy_zlecen_zatrzymuja_okres(tmp_path: Path, other_first: bool) -> None:
+    fixture = make_preparation_fixture(tmp_path)
+    add_register_sheet(
+        fixture.register_path, "archiwum 2025", [register_order(8, datetime(2025, 9, 9, 9, 0))], first=other_first
+    )
+    paste_raw_orders(fixture.register_path, [raw_order(11, datetime(2026, 9, 13, 10)), raw_order(12, datetime(2026, 9, 13, 12))])
+
+    error = stop_preparation(fixture)
+
+    assert (error.message.code, error.message.where) == (
+        "SUROWE_ZLECENIA_W_OKRESIE",
+        "plik ZLECENIA INTERMAX OD 08_11_2021.xlsx, arkusz ZLECENIA, wiersze 16–17",
+    )
+
+
+def test_okres_po_uporzadkowaniu_intermax_przechodzi_z_uporzadkowanymi_zleceniami(tmp_path: Path) -> None:
+    fixture = make_preparation_fixture(tmp_path)
+    paste_raw_orders(
+        fixture.register_path,
+        [raw_order(11, datetime(2026, 9, 13, 12), "kamil.syntetyczny"), raw_order(12, datetime(2026, 9, 13, 10))],
+    )
+    clock = ManualClock()
+    order_register(
+        fixture.register_path,
+        tmp_path / "Kopie INTERMAX",
+        now=lambda: datetime(2026, 9, 12, 20),
+        waiting=Waiting(clock, clock.pause),
+    )
+
+    summary = run_preparation(fixture)
+
+    assert (summary.period_order_count, summary.successful_order_count) == (6, 5)
+    assert fixture.collective_file_path.exists()
 
 
 @pytest.mark.parametrize(

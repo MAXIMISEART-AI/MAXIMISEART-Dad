@@ -25,7 +25,7 @@ from tests.fixtures.preparation import (
     incomplete_period_rows,
 )
 from tests.fixtures.centrum import centrum as bare_centrum
-from tests.fixtures.centrum_processes import TODAY, PreparingCentrum, Surroundings, preparing_centrum
+from tests.fixtures.centrum_processes import TODAY, PreparingCentrum, Surroundings, preparing_centrum, run_to_end
 from tests.fixtures.centrum import finished_view, phase_states, run_events, views_until
 
 # Podsumowanie wyniku na domyślnym syntetycznym Rejestrze zleceń, takie samo w podglądzie i przy Uruchom.
@@ -52,6 +52,7 @@ SUMMARY: dict[str, Any] = {
         {"name": COLLECTIVE_FILE_NAME, "kind": "collective_file"},
     ],
     "worker_settlements": None,
+    "intermax_copy": None,
 }
 # Domyślny syntetyczny Rejestr ma w URZĄDZENIA tylko urządzenia nieznane Regułom ilości.
 QUANTITY_WARNINGS_WHERE = [
@@ -177,7 +178,8 @@ def test_przerwij_bez_zapisu_zatrzymuje_z_trzema_czesciami_dla_centrum(tmp_path:
     centrum, view = awaiting_decision(tmp_path)
 
     decide(centrum, view, "abort")
-    result = finished_view(centrum.client)["result"]
+    finished = finished_view(centrum.client)
+    result = finished["result"]
 
     assert (result["result"], result["ending"], result["next_action"]) == ("BLAD_KRYTYCZNY", "declined", "rerun")
     assert (result["headline"], result["stop_kind"], result["diagnosis"], result["report"]) == (
@@ -186,7 +188,11 @@ def test_przerwij_bez_zapisu_zatrzymuje_z_trzema_czesciami_dla_centrum(tmp_path:
         None,
         None,
     )
-    assert (result["files_unchanged"], result["opens"]) == (True, "order_register")
+    assert (result["files_unchanged"], result["opens"], finished["run"]["register_name"]) == (
+        True,
+        "order_register",
+        "Rejestr zleceń",
+    )
     assert result["stops"] == [
         {
             "what": "Przerwano z powodu niepełnego okresu, zgodnie z odpowiedzią. Nie utworzono żadnego pliku.",
@@ -496,12 +502,32 @@ def test_karta_startu_mowi_ktore_pliki_przygotowania_sa_otwarte_w_excelu_az_do_i
 
     assert opened == {
         (
-            "Rejestr zleceń jest otwarty w Excelu. Zapisz go i zamknij.",
-            "Wzorzec rozliczenia wewnętrznego jest otwarty w Excelu. Zamknij go bez zapisywania zmian.",
-            "Wzorzec pliku zbiorczego jest otwarty w Excelu. Zamknij go bez zapisywania zmian.",
+            "Rejestr zleceń jest otwarty w Excelu. Zapisz go i zamknij. Jeśli Excel jest zamknięty, usuń z tego "
+            f"samego folderu pozostawiony plik ~${fixture.register_path.name}.",
+            "Wzorzec rozliczenia wewnętrznego jest otwarty w Excelu. Zamknij go bez zapisywania zmian. Jeśli Excel "
+            f"jest zamknięty, usuń z tego samego folderu pozostawiony plik ~${fixture.internal_template_path.name}.",
+            "Wzorzec pliku zbiorczego jest otwarty w Excelu. Zamknij go bez zapisywania zmian. Jeśli Excel jest "
+            f"zamknięty, usuń z tego samego folderu pozostawiony plik ~${fixture.collective_template_path.name}.",
         )
     }
     assert open_in_excel() == {()}
+
+
+@pytest.mark.parametrize("workbook", ["register_path", "internal_template_path", "collective_template_path"])
+def test_rada_karty_startu_i_zatrzymania_nazywa_ten_sam_pozostawiony_plik_blokady(
+    tmp_path: Path, workbook: str
+) -> None:
+    centrum = preparing_centrum(tmp_path)
+    path: Path = getattr(centrum.fixture, workbook)
+    leftover = f"pozostawiony plik ~${path.name}"
+    path.with_name(f"~${path.name}").touch()
+    setup, _settlement = centrum.client.get("/api/runs/setup").json()["processes"]
+
+    [stop] = run_to_end(centrum, dry_run=True)["result"]["stops"]
+
+    assert {len(choice["open_in_excel"]) for choice in setup["periods"]} == {1}
+    assert all(leftover in choice["open_in_excel"][0] for choice in setup["periods"])
+    assert leftover in stop["action"]
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="chmod w Windows zmienia tylko atrybut „tylko do odczytu”")

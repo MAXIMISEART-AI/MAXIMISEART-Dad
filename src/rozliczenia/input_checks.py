@@ -4,18 +4,24 @@ Rejestr zleceń i Wzorce czytają czytniki (``Readers``), które proces i Centru
 czytnika (``WorkbookError``, ``PeriodFolderError``, ``WorkerConfigError``) moduł sam tłumaczy na Komunikat
 procesu, który z tego pliku korzysta: proces zatrzymuje się nim (``StopError``), a Diagnoza i Konfiguracja
 pokazują go jako przyczynę albo problem pliku.
+
+Sprawdzanie Przygotowania pliku zbiorczego szuka też Surowych zleceń na dole każdego arkusza zleceń
+(``raw_orders_in_period``) tym samym rozpoznaniem bloku i odczytem arkusza co Uporządkowanie INTERMAX
+(``raw_orders.pasted`` na ``intermax_file.Register``) i oddaje je jako fakt, który Przygotowanie tłumaczy na
+Zatrzymanie.
 """
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Final
 
-from . import preparation_files, preparation_register, settlement_files, settlement_messages, workbook_files
+from . import preparation_files, preparation_register, raw_orders, settlement_files, settlement_messages, workbook_files
 from . import preparation_messages as messages
+from .intermax_file import Register, UnsupportedShape
 from .message import Message, StopError
 from .period_folder import (
     PeriodFolder,
@@ -126,6 +132,48 @@ def read_register(register: Path, period: SettlementPeriod | None, readers: Read
 
     with _stops(messages.register_unusable):
         return readers.register(register, period)
+
+
+@dataclass(frozen=True)
+class RawOrders:
+    """Surowe zlecenia, które mogą należeć do okresu: arkusz zleceń i jego wiersze od ``first_row`` do ``last_row``."""
+
+    sheet: str
+    first_row: int
+    last_row: int
+
+
+def raw_orders_in_period(register: Path, period: SettlementPeriod) -> RawOrders | None:
+    """Surowe zlecenia na dole arkusza zleceń z dniem w ``period`` albo z dniem, którego nie da się ustalić.
+
+    Dzień nie daje się ustalić, gdy Surowe zlecenie nie ma daty albo Wykonawcy: wtedy to Uporządkowanie INTERMAX
+    mówi, co poprawić. Wiersz z wyglądem z aplikacji nad uporządkowanymi bez bloku na dole nie jest Surowym
+    zleceniem i Przygotowania nie zatrzymuje. Zatrzymanie przy nieczytelnym Rejestrze.
+    """
+
+    with _stops(messages.register_unusable), workbook_files.unreadable_as_error(register):
+        intermax = Register.read(register)
+        for sheet in intermax.order_sheets:
+            try:
+                pasted = raw_orders.pasted(sheet.rows_from_bottom(), sheet.columns)
+            except UnsupportedShape as error:
+                raise WorkbookError(register, Problem.UNREADABLE) from error
+            found = _raw_rows_in_period(pasted, period)
+            if found is not None:
+                return RawOrders(sheet.name, *found)
+    return None
+
+
+def _raw_rows_in_period(
+    pasted: Sequence[raw_orders.RawOrder | raw_orders.Undated | raw_orders.WithoutWorker], period: SettlementPeriod
+) -> tuple[int, int] | None:
+    undetermined = next((order for order in pasted if not isinstance(order, raw_orders.RawOrder)), None)
+    if undetermined is not None:
+        return undetermined.row, undetermined.row
+    in_period = any(
+        period.tuesday <= order.when.date() <= period.monday for order in pasted if isinstance(order, raw_orders.RawOrder)
+    )
+    return (pasted[0].row, pasted[-1].row) if in_period else None
 
 
 def register_problem(register: Path, readers: Readers) -> Message | None:

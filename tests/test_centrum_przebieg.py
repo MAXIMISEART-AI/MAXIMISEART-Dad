@@ -48,6 +48,7 @@ def test_podglad_bez_zapisu_pokazuje_plan_plikow_na_wykonawce_bez_folderu_rozlic
         "counts": None,
         "files": [],
         "worker_settlements": WORKER_SETTLEMENT_ROWS,
+        "intermax_copy": None,
     }
     assert (result["stops"], result["warnings"]) == ([], [])
     assert sorted(path.name for path in centrum.period_directory.iterdir()) == [SOURCE_NAME]
@@ -357,12 +358,34 @@ def test_karta_startu_mowi_ktore_pliki_przebiegu_sa_otwarte_w_excelu_az_do_ich_z
     for lock in locks:
         lock.unlink()
 
-    template_open = "Wzorzec rozliczenia pracownika jest otwarty w Excelu. Zamknij go bez zapisywania zmian."
+    template_open = (
+        "Wzorzec rozliczenia pracownika jest otwarty w Excelu. Zamknij go bez zapisywania zmian. Jeśli Excel jest "
+        f"zamknięty, usuń z tego samego folderu pozostawiony plik ~${configuration.worker_template.name}."
+    )
+    collective_open = (
+        "Plik zbiorczy jest otwarty w Excelu. Zapisz go i zamknij. Jeśli Excel jest zamknięty, usuń z tego samego "
+        f"folderu pozostawiony plik ~${centrum.collective_file.name}."
+    )
     assert opened == {
-        PERIOD: ["Plik zbiorczy jest otwarty w Excelu. Zapisz go i zamknij.", template_open],
+        PERIOD: [collective_open, template_open],
         "01_07_09_2026": [template_open],
     }
     assert open_in_excel() == {PERIOD: [], "01_07_09_2026": []}
+
+
+@pytest.mark.parametrize("workbook", ["collective_file", "worker_template"])
+def test_rada_karty_startu_i_zatrzymania_nazywa_ten_sam_pozostawiony_plik_blokady(tmp_path: Path, workbook: str) -> None:
+    centrum = settling_centrum(tmp_path)
+    path = {"collective_file": centrum.collective_file, "worker_template": centrum.configuration.worker_template}[workbook]
+    leftover = f"pozostawiony plik ~${path.name}"
+    path.with_name(f"~${path.name}").touch()
+    [card] = [choice["open_in_excel"] for choice in settlement_setup(centrum.client)["periods"]]
+
+    [stop] = run_to_end(centrum, dry_run=True)["result"]["stops"]
+
+    assert len(card) == 1
+    assert leftover in card[0]
+    assert leftover in stop["action"]
 
 
 def test_bez_okresu_z_plikiem_zbiorczym_przebieg_mowi_czego_brakuje(tmp_path: Path) -> None:

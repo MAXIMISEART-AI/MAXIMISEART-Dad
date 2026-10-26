@@ -72,20 +72,35 @@ def test_po_aktualizacji_narzedzia_przegladarka_dostaje_nowy_pakiet_pod_ta_sama_
     assert (updated.status_code, updated.content) == (200, b"console.log('po aktualizacji')\n")
 
 
-def test_kontrakt_ma_trasy_i_schematy_po_kolei_wiec_dwie_nowe_trasy_nie_zmieniaja_tego_samego_miejsca(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def _exported_contract(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
+    """Kontrakt OpenAPI, który eksportuje ``tools/export_openapi.py`` z bieżącego kodu serwera."""
+
     spec = importlib.util.spec_from_file_location("export_openapi", ROOT / "tools" / "export_openapi.py")
     assert spec is not None and spec.loader is not None
     export = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(export)
     monkeypatch.setattr(export, "OUTPUT", tmp_path / "openapi.json")
-
     assert export.main() == 0
-    contract = json.loads((tmp_path / "openapi.json").read_text(encoding="utf-8"))
+    return dict(json.loads((tmp_path / "openapi.json").read_text(encoding="utf-8")))
+
+
+def test_kontrakt_ma_trasy_i_schematy_po_kolei_wiec_dwie_nowe_trasy_nie_zmieniaja_tego_samego_miejsca(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    contract = _exported_contract(tmp_path, monkeypatch)
     schemas = contract["components"]["schemas"]
 
     assert (list(contract["paths"]), list(schemas)) == (sorted(contract["paths"]), sorted(schemas))
+
+
+def test_frontend_parsuje_odpowiedzi_kontraktem_ktory_serwer_naprawde_eksportuje(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Frontend parsuje każdą odpowiedź serwera schematami wygenerowanymi z ``frontend/src/api/openapi.json``."""
+
+    committed = json.loads((ROOT / "frontend" / "src" / "api" / "openapi.json").read_text(encoding="utf-8"))
+
+    assert _exported_contract(tmp_path, monkeypatch) == committed
 
 
 def test_zadanie_z_obcym_naglowkiem_host_jest_odrzucone(tmp_path: Path) -> None:

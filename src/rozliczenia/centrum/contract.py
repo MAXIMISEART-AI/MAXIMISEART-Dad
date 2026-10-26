@@ -176,7 +176,9 @@ class Opened(_Model):
 
 
 # Każdy proces ma klucz, ten sam w Uruchomieniach i w Metrykach.
-ProcessKey = Literal["preparation", "settlement"]
+ProcessKey = Literal["preparation", "settlement", "intermax"]
+# Proces, którego Uruchomienie tata wybiera z okresem; Uporządkowanie INTERMAX ma własną kartę poza okresami.
+PeriodProcessKey = Literal["preparation", "settlement"]
 RunMode = Literal["RUN", "DRY-RUN"]
 RunResult = Literal["OK", "WYMAGA_SPRAWDZENIA", "BLAD_KRYTYCZNY"]
 # Rodzaj Zatrzymania zapisany w metrykach, bez powtórki, którą Centrum pamięta tylko do zamknięcia.
@@ -308,7 +310,7 @@ class ProcessSetup(_Model):
     uruchomieniem, czy „Uruchom” potwierdza Gotowość, i podpowiedź „Podgląd bez zapisu”.
     """
 
-    process: ProcessKey
+    process: PeriodProcessKey
     title: str
     creates: str
     reminder: str
@@ -326,7 +328,7 @@ class RunSetup(_Model):
 class RunRequest(_Model):
     """Start Uruchomienia procesu; pliki wejściowe wylicza serwer z ustawień i okresu."""
 
-    process: ProcessKey
+    process: PeriodProcessKey
     period: str
     dry_run: bool
 
@@ -356,7 +358,11 @@ class Progress(_Model):
 
 
 class RunInfo(_Model):
-    """Uruchomienie procesu; ``confirms_readiness`` deklaruje proces: „Uruchom” potwierdza Gotowość."""
+    """Uruchomienie procesu; ``confirms_readiness`` i ``register_name`` deklaruje proces.
+
+    ``confirms_readiness``: „Uruchom” potwierdza Gotowość. ``register_name``: nazwa Rejestru zleceń z Komunikatów
+    procesu, pod którą karta proponuje otworzyć go przy Zatrzymaniu.
+    """
 
     id: str
     process: ProcessKey
@@ -364,6 +370,7 @@ class RunInfo(_Model):
     period: str
     dry_run: bool
     confirms_readiness: bool
+    register_name: str
 
     @property
     def mode(self) -> RunMode:
@@ -564,6 +571,8 @@ class RunSummary(_Model):
     counts: CountGroup | None
     files: list[PeriodFile]
     worker_settlements: list[WorkerSettlement] | None
+    intermax_copy: str | None = None
+    """Nazwa Kopii INTERMAX sprzed zapisu Uporządkowania INTERMAX; ``None`` w innych procesach i w Logach sprzed niej."""
 
 
 class ReportDraft(_Model):
@@ -620,7 +629,7 @@ StopKind = Literal[RecordedStopKind, "repeated", "declined"]
 # nieoczekiwany wyjątek, przy którym przeglądarka zaczyna Diagnozę od razu po pokazaniu wyniku.
 DiagnosisOffer = Literal["on_request", "automatic"]
 # Otwarcie tego, co proces zapisał: akcja po wyniku z zapisem, którą deklaruje proces (``run_view``).
-ResultAction = Literal["open_collective_file", "open_worker_settlements_folder"]
+ResultAction = Literal["open_collective_file", "open_worker_settlements_folder", "open_order_register"]
 NextAction = Literal["run", "rerun", ResultAction]
 
 
@@ -740,6 +749,21 @@ class RunCardMissing(_Model):
 
 # Karta Uruchomienia z wiersza Historii.
 RunCard = Annotated[RunRestored | RunCardMissing, Field(discriminator="state")]
+
+
+class IntermaxSetup(_Model):
+    """Karta „Uporządkuj INTERMAX” poza okresami: INTERMAX to Rejestr zleceń z Ustawień taty.
+
+    ``reminder`` to przypomnienie przed uruchomieniem, ``blocker`` mówi, czego brakuje w Ustawieniach taty,
+    ``open_in_excel`` to zdanie o INTERMAX otwartym w Excelu, a ``last`` to karta ostatniego Uporządkowania
+    INTERMAX z jego Logów Uruchomienia (``None``: żadnego albo jego Logów nie da się odczytać).
+    """
+
+    title: str
+    reminder: str
+    blocker: str | None
+    open_in_excel: list[str]
+    last: RunRestored | None
 
 
 class RunEvent(_Model):
@@ -1048,6 +1072,8 @@ ApiOperation = Literal[
     "openWorkerSettlement",
     "getRunSetup",
     "startRun",
+    "getIntermaxSetup",
+    "startIntermax",
     "decideRun",
     "diagnoseRun",
     "reportRun",
