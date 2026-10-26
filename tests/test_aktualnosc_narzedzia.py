@@ -20,7 +20,7 @@ import time
 
 import pytest
 
-from rozliczenia.centrum import tool_freshness
+from rozliczenia.centrum import tool_freshness, tool_update
 from rozliczenia.centrum.tool_freshness import GitHubReleases, PublishedRelease, published_from, releases_from
 from rozliczenia.centrum.tool_update import Release
 from rozliczenia.centrum.version import tool_commit
@@ -374,14 +374,16 @@ def test_brak_sieci_to_nie_wiadomo() -> None:
     assert releases_from(f"http://127.0.0.1:{port}/tagi", timeout_s=30) is None
 
 
-def test_aktualnosc_pyta_repozytorium_tego_checkoutu_bez_przekierowania() -> None:
+def test_aktualnosc_i_aktualizacja_pytaja_repozytorium_tego_checkoutu_bez_przekierowania() -> None:
     # Pod starym adresem GitHub przekierowuje każde pytanie: 8 zapytań zamiast 4 i „Nie sprawdzono” po 3 s (#536).
+    # Aktualizacja przez przekierowanie działa, więc bez tej asercji powrót do starego adresu niczego nie psuje w testach (#540).
     origin = subprocess.run(
         ["git", "remote", "get-url", "origin"], cwd=Path(__file__).parent, capture_output=True, text=True, check=True
     ).stdout.strip()
     repository = re.sub(r"^(https://github\.com/|git@github\.com:)|\.git$", "", origin)
 
     assert tool_freshness.REPOSITORY_API == f"https://api.github.com/repos/{repository}"
+    assert tool_update.GITHUB_REPOSITORY == f"https://github.com/{repository}.git"
 
 
 def test_lista_wydan_ma_tylko_opublikowane_wydania_z_notka_i_czasem_publikacji(github: str) -> None:

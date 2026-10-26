@@ -20,9 +20,21 @@ from typing import Any
 import pytest
 
 from rozliczenia.centrum.dad_cases import DAD_CASES_FILE
+from rozliczenia.centrum.log import CentrumLog
 from rozliczenia.centrum.outbox import RETRY_S
 from rozliczenia.centrum.report_box import Unreachable
-from rozliczenia.centrum.tool_update import NEW_VERSION_FAILED, RESULT_FILE, UPDATED, ToolClone, UpdateResult, write_result
+from rozliczenia.centrum.tool_update import (
+    LIBRARIES_FAILED,
+    NEW_VERSION_FAILED,
+    RESULT_FILE,
+    ROLLBACK_FAILED,
+    UNEXPECTED,
+    UPDATED,
+    ToolClone,
+    UpdateResult,
+    read_result,
+    write_result,
+)
 
 from tests.fixtures.centrum import NO_RELEASE, views_until
 from tests.fixtures.centrum_processes import PreparingCentrum, Surroundings, preparing_centrum, run_to_end, stopped_for_maks
@@ -789,6 +801,377 @@ def test_stara_wersja_po_cofnieciu_pokazuje_komunikat_bez_czekania_na_skrzynke_z
     assert log_entries(centrum, "aktualizacja-koniec") == [
         f"wynik=NOWA_WERSJA_NIE_WYSTARTOWALA przed={before} po={newest} biblioteki=nie"
     ] * 2
+
+
+def guardian_finishes(centrum: PreparingCentrum, code: str, *, rolled_back: bool = False) -> None:
+    """Opiekun ponownego startu po ostatnim kliknięciu: kończy aktualizację albo cofa klon, potem zapisuje wynik."""
+
+    assert centrum.surroundings.restarts, (
+        f"Aktualizacja skończyła się bez ponownego startu: {centrum.client.get('/api/tool-update').json()}, "
+        f"dziennik: {centrum.log_path.read_text(encoding='utf-8')}"
+    )
+    restart = centrum.surroundings.restarts[-1]
+    clone = ToolClone(restart.root)
+    if rolled_back:
+        clone.roll_back()
+    else:
+        clone.confirm_update()
+    write_result(restart.result, UpdateResult(code, restart.before, restart.after, restart.installed))
+
+
+def disk_refuses_removing(monkeypatch: pytest.MonkeyPatch, refused: Path) -> None:
+    """Dysk (np. OneDrive albo antywirus) nie pozwala usunąć pliku ``refused``; inne pliki usuwa jak zwykle."""
+
+    unlink = Path.unlink
+
+    def refusing(self: Path, missing_ok: bool = False) -> None:
+        if self == refused:
+            raise PermissionError(13, "Odmowa dostępu")
+        unlink(self, missing_ok=missing_ok)
+
+    monkeypatch.setattr(Path, "unlink", refusing)
+
+
+@pytest.mark.parametrize("from_running", [True, False], ids=["z dzialajacej", "z innej"])
+def test_wynik_ok_przy_dzialajacej_poprzedniej_wersji_to_porazka_nieoczekiwana_z_rada_i_zgloszeniem(
+    tmp_path: Path, from_running: bool
+) -> None:
+    centrum, repository = updating_centrum(tmp_path)
+    running = repository.head()
+    second = repository.publish({"src/narzedzie.py": "WERSJA = 2\n"})
+    # „ok” z innej wersji: Maks przestawił klon, zanim przeczytało je Centrum.
+    before, newest = (running, second) if from_running else (second, repository.publish({"src/x.py": "WERSJA = 3\n"}))
+    # Opiekun zapisał „ok”, komputer zgasł, skrót cofnął klon, a dysk odmówił mu zapisu porażki (#490).
+    write_result(tmp_path / "config" / RESULT_FILE, UpdateResult(UPDATED, before, newest))
+
+    centrum.restart()
+    view = centrum.client.get("/api/tool-update").json()
+
+    assert repository.head() == running
+    assert {key: value for key, value in view.items() if key != "draft"} == {
+        "state": "failed",
+        "message": {
+            "what": "Nie udało się zaktualizować narzędzia z nieoczekiwanego powodu.",
+            "where": "narzędzie na tym komputerze",
+            "action": f"{STILL_WORKS} Kliknij „Zaktualizuj narzędzie” jeszcze raz. "
+            "Jeśli komunikat wraca, kliknij „Wyślij do Maksa”.",
+        },
+        "next_action": "retry",
+        "report": view.get("report"),
+    }
+    assert view["draft"]["title"] == "NIEOCZEKIWANY_BLAD: Nie udało się zaktualizować narzędzia z nieoczekiwanego powodu."
+    assert log_entries(centrum, "aktualizacja-koniec") == [
+        f"wynik=NIEOCZEKIWANY_BLAD przed={before} po={newest} biblioteki=nie"
+    ]
+    assert tool_on_configuration(centrum)["commit"] == running[:7]
+
+
+def test_wynik_ok_bez_gita_zostaje_ok(tmp_path: Path) -> None:
+    centrum, repository = updating_centrum(tmp_path)
+    before = repository.head()
+    newest = repository.publish({"src/narzedzie.py": "WERSJA = 2\n"})
+    write_result(tmp_path / "config" / RESULT_FILE, UpdateResult(UPDATED, before, newest))
+    (repository.clone / ".git").rename(repository.clone / "git-poza-klonem")
+
+    centrum.restart()
+
+    assert tool_on_configuration(centrum)["commit"] is None
+    assert centrum.client.get("/api/tool-update").json() == {"state": "updated"}
+    assert log_entries(centrum, "aktualizacja-koniec") == [f"wynik=ok przed={before} po={newest} biblioteki=nie"]
+
+
+def test_dziennik_rozpoznaje_zapisany_wynik_aktualizacji_bez_commitow(tmp_path: Path) -> None:
+    log = CentrumLog(tmp_path / "centrum.log")
+    log.update_started(before=None)
+    awaited = log.update_awaits(result=NEW_VERSION_FAILED, before=None, after=None)
+
+    log.update_finished(result=NEW_VERSION_FAILED, before=None, after=None, installed=False)
+
+    assert awaited
+    assert not log.update_awaits(result=NEW_VERSION_FAILED, before=None, after=None)
+    # Koniec z porażką już zgłosił wynik tych commitów, także gdy plik mówi co innego (#491).
+    assert not log.update_awaits(result=UNEXPECTED, before=None, after=None)
+
+
+@pytest.mark.parametrize(
+    ("finished", "awaited"),
+    [(UPDATED, True), (NEW_VERSION_FAILED, False), (UNEXPECTED, False)],
+    ids=["po ok nowej wersji", "po porazce", "po innej porazce"],
+)
+def test_dziennik_po_koncu_z_tymi_samymi_commitami_czeka_tylko_na_porazke_po_ok_nowej_wersji(
+    tmp_path: Path, finished: str, awaited: bool
+) -> None:
+    log = CentrumLog(tmp_path / "centrum.log")
+    log.update_started(before="a" * 40)
+    log.update_finished(result=finished, before="a" * 40, after="b" * 40, installed=False)
+
+    assert log.update_awaits(result=NEW_VERSION_FAILED, before="a" * 40, after="b" * 40) is awaited
+    # Wynik starszej Aktualizacji z tego samego commitu do innej wersji.
+    assert not log.update_awaits(result=NEW_VERSION_FAILED, before="a" * 40, after="c" * 40)
+
+
+def test_dziennik_pomija_wynik_starszej_aktualizacji_do_tej_samej_wersji_po_koncu_nowszej(tmp_path: Path) -> None:
+    log = CentrumLog(tmp_path / "centrum.log")
+    log.update_started(before="a" * 40)
+    log.update_started(before="b" * 40)
+    log.update_finished(result=UPDATED, before="b" * 40, after="c" * 40, installed=False)
+
+    # Plik wyniku z pierwszej Aktualizacji (z „a” do tego samego „c”), który dysk nie dał usunąć.
+    assert not log.update_awaits(result=NEW_VERSION_FAILED, before="a" * 40, after="c" * 40)
+
+
+def test_wynik_aktualizacji_trafia_na_karte_gdy_dziennika_nie_da_sie_przeczytac(tmp_path: Path) -> None:
+    centrum, repository = updating_centrum(tmp_path)
+    before = repository.head()
+    newest = repository.publish({"src/narzedzie.py": "WERSJA = 2\n"})
+    write_result(tmp_path / "config" / RESULT_FILE, UpdateResult(NEW_VERSION_FAILED, before, newest))
+    # Na miejscu dziennika stoi folder: żaden system nie da go przeczytać jak pliku.
+    centrum.log_path.mkdir(parents=True)
+
+    centrum.restart()
+    view = centrum.client.get("/api/tool-update").json()
+
+    assert (view["state"], view["message"]["what"]) == ("failed", "Nowa wersja narzędzia nie wystartowała.")
+    assert view["report"] == {"state": "ready"}
+    assert view["draft"]["title"] == "NOWA_WERSJA_NIE_WYSTARTOWALA: Nowa wersja narzędzia nie wystartowała."
+
+
+def test_zgloszony_wynik_nie_wraca_gdy_dysk_nie_pozwala_usunac_jego_pliku(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    centrum, repository = updating_centrum(tmp_path)
+    before = repository.head()
+    newest = repository.publish({"src/narzedzie.py": "WERSJA = 2\n"})
+    update_until_done(centrum)
+    guardian_finishes(centrum, UPDATED)
+    result = tmp_path / "config" / RESULT_FILE
+    disk_refuses_removing(monkeypatch, result)
+
+    cards = []
+    for _ in range(3):
+        centrum.restart()
+        cards.append(centrum.client.get("/api/tool-update").json())
+
+    kept = result.exists()
+    monkeypatch.undo()  # dysk znowu pozwala usuwać
+    centrum.restart()
+
+    assert cards == [{"state": "updated"}, {"state": "idle"}, {"state": "idle"}]
+    assert kept
+    assert not result.exists()
+    assert centrum.client.get("/api/tool-update").json() == {"state": "idle"}
+    assert log_entries(centrum, "aktualizacja-koniec") == [f"wynik=ok przed={before} po={newest} biblioteki=nie"]
+    assert log_entries(centrum, "aktualizacja-wynik-zostaje") == ["typ=PermissionError"]
+
+
+def test_zgloszenie_po_kolejnych_startach_ma_jeden_koniec_aktualizacji_a_stary_wynik_nie_wraca_po_nowej_porazce(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    centrum, repository = updating_centrum(tmp_path)
+    before = repository.head()
+    newest = repository.publish({"src/narzedzie.py": "WERSJA = 2\n"})
+    update_until_done(centrum)
+    guardian_finishes(centrum, NEW_VERSION_FAILED, rolled_back=True)
+    disk_refuses_removing(monkeypatch, tmp_path / "config" / RESULT_FILE)
+    cards = []
+    for _ in range(3):
+        centrum.restart()
+        cards.append(centrum.client.get("/api/tool-update").json()["state"])
+
+    with github_out_of_reach(repository):
+        draft = update_until_done(centrum)["draft"]["body"]
+    centrum.restart()  # plik wyniku dalej leży, a ostatni koniec ma ten sam commit przed
+
+    finished = [
+        f"wynik=NOWA_WERSJA_NIE_WYSTARTOWALA przed={before} po={newest} biblioteki=nie",
+        f"wynik=BRAK_POLACZENIA przed={before} po=- biblioteki=nie",
+    ]
+    assert cards == ["failed", "idle", "idle"]
+    assert re.findall(r" aktualizacja-koniec (.*)", draft) == finished
+    assert centrum.client.get("/api/tool-update").json() == {"state": "idle"}
+    assert log_entries(centrum, "aktualizacja-koniec") == finished
+
+
+def second_click_fails(centrum: PreparingCentrum, installer: FakeInstaller, code: str) -> None:
+    """Następne kliknięcie „Zaktualizuj narzędzie” pada w samym Centrum z ``code``, z tymi samymi commitami co pierwsze."""
+
+    repository = centrum.surroundings.tool
+    assert repository is not None
+    if code == LIBRARIES_FAILED:
+        installer.succeeds = False
+    elif code == UNEXPECTED:
+        centrum.surroundings.guardian_failure = lambda: None
+    else:
+        centrum.surroundings.guardian_failure = lambda: changes_new_version_file(repository)
+
+
+@pytest.mark.parametrize("second", [LIBRARIES_FAILED, UNEXPECTED, ROLLBACK_FAILED])
+def test_zgloszony_wynik_nie_wraca_po_porazce_kolejnego_klikniecia_z_tymi_samymi_commitami(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, second: str
+) -> None:
+    installer = FakeInstaller()
+    centrum, repository = updating_centrum(tmp_path, installer=installer)
+    before = repository.head()
+    newest = repository.publish({"requirements.txt": NEW_REQUIREMENTS, "src/narzedzie.py": "WERSJA = 2\n"})
+    update_until_done(centrum)
+    guardian_finishes(centrum, NEW_VERSION_FAILED, rolled_back=True)
+    disk_refuses_removing(monkeypatch, tmp_path / "config" / RESULT_FILE)
+    centrum.restart()
+    reported = centrum.client.get("/api/tool-update").json()["state"]
+    second_click_fails(centrum, installer, second)
+
+    clicked = update_until_result(centrum)
+    centrum.restart()  # plik wyniku dalej leży, a ostatni koniec ma te same commity i inny wynik
+    view = centrum.client.get("/api/tool-update").json()
+
+    assert reported == "failed"
+    assert clicked["state"] == "failed"
+    assert view == {"state": "idle"}
+    assert log_entries(centrum, "aktualizacja-koniec") == [
+        f"wynik=NOWA_WERSJA_NIE_WYSTARTOWALA przed={before} po={newest} biblioteki=tak",
+        f"wynik={second} przed={before} po={newest} biblioteki=tak",
+    ]
+
+
+@pytest.mark.parametrize("new_version_logged", [True, False], ids=["po ok nowej wersji", "bez konca nowej wersji"])
+def test_ok_przy_starej_wersji_gdy_dysk_nie_usuwa_wyniku_zglasza_porazke_raz(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, new_version_logged: bool
+) -> None:
+    centrum, repository = updating_centrum(tmp_path)
+    before = repository.head()
+    newest = repository.publish({"src/narzedzie.py": "WERSJA = 2\n"})
+    update_until_done(centrum)
+    restart = centrum.surroundings.restarts[-1]
+    write_result(restart.result, UpdateResult(UPDATED, restart.before, restart.after))
+    disk_refuses_removing(monkeypatch, restart.result)
+    if new_version_logged:
+        centrum.restart()  # nowa wersja zapisała „ok” w dzienniku, dysk nie dał usunąć pliku, a potem zgasła
+    # Skrót albo opiekun cofnął klon, a dysk odmówił mu zapisu porażki: „ok” zostaje przy starej wersji (#490).
+    ToolClone(restart.root).roll_back()
+
+    cards = []
+    for _ in range(3):
+        centrum.restart()
+        cards.append(centrum.client.get("/api/tool-update").json()["state"])
+
+    assert repository.head() == before
+    assert cards == ["failed", "idle", "idle"]
+    assert log_entries(centrum, "aktualizacja-koniec") == [
+        *([f"wynik=ok przed={before} po={newest} biblioteki=nie"] if new_version_logged else []),
+        f"wynik=NIEOCZEKIWANY_BLAD przed={before} po={newest} biblioteki=nie",
+    ]
+
+
+def test_urwany_wpis_na_koncu_dziennika_nie_zatrzymuje_startu_z_wynikiem_aktualizacji(tmp_path: Path) -> None:
+    centrum, repository = updating_centrum(tmp_path)
+    before = repository.head()
+    newest = repository.publish({"src/narzedzie.py": "WERSJA = 2\n"})
+    CentrumLog(centrum.log_path).update_started(before=before)
+    # Komputer zgasł w połowie zapisu: dziennik kończy się pierwszym bajtem dwubajtowej litery, bez końca linii.
+    with centrum.log_path.open("ab") as log:
+        log.write("2026-10-26T10:00:00+01:00 pomiar widok=Konfiguracja-Ł".encode()[:-1])
+    write_result(tmp_path / "config" / RESULT_FILE, UpdateResult(NEW_VERSION_FAILED, before, newest))
+
+    centrum.restart()
+    view = centrum.client.get("/api/tool-update").json()
+
+    assert (view["state"], view["message"]["what"]) == ("failed", "Nowa wersja narzędzia nie wystartowała.")
+    assert re.findall(rb" aktualizacja-koniec ([^\r\n]*)", centrum.log_path.read_bytes()) == [
+        f"wynik=NOWA_WERSJA_NIE_WYSTARTOWALA przed={before} po={newest} biblioteki=nie".encode()
+    ]
+
+
+def test_po_udanej_i_nieudanej_aktualizacji_karta_pokazuje_porazke_nowszej_nigdy_ok_starszej(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    centrum, repository = updating_centrum(tmp_path)
+    first = repository.head()
+    second = repository.publish({"src/narzedzie.py": "WERSJA = 2\n"})
+    update_until_done(centrum)
+    guardian_finishes(centrum, UPDATED)
+    disk_refuses_removing(monkeypatch, tmp_path / "config" / RESULT_FILE)
+    centrum.restart()
+    updated = centrum.client.get("/api/tool-update").json()
+    third = repository.publish({"src/narzedzie.py": "WERSJA = 3\n"})
+
+    update_until_done(centrum)
+    guardian_finishes(centrum, NEW_VERSION_FAILED, rolled_back=True)
+    centrum.restart()
+    view = centrum.client.get("/api/tool-update").json()
+    centrum.restart()
+
+    assert updated == {"state": "updated"}
+    assert (view["state"], view["message"]["what"]) == ("failed", "Nowa wersja narzędzia nie wystartowała.")
+    assert repository.head() == second
+    assert log_entries(centrum, "aktualizacja-koniec") == [
+        f"wynik=ok przed={first} po={second} biblioteki=nie",
+        f"wynik=NOWA_WERSJA_NIE_WYSTARTOWALA przed={second} po={third} biblioteki=nie",
+    ]
+    assert centrum.client.get("/api/tool-update").json() == {"state": "idle"}
+
+
+def test_ok_starszej_aktualizacji_po_starcie_nowszej_nie_trafia_do_karty_ani_do_dziennika(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    centrum, repository = updating_centrum(tmp_path)
+    first = repository.head()
+    second = repository.publish({"src/narzedzie.py": "WERSJA = 2\n"})
+    update_until_done(centrum)
+    guardian_finishes(centrum, UPDATED)
+    result = tmp_path / "config" / RESULT_FILE
+    disk_refuses_removing(monkeypatch, result)
+    centrum.restart()
+    repository.publish({"src/narzedzie.py": "WERSJA = 3\n"})
+    update_until_done(centrum)
+    # Centrum zgasło przy ponownym starcie, zanim opiekun cokolwiek zapisał; skrót cofnął klon do drugiej wersji.
+    ToolClone(repository.clone).confirm_update()
+    repository.in_clone("reset", "--quiet", "--keep", second)
+
+    centrum.restart()
+
+    assert read_result(result) == UpdateResult(UPDATED, first, second)
+    assert centrum.client.get("/api/tool-update").json() == {"state": "idle"}
+    assert log_entries(centrum, "aktualizacja-koniec") == [f"wynik=ok przed={first} po={second} biblioteki=nie"]
+    assert log_entries(centrum, "aktualizacja-start")[-1] == f"przed={second}"
+
+
+def test_porazka_od_opiekuna_po_ok_nowej_wersji_ktora_potem_nie_odpowiedziala_trafia_do_karty(tmp_path: Path) -> None:
+    centrum, repository = updating_centrum(tmp_path)
+    before = repository.head()
+    newest = repository.publish({"src/narzedzie.py": "WERSJA = 2\n"})
+    update_until_done(centrum)
+    restart = centrum.surroundings.restarts[-1]
+    write_result(restart.result, UpdateResult(UPDATED, restart.before, restart.after))
+    centrum.restart()  # nowa wersja zapisała „ok” w dzienniku, a potem nie odpowiedziała na /api/health
+    guardian_finishes(centrum, NEW_VERSION_FAILED, rolled_back=True)
+
+    centrum.restart()
+    view = centrum.client.get("/api/tool-update").json()
+
+    assert (view["state"], view["message"]["what"]) == ("failed", "Nowa wersja narzędzia nie wystartowała.")
+    assert log_entries(centrum, "aktualizacja-koniec") == [
+        f"wynik=ok przed={before} po={newest} biblioteki=nie",
+        f"wynik=NOWA_WERSJA_NIE_WYSTARTOWALA przed={before} po={newest} biblioteki=nie",
+    ]
+
+
+@pytest.mark.parametrize("log", ["bez wpisu startu", "bez dziennika"])
+def test_wynik_bez_startu_aktualizacji_w_dzienniku_trafia_do_dziennika_i_karty(tmp_path: Path, log: str) -> None:
+    centrum, repository = updating_centrum(tmp_path)
+    before = repository.head()
+    newest = repository.publish({"src/narzedzie.py": "WERSJA = 2\n"})
+    update_until_done(centrum)
+    guardian_finishes(centrum, UPDATED)
+    lines = centrum.log_path.read_text(encoding="utf-8").splitlines(keepends=True)
+    if log == "bez dziennika":
+        centrum.log_path.unlink()
+    else:
+        centrum.log_path.write_text("".join(line for line in lines if " aktualizacja-start " not in line), "utf-8")
+
+    centrum.restart()
+
+    assert centrum.client.get("/api/tool-update").json() == {"state": "updated"}
+    assert log_entries(centrum, "aktualizacja-koniec") == [f"wynik=ok przed={before} po={newest} biblioteki=nie"]
 
 
 def nothing(repository: ToolRepository) -> None:

@@ -8,6 +8,7 @@ wybiera proces ze swojego katalogu.
 
 from __future__ import annotations
 
+import stat
 import unicodedata
 from pathlib import Path
 from typing import Literal
@@ -24,16 +25,18 @@ __all__ = [
     "normalize_text",
 ]
 
-WorkerConfigProblem = Literal["unreadable", "not_utf8", "not_yaml", "invalid"]
+WorkerConfigProblem = Literal["missing", "inaccessible", "not_utf8", "not_yaml", "invalid"]
 
 
 class WorkerConfigError(Exception):
     """Konfiguracji wykonawców nie da się użyć.
 
-    ``reason``: plik nieczytelny (``unreadable``), zapisany w innym kodowaniu niż
-    UTF-8 (``not_utf8``, np. ANSI ze starego Notatnika albo UTF-16 z PowerShella
-    5.1), zły YAML (``not_yaml``) albo złamana reguła (``invalid``). ``detail`` to
-    bezpieczne zdanie dla taty bez ścieżki pliku.
+    ``reason``: brak pliku (``missing``, także folder w jego miejscu), plik, którego
+    system nie oddał (``inaccessible``, np. zajęty przez inny program albo bez
+    dostępu; to nie zła treść), zapisany w innym kodowaniu niż UTF-8 (``not_utf8``,
+    np. ANSI ze starego Notatnika albo UTF-16 z PowerShella 5.1), zły YAML
+    (``not_yaml``) albo złamana reguła (``invalid``). ``detail`` to bezpieczne
+    zdanie dla taty bez ścieżki pliku.
     """
 
     def __init__(self, reason: WorkerConfigProblem, detail: str) -> None:
@@ -61,7 +64,7 @@ def load_worker_mapping(config_path: Path) -> dict[str, str]:
     try:
         config = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
     except OSError as exc:
-        raise WorkerConfigError("unreadable", "Nie można odczytać pliku konfiguracji.") from exc
+        raise _unread(config_path) from exc
     except UnicodeDecodeError as exc:
         raise WorkerConfigError("not_utf8", "Plik nie jest zapisany w kodowaniu UTF-8.") from exc
     except yaml.YAMLError as exc:
@@ -100,6 +103,21 @@ def load_worker_mapping(config_path: Path) -> dict[str, str]:
         mapping[normalized_id] = display_name
         seen_names[normalized_name] = display_name
     return mapping
+
+
+def _unread(config_path: Path) -> WorkerConfigError:
+    """Plik, którego nie udało się przeczytać: brak pliku albo plik niedostępny, rozpoznane po ``stat`` jak skoroszyt.
+
+    Folder bez dostępu daje ``OSError`` także w ``stat``, więc plik w nim jest niedostępny, a nie brakujący.
+    """
+
+    try:
+        missing = not stat.S_ISREG(config_path.stat().st_mode)
+    except (FileNotFoundError, NotADirectoryError):
+        missing = True
+    except OSError:
+        missing = False
+    return WorkerConfigError("missing" if missing else "inaccessible", "Nie można odczytać pliku konfiguracji.")
 
 
 def _invalid(detail: str) -> WorkerConfigError:

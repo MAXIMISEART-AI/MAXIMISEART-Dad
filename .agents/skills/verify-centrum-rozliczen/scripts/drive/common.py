@@ -9,6 +9,7 @@ from fnmatch import fnmatchcase
 import json
 from pathlib import Path
 import subprocess
+import sys
 import time
 import urllib.error
 import urllib.request
@@ -301,6 +302,33 @@ def sent_requests(page: Page, method: str, path: str) -> Iterator[list[Request]]
         yield sent
     finally:
         page.remove_listener("request", record)
+
+
+@contextmanager
+def unreadable(path: Path) -> Iterator[None]:
+    """Harness: the system refuses to read ``path`` without changing its bytes, size or modification time; always undone."""
+
+    if sys.platform == "win32":
+        import msvcrt
+
+        # A byte-range lock makes every other read of the file fail, as when another program holds it.
+        print(f"  harness: the drive locks the bytes of {path.name}", flush=True)
+        size = path.stat().st_size
+        with path.open("rb") as handle:
+            msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, size)
+            try:
+                yield
+            finally:
+                handle.seek(0)
+                msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, size)
+    else:
+        print(f"  harness: {path.name} has no permissions (chmod 0)", flush=True)
+        mode = path.stat().st_mode
+        path.chmod(0)
+        try:
+            yield
+        finally:
+            path.chmod(mode)
 
 
 def settle(page: Page, sent: list[Request]) -> int:

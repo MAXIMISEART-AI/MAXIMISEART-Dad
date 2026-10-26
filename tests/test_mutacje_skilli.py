@@ -8,7 +8,6 @@ from __future__ import annotations
 import contextlib
 import fnmatch
 import importlib.util
-import json
 from pathlib import Path
 import os
 import shutil
@@ -66,9 +65,12 @@ def _skill(root: Path, name: str, scripts: dict[str, str], skill_md: str = "") -
 
 
 def _tool(root: Path) -> list[str]:
+    """Kopia narzędzia w ``root``; kopii, która już jest, nie nadpisuje, bo test może ją zmieniać."""
+
     (root / "tools").mkdir(exist_ok=True)
-    for name in (TOOL.name, "potomne.py", "ciezkie_ci.py", "mutacje.py", "sciezki_w_kodzie.py"):
-        shutil.copy(TOOLS / name, root / "tools" / name)
+    for name in (TOOL.name, "potomne.py", "ciezkie_ci.py", "mutacje.py", "sciezki_w_kodzie.py", "szybko.py", "ci_lokalnie.py", "czasy_ci.py"):
+        if not (root / "tools" / name).exists():
+            shutil.copy(TOOLS / name, root / "tools" / name)
     return [sys.executable, str(root / "tools" / TOOL.name)]
 
 
@@ -263,6 +265,11 @@ def _selection_repo(root: Path) -> str:
     return commit(root, "baza")
 
 
+def _append(root: Path, name: str) -> None:
+    with (root / name).open("a", encoding="utf-8") as file:
+        file.write("\n")
+
+
 def _ran(result: subprocess.CompletedProcess[str], skill: str) -> bool:
     script = f".agents/skills/{skill}/scripts/check_{skill[-1]}_mutations.py"
     ran, skipped = f"OK   {script}" in result.stdout, f"POMINIĘTY {script}" in result.stdout
@@ -275,23 +282,24 @@ def _ran(result: subprocess.CompletedProcess[str], skill: str) -> bool:
     [
         ("docs/opis.md", False),
         ("src/pakiet/obcy.py", False),
-        ("src/pakiet/routing.py", True),
+        # Trafienie w pilnuje uruchamia podstawę skilla, a skrypt mutacji nie (ADR 0020).
+        ("src/pakiet/routing.py", False),
         (".agents/skills/verify-b/SKILL.md", False),
-        (CHECKED, True),
-        (ANCHORS, True),
-        ("src/pakiet/pomocnik.py", True),
-        ("src/pakiet/__init__.py", True),
+        # Plik, który mutacje zmieniają, i importy sprawdzenia: pytest bramki i pełne CI main, nie skrypt mutacji na PR.
+        (CHECKED, False),
+        (ANCHORS, False),
+        ("src/pakiet/pomocnik.py", False),
+        ("tools/potomne.py", False),
         (".agents/skills/verify-a/scripts/sprawdz_a.py", True),
         (".agents/skills/verify-a/SKILL.md", True),
         ("requirements.txt", True),
-        ("tools/potomne.py", True),
         ("tools/mutacje_skilli.py", True),
+        ("tools/mutacje.py", True),
     ],
 )
-def test_ze_zmianami_od_bazy_biegnie_skrypt_ktorego_pliki_sie_zmienily(tmp_path: Path, changed: str, runs: bool) -> None:
+def test_ze_zmianami_od_bazy_skrypt_mutacji_biegnie_przy_zmianie_folderu_skilla_albo_runnera(tmp_path: Path, changed: str, runs: bool) -> None:
     base = _selection_repo(tmp_path)
-    with (tmp_path / changed).open("a", encoding="utf-8") as file:
-        file.write("\n")
+    _append(tmp_path, changed)
     commit(tmp_path, "zmiana")
 
     result = _run(tmp_path, "--zmiany-od", base)
@@ -301,17 +309,26 @@ def test_ze_zmianami_od_bazy_biegnie_skrypt_ktorego_pliki_sie_zmienily(tmp_path:
     assert (_ran(result, "verify-a"), _ran(result, "verify-b"), _ran(result, "verify-c")) == (runs, True, True)
 
 
-def test_usuniety_plik_importowany_przez_sprawdzenie_uruchamia_skrypt(tmp_path: Path) -> None:
-    base = _selection_repo(tmp_path)
-    (tmp_path / "src/pakiet/pomocnik.py").unlink()
-    commit(tmp_path, "bez pomocnika")
+def test_sprawdzenie_spoza_folderu_skilla_uruchamia_skrypt_ktorego_mutacje_je_uruchamiaja(tmp_path: Path) -> None:
+    _selection_repo(tmp_path)
+    checker = "tests/test_sprawdzenie.py"
+    (tmp_path / checker).parent.mkdir()
+    (tmp_path / checker).write_text("X = 1\n", encoding="utf-8")
+    script = tmp_path / ".agents/skills/verify-b/scripts/check_b_mutations.py"
+    script.write_text(WITH_TABLE.replace(".agents/skills/verify-a/scripts/sprawdz_a.py", checker), encoding="utf-8")
+    (tmp_path / ".agents/skills/verify-b/SKILL.md").write_text(GUARDED, encoding="utf-8")
+    base = commit(tmp_path, "sprawdzenie w tests")
+    _append(tmp_path, checker)
+    commit(tmp_path, "zmiana sprawdzenia")
 
-    assert _ran(_run(tmp_path, "--zmiany-od", base), "verify-a")
+    result = _run(tmp_path, "--zmiany-od", base)
+
+    assert (_ran(result, "verify-a"), _ran(result, "verify-b")) == (False, True)
 
 
 def test_niezacommitowana_zmiana_uruchamia_skrypt(tmp_path: Path) -> None:
     base = _selection_repo(tmp_path)
-    (tmp_path / "src/pakiet/pomocnik.py").write_text("X = 2\n", encoding="utf-8")
+    (tmp_path / ".agents/skills/verify-a/scripts/sprawdz_a.py").write_text("X = 2\n", encoding="utf-8")
 
     assert _ran(_run(tmp_path, "--zmiany-od", base), "verify-a")
 
@@ -351,55 +368,6 @@ def test_kazdy_glob_pilnuje_trafia_w_plik_repozytorium(monkeypatch: pytest.Monke
 
     assert any(guarded.values())
     assert dead == []
-
-
-def test_skrypt_mutacji_czyta_kazdy_plik_repozytorium_ladowany_przez_jego_sprawdzenia(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    tool = _load_tool(monkeypatch)
-    # Moduły z chwili startu interpretera nie są ładowane przez sprawdzenia. W przebiegu bez mutacji zadania Change
-    # mutations ``sitecustomize`` z ``PYTHONPATH`` ładuje przy starcie ``tools/pokrycie_procesu.py``, więc test robi to
-    # samo; gdy ``PYTHONPATH`` ma już ``sitecustomize`` zadania, wygrywa tamten.
-    (tmp_path / "sitecustomize.py").write_text(
-        f"import sys\nsys.path.insert(0, {str(TOOLS)!r})\nimport pokrycie_procesu\nsys.path.remove({str(TOOLS)!r})\n", encoding="utf-8"
-    )
-    python_path = os.pathsep.join(path for path in (os.environ.get("PYTHONPATH", ""), str(tmp_path)) if path)
-    loader = (
-        "import sys\n"
-        "started = set(sys.modules)\n"
-        "import json, os, runpy\n"
-        "script = runpy.run_path(sys.argv[1], run_name='_mutacje')\n"
-        "for checker in {mutation.command[0] for mutation in script['MUTATIONS']}:\n"
-        "    sys.path.insert(0, os.path.dirname(os.path.abspath(checker)))  # jak `python <sprawdzenie>`\n"
-        "    runpy.run_path(checker, run_name='_sprawdzenie')\n"
-        "files = [getattr(module, '__file__', None) for name, module in list(sys.modules.items()) if name not in started]\n"
-        "print(json.dumps({'start': 'pokrycie_procesu' in started, 'pliki': files}))\n"
-    )
-    scripts = sorted((ROOT / ".agents" / "skills").glob("*/scripts/check_*_mutations.py"))
-    unread, nothing_loaded, not_preloaded = {}, [], []
-    for script in scripts:
-        out = subprocess.run(
-            [sys.executable, "-c", loader, str(script)],
-            cwd=ROOT,
-            env={**os.environ, "PYTHONPATH": python_path},
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            check=True,
-        ).stdout
-        measured = json.loads(out.splitlines()[-1])
-        loaded = {Path(name).resolve() for name in measured["pliki"] if name}
-        in_repo = {path.relative_to(ROOT).as_posix() for path in loaded if path.is_relative_to(ROOT) and ".venv" not in path.parts}
-        unread[script.relative_to(ROOT).as_posix()] = sorted(in_repo - tool.reads(script))
-        if not in_repo:
-            nothing_loaded.append(script.name)
-        if not measured["start"]:
-            not_preloaded.append(script.name)
-
-    assert scripts
-    assert not_preloaded == []  # bez modułu ze startu filtr ``started`` niczego nie sprawdza
-    assert nothing_loaded == []  # skrypt mutacji ładuje co najmniej ``tools/mutacje.py``, więc pusty pomiar jest zepsuty
-    assert unread == {script.relative_to(ROOT).as_posix(): [] for script in scripts}
 
 
 def test_polecenie_ci_kazdego_skilla_to_skrypt_z_repozytorium(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -499,18 +467,33 @@ def test_klucz_ci_bez_skryptu_z_repozytorium_daje_fail(tmp_path: Path, command: 
     assert result.stdout.splitlines()[-1] == "MUTACJE SKILLI FAIL | PODSTAWA verify-d"
 
 
-@pytest.mark.parametrize(("arguments", "separately"), [("", False), (" --pelny", True)])
-def test_podstawa_ci_ktora_uruchamia_skrypt_mutacji_nie_biegnie_drugi_raz(tmp_path: Path, arguments: str, separately: bool) -> None:
+@pytest.mark.parametrize(
+    ("arguments", "changed", "separately", "script"),
+    [
+        ("", None, False, True),
+        (" --pelny", None, True, True),
+        # Na PR trafienie w pilnuje bez zmiany folderu skilla uruchamia samą podstawę, choć skrypt mutacji ją powtarza.
+        ("", "src/pakiet/routing.py", True, False),
+        ("", ".agents/skills/verify-a/scripts/sprawdz_a.py", False, True),
+    ],
+)
+def test_podstawa_ci_ktora_uruchamia_wybrany_skrypt_mutacji_nie_biegnie_drugi_raz(
+    tmp_path: Path, arguments: str, changed: str | None, separately: bool, script: bool
+) -> None:
     _selection_repo(tmp_path)
     command = ".agents/skills/verify-a/scripts/sprawdz_a.py" + arguments
     (tmp_path / ".agents/skills/verify-a/SKILL.md").write_text(_with_ci("verify-a", command), encoding="utf-8")
     (tmp_path / ".agents/skills/verify-a/scripts/sprawdz_a.py").write_text(CHECKED_IN_CI.format(code=0), encoding="utf-8")
+    base = commit(tmp_path, "skill z podstawa")
+    if changed:
+        _append(tmp_path, changed)
+        commit(tmp_path, "zmiana")
 
-    result = _run(tmp_path)
+    result = _run(tmp_path, *(("--zmiany-od", base) if changed else ()))
 
     assert result.stdout.splitlines()[-1] == "MUTACJE SKILLI OK", result.stdout + result.stderr
-    assert (f"== PODSTAWA verify-a: {command}" in result.stdout.splitlines()) == separately
-    assert _ran(result, "verify-a")
+    assert (f"== PODSTAWA verify-a: {command}" in [line.split(" (")[0] for line in result.stdout.splitlines()]) == separately
+    assert _ran(result, "verify-a") == script
 
 
 @pytest.mark.parametrize(
@@ -519,18 +502,18 @@ def test_podstawa_ci_ktora_uruchamia_skrypt_mutacji_nie_biegnie_drugi_raz(tmp_pa
         ("docs/opis.md", False),
         ("src/pakiet/obcy.py", False),
         ("src/pakiet/routing.py", True),
-        ("src/pakiet/pomocnik.py", True),
+        # Import sprawdzenia spoza pilnuje nie uruchamia podstawy na PR (ADR 0020): pełne CI main ją uruchamia.
+        ("src/pakiet/pomocnik.py", False),
         (".agents/skills/verify-d/SKILL.md", True),
         ("requirements.txt", True),
-        ("tools/mutacje_skilli.py", True),
+        ("tools/mutacje_skilli.py", False),
     ],
 )
-def test_ze_zmianami_od_bazy_podstawa_ci_biegnie_gdy_zmiana_dotyka_skilla(tmp_path: Path, changed: str, runs: bool) -> None:
+def test_ze_zmianami_od_bazy_podstawa_ci_biegnie_przy_trafieniu_w_pilnuje_albo_folder_skilla(tmp_path: Path, changed: str, runs: bool) -> None:
     _selection_repo(tmp_path)
     _skill(tmp_path, "verify-d", {"sprawdz_d.py": CHECKED_IN_CI.format(code=0)}, _with_ci("verify-d", ".agents/skills/verify-d/scripts/sprawdz_d.py"))
     base = commit(tmp_path, "skill z podstawa")
-    with (tmp_path / changed).open("a", encoding="utf-8") as file:
-        file.write("\n")
+    _append(tmp_path, changed)
     commit(tmp_path, "zmiana")
 
     result = _run(tmp_path, "--zmiany-od", base)

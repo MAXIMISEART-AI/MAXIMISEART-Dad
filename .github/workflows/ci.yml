@@ -333,8 +333,20 @@ jobs:
 
       # verify-centrum-rozliczen drives Centrum in Chromium; the plan marks the jobs that run its steps.
       - name: Install Playwright
+        id: playwright
         if: ${{ matrix.przegladarka }}
-        run: uv pip install --system --python "${{ steps.python.outputs.python-path }}" -e ".[dev]"
+        run: |
+          uv pip install --system --python "${{ steps.python.outputs.python-path }}" -e ".[dev]"
+          python -c "from importlib.metadata import version; print('version=' + version('playwright'))" >> $env:GITHUB_OUTPUT
+
+      # One playwright version always downloads the same Chromium, so the jobs share it; on a hit the install below
+      # finds the browser in place.
+      - name: Cache Chromium
+        if: ${{ matrix.przegladarka }}
+        uses: actions/cache@v6
+        with:
+          path: ~\AppData\Local\ms-playwright
+          key: chromium-${{ runner.os }}-playwright-${{ steps.playwright.outputs.version }}
 
       - name: Install Chromium
         if: ${{ matrix.przegladarka }}

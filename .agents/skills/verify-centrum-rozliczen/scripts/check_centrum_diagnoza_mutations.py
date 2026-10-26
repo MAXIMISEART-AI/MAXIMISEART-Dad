@@ -13,7 +13,7 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "tools"))
 sys.path.insert(0, str(Path(__file__).resolve().parents[4] / ".agents/skills/verify-centrum-rozliczen/scripts"))
 
-from cele_mutacji_centrum import DIAGNOSIS, DIAGNOZA, SETTINGS
+from cele_mutacji_centrum import DIAGNOSIS, DIAGNOZA, SETTINGS, WORKER_CONFIG
 from mutacje import Edit, Mutation, check_all
 
 MUTATIONS = (
@@ -34,6 +34,18 @@ MUTATIONS = (
         ),
         DIAGNOZA,
         "tata widzi drugi Komunikat o tej samej konfiguracji wykonawców zamiast „Diagnoza potwierdza ten komunikat.”",
+    ),
+    Mutation(
+        "Konfiguracja wykonawców bez dostępu jest brakującym plikiem",
+        (
+            Edit(
+                WORKER_CONFIG,
+                "        missing = not stat.S_ISREG(config_path.stat().st_mode)\n",
+                "        missing = True\n",
+            ),
+        ),
+        DIAGNOZA,
+        "tata widzi „Nie można odczytać konfiguracji wykonawców.” zamiast Komunikatu, że plik jest teraz niedostępny",
     ),
 )
 

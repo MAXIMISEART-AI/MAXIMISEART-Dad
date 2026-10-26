@@ -246,7 +246,7 @@ def test_bez_czasow_z_main_plan_wazy_prace_domyslnie_mowi_to_i_daje_macierz(
     plan = plan_ci.Plan.z_json((tmp_path / "plan.json").read_text(encoding="utf-8"))
     output = dict(line.split("=", 1) for line in (tmp_path / "output").read_text(encoding="utf-8").splitlines())
 
-    every_step = {f"skill:{step.key}" for step in mutacje_skilli.steps({})}
+    every_step = {f"skill:{step.key}" for step, _ in mutacje_skilli.wybor(None).chosen}
     planned_steps = {unit.partition("#")[0] for job in plan.zadania if job.tor == plan_ci.MUTACJE.nazwa for unit in job.jednostki}
 
     assert code == 0
@@ -374,24 +374,31 @@ MALFORMED = "src/pakiet/a.py:4: wyjątek musi mieć postać `# mutacje-zmiany: <
 
 
 SKILL = {
-    ".agents/skills/verify-a/SKILL.md": "---\nname: verify-a\npilnuje:\n  - src/pakiet/*.py\n---\n",
+    ".agents/skills/verify-a/SKILL.md": "---\nname: verify-a\npilnuje:\n  - src/pakiet/*.py\nci: .agents/skills/verify-a/scripts/sprawdz_a.py\n---\n",
+    ".agents/skills/verify-a/scripts/sprawdz_a.py": "",
     ".agents/skills/verify-a/scripts/check_a_mutations.py": "MUTATIONS = ()\n",
 }
+SKILL_BASELINE = "PODSTAWA verify-a"
 SKILL_SCRIPT = ".agents/skills/verify-a/scripts/check_a_mutations.py"
 
 
 @pytest.mark.parametrize(
     ("changed", "appended", "planned", "reported"),
     [
-        # Z trzech mutacji nowej linii ``return`` biegnie jedna, granica porównania, i cofnięcie fragmentu.
-        ("src/pakiet/a.py", "\n\ndef b(x: int) -> bool:\n    return x < 3\n", 2, [f"WYBRANY {SKILL_SCRIPT} (zmienione: src/pakiet/a.py)"]),
-        ("tests/test_a.py", "\n\ndef b(x: int) -> bool:\n    return x < 3\n", 0, [f"POMINIĘTY {SKILL_SCRIPT}: "]),
+        # Z trzech mutacji nowej linii ``return`` biegnie jedna, granica porównania, i cofnięcie fragmentu. Trafienie
+        # w pilnuje uruchamia podstawę skilla, a jego skrypt mutacji nie (ADR 0020).
+        ("src/pakiet/a.py", "\n\ndef b(x: int) -> bool:\n    return x < 3\n", 2, [f"WYBRANY {SKILL_BASELINE} (zmienione: src/pakiet/a.py)", f"POMINIĘTY {SKILL_SCRIPT}: "]),
+        ("tests/test_a.py", "\n\ndef b(x: int) -> bool:\n    return x < 3\n", 0, [f"POMINIĘTY {SKILL_BASELINE}: ", f"POMINIĘTY {SKILL_SCRIPT}: "]),
         # Sam komentarz nie ma mutacji, ale zadanie Change mutations zgłasza zły wyjątek jako MUTACJE ZMIANY FAIL.
         (
             "src/pakiet/a.py",
             "\n# mutacje-zmiany: bez terminu\n",
             1,
-            [f"MUTACJE ZMIANY | {MALFORMED}; Change mutations startują, żeby to zgłosić", f"WYBRANY {SKILL_SCRIPT} (zmienione: src/pakiet/a.py)"],
+            [
+                f"MUTACJE ZMIANY | {MALFORMED}; Change mutations startują, żeby to zgłosić",
+                f"WYBRANY {SKILL_BASELINE} (zmienione: src/pakiet/a.py)",
+                f"POMINIĘTY {SKILL_SCRIPT}: ",
+            ],
         ),
     ],
     ids=["zmiana src", "zmiana testów", "sam komentarz src ze złym wyjątkiem"],

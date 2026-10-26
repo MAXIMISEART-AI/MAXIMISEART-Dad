@@ -26,14 +26,21 @@ VERDICT = "SKILLE VERIFY: "
 REPO = {
     ".agents/skills/verify-a/SKILL.md": "---\nname: verify-a\ndescription: a\npilnuje:\n  - src/a/*\n  - tools/narzedzie.py\n---\n",
     ".agents/skills/verify-b/SKILL.md": "---\nname: verify-b\ndescription: b\npilnuje:\n  - docs/b.md\n---\n",
-    ".agents/skills/verify-b/scripts/run_b.py": "print('b')\n",
+    ".agents/skills/verify-b/scripts/run_b.py": "import pomocnik\nprint('b')\n",
     ".agents/skills/inny/SKILL.md": "---\nname: inny\ndescription: nie verify\npilnuje:\n  - docs/b.md\n---\n",
     "src/a/b/gleboki.py": "X = 1\n",
     "src/ab.py": "Y = 1\n",
     "tools/narzedzie.py": "Z = 1\n",
+    "tools/pomocnik.py": "P = 1\n",
     "docs/b.md": "b\n",
     "docs/inny.md": "inny\n",
 }
+
+
+TOOLS_FOR_CHANGE = (
+    "skille_dla_zmiany.py", "mutacje_skilli.py", "plan_ci.py", "mutacje_zmiany.py", "pokrycie_procesu.py", "potomne.py", "szybko.py",
+    "ci_lokalnie.py", "czasy_ci.py", "ciezkie_ci.py", "mutacje.py", "sciezki_w_kodzie.py",
+)
 
 
 def _repo(root: Path, files: dict[str, str] = REPO) -> str:
@@ -41,7 +48,7 @@ def _repo(root: Path, files: dict[str, str] = REPO) -> str:
         (root / name).parent.mkdir(parents=True, exist_ok=True)
         (root / name).write_text(text, encoding="utf-8")
     (root / "tools").mkdir(exist_ok=True)
-    for name in ("skille_dla_zmiany.py", "mutacje_skilli.py", "potomne.py", "szybko.py", "ci_lokalnie.py", "ciezkie_ci.py", "mutacje.py", "sciezki_w_kodzie.py"):
+    for name in TOOLS_FOR_CHANGE:
         shutil.copy(TOOLS / name, root / "tools" / name)
     git(root, "init", "--quiet")
     return commit(root, "baza")
@@ -79,6 +86,8 @@ def _append(root: Path, name: str) -> None:
         ("docs/b.md", ["verify-b"], "verify-b: docs/b.md"),
         (".agents/skills/verify-b/scripts/run_b.py", ["verify-b"], "verify-b: .agents/skills/verify-b/scripts/run_b.py (folder skilla)"),
         ("src/ab.py", [], None),
+        # Import skryptu skilla spoza pilnuje: skill pilnuje swojego zachowania globami, a importów nie liczy (ADR 0020).
+        ("tools/pomocnik.py", [], None),
         ("docs/inny.md", [], None),
         (".agents/skills/inny/SKILL.md", [], None),
     ],
@@ -126,66 +135,6 @@ def test_zmiana_tylko_w_bazie_po_rozgalezieniu_nie_wskazuje_skilla(tmp_path: Pat
     assert _skills(_run(tmp_path, moved)) == ["verify-a"]
 
 
-EXECUTED = {
-    **REPO,
-    ".agents/skills/verify-c/SKILL.md": "---\nname: verify-c\ndescription: c\npilnuje:\n  - docs/c.md\n---\n",
-    ".agents/skills/verify-c/scripts/run_c.py": (
-        "from pathlib import Path\nimport pomocnik\nimport produkt\n\n"
-        'ROOT = Path(__file__).resolve().parents[4]\nSCRIPT = ROOT / "tools" / "uruchamiany.py"\n'
-        'OTHER_SKILL = ROOT / ".agents" / "skills" / "verify-d" / "scripts"\nFIXTURE = OTHER_SKILL / "przygotuj.py"\n'
-    ),
-    ".agents/skills/verify-d/scripts/przygotuj.py": "X = 1\n",
-    ".agents/skills/verify-c/scripts/check_c_mutations.py": "import tylko_mutacje\n",
-    "tools/pomocnik.py": "import glebszy\n",
-    "tools/glebszy.py": 'G = 1\nSKRYPT = "tools/z_importu.py"\n',
-    "tools/z_importu.py": "Z = 1\n",
-    "tools/uruchamiany.py": 'import od_uruchamianego\n\nDALEJ = "tools/dalej.py"\n',
-    "tools/dalej.py": "D = 1\n",
-    "tools/od_uruchamianego.py": "U = 1\n",
-    "tools/tylko_mutacje.py": "M = 1\n",
-    "src/produkt.py": 'P = 1\nSKRYPT = "tools/z_produktu.py"\n',
-    "tools/z_produktu.py": "R = 1\n",
-    "docs/c.md": "c\n",
-}
-
-
-@pytest.mark.parametrize(
-    ("changed", "skills"),
-    [
-        ("tools/pomocnik.py", ["verify-c"]),
-        ("tools/glebszy.py", ["verify-c"]),
-        ("tools/uruchamiany.py", ["verify-c"]),
-        ("tools/od_uruchamianego.py", ["verify-c"]),
-        ("tools/dalej.py", ["verify-c"]),
-        ("tools/z_importu.py", ["verify-c"]),
-        (".agents/skills/verify-d/scripts/przygotuj.py", ["verify-c"]),
-        ("tools/z_produktu.py", []),
-        ("tools/tylko_mutacje.py", []),
-        ("src/produkt.py", []),
-    ],
-)
-def test_plik_spoza_src_ktory_wykonuja_skrypty_skilla_wskazuje_skill(tmp_path: Path, changed: str, skills: list[str]) -> None:
-    base = _repo(tmp_path, EXECUTED)
-    _append(tmp_path, changed)
-    commit(tmp_path, "zmiana")
-
-    result = _run(tmp_path, base)
-
-    assert _skills(result) == skills
-    assert result.stdout.splitlines()[:-1] == [f"verify-c: {changed} (wykonują go skrypty skilla)" for _ in skills] + [
-        "LICZY CI: verify-c (check_c_mutations.py)" for _ in skills
-    ]
-
-
-def test_skill_ktorego_skryptu_nie_da_sie_sparsowac_obowiazuje_zawsze(tmp_path: Path) -> None:
-    base = _repo(tmp_path, {**EXECUTED, ".agents/skills/verify-c/scripts/run_c.py": "def zepsuty(:\n"})
-
-    result = _run(tmp_path, base)
-
-    assert _skills(result) == ["verify-c"]
-    assert result.stdout.splitlines()[0].startswith("verify-c: .agents/skills/verify-c/scripts/run_c.py się nie parsuje, więc skill obowiązuje zawsze")
-
-
 def test_skill_bez_pilnuje_albo_z_nieczytelnym_pilnuje_obowiazuje_zawsze(tmp_path: Path) -> None:
     base = _repo(
         tmp_path,
@@ -221,7 +170,7 @@ def test_skill_z_poleceniami_w_ci_zostaje_w_skillach_verify_a_liczy_ci_wymienia_
         {
             **REPO,
             ".agents/skills/verify-a/SKILL.md": "---\nname: verify-a\npilnuje:\n  - src/a/*\nci: tools/narzedzie.py --wszystko\n---\n",
-            ".agents/skills/verify-a/scripts/check_a_mutations.py": "print('MUTACJE OK')\n",
+            ".agents/skills/verify-a/scripts/check_a_mutations.py": MUTATION_SCRIPT,
             ".agents/skills/verify-mac/SKILL.md": "---\nname: verify-mac\npilnuje:\n  - src/a/*\n---\n",
             ".agents/skills/verify-zly/SKILL.md": "---\nname: verify-zly\npilnuje:\n  - src/a/*\nci: docs/b.md\n---\n",
             ".agents/skills/verify-e2e/SKILL.md": "---\nname: verify-e2e\npilnuje:\n  - src/a/*\n---\n",
@@ -234,7 +183,85 @@ def test_skill_z_poleceniami_w_ci_zostaje_w_skillach_verify_a_liczy_ci_wymienia_
     result = _run(tmp_path, base)
 
     assert _skills(result) == ["verify-a", "verify-e2e", "verify-mac", "verify-zly"]
-    assert result.stdout.splitlines()[-2] == "LICZY CI: verify-a (narzedzie.py --wszystko, check_a_mutations.py); verify-e2e (run_e2e.py --variant all)"
+    assert result.stdout.splitlines()[-2] == "LICZY CI: verify-a (narzedzie.py --wszystko); verify-e2e (run_e2e.py --variant all)"
+
+
+MUTATION_SCRIPT = "MUTATIONS = ()\nif __name__ == '__main__':\n    print('MUTACJE OK')\n"
+AGREEING = {
+    **REPO,
+    # Wczytanie tabel mutacji zostawia __pycache__ w folderze skilla, a repozytorium go ignoruje.
+    ".gitignore": "__pycache__/\n",
+    ".agents/skills/verify-a/SKILL.md": "---\nname: verify-a\npilnuje:\n  - src/a/*\nci: .agents/skills/verify-a/scripts/sprawdz_a.py --wszystko\n---\n",
+    ".agents/skills/verify-a/scripts/sprawdz_a.py": "print('sprawdzone')\n",
+    ".agents/skills/verify-a/scripts/check_a_mutations.py": MUTATION_SCRIPT,
+}
+
+
+def _in_mutation_checks(root: Path, base: str) -> list[str]:
+    """Polecenia kroków, które uruchomił ``tools/mutacje_skilli.py --zmiany-od``, w postaci linii ``LICZY CI``."""
+
+    out = subprocess.run(
+        [sys.executable, str(root / "tools" / "mutacje_skilli.py"), "--zmiany-od", base], cwd=root, capture_output=True, text=True, encoding="utf-8", check=True
+    ).stdout
+    found = []
+    for line in out.splitlines():
+        if line.startswith("== "):
+            command = line.removeprefix("== ").split(" (")[0].split(": ", 1)[-1].split()
+            found.append(" ".join([Path(command[0]).name, *command[1:]]))
+    return found
+
+
+@pytest.mark.parametrize(
+    ("changed", "in_ci"),
+    [
+        ("src/a/b/gleboki.py", ["sprawdz_a.py --wszystko"]),
+        (".agents/skills/verify-a/SKILL.md", ["sprawdz_a.py --wszystko", "check_a_mutations.py"]),
+    ],
+    ids=["pilnuje", "folder skilla"],
+)
+def test_liczy_ci_wymienia_dokladnie_kroki_skilla_ktore_uruchamia_wybor_planu_pull_requestu(tmp_path: Path, changed: str, in_ci: list[str]) -> None:
+    base = _repo(tmp_path, AGREEING)
+    _append(tmp_path, changed)
+    commit(tmp_path, "zmiana")
+
+    result = _run(tmp_path, base)
+
+    assert _skills(result) == ["verify-a"]
+    assert result.stdout.splitlines()[-2] == f"LICZY CI: verify-a ({', '.join(in_ci)})"
+    assert _in_mutation_checks(tmp_path, base) == in_ci
+
+
+def test_zmiana_runnera_mutacji_nie_wskazuje_skilla_choc_ci_uruchamia_jego_skrypt_mutacji(tmp_path: Path) -> None:
+    base = _repo(tmp_path, AGREEING)
+    with (tmp_path / "tools" / "mutacje.py").open("a", encoding="utf-8") as file:
+        file.write("# zmiana\n")
+    commit(tmp_path, "zmiana runnera")
+
+    assert _skills(_run(tmp_path, base)) == []
+    assert _in_mutation_checks(tmp_path, base) == ["check_a_mutations.py"]
+
+
+@pytest.mark.parametrize(
+    ("changed", "in_ci"),
+    [("src/a/b/gleboki.py", ["LICZY CI: verify-rozliczenia (run_verification.py --variant all)"]), (".agents/skills/verify-rozliczenia/SKILL.md", [])],
+    ids=["src", "tylko folder skilla"],
+)
+def test_liczy_ci_wymienia_e2e_tylko_gdy_plan_pull_requestu_go_uruchamia(tmp_path: Path, changed: str, in_ci: list[str]) -> None:
+    base = _repo(
+        tmp_path,
+        {
+            **REPO,
+            ".agents/skills/verify-rozliczenia/SKILL.md": "---\nname: verify-rozliczenia\npilnuje:\n  - src/a/*\n---\n",
+            ".agents/skills/verify-rozliczenia/scripts/run_verification.py": "print('e2e')\n",
+        },
+    )
+    _append(tmp_path, changed)
+    commit(tmp_path, "zmiana")
+
+    result = _run(tmp_path, base)
+
+    assert "verify-rozliczenia" in _skills(result)
+    assert [line for line in result.stdout.splitlines() if line.startswith("LICZY CI")] == in_ci
 
 
 def test_baza_ktorej_nie_ma_daje_nieznane_skille_i_kod_bledu(tmp_path: Path) -> None:
@@ -243,7 +270,7 @@ def test_baza_ktorej_nie_ma_daje_nieznane_skille_i_kod_bledu(tmp_path: Path) -> 
     result = _run(tmp_path, "nie-ma-takiej-bazy")
 
     assert result.returncode == 1
-    assert result.stdout.splitlines()[-1].startswith(f"{VERDICT}nieznane (git diff: ")
+    assert result.stdout.splitlines()[-1].startswith(f"{VERDICT}nieznane (git merge-base: ")
     assert "nie-ma-takiej-bazy" in result.stdout
 
 
@@ -257,10 +284,11 @@ def _load_tool(monkeypatch: pytest.MonkeyPatch) -> ModuleType:
 
 
 def test_kazdy_skill_verify_deklaruje_pilnuje(monkeypatch: pytest.MonkeyPatch) -> None:
-    tool = _load_tool(monkeypatch)
+    _load_tool(monkeypatch)
+    ci = importlib.import_module("mutacje_skilli")
     skills = sorted(SKILLS.glob("verify-*/SKILL.md"))
 
-    without = [md.parent.name for md in skills if tool.guarded(md) is None]
+    without = [md.parent.name for md in skills if ci.guarded(md) is None]
 
     assert skills
     assert without == [], "dopisz do frontmattera SKILL.md klucz pilnuje: z globami ścieżek, przy których zmianie skill obowiązuje"
@@ -279,50 +307,14 @@ def test_frontmatter_kazdego_skilla_jest_poprawnym_yaml() -> None:
     assert broken == {}, "harness czyta frontmatter jako YAML: wartość bez cudzysłowu nie może mieć „: ”"
 
 
-def _spelled(names: set[str]) -> set[str]:
-    """Nazwy plików tak, jak je rozróżnia system: ścieżka Windows nie rozróżnia wielkości liter, więc zbiór kandydatów
-    importu (``openpyxl/Workbook.py`` i ``openpyxl/workbook.py``) zostawia po jednej z pisowni, różnej w każdym zbiorze."""
-
-    return {name.casefold() for name in names} if sys.platform == "win32" else names
-
-
-def test_wybor_w_ci_liczy_dla_polecenia_ci_kazdego_skilla_te_same_pliki_co_skille_dla_zmiany(monkeypatch: pytest.MonkeyPatch) -> None:
-    tool = _load_tool(monkeypatch)
-    ci = importlib.import_module("mutacje_skilli")
-    # Folder bez SKILL.md nie ma polecenia ci, więc czyta tylko runner mutacji i INFRASTRUCTURE, wspólne dla wszystkich skilli.
-    runner = ci.read_in_ci(SKILLS / "nie-ma-takiego-skilla", [])
-    differences = {}
-    for md in sorted(SKILLS.glob("verify-*/SKILL.md")):
-        if ci.ci_command(md) is None:
-            continue
-        in_ci = {name for name in ci.read_in_ci(md.parent, []) if not name.startswith("src/")}
-        for_change = {path.relative_to(ROOT).as_posix() for path in tool._executed(md.parent) if path.is_relative_to(ROOT)}
-        differences[md.parent.name] = sorted(_spelled(in_ci - runner) ^ _spelled(for_change - runner))
-
-    assert len(differences) >= 2
-    assert differences == dict.fromkeys(differences, [])
-
-
-# Skrypt dla maszyn uruchamia ścieżką polecenie ci Centrum (``drive/metryki.py``) i sprawdzenie mutacji Excela
-# (``run_excel_verification.py``), a żaden z nich go nie importuje.
-@pytest.mark.parametrize("skill", ["verify-centrum-rozliczen", "verify-skoroszyty-w-excelu"])
-def test_zmiana_samego_skryptu_dla_maszyn_uruchamia_w_ci_polecenia_skilla_ktory_go_uruchamia(monkeypatch: pytest.MonkeyPatch, skill: str) -> None:
+def test_workflow_skilla_windows_biegnie_dla_tych_samych_sciezek_co_jego_pilnuje(monkeypatch: pytest.MonkeyPatch) -> None:
     _load_tool(monkeypatch)
     ci = importlib.import_module("mutacje_skilli")
-    folder = SKILLS / skill
-
-    runs, why = ci._why_run(folder, sorted(folder.glob(f"scripts/{ci.PATTERN}")), {"tools/uruchom_proces.py"})
-
-    assert runs, why
-
-
-def test_workflow_skilla_windows_biegnie_dla_tych_samych_sciezek_co_jego_pilnuje(monkeypatch: pytest.MonkeyPatch) -> None:
-    tool = _load_tool(monkeypatch)
     skill = SKILLS / "verify-centrum-na-windowsie"
     workflow = yaml.safe_load((ROOT / ".github" / "workflows" / f"{skill.name}.yml").read_text(encoding="utf-8"))
     triggers = workflow[True]  # YAML 1.1 czyta klucz „on” jako True
 
-    expected = sorted([*tool.guarded(skill / "SKILL.md"), f"{skill.relative_to(ROOT).as_posix()}/**"])
+    expected = sorted([*ci.guarded(skill / "SKILL.md"), f"{skill.relative_to(ROOT).as_posix()}/**"])
 
     assert {event: sorted(triggers[event]["paths"]) for event in ("pull_request", "push")} == {
         "pull_request": expected,
@@ -339,7 +331,9 @@ CI_AND_LOCAL = "## What CI runs and what stays local"
 def _ci_commands(tool: ModuleType) -> set[tuple[str, ...]]:
     """Polecenia skilli, które liczy CI (``ci_runs`` narzędzia); skrypt mutacji bez argumentów obejmuje każde swoje wywołanie."""
 
-    return {run for md in SKILLS.glob("*/SKILL.md") for run in tool.ci_runs(md.parent)}
+    steps = importlib.import_module("mutacje_skilli").steps({})
+    every = importlib.import_module("plan_ci").KROKI.values()
+    return {run for md in SKILLS.glob("*/SKILL.md") for run in tool.ci_runs(md.parent, steps, every)}
 
 
 def _selecting(arguments: str) -> tuple[str, ...]:
@@ -397,7 +391,9 @@ def test_skill_z_poleceniami_w_ci_mowi_co_liczy_ci_a_co_zostaje_lokalnie(monkeyp
     """Granica: czy sekcja trafnie nazywa osąd, który zostaje lokalnie, łapie tylko przegląd."""
 
     tool = _load_tool(monkeypatch)
-    skills = [md for md in sorted(SKILLS.glob("verify-*/SKILL.md")) if tool.ci_runs(md.parent)]
+    steps = importlib.import_module("mutacje_skilli").steps({})
+    every = importlib.import_module("plan_ci").KROKI.values()
+    skills = [md for md in sorted(SKILLS.glob("verify-*/SKILL.md")) if tool.ci_runs(md.parent, steps, every)]
 
     without = [md.parent.name for md in skills if CI_AND_LOCAL not in md.read_text(encoding="utf-8").splitlines()]
 

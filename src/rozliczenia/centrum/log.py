@@ -16,12 +16,17 @@ from pathlib import Path
 import threading
 from typing import Literal
 
+from rozliczenia.centrum.tool_update import UPDATED
+
 VIEW_TIMING_EVENT = "pomiar"
 # Pomiar przychodzi po każdym widoku, więc na jedno uruchomienie Centrum dziennik przyjmuje ich najwyżej
 # tyle (spec #164, US29); kolejne przepadają po cichu, a wpisy o pracy serwera są zapisywane dalej.
 MAX_VIEW_TIMINGS = 200
 # Wpisy o Aktualizacji narzędzia i jej Zgłoszeniach mówią, skąd są, tym samym słowem.
 _UPDATE = "aktualizacja"
+# Zdarzenia, które piszą ``update_started`` i ``update_finished``, dla ``update_awaits``.
+_UPDATE_STARTED = "aktualizacja-start"
+_UPDATE_FINISHED = "aktualizacja-koniec"
 # Okres wysyłki w tle z Uruchomienia, którego okresu nie ustalono.
 _NO_PERIOD = "bez-okresu"
 # Dlaczego wysyłka w tle czeka w kolejce Skrzynki Zgłoszeń; ``odmowa-tresci`` dotyczy tylko jednego pliku kolejki.
@@ -87,6 +92,40 @@ class CentrumLog:
             po=after or "-",
             biblioteki="tak" if installed else "nie",
         )
+
+    def update_result_kept(self, failure: OSError) -> None:
+        """Dysk nie dał usunąć pliku wyniku Aktualizacji narzędzia po jej końcu w dzienniku; tylko nazwa typu błędu."""
+
+        self._write("aktualizacja-wynik-zostaje", typ=type(failure).__name__)
+
+    def update_awaits(self, *, result: str, before: str | None, after: str | None) -> bool:
+        """Czy wynik Aktualizacji narzędzia (kod ``result``, commity ``before`` i ``after``) ma jeszcze trafić do dziennika.
+
+        Patrzy na cały dziennik, nie tylko od ostatniego startu. Ma trafić, gdy
+        ostatni wpis Aktualizacji to ``aktualizacja-start`` z commitem
+        ``before`` albo ``aktualizacja-koniec`` z wynikiem „ok”, tymi samymi
+        commitami i innym ``result`` (nowa wersja zapisała „ok”, a potem nie
+        odpowiedziała na czas, więc opiekun ją cofnął). Koniec z porażką
+        znaczy, że wynik już zgłoszono, nawet gdy kolejne kliknięcie padło z
+        tymi samymi commitami. Wynik starszej Aktualizacji nie trafia. Bez
+        dziennika albo bez żadnego ``aktualizacja-start`` nie wiadomo, co już
+        zapisano, więc wynik trafia.
+        """
+
+        try:
+            with self._lock:
+                lines = self._path.read_text(encoding="utf-8", errors="replace").splitlines()
+        except OSError:
+            return True
+        updates = [line for line in lines if event_of(line) in (_UPDATE_STARTED, _UPDATE_FINISHED)]
+        if all(event_of(line) != _UPDATE_STARTED for line in updates):
+            return True
+        last = updates[-1]
+        facts = _facts(last)
+        same_before = facts.get("przed") == (before or "-")
+        if event_of(last) == _UPDATE_STARTED:
+            return same_before
+        return same_before and facts.get("po") == (after or "-") and facts.get("wynik") == UPDATED != result
 
     def update_skipped_releases(self, *, tags: tuple[str, ...]) -> None:
         """Wydania wyższe od wybranego, których commit nie leży na `main`: Aktualizacja narzędzia je pominęła."""
@@ -206,6 +245,12 @@ def event_of(line: str) -> str:
 
     fields = line.split(" ", 2)
     return fields[1] if len(fields) > 1 else ""
+
+
+def _facts(line: str) -> dict[str, str]:
+    """Fakty ``klucz=wartość`` wpisu dziennika; wartości ze spacją (w cudzysłowie) wychodzą rozbite."""
+
+    return {key: value for key, _, value in (field.partition("=") for field in line.split(" ")[2:])}
 
 
 def _quoted(value: str | int) -> str:
