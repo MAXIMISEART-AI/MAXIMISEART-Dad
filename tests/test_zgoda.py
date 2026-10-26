@@ -65,15 +65,15 @@ ASK_RULE = {
 RM_CHECK = _request("bypassPermissions") | {
     "permission_suggestions": [{"type": "addRules", "rules": [{"toolName": "Bash", "ruleContent": "rm -f logi/*"}]}]
 }
-# Poprawki z komunikatu odmowy, które agent dostaje zamiast pytania; wiersz reguły w AGENTS.md odsyła do komunikatu.
-PROMISES = (
-    "rm osobnym wywołaniem Basha z dosłowną ścieżką bezwzględną",
-    "ze zmienną w postaci ${VAR:?}",
-    "a resztę polecenia w następnym wywołaniu",
-    "do pliku narzędziem Write albo Edit",
-    "a nie w heredocu ani w napisie w poleceniu",
-    "reguły permissions.ask",
-    "nie obchodź jej innym zapisem, tylko napisz w odpowiedzi",
+# Komunikat odmowy, który agent dostaje zamiast pytania, cały: wiersz reguły w AGENTS.md odsyła do niego, więc każde
+# jego zdanie jest obietnicą, a sprawdzenie samych fragmentów przepuszczało zdania o odwrotnym sensie.
+EXPECTED_MESSAGE = (
+    "Claude Code zatrzymałby to polecenie Basha na zgodzie człowieka, a agent w trybie bypass nie czeka na zgodę, "
+    "więc polecenie nie ruszyło. Gdy to rm, którego celu Claude Code nie ustali z tekstu polecenia, uruchom rm "
+    "osobnym wywołaniem Basha z dosłowną ścieżką bezwzględną (rm -rf /abs/katalog/logi) albo ze zmienną w postaci "
+    "${VAR:?}, a resztę polecenia w następnym wywołaniu. Kod i dane z rm zapisz do pliku narzędziem Write albo Edit, "
+    "a nie w heredocu ani w napisie w poleceniu. Gdy polecenie pasuje do reguły permissions.ask z ustawień, potrzebuje "
+    "zgody człowieka: nie obchodź jej innym zapisem, tylko napisz w odpowiedzi, o co prosisz."
 )
 
 
@@ -104,7 +104,7 @@ def test_pytanie_o_zgode_w_trybie_bypass_dostaje_odmowe_z_kazda_poprawka(event: 
         decision["hookEventName"],
         decision["decision"]["behavior"],
     ) == (0, "PermissionRequest", "deny")
-    assert [promise for promise in PROMISES if promise not in decision["decision"]["message"]] == []
+    assert decision["decision"]["message"] == EXPECTED_MESSAGE
 
 
 @pytest.mark.parametrize("mode", ["default", "acceptEdits", "plan", "dontAsk", "auto", None])
