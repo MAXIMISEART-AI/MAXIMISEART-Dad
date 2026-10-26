@@ -258,8 +258,13 @@ def _mutation_list(tmp_path: Path, count: int) -> Path:
     return path
 
 
-def test_mutacje_z_lista_ponad_100_poza_ci_odmawiaja_zanim_policza_podstawe(tmp_path: Path) -> None:
-    done = _tool(_repo(tmp_path), "tools/mutacje.py", "--plik", str(_mutation_list(tmp_path, 101)), *RED_BASELINE)
+@pytest.mark.parametrize(
+    ("count", "change"),
+    [(101, ()), (100, ("--zmiana", "src/rozliczenia/__init__.py", "", "X = 0\n"))],
+    ids=["101 z pliku", "100 z pliku i jedna z --zmiana"],
+)
+def test_mutacje_z_lista_ponad_100_poza_ci_odmawiaja_zanim_policza_podstawe(tmp_path: Path, count: int, change: tuple[str, ...]) -> None:
+    done = _tool(_repo(tmp_path), "tools/mutacje.py", "--plik", str(_mutation_list(tmp_path, count)), *change, *RED_BASELINE)
 
     assert done.returncode == 2, done.stdout + done.stderr
     [line] = done.stdout.splitlines()
@@ -271,12 +276,11 @@ def test_mutacje_z_lista_ponad_100_poza_ci_odmawiaja_zanim_policza_podstawe(tmp_
     [
         (100, {}, ()),
         (101, {"GITHUB_ACTIONS": "true"}, ()),
-        (101, {"MAXIMISEART_NA_SCALONYCH_PR": "1"}, ()),
         pytest.param(101, {}, ("--odtwarzam", "123"), marks=pytest.mark.skipif(sys.platform == "win32", reason="atrapa gh to skrypt sh")),
     ],
-    ids=["celowany dowod poza CI", "w CI", "z tools/na_scalonych_pr.py", "odtworzenie czerwonych mutacji zmiany"],
+    ids=["celowany dowod poza CI", "w CI", "odtworzenie czerwonych mutacji zmiany"],
 )
-def test_mutacje_licza_celowany_dowod_i_dluga_liste_w_ci_na_scalonych_pr_i_przy_odtwarzaniu(
+def test_mutacje_licza_celowany_dowod_i_dluga_liste_w_ci_i_przy_odtwarzaniu(
     tmp_path: Path, count: int, passes: dict[str, str], reproduces: tuple[str, ...]
 ) -> None:
     repo = _repo(tmp_path)

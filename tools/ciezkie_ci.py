@@ -18,8 +18,9 @@ w repozytorium, więc przegląda ją PR.
 
 Granica: tylko przegląd łapie ``GITHUB_ACTIONS``, ``MAXIMISEART_ODTWARZAM`` albo ``MAXIMISEART_NA_SCALONYCH_PR``
 podstawione ręcznie, ``tools/na_scalonych_pr.py --commit`` z commitem własnej gałęzi, ``tools/mutacje_skilli.py``
-uruchomione wprost, własny skrypt, który woła silnik (``check_all``, ``verdicts``) z długą listą, i pytest z własną
-pętlą mutacji.
+uruchomione wprost, własny skrypt, który woła silnik (``check_all``, ``verdicts``) z długą listą, pytest z własną
+pętlą mutacji, a także ręczne ``change-mutations`` w kilku uruchomieniach ``tools/mutacje.py`` po najwyżej ``TARGETED``
+mutacji albo dla zmiany, która daje ich tyle: strażnik liczy listę jednego uruchomienia, nie jej pochodzenie.
 """
 
 from __future__ import annotations
