@@ -91,10 +91,11 @@ def test_uporzadkuj_porzadkuje_intermax_z_ustawien_taty_i_pokazuje_liczby_dzien_
     assert started.status_code == 200
     assert started.json()["state"] == "running"
     run = finished["run"]
-    assert (run["process"], run["title"], run["period"], run["dry_run"]) == (
+    assert (run["process"], run["title"], run["period"], run["dry_run"], run["confirms_readiness"]) == (
         "intermax",
         "Uporządkowanie INTERMAX",
         PERIOD,
+        False,
         False,
     )
     result = finished["result"]
@@ -249,7 +250,7 @@ def test_zatrzymanie_do_maksa_prowadzi_do_diagnozy_intermax_i_zgloszenia(tmp_pat
         "Klucz do Zgłoszeń",
         "Dziennik Centrum rozliczeń",
     ]
-    assert checks["Ustawienia taty"] == ("passed", "Rejestr zleceń jest na miejscu.")
+    assert checks["Ustawienia taty"] == ("passed", "INTERMAX jest na miejscu.")
     assert checks["Pliki w OneDrive"] == ("passed", "Sprawdzone pliki są na tym komputerze: 1.")
     assert checks["INTERMAX"] == ("passed", "Nie jest otwarty w Excelu, otwiera się i ma arkusz zleceń.")
     assert diagnosis.json()["next_action"] == "report"
@@ -438,6 +439,18 @@ def test_nieczytelne_najnowsze_logi_uporzadkowania_to_karta_bez_ostatniego_a_nie
     centrum = ordering_centrum(tmp_path)
     ordered = centrum.run_to_end()["run"]["id"]
     _logs_like(centrum, ordered, timedelta(hours=1)).write_text("{", encoding="utf-8")
+
+    assert centrum.setup()["last"] is None
+
+
+def test_nieczytelne_najnowsze_logi_to_karta_bez_ostatniego_takze_gdy_starsze_sa_z_tej_samej_minuty(tmp_path: Path) -> None:
+    centrum = ordering_centrum(tmp_path)
+    ordered = centrum.run_to_end()["run"]["id"]
+    [path] = (centrum.tmp_path / "logs" / "uruchomienia").glob(f"*-{ordered}.json")
+    second = RunLog.model_validate_json(path.read_text(encoding="utf-8")).started_at.second
+    # Godzinę później: czytelne Logi w pełnej minucie, a nieczytelne najnowsze pół minuty po nich.
+    _logs_like(centrum, ordered, timedelta(hours=1, seconds=-second))
+    _logs_like(centrum, ordered, timedelta(hours=1, seconds=30 - second)).write_text("{", encoding="utf-8")
 
     assert centrum.setup()["last"] is None
 

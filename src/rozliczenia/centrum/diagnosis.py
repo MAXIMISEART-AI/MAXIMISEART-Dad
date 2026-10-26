@@ -31,7 +31,7 @@ from pathlib import Path
 from typing import Final, Literal
 
 from rozliczenia import input_checks, intermax_messages, intermax_ordering, preparation_messages, settlement_messages, workbook_files
-from rozliczenia.centrum import contract, diagnosis_messages
+from rozliczenia.centrum import contract, diagnosis_messages, run_view
 from rozliczenia.centrum.diagnosis_messages import NEWER_TOOL_VERSION
 from rozliczenia.centrum.cloud_files import CloudFiles
 from rozliczenia.centrum.configuration import ConfigurationFiles, Template, workers_problem
@@ -291,7 +291,8 @@ class _Setting:
 def _tata_settings(computer: _Computer, label: str) -> list[CheckResult]:
     settings = computer.settings
     if computer.process == "intermax":
-        intermax = [_Setting("Rejestr zleceń", settings.register, settings.existing_register, intermax_messages.register_missing)]
+        name = run_view.INTERMAX.register_name
+        intermax = [_Setting(name, settings.register, settings.existing_register, intermax_messages.register_missing)]
         return _settings_result(label, intermax)
     needed = [
         _Setting(
@@ -317,8 +318,8 @@ def _settings_result(label: str, needed: Sequence[_Setting]) -> list[CheckResult
             return [CheckResult.not_checked(label, f"Nie wskazano: {setting.name}.")]
         if setting.existing is None:
             return [CheckResult.failed(label, setting.missing(setting.chosen))]
-    names = " i ".join(setting.name for setting in needed).capitalize()
-    return [CheckResult.passed(label, f"{names} {'są' if len(needed) > 1 else 'jest'} na miejscu.")]
+    names = " i ".join(setting.name for setting in needed)
+    return [CheckResult.passed(label, f"{names[:1].upper()}{names[1:]} {'są' if len(needed) > 1 else 'jest'} na miejscu.")]
 
 
 @_check("Rejestr zleceń")

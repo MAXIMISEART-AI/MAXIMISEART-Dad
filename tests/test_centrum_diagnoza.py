@@ -841,6 +841,20 @@ def test_plik_folderu_okresu_tylko_w_chmurze_jest_przyczyna(tmp_path: Path) -> N
     assert diagnosis["explanation"]["where"] == f"plik Rozliczenie {PERIOD} - zbiorcze.xlsx, folder {PERIOD}"
 
 
+def test_rejestr_zlecen_tylko_w_chmurze_nie_jest_przyczyna_zatrzymania_przebiegu(tmp_path: Path) -> None:
+    # Przebieg rozliczeń nie czyta Rejestru zleceń, więc jego Diagnoza nie wskazuje Rejestru w OneDrive.
+    register = tmp_path / "Rejestr zleceń.xlsx"
+    register.write_bytes(b"tylko w chmurze")
+    centrum = settling_centrum(tmp_path, register=register)
+    run_id = stopped_for_maks(centrum)
+    online_only(centrum, register)
+
+    diagnosis = diagnose(centrum, run_id)
+
+    assert check(diagnosis, "Pliki w OneDrive") == ("passed", "Sprawdzone pliki są na tym komputerze: 2.")
+    assert check(diagnosis, "Ustawienia taty") == ("passed", "Folder okresów jest na miejscu.")
+
+
 def test_pliki_tylko_w_chmurze_sprawdza_tylko_windows(tmp_path: Path) -> None:
     centrum = preparing_centrum(tmp_path, surroundings=Surroundings(onedrive=None))
     run_id = stopped_for_maks(centrum)
