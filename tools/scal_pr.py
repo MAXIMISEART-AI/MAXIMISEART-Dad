@@ -8,6 +8,16 @@ Narzędzie scala PR numer N do jego bazy, gdy jednocześnie:
 3. najnowszy werdykt dla HEAD PR to ``PASS``;
 4. HEAD PR scala się z bieżącą bazą z ``origin`` bez konfliktu, a ruff i mypy dla obu systemów przechodzą na
    scalonym drzewie (``scalenia_pr.merge_verdict``, jak status ``scalenie z main``, ale teraz, nie po pushu).
+5. Change mutations runu z zielonym Required skończyły się, a ``PASS`` z warunku 3 omawia każdą przeżytą mutację.
+
+Change mutations (``tools/mutacje_zmiany.py``) startują po zielonym Required i go nie blokują, więc pilnuje ich to
+narzędzie (ADR 0020). Czy run ma mutacje, mówi artefakt ``plan`` runu (``mutacje_zmiany``), bo zadanie, które czeka
+na Required, nie ma jeszcze checku; bez planu (artefakt wygasł) decydują same checki. Gdy plan ma mutacje, każda część
+musi być ``COMPLETED`` (inaczej odmowa „w toku”) z ``SUCCESS``, ``SKIPPED`` (bez pracy z planu; nazwa pominiętej części
+zostaje z ``${{ matrix.part }}``) albo ``FAILURE``. Część z ``FAILURE`` musi mieć w
+artefakcie ``mutacje-zmiany-<k>`` listę przeżytych mutacji. Każda przeżyta mutacja ``<id>`` (``<plik>:<linia> <opis>``,
+jak w linii ``NIEWYKRYTA`` jej zadania) potrzebuje w najnowszym ``PASS`` dla HEAD osobnej linii, bez odstępów na
+brzegach, ``MUTACJA <id> | test dodany`` albo ``MUTACJA <id> | nie warto, bo <powód>`` (Q20 z 26.10).
 
 Werdykty to komentarze i recenzje PR kont z prawem zapisu (``OWNER``, ``MEMBER``, ``COLLABORATOR``), w kolejności
 utworzenia; nieopublikowana recenzja (``PENDING``) się nie liczy. Werdykt to komentarz albo recenzja, której pierwsza
@@ -21,7 +31,8 @@ sprzeciw po ``PASS`` odbiera zgodę, nowszy ``PASS`` ją przywraca, a werdykt st
 push. Komentarz edytowany liczy się z treścią po edycji, ale w miejscu utworzenia, a ukryty komentarz nadal się liczy.
 
 Gdy któryś warunek nie zachodzi, narzędzie nie scala i kończy się linią ``SCAL ODMOWA | #N <sha> | <przyczyny>``.
-Warunki 1–3 sprawdza razem i podaje wszystkie przyczyny; warunek 4 trwa dłużej, więc biegnie dopiero po nich.
+Warunki 1–3 i 5 sprawdza razem i podaje wszystkie przyczyny (5 tylko przy zielonym Required); warunek 4 trwa
+dłużej, więc biegnie dopiero po nich.
 Przed merge'em sprawdza, że baza w ``origin`` nie przesunęła się w trakcie sprawdzania, a ``gh pr merge
 --match-head-commit`` odrzuca PR, którego HEAD zmienił się po sprawdzeniu. Po merge'u uruchamia
 ``tools/sprzatanie.py``, jeśli istnieje, i podaje ostatnią linię jego raportu: bez ``--usun`` sprzątanie niczego nie
@@ -46,12 +57,20 @@ from pathlib import Path
 import re
 import subprocess
 import sys
+import tempfile
 
 import potomne
 import scalenia_pr
 
 ROOT = Path(__file__).resolve().parents[1]
 REQUIRED_CHECK = "Required CI status"
+CHANGE_MUTATIONS = "Change mutations"
+# Artefakt części k zadania Change mutations w ci.yml: ``mutacje-zmiany-<k>`` z plikiem ``--zapis`` narzędzia.
+RECORD_ARTIFACT = "mutacje-zmiany-"
+RECORD = "czesc.json"
+RUN = re.compile(r"/actions/runs/(\d+)/")
+PART = re.compile(r"\((\d+)/\d+\)$")
+DISCUSSED = re.compile(r" \| (test dodany|nie warto, bo \S.*)")
 VERDICT_LINE = re.compile(r"WERDYKT: (PASS|FAIL) ([0-9a-f]{40})")
 TRUSTED = frozenset({"OWNER", "MEMBER", "COLLABORATOR"})
 CLEANUP = ROOT / "tools" / "sprzatanie.py"
@@ -66,6 +85,7 @@ class Pull:
     base: str
     problems: tuple[str, ...]
     verdicts: tuple[dict[str, object], ...]
+    checks: tuple[dict[str, str | None], ...]
 
 
 class _Refused(Exception):
@@ -109,15 +129,104 @@ def _verdict(verdict: dict[str, object], head: str) -> str | None:
     return found[1] if found and found[2] == head else None
 
 
-def _verdict_problem(verdicts: list[dict[str, object]], head: str) -> str | None:
-    """Przyczyna odmowy z werdyktów w kolejności utworzenia."""
+def _latest(verdicts: list[dict[str, object]], head: str) -> tuple[str, str] | None:
+    """Najnowszy werdykt dla ``head`` z werdyktów w kolejności utworzenia: ``PASS`` albo ``FAIL`` i jego treść."""
 
     latest = None
     for verdict in verdicts:
-        latest = _verdict(verdict, head) or latest
+        if (found := _verdict(verdict, head)) is not None:
+            latest = found, str(verdict["body"])
+    return latest
+
+
+def _verdict_problem(latest: tuple[str, str] | None, head: str) -> str | None:
     if latest is None:
         return f"werdykt: brak komentarza ani recenzji „WERDYKT: PASS {head}”"
-    return None if latest == "PASS" else f"werdykt: FAIL dla {head[:7]} bez nowszego „WERDYKT: PASS {head}”"
+    return None if latest[0] == "PASS" else f"werdykt: FAIL dla {head[:7]} bez nowszego „WERDYKT: PASS {head}”"
+
+
+def _run_of(check: dict[str, str | None]) -> str:
+    found = RUN.search(check.get("detailsUrl") or "")
+    return found[1] if found else "?"
+
+
+def _download(run: str, folder: Path, *selection: str) -> None:
+    """Artefakty runu do ``folder``; brak artefaktu zostawia ``folder`` bez nich."""
+
+    subprocess.run(
+        ["gh", "run", "download", run, "--dir", str(folder), *selection],
+        cwd=ROOT,
+        capture_output=True,
+        timeout=scalenia_pr.GITHUB_TIMEOUT_S,
+        check=False,
+    )
+
+
+def _planned_mutations(run: str, folder: Path) -> int | None:
+    _download(run, folder, "--name", "plan")
+    try:
+        return int(json.loads((folder / "plan.json").read_text(encoding="utf-8"))["mutacje_zmiany"])
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+
+
+def _survivors(run: str, parts: list[dict[str, str | None]], folder: Path) -> tuple[list[str], list[str]]:
+    """Przeżyte mutacje części runu i przyczyny odmowy z części, które nie dały wyniku."""
+
+    problems = []
+    unfinished = [f"{check['name']} {check.get('status')}" for check in parts if check.get("status") != "COMPLETED"]
+    if unfinished:
+        return [], [f"Change mutations w toku: {', '.join(unfinished)}"]
+    _download(run, folder, "--pattern", f"{RECORD_ARTIFACT}*")
+    survivors = []
+    for check in parts:
+        number = PART.search(str(check["name"]))
+        record_file = folder / f"{RECORD_ARTIFACT}{number[1] if number else '?'}" / RECORD
+        try:
+            record = json.loads(record_file.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            record = {}
+        conclusion = check.get("conclusion")
+        if conclusion == "FAILURE" and record.get("przezyte"):
+            survivors += record["przezyte"]
+        elif conclusion not in ("SUCCESS", "SKIPPED"):
+            problems.append(f"{check['name']} {conclusion}: {record.get('wynik', 'bez zapisu przeżytych mutacji')}")
+    return survivors, problems
+
+
+def _discussed(survivor: str, lines: list[str]) -> bool:
+    prefix = f"MUTACJA {survivor}"
+    return any(line.startswith(prefix) and DISCUSSED.fullmatch(line[len(prefix) :]) for line in lines)
+
+
+def _mutation_problems(checks: tuple[dict[str, str | None], ...], approval: str) -> list[str]:
+    """Przyczyny odmowy z Change mutations runów, w których Required przeszedł; ``approval`` to treść ``PASS``."""
+
+    runs = sorted({_run_of(check) for check in checks if check.get("name") == REQUIRED_CHECK and check.get("workflowName")})
+    problems, survivors = [], []
+    with tempfile.TemporaryDirectory(prefix="scal-pr-") as folder:
+        for run in runs:
+            parts = [
+                check
+                for check in checks
+                if str(check.get("name")).startswith(CHANGE_MUTATIONS) and check.get("workflowName") and _run_of(check) == run
+            ]
+            planned = _planned_mutations(run, Path(folder, run, "plan"))
+            if planned == 0 or (planned is None and not parts):
+                continue
+            if not parts:
+                problems.append(f"Change mutations w toku: plan runu {run} ma {planned} mutacji, a ich zadania jeszcze nie wystartowały")
+                continue
+            found, failed = _survivors(run, parts, Path(folder, run, "czesci"))
+            survivors += found
+            problems += failed
+    lines = [line.strip() for line in approval.splitlines()]
+    if missing := [survivor for survivor in survivors if not _discussed(survivor, lines)]:
+        problems.append(
+            "przeżyte Change mutations bez linii „MUTACJA <id> | test dodany” albo „MUTACJA <id> | nie warto, bo <powód>” w PASS: "
+            + "; ".join(missing)
+        )
+    return problems
 
 
 def _pull(number: int) -> Pull:
@@ -133,7 +242,8 @@ def _pull(number: int) -> Pull:
     problems += filter(None, [_ci_problem(pull["statusCheckRollup"])])
     verdicts = [*pull["comments"], *pull["reviews"]]
     verdicts.sort(key=lambda verdict: verdict.get("createdAt") or verdict.get("submittedAt") or "")
-    return Pull(number, pull["title"], pull["headRefOid"], pull["baseRefName"], tuple(problems), tuple(verdicts))
+    checks = tuple(pull["statusCheckRollup"])
+    return Pull(number, pull["title"], pull["headRefOid"], pull["baseRefName"], tuple(problems), tuple(verdicts), checks)
 
 
 def _remote_base(base: str) -> str:
@@ -147,7 +257,10 @@ def _check(pull: Pull) -> str:
 
     checked = scalenia_pr.PullRequest(pull.number, pull.title, pull.head)
     base = scalenia_pr.fetch(pull.base, [checked])
-    problems = [*pull.problems, *filter(None, [_verdict_problem(list(pull.verdicts), pull.head)])]
+    latest = _latest(list(pull.verdicts), pull.head)
+    problems = [*pull.problems, *filter(None, [_verdict_problem(latest, pull.head)])]
+    if _ci_problem(list(pull.checks)) is None:
+        problems += _mutation_problems(pull.checks, latest[1] if latest is not None and latest[0] == "PASS" else "")
     if problems:
         raise _Refused("; ".join(problems))
     where = f"{pull.base} {base[:7]}"
