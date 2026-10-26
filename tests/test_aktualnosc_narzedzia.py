@@ -37,6 +37,7 @@ MERGED_BRANCH = "7777777777777777777777777777777777777777"
 REFUSED_MIDWAY = "8888888888888888888888888888888888888888"
 FIRST_COMMIT = "9999999999999999999999999999999999999999"
 FAR_ON_LINE = "abababababababababababababababababababab"
+MERGED_LATE = "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"
 NOT_A_COMMIT = "nie-commit"
 # Odpowiedź porównania commitu tagu z czubkiem `main` ``MAIN`` albo jego pierwszym rodzicem (``compare``); brak wpisu
 # to odmowa GitHuba. ``OLDER`` jest pierwszym rodzicem ``MAIN``.
@@ -58,6 +59,10 @@ _STATUS = {
     # Pierwszy commit repozytorium jest pierwszym rodzicem `main`, a `main` ma jeszcze dwa commity z wciągniętej
     # gałęzi (``ahead_by`` 3): ``MAIN~2`` i dalej nie istnieją (404).
     (FAR_ON_LINE, MAIN): "ahead",
+    # Gałąź wciągnięta merge'em, gdy `main` poszedł już dalej: jego pierwsi rodzice od niej odchodzą („diverged”).
+    (MERGED_LATE, MAIN): "ahead",
+    (MERGED_LATE, f"{MAIN}~1"): "diverged",
+    (MERGED_LATE, f"{MAIN}~2"): "diverged",
     (FIRST_COMMIT, MAIN): "ahead",
     (FIRST_COMMIT, f"{MAIN}~1"): "identical",
 }
@@ -73,7 +78,7 @@ _ODD_COMPARES: dict[str, str | None] = {
     "porownanie-nie-json": "<html>GitHub ma awarię</html>",
     "porownanie-zerwane": None,
 }
-_AHEAD_BY = {FIRST_COMMIT: 3, FAR_ON_LINE: 1000}
+_AHEAD_BY = {FIRST_COMMIT: 3, FAR_ON_LINE: 1000, MERGED_LATE: 3}
 # ``FAR_ON_LINE`` to ``MAIN~700``, a `main` ma 1000 commitów spoza niego: tydzień zmian z wciągniętymi gałęziami.
 _FAR_DEPTH = 700
 
@@ -111,6 +116,7 @@ _PAGES = {
     "/odmowa-w-wyszukiwaniu/tags?per_page=100": (_tags(("v0.1.0", REFUSED_MIDWAY)), None),
     "/od-pierwszego-commitu/tags?per_page=100": (_tags(("v0.1.0", FIRST_COMMIT)), None),
     "/daleko/tags?per_page=100": (_tags(("v0.1.0", FAR_ON_LINE)), None),
+    "/z-galezi-pozniej/tags?per_page=100": (_tags(("v0.1.0", MERGED_LATE)), None),
     "/czubek-lista/tags?per_page=100": (_tags(("v0.1.0", NEWEST)), None),
     "/czubek-nie-obiektem/tags?per_page=100": (_tags(("v0.1.0", NEWEST)), None),
     "/czubek-bez-napisu/tags?per_page=100": (_tags(("v0.1.0", NEWEST)), None),
@@ -247,6 +253,13 @@ def test_wydanie_z_galezi_wciagnietej_mergem_nie_jest_na_main_i_ta_odpowiedz_zos
     _ASKED.clear()
     assert releases_from(f"{github}/z-galezi", timeout_s=2, known=known) == GitHubReleases(None, None)
     assert _comparisons() == 0
+
+
+def test_wydanie_z_galezi_wciagnietej_po_dalszych_zmianach_main_nie_jest_na_main(github: str) -> None:
+    known: dict[str, bool] = {}
+
+    assert releases_from(f"{github}/z-galezi-pozniej", timeout_s=2, known=known) == GitHubReleases(None, None)
+    assert known == {MERGED_LATE: False}
 
 
 def test_wydanie_daleko_na_linii_main_kosztuje_tylko_logarytm_porownan(github: str) -> None:
