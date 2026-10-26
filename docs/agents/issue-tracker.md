@@ -1,7 +1,7 @@
 # Issue tracker: GitHub
 
 Issues and specs for this repo live as GitHub issues in
-[MAXIMISEART-AI/MAXIMISEART-Dad](https://github.com/MAXIMISEART-AI/MAXIMISEART-Dad).
+[maximiseartai/MAXIMISEART-Dad](https://github.com/maximiseartai/MAXIMISEART-Dad).
 Use `gh` for all operations.
 
 ## Conventions

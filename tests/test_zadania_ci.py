@@ -1,9 +1,10 @@
-"""Run ``ci.yml`` mieści się w limicie zadań konta, a ``Required CI status`` czerwienieje, gdy którekolwiek zadanie nie przeszło.
+"""Run ``ci.yml`` mieści się w limicie zadań konta, a ``Required CI status`` czerwienieje, gdy którekolwiek zadanie bramki nie przeszło.
 
 Konto GitHub (plan Free) uruchamia naraz najwyżej 20 zadań ze wszystkich workflowów, więc run, który sam zajmuje
 prawie cały limit, każe kolejnym pushom czekać w kolejce. Liczbę zadań pytest i Mutation checks oraz start Change
 mutations ustala plan (``tools/plan_ci.py``), więc ci.yml i plan muszą się zgadzać co do zadań o stałej liczbie. Zadanie,
-którego nie ma w ``needs`` Required, nie blokuje merge'a, choćby padło.
+którego nie ma w ``needs`` Required, nie blokuje merge'a, choćby padło: Change mutations startują po zielonym Required,
+a ich przeżyte mutacje pilnuje ``tools/scal_pr.py``.
 """
 
 from __future__ import annotations
@@ -25,30 +26,37 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
 
 import plan_ci  # noqa: E402
+import scal_pr  # noqa: E402
 
 REQUIRED = "required"
 # Zadanie, którego macierz albo start ustala plan, i wyrażenie ci.yml, które czyta wyjście planu.
 FROM_PLAN = {
     "pytest": ("${{ needs.plan.outputs.pytest != '[]' }}", "${{ fromJSON(needs.plan.outputs.pytest) }}"),
     "mutations": ("${{ needs.plan.outputs.mutations != '[]' }}", "${{ fromJSON(needs.plan.outputs.mutations) }}"),
-    "change-mutations": ("${{ needs.plan.outputs.mutacje-zmiany != '0' }}", None),
 }
+CHANGE_MUTATIONS = "change-mutations"
 INDEPENDENT = "${{ !cancelled() && steps.deps.outcome == 'success' }}"
 
 
 def test_plan_zna_liczbe_zadan_runu_o_stalej_liczbie_i_czesci_change_mutations() -> None:
     workflow = jobs()
-    fixed = {name: len(combinations(job.get("strategy", {}).get("matrix", {}))) for name, job in workflow.items() if name not in FROM_PLAN}
+    fixed = {
+        name: len(combinations(job.get("strategy", {}).get("matrix", {}))) for name, job in workflow.items() if name not in {*FROM_PLAN, CHANGE_MUTATIONS}
+    }
 
     assert sum(fixed.values()) == plan_ci.STALE_ZADANIA, fixed
-    assert len(combinations(workflow["change-mutations"]["strategy"]["matrix"])) == plan_ci.ZADANIA_ZMIANY
+    assert len(combinations(workflow[CHANGE_MUTATIONS]["strategy"]["matrix"])) == plan_ci.ZADANIA_ZMIANY
     assert set(FROM_PLAN) == set(plan_ci.Z_PLANU)
 
 
-def test_required_czeka_na_kazde_inne_zadanie() -> None:
+def test_required_czeka_na_kazde_zadanie_bramki_a_change_mutations_startuja_po_zielonym_required_z_mutacjami_planu() -> None:
     workflow = jobs()
 
-    assert set(workflow[REQUIRED]["needs"]) == set(workflow) - {REQUIRED}
+    assert set(workflow[REQUIRED]["needs"]) == set(workflow) - {REQUIRED, CHANGE_MUTATIONS}
+    assert (workflow[CHANGE_MUTATIONS]["needs"], workflow[CHANGE_MUTATIONS]["if"]) == (
+        ["plan", REQUIRED],
+        "${{ needs.required.result == 'success' && needs.plan.outputs.mutacje-zmiany != '0' }}",
+    )
 
 
 def test_push_do_main_nie_anuluje_trwajacego_runu_a_nowy_push_pr_anuluje_stary() -> None:
@@ -70,6 +78,21 @@ def test_zadania_z_planu_czekaja_na_plan_i_startuja_tylko_z_praca_od_niego() -> 
         name: {"include": matrix} for name, (_, matrix) in FROM_PLAN.items() if matrix
     }
     assert outputs == {name: f"${{{{ steps.plan.outputs.{name} }}}}" for name in ("pytest", "mutations", "mutacje-zmiany")}
+
+
+def test_kazda_czesc_change_mutations_wgrywa_zapis_przezytych_pod_nazwa_ktora_czyta_scal_pr() -> None:
+    steps = jobs()[CHANGE_MUTATIONS]["steps"]
+    command = shlex.split(next(step["run"] for step in steps if "tools/mutacje_zmiany.py" in step.get("run", "")))
+    record = command[command.index("--zapis") + 1]
+    upload = next(step for step in steps if "upload-artifact" in step.get("uses", ""))
+
+    assert (Path(record).name, upload["if"], upload["with"]["path"], upload["with"]["name"], upload["with"]["overwrite"]) == (
+        scal_pr.RECORD,
+        "${{ !cancelled() }}",
+        record,
+        f"{scal_pr.RECORD_ARTIFACT}${{{{ matrix.part }}}}",
+        True,
+    )
 
 
 @pytest.mark.parametrize("template", ["pytest", "mutations"])
@@ -138,15 +161,12 @@ def _plan(event: str, mutations: int, *, skills: bool = False, errors: tuple[str
     ("event", "mutations", "skills", "changed", "reported"),
     [
         ("pull_request", 4, True, {}, []),
-        ("push", 0, True, {"change-mutations": "skipped"}, []),
-        ("pull_request", 0, True, {"change-mutations": "skipped"}, []),
-        ("pull_request", 4, True, {"change-mutations": "skipped"}, ["change-mutations=skipped"]),
-        ("push", 0, True, {"change-mutations": "failure"}, ["change-mutations=failure"]),
-        ("push", 0, True, {"pytest": "skipped", "change-mutations": "skipped"}, ["pytest=skipped"]),
+        ("push", 0, True, {}, []),
+        ("push", 0, True, {"pytest": "skipped"}, ["pytest=skipped"]),
         ("pull_request", 4, True, {"szybkie": "failure"}, ["szybkie=failure"]),
         ("pull_request", 4, True, {"mutations": "cancelled"}, ["mutations=cancelled"]),
-        ("pull_request", 0, False, {"mutations": "skipped", "change-mutations": "skipped"}, []),
-        ("pull_request", 0, True, {"mutations": "skipped", "change-mutations": "skipped"}, ["mutations=skipped"]),
+        ("pull_request", 0, False, {"mutations": "skipped"}, []),
+        ("pull_request", 0, True, {"mutations": "skipped"}, ["mutations=skipped"]),
     ],
 )
 def test_required_przechodzi_tylko_gdy_kazde_zadanie_przeszlo_a_pominiete_jest_tylko_bez_pracy_z_planu(
@@ -160,11 +180,11 @@ def test_required_przechodzi_tylko_gdy_kazde_zadanie_przeszlo_a_pominiete_jest_t
 
     assert done.returncode == (1 if reported else 0), done.stdout + done.stderr
     assert done.stdout.splitlines() == ([f"REQUIRED FAIL | {reason}" for reason in reported] or [done.stdout.splitlines()[0]])
-    assert reported or done.stdout.startswith(f"REQUIRED OK | 5 zadań, {len(plan.zadania)} zadań z planu ")
+    assert reported or done.stdout.startswith(f"REQUIRED OK | 4 zadań, {len(plan.zadania)} zadań z planu ")
 
 
 def test_required_czerwienieje_bez_planu_i_gdy_zadanie_planu_nie_zglosilo_jednostki_albo_ta_padla(tmp_path: Path) -> None:
-    results = {**_all_succeeded(), "change-mutations": "skipped"}
+    results = _all_succeeded()
     without_plan = _required(tmp_path / "bez-planu", None, {**_all_succeeded(), "plan": "failure", "pytest": "skipped"})
     incomplete = _required(tmp_path / "bez-kroku", _plan("push", 0), {**results, "mutations": "skipped"}, missing=frozenset({"krok:e2e"}))
     without_skill = _required(tmp_path / "bez-podstawy", _plan("push", 0, skills=True), results, missing=frozenset({"skill:verify-a/ci"}))

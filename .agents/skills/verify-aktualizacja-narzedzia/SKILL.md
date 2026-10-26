@@ -136,11 +136,18 @@ Covered files: `src/rozliczenia/centrum/tool_update.py`,
 `src/rozliczenia/centrum/restart_guardian.py`,
 `src/rozliczenia/centrum/launcher.py`.
 
-Sync commit: `7acf755b` (2026-10-26, #490 and #491). At this commit every
-row above was checked against the code. After it only
-`CentrumLog.update_awaits` in `log.py`, outside the covered files, changed:
-an `aktualizacja-koniec` lets a result through only with `wynik=ok`. The
-model lets every start skip the result anyway, so it did not change.
+Sync commit: `7acf755b` (2026-10-26, `main` after #540 merged into #534). Since
+`7acf755b` the covered files changed only in `tool_update.GITHUB_REPOSITORY`,
+the repository address after the move to the `maximiseartai` organization
+(#540), which the model does not describe, and in the docstring and one comment
+of `ToolUpdates._after_restart`, which now name the limit of the #491 rule.
+The model did not change.
+
+`7acf755b` (#490 and #491): at this commit every row above was checked against
+the code. After it only `CentrumLog.update_awaits` in `log.py`, outside the
+covered files, changed: an `aktualizacja-koniec` lets a result through only
+with `wynik=ok`. The model lets every start skip the result anyway, so it did
+not change.
 
 `7acf755b`: since `9d31b08c` only the skipped
 result's `unlink` in `_after_restart` lost `missing_ok`; it stays inside

@@ -41,7 +41,7 @@ pierwszych rodziców). Gdy `$wydanie` wyjdzie puste, na GitHubie nie ma jeszcze
 Wydania i narzędzia nie instaluj:
 
 ```powershell
-git clone https://github.com/MAXIMISEART-AI/MAXIMISEART-Dad.git
+git clone https://github.com/maximiseartai/MAXIMISEART-Dad.git
 cd MAXIMISEART-Dad
 $czubki = git rev-list --first-parent origin/main
 $wydanie = git tag --list "v*" --sort=-version:refname |
