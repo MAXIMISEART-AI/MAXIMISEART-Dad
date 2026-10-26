@@ -3,8 +3,8 @@
 This directory is the maintained source for verifying what Dad can do in
 Centrum rozliczeń. Read these conventions before driving, then use the
 feature's own file as the recipe: the feature `<feature>` of `--feature` lives
-in `features/<feature>.md`, driven by `scripts/drive/<feature>.py` (with `_`
-for `-`).
+in `<feature>.md` next to this file, driven by the skill's
+`scripts/drive/<feature>.py`, whose module name has `_` for `-`.
 
 ## Baseline preconditions
 
