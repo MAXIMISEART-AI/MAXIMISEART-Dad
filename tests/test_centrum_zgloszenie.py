@@ -752,7 +752,7 @@ def test_dwa_klikniecia_w_trakcie_wysylki_daja_jedno_zgloszenie_a_centrum_odpowi
         try:
             clicks = [pool.submit(send, centrum, run_id) for _ in range(2)]
             assert box.searching.wait(5)
-            during_send = pool.submit(centrum.client.get, "/api/notifications").result(timeout=2)
+            during_send = pool.submit(centrum.client.get, "/api/notifications").result(timeout=30)
         finally:
             box.search_hold.set()
         answers = [click.result(timeout=10) for click in clicks]

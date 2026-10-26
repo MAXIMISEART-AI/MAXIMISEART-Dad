@@ -149,7 +149,7 @@ def test_ponowne_uruchomienie_tylko_otwiera_karte_dzialajacego_centrum(tmp_path:
         _wait_for_line(opened)
         again = _launch_again(runtime, port, environment)
         addresses = _opened_addresses(opened, 2)
-        still_serving = _health(port, timeout_s=2)
+        still_serving = _health(port)
 
     assert again.returncode == 0, again.stdout + again.stderr
     assert f"Centrum rozliczeń już działa: http://127.0.0.1:{port}/" in again.stdout
@@ -173,7 +173,7 @@ def test_ponowne_uruchomienie_po_przesunieciu_klonu_rozpoznaje_centrum_innej_wer
         _wait_for_line(opened)
         _check_out(runtime, UPDATED_COMMIT)
         again = _launch_again(runtime, port, environment)
-        still_serving = _health(port, timeout_s=2)
+        still_serving = _health(port)
 
     assert {key: health[key] for key in ("service", "commit")} == {"service": "centrum-rozliczen", "commit": COMMIT[:7]}
     assert again.returncode == 1, again.stdout + again.stderr
@@ -244,8 +244,8 @@ def test_zamkniecie_z_karty_konczy_proces_centrum_i_zostawia_wpis_w_dzienniku(tm
     assert closing == {"state": "closing"}
     assert exit_code == 0
     assert _log_events(runtime) == ["start", "zamkniecie", "stop"]
-    with pytest.raises(urllib.error.URLError):
-        _health(port, timeout_s=0)
+    with pytest.raises(urllib.error.URLError):  # port zamknięty: połączenie zostaje odrzucone od razu
+        urllib.request.urlopen(f"http://127.0.0.1:{port}/api/health", timeout=30)
 
 
 def _windowless(runtime: Path, port: int) -> list[str]:

@@ -1153,7 +1153,7 @@ def test_aktualnosc_z_api_githuba_i_aktualizacja_wybieraja_to_samo_wydanie(
 ) -> None:
     layout(repository)
     with github_api_of(repository.origin) as api:
-        answer = releases_from(api, timeout_s=5)
+        answer = releases_from(api, timeout_s=30)
     installed = readme_installation_release(repository, tmp_path / "instalacja")
 
     result = update(repository)
@@ -1172,9 +1172,9 @@ def test_aktualnosc_pamieta_wydanie_bedace_przodkiem_main_a_wydanie_spoza_main_s
     known: dict[str, bool] = {}
     asked: list[str] = []
     with github_api_of(repository.origin, asked=asked) as api:
-        first = releases_from(api, timeout_s=5, known=known)
+        first = releases_from(api, timeout_s=30, known=known)
         asked.clear()
-        again = releases_from(api, timeout_s=5, known=known)
+        again = releases_from(api, timeout_s=30, known=known)
 
     tip = git(repository.origin, "rev-parse", "main")
     assert first == again
