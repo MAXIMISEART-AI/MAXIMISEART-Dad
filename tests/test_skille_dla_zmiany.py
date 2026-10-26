@@ -37,12 +37,18 @@ REPO = {
 }
 
 
+TOOLS_FOR_CHANGE = (
+    "skille_dla_zmiany.py", "mutacje_skilli.py", "plan_ci.py", "mutacje_zmiany.py", "pokrycie_procesu.py", "potomne.py", "szybko.py",
+    "ci_lokalnie.py", "czasy_ci.py", "ciezkie_ci.py", "mutacje.py", "sciezki_w_kodzie.py",
+)
+
+
 def _repo(root: Path, files: dict[str, str] = REPO) -> str:
     for name, text in files.items():
         (root / name).parent.mkdir(parents=True, exist_ok=True)
         (root / name).write_text(text, encoding="utf-8")
     (root / "tools").mkdir(exist_ok=True)
-    for name in ("skille_dla_zmiany.py", "mutacje_skilli.py", "potomne.py", "szybko.py", "ci_lokalnie.py", "czasy_ci.py", "ciezkie_ci.py", "mutacje.py", "sciezki_w_kodzie.py"):
+    for name in TOOLS_FOR_CHANGE:
         shutil.copy(TOOLS / name, root / "tools" / name)
     git(root, "init", "--quiet")
     return commit(root, "baza")
@@ -225,6 +231,39 @@ def test_liczy_ci_wymienia_dokladnie_kroki_skilla_ktore_uruchamia_wybor_planu_pu
     assert _in_mutation_checks(tmp_path, base) == in_ci
 
 
+def test_zmiana_runnera_mutacji_nie_wskazuje_skilla_choc_ci_uruchamia_jego_skrypt_mutacji(tmp_path: Path) -> None:
+    base = _repo(tmp_path, AGREEING)
+    with (tmp_path / "tools" / "mutacje.py").open("a", encoding="utf-8") as file:
+        file.write("# zmiana\n")
+    commit(tmp_path, "zmiana runnera")
+
+    assert _skills(_run(tmp_path, base)) == []
+    assert _in_mutation_checks(tmp_path, base) == ["check_a_mutations.py"]
+
+
+@pytest.mark.parametrize(
+    ("changed", "in_ci"),
+    [("src/a/b/gleboki.py", ["LICZY CI: verify-rozliczenia (run_verification.py --variant all)"]), (".agents/skills/verify-rozliczenia/SKILL.md", [])],
+    ids=["src", "tylko folder skilla"],
+)
+def test_liczy_ci_wymienia_e2e_tylko_gdy_plan_pull_requestu_go_uruchamia(tmp_path: Path, changed: str, in_ci: list[str]) -> None:
+    base = _repo(
+        tmp_path,
+        {
+            **REPO,
+            ".agents/skills/verify-rozliczenia/SKILL.md": "---\nname: verify-rozliczenia\npilnuje:\n  - src/a/*\n---\n",
+            ".agents/skills/verify-rozliczenia/scripts/run_verification.py": "print('e2e')\n",
+        },
+    )
+    _append(tmp_path, changed)
+    commit(tmp_path, "zmiana")
+
+    result = _run(tmp_path, base)
+
+    assert "verify-rozliczenia" in _skills(result)
+    assert [line for line in result.stdout.splitlines() if line.startswith("LICZY CI")] == in_ci
+
+
 def test_baza_ktorej_nie_ma_daje_nieznane_skille_i_kod_bledu(tmp_path: Path) -> None:
     _repo(tmp_path)
 
@@ -293,7 +332,8 @@ def _ci_commands(tool: ModuleType) -> set[tuple[str, ...]]:
     """Polecenia skilli, które liczy CI (``ci_runs`` narzędzia); skrypt mutacji bez argumentów obejmuje każde swoje wywołanie."""
 
     steps = importlib.import_module("mutacje_skilli").steps({})
-    return {run for md in SKILLS.glob("*/SKILL.md") for run in tool.ci_runs(md.parent, steps)}
+    every = importlib.import_module("plan_ci").KROKI.values()
+    return {run for md in SKILLS.glob("*/SKILL.md") for run in tool.ci_runs(md.parent, steps, every)}
 
 
 def _selecting(arguments: str) -> tuple[str, ...]:
@@ -352,7 +392,8 @@ def test_skill_z_poleceniami_w_ci_mowi_co_liczy_ci_a_co_zostaje_lokalnie(monkeyp
 
     tool = _load_tool(monkeypatch)
     steps = importlib.import_module("mutacje_skilli").steps({})
-    skills = [md for md in sorted(SKILLS.glob("verify-*/SKILL.md")) if tool.ci_runs(md.parent, steps)]
+    every = importlib.import_module("plan_ci").KROKI.values()
+    skills = [md for md in sorted(SKILLS.glob("verify-*/SKILL.md")) if tool.ci_runs(md.parent, steps, every)]
 
     without = [md.parent.name for md in skills if CI_AND_LOCAL not in md.read_text(encoding="utf-8").splitlines()]
 
