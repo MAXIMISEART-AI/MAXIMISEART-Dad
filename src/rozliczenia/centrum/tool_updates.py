@@ -138,8 +138,9 @@ class ToolUpdates:
         """Wynik od opiekuna ponownego startu: do dziennika i do karty, raz, bez czekania na sieć.
 
         „ok” przy działającym commicie innym niż „po” to porażka nieoczekiwana: nowa wersja nie działa (#490). Wynik,
-        który dziennik już ma, albo wynik starszej Aktualizacji (``CentrumLog.update_awaits``) Centrum pomija, bo dysk
-        mógł nie dać usunąć jego pliku (#491). Po porażce (np. cofnięcie nowej wersji) skrzynkę Zgłoszeń pyta w tle
+        który dziennik już zgłosił, albo wynik starszej Aktualizacji (``CentrumLog.update_awaits``) Centrum pomija, bo
+        dysk mógł nie dać usunąć jego pliku (#491). Po nowym kliknięciu z tym samym „przed” taki wynik raz wraca, gdy
+        jego pliku nie dało się usunąć ani podmienić. Po porażce (np. cofnięcie nowej wersji) skrzynkę Zgłoszeń pyta w tle
         uchwyt Zgłoszenia: start Centrum na nią nie czeka.
         """
 
@@ -156,7 +157,7 @@ class ToolUpdates:
         self._finished(result)
         try:
             self._result_file.unlink(missing_ok=True)
-        except OSError as failure:  # następny start zastaje ten wynik w dzienniku i go pomija
+        except OSError as failure:  # następny start zastaje ten wynik w dzienniku i go pomija, jeśli nie było nowego kliknięcia
             self._log.update_result_kept(failure)
         self._view = _view_of(result) or self._failed(result)
 

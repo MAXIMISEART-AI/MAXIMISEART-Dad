@@ -30,7 +30,8 @@ already has does not come back on a later start (#491), with one limit:
 `NOWA_WERSJA_NIE_WYSTARTOWALA` from A to B is reported, the disk lets the
 guardian neither remove nor overwrite its result file, and Dad clicks again;
 B now answers, but the guardian cannot write „ok”, so B shows the old failure
-once and a second Zgłoszenie is made, and the start after that shows nothing.
+once and the log gets a second `aktualizacja-koniec` (the Zgłoszenie box still
+holds one Zgłoszenie at most), and the start after that shows nothing.
 A Centrum log that cannot be read lets the result through. The drive checks
 none of this: the rule is checked by `tests/test_centrum_aktualizacja.py`, and
 the limit only by the review's probe of PR #534.

@@ -125,8 +125,9 @@ result still comes through once when its file stays and a later click with
 the same `przed` works: `NOWA_WERSJA_NIE_WYSTARTOWALA` from A to B is
 reported, the disk lets the guardian neither remove nor overwrite the file,
 the next click from A to B works but the guardian cannot write „ok”, so B
-shows the old failure and a second Zgłoszenie is made (the last update entry
-is `aktualizacja-start przed=A`). The model does not
+shows the old failure once and the log gets a second `aktualizacja-koniec`
+(the last update entry is `aktualizacja-start przed=A`); the Zgłoszenie box
+still holds one Zgłoszenie at most. The model does not
 hold the Centrum log, so it lets every start skip the result: the card then
 says nothing, never „updated”.
 
