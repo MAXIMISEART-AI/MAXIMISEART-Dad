@@ -28,7 +28,7 @@ Dlaczego PR dostaje mniej sprawdzeń niż `main`, mówi [ADR 0020](../adr/0020-c
 
 ## Change mutations
 
-- Startują po zielonym `Required CI status`, w trzech częściach, gdy PR zmienia linie plików `src/**/*.py`, które `tools/mutacje_zmiany.py` mutuje, albo zmieniony plik ma wyjątek `# mutacje-zmiany:` w złej postaci.
+- Startują po zielonym `Required CI status`, w trzech częściach, gdy PR zmienia linie plików `src/**/*.py` albo `tools/**/*.py`, które `tools/mutacje_zmiany.py` mutuje, albo zmieniony plik ma wyjątek `# mutacje-zmiany:` w złej postaci.
 - Ich wynik nie zmienia `Required CI status`, ale `tools/scal_pr.py` nie scala PR, dopóki trwają.
 - Gdy któraś mutacja przeżyła, `tools/scal_pr.py` scala PR dopiero wtedy, gdy `PASS` omawia ją w linii `MUTACJA`, w postaci z [`AGENTS.md`](../../AGENTS.md).
   Przeżyte mutacje części są w liniach `NIEWYKRYTA` jej zadania i w artefakcie `mutacje-zmiany-<k>` runu.

@@ -1,15 +1,23 @@
-"""Psuje zmienione linie ``src/`` i sprawdza, że któryś test to zauważa, jak zadanie CI ``Change mutations``.
+"""Psuje zmienione linie ``src/`` i ``tools/`` i sprawdza, że test to zauważa, jak zadanie CI ``Change mutations``.
 
-Zmiana to linie plików ``src/**/*.py``, którymi checkout (z niezacommitowanymi i nieśledzonymi plikami) różni się
-od ``merge-base`` HEAD z ``--baza`` (domyślnie ``origin/main``). Na każdej zmienionej linii narzędzie robi mutacje,
-które przeglądy PR-ów robiły ręcznie i które przeżywały testy:
+Zmiana to linie plików ``src/**/*.py`` i ``tools/**/*.py``, którymi checkout (z niezacommitowanymi i nieśledzonymi
+plikami) różni się od ``merge-base`` HEAD z ``--baza`` (domyślnie ``origin/main``). Na każdej zmienionej linii narzędzie
+robi mutacje, które przeglądy PR-ów robiły ręcznie i które przeżywały testy:
 
 - bez jednego członu ``and``/``or``;
 - wyrażenie ``a if w else b`` zastąpione jedną gałęzią;
 - ``True`` zamienione na ``False`` i odwrotnie;
 - warunek ``if`` zawsze prawdziwy i zawsze fałszywy;
 - granica porównania (``<`` i ``<=``, ``>`` i ``>=``);
-- ``return wartość`` zamienione na ``return None``;
+- ``return wartość`` zamienione na ``return None``, a w funkcji modułu, której wynik moduł podaje ``sys.exit(...)``
+  albo ``raise SystemExit(...)`` (``sys.exit(main())``), ``return <liczba>`` zamienione na inny kod wyjścia
+  (``return 0`` na ``return 1``, inna liczba na ``return 0``), bo ``sys.exit(None)`` kończy się kodem 0 jak ``return 0``;
+- ``a in b``, ``b.startswith(a)`` i ``b.endswith(a)`` zamienione na siebie nawzajem (także ``not in``), gdy ``b`` nie
+  jest literałem kolekcji, a ``startswith``/``endswith`` mają jeden argument, który nie jest krotką; biegnie
+  ``in`` → ``startswith``, ``startswith`` → ``endswith`` i ``endswith`` → ``startswith``;
+- argument nazwany (``wersja=wersja``) ustawiony na ``None``, gdy jego wartość nie jest stałą (stałą psuje już
+  ``True``/``False``, a ``encoding="utf-8"`` bez niej działa na Linuksie tak samo); pozycyjnych narzędzie nie rusza,
+  bo ich ``None`` zwykle tylko wywraca wywołanie;
 - wywołanie w osobnej linii usunięte;
 - bez jednego elementu krotki, która nie jest samymi stałymi;
 - fragment zmiany (hunk) cofnięty do bazy: test poprawki, który przechodzi bez niej, tu przeżywa.
@@ -17,8 +25,10 @@ które przeglądy PR-ów robiły ręcznie i które przeżywały testy:
 Biegnie każde cofnięcie fragmentu i najwyżej jedna inna mutacja na linię (``selected``): ta z najgłębszego węzła
 drzewa składni linii, czyli ostatnia, którą daje przejście drzewa wszerz (``ast.walk``), a z kilku na tym samym węźle
 ostatnia z nich. Psuje ona najmniejszy kawałek linii, więc przeżywa test, który sprawdza tylko ogólny skutek linii;
-ogólny skutek fragmentu sprawdza już jego cofnięcie. Cofnięcie, które daje ten sam kod co inna mutacja (bez elementu
-krotki, ``False`` → ``True``), biegnie jako cofnięcie pod jej opisem. Linia mutacji to linia jej wyjątku (``Mutant.line``).
+ogólny skutek fragmentu sprawdza już jego cofnięcie. Predykat napisu biegnie tylko na linii bez innej mutacji: przy
+zbiorze albo słowniku po prawej ``startswith`` tylko rzuca ``AttributeError``. Cofnięcie, które daje ten sam kod co
+inna mutacja (bez elementu krotki, ``False`` → ``True``), biegnie jako cofnięcie pod jej opisem. Linia mutacji to linia
+jej wyjątku (``Mutant.line``).
 
 Mutacja, która zmienia tylko docstringi, komentarze, adnotacje argumentów i wyników funkcji, importy albo aliasy
 typów (``Nazwa = Callable[...]``, ``A | B`` czytane tylko w adnotacjach), nie zmienia zachowania, więc jej nie ma.
@@ -36,10 +46,17 @@ modułu i w fixture o zasięgu szerszym niż test. Testy muszą przejść, inacz
 Potem każda mutacja biegnie przez silnik ``tools/mutacje.py`` (własna kopia checkoutu), najpierw z testami, które
 wykonały jej linie. Pokrycie tylko przyspiesza wykrycie: mutacja, która je przeżyła, biegnie drugi raz, po jednej
 naraz z ``--rownolegle`` workerami xdist, i dopiero ta porażka daje ``NIEWYKRYTA``. Drugi raz biegną testy, które
-wykonały jakikolwiek kod jej pliku albo uruchomiły proces (jego kodu zapis nie widzi, gdy proces ma ``-I``), a wszystkie
-testy dotknięte plikiem, gdy linię wykonano dla wielu testów naraz
-albo leży w funkcji z ``@cache``, ``@lru_cache`` albo ``@cached_property`` (wynik pierwszego wywołania dostają też
-inne testy). Linia ``CZAS`` mówi, ile trwała każda faza.
+wykonały jakikolwiek kod jej pliku albo uruchomiły proces i dochodzą do pliku importem albo nazwą pliku, katalogu
+lub globu w teście albo jego fixture, a wszystkie testy dotknięte plikiem, gdy linię wykonano
+dla wielu testów naraz albo leży w funkcji z ``@cache``, ``@lru_cache`` albo ``@cached_property`` (wynik pierwszego wywołania dostają też
+inne testy). Kodu procesu zapis nie widzi, gdy proces ma ``-I`` albo własne środowisko bez zmiennych zapisu, i gdy
+wykonuje kopię pliku spoza checkoutu: tak test uruchamia narzędzie z ``tools/`` skopiowane do repozytorium w katalogu
+tymczasowym. Wtedy mutację tej linii od razu sprawdzają te same testy. Test, który dochodzi do pliku tylko przez
+ścieżkę nazwaną w innym narzędziu i nie wykonał jego kodu, nie biegnie: to każdy test z repozytorium Gita, bo
+``tests/fixtures/git_repo.py`` kopiuje ``tools/ci_lokalnie.py``, a ten nazywa ``tools/mutacje_zmiany.py``.
+Kod, który biegnie tylko w takim procesie z ``-I`` uruchomionym przez inne narzędzie, dostaje więc ``NIEWYKRYTA``,
+nawet gdy test tamtego narzędzia by go wykrył: potrzebuje testu, który sam nazywa jego plik.
+Linia ``CZAS`` mówi, ile trwała każda faza.
 
 Mutacja, która przeżywa, to obietnica bez testu: dopisz test, który ją wykrywa. Mutacja równoważna (kod robi to samo)
 dostaje wyjątek w linii mutacji albo w samodzielnym komentarzu tuż nad nią:
@@ -54,8 +71,13 @@ każda część zapisuje swoją ostatnią linię i nazwy przeżytych mutacji (``
 ``NIEWYKRYTA``), a ``tools/scal_pr.py`` każe recenzentowi omówić każdą z nich w ``PASS``.
 
 Granica: nie zastępuje mutacji z opisu PR. Obietnicę, której żadna z tych mutacji nie psuje (inny klucz
-wyszukiwania, kolejność kroków), samo usunięcie linii, dekoratory, kod poza ``src/`` i kod innego systemu łapie tylko
-przegląd z mutacjami z ``tools/mutacje.py``.
+wyszukiwania, kolejność kroków), samo usunięcie linii, dekoratory, argument pozycyjny, kod poza ``src/`` i ``tools/``
+(skrypty skilli w ``.agents/skills/*/scripts``, bo zwykle nie biegnie ich żaden test pytest, ``ci.yml``) i kod innego
+systemu łapie tylko przegląd z mutacjami z ``tools/mutacje.py``.
+
+Pod ``tools/na_scalonych_pr.py`` pliki ``tools/``, które ten podmienił narzędziami z checkoutu, nie są zmianą, a zmianę
+commitu w takim pliku narzędzie zgłasza linią ``NIESPRAWDZONA``: zmianę ``tools/`` z historii sprawdza tylko próba
+z ``--narzedzia`` wskazującym commit, który do narzędzi tego commitu dokłada samo nowe ``tools/mutacje_zmiany.py``.
 
 Poza CI biegnie tylko do odtworzenia porażki zadania z runu Actions tej gałęzi (``tools/ciezkie_ci.py``):
 
@@ -70,18 +92,20 @@ from __future__ import annotations
 import argparse
 import ast
 from collections import defaultdict
-from collections.abc import Iterator, Sequence
+from collections.abc import Iterable, Iterator, Sequence
 from dataclasses import dataclass, field, replace
 import datetime
+import io
 import itertools
 import json
 import os
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 import re
 import subprocess
 import sys
 import tempfile
 import time
+import tokenize
 
 import ciezkie_ci
 import mutacje
@@ -110,6 +134,7 @@ class Mutant:
     other_system: bool = False  # kod gałęzi innego systemu niż ten, na którym biegną testy
     shared_state: bool = False  # kod funkcji z ``@cache``: wynik pierwszego wywołania dostają następne testy
     revert: bool = False  # cofnięcie fragmentu zmiany do bazy
+    last_resort: bool = False  # predykat napisu: biegnie tylko na linii bez innej mutacji
 
 
 @dataclass(frozen=True)
@@ -137,19 +162,18 @@ def _short(text: str, limit: int = 60) -> str:
     return flat if len(flat) <= limit else f"{flat[: limit - 1]}…"
 
 
-def _is_source(path: str) -> bool:
-    pure = PurePosixPath(path)
-    return pure.parts[0] == "src" and pure.suffix == ".py"
+CODE = (":(glob)src/**/*.py", ":(glob)tools/**/*.py")
 
 
 def changes(fork: str) -> dict[str, list[Hunk]]:
-    """Fragmenty zmiany każdego pliku ``src/**/*.py`` istniejącego w checkoucie; nowy plik to jeden fragment."""
+    """Fragmenty zmiany każdego pliku ``src/**/*.py`` i ``tools/**/*.py`` z checkoutu; nowy plik to jeden fragment."""
 
     found: dict[str, list[Hunk]] = defaultdict(list)
     current: str | None = None
     old_left = new_left = 0  # linie fragmentu, których parser jeszcze nie przeczytał: nie są nagłówkiem
     # Przeniesiony plik (``-M``) psuje tylko linie, które przy przeniesieniu się zmieniły.
-    for line in _git("diff", "-U0", "-M", "--no-color", fork, "--", "src").split("\n"):
+    # Usunięty plik nie ma linii do zepsucia, więc każdy nagłówek ``+++`` to ``b/<ścieżka>``.
+    for line in _git("diff", "-U0", "-M", "--diff-filter=d", "--no-color", fork, "--", *CODE).split("\n"):
         if old_left and line.startswith("-"):
             old_left -= 1
             if current is not None:
@@ -158,16 +182,29 @@ def changes(fork: str) -> dict[str, list[Hunk]]:
         elif new_left and line.startswith("+"):
             new_left -= 1
         elif line.startswith("+++ "):
-            name = line[4:]
-            current = name[2:] if name.startswith("b/") and _is_source(name[2:]) else None
+            current = line.removeprefix("+++ b/")
         elif match := _HUNK.match(line):
             old_left, new_left = int(match["old_count"] or 1), int(match["new_count"] or 1)
             if current is not None:
                 found[current].append(Hunk(int(match["new"]), new_left, ()))
-    for name in _git("ls-files", "--others", "--exclude-standard", "--", "src").splitlines():
-        if _is_source(name):
-            found[name] = [Hunk(1, len(_rows((ROOT / name).read_text(encoding="utf-8"))), ())]
+    for name in _git("ls-files", "--others", "--exclude-standard", "--", *CODE).splitlines():
+        found[name] = [Hunk(1, len(_rows((ROOT / name).read_text(encoding="utf-8"))), ())]
     return {path: hunks for path, hunks in found.items() if (ROOT / path).is_file()}
+
+
+def overlay(fork: str) -> tuple[frozenset[str], tuple[str, ...]]:
+    """Pliki ``tools/``, które ``tools/na_scalonych_pr.py`` podmienił narzędziami z checkoutu, i te z nich, które zmienia commit.
+
+    Podmieniony plik to sprawdzane narzędzie, nie zmiana. Zmiany commitu w takim pliku nie widać, bo kopia ma w jego
+    miejscu narzędzie z checkoutu.
+    """
+
+    if os.environ.get(ciezkie_ci.FROM_MERGED_PRS) != "1":
+        return frozenset(), ()
+    listed = _git("diff", "-z", "--name-only", "HEAD", "--", "tools") + _git("ls-files", "-z", "--others", "--exclude-standard", "--", "tools")
+    replaced = frozenset(name for name in listed.split("\0") if name)
+    committed = set(_git("diff", "-z", "--name-only", fork, "HEAD", "--", "tools").split("\0"))
+    return replaced, tuple(sorted(replaced & committed))
 
 
 def _rows(text: str) -> list[str]:
@@ -309,11 +346,82 @@ def _cached_lines(tree: ast.AST) -> set[int]:
     return found
 
 
+def _own(function: ast.FunctionDef) -> Iterator[ast.AST]:
+    """Węzły ciała funkcji bez ciał funkcji zagnieżdżonych w niej (także metod klasy): ich ``return`` nie jest jej wynikiem."""
+
+    pending: list[ast.AST] = list(function.body)
+    while pending:
+        node = pending.pop()
+        yield node
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            pending.extend(ast.iter_child_nodes(node))
+
+
+def _exit_codes(tree: ast.Module) -> dict[int, tuple[ast.expr, int]]:
+    """Wartość i inny kod wyjścia każdego ``return <liczba>`` funkcji modułu, której wynik moduł podaje ``sys.exit(...)``
+    albo ``raise SystemExit(...)``: ``0`` dla liczby różnej od zera, ``1`` dla zera."""
+
+    exiting = {
+        argument.func.id
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call) and ast.unparse(node.func) in {"sys.exit", "SystemExit"}
+        for argument in node.args
+        if isinstance(argument, ast.Call) and isinstance(argument.func, ast.Name)
+    }
+    return {
+        id(node): (node.value, 0 if node.value.value else 1)
+        for function in tree.body
+        if isinstance(function, ast.FunctionDef) and function.name in exiting
+        for node in _own(function)
+        if isinstance(node, ast.Return) and isinstance(node.value, ast.Constant) and type(node.value.value) is int
+    }
+
+
 _BOUNDARY: dict[type[ast.cmpop], str] = {ast.Lt: "<=", ast.LtE: "<", ast.Gt: ">=", ast.GtE: ">"}
+_PREDICATES = ("startswith", "endswith")
+# Literał kolekcji nigdy nie jest napisem, więc ``x in [...]`` zamienione na ``startswith`` tylko wywraca kod.
+_COLLECTIONS = (ast.List, ast.Tuple, ast.Set, ast.Dict, ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp)
 
 
-def _candidates(node: ast.AST, source: _Source) -> Iterator[tuple[Node, Node, str, str]]:
-    """(węzeł do zastąpienia, węzeł, którego linie psuje mutacja, zamiana, opis) dla jednego węzła."""
+def _predicates(node: ast.AST, source: _Source) -> Iterator[tuple[Node, Node, str, str]]:
+    """Zamiana predykatu napisu ``in``, ``startswith`` albo ``endswith`` na każdy z pozostałych dwóch."""
+
+    if (
+        isinstance(node, ast.Compare)
+        and len(node.ops) == 1
+        and isinstance(node.ops[0], (ast.In, ast.NotIn))
+        and not isinstance(node.comparators[0], _COLLECTIONS)
+        and not (isinstance(node.left, ast.Constant) and not isinstance(node.left.value, str))
+    ):
+        item, text, now = node.left, node.comparators[0], "in"
+        negation = "not " if isinstance(node.ops[0], ast.NotIn) else ""
+    elif (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr in _PREDICATES
+        and len(node.args) == 1
+        and not node.keywords
+        and not isinstance(node.args[0], (ast.Tuple, ast.Starred))
+    ):
+        item, text, now, negation = node.args[0], node.func.value, node.func.attr, ""
+    else:
+        return
+    item_code, text_code = source.segment(item), source.segment(text)
+    # ``selected`` bierze ostatnią zamianę węzła, więc ``in`` dostaje ``startswith``: na #460 r1 test wykrył ``endswith``,
+    # a przeżyło ``startswith``, które znalazł przegląd. Biegnie ona tylko na linii bez innej mutacji (``selected``).
+    for method in ("in", "endswith", "startswith"):
+        if method == now:
+            continue
+        shown = f"{item_code} in {text_code}" if method == "in" else f"{text_code}.{method}({item_code})"
+        code = f"({item_code}) in ({text_code})" if method == "in" else f"({text_code}).{method}({item_code})"
+        yield node, node, f"({negation}{code})", f"`{_short(source.segment(node))}` → `{_short(negation + shown)}`"
+
+
+def _candidates(node: ast.AST, source: _Source, exit_codes: dict[int, tuple[ast.expr, int]]) -> Iterator[tuple[Node, Node, str, str]]:
+    """(węzeł do zastąpienia, węzeł, którego linie psuje mutacja, zamiana, opis) dla jednego węzła.
+
+    ``exit_codes`` to inny kod wyjścia dla ``return <liczba>`` funkcji, której wynik trafia do ``sys.exit``.
+    """
 
     if isinstance(node, ast.BoolOp):
         word = "and" if isinstance(node.op, ast.And) else "or"
@@ -332,12 +440,20 @@ def _candidates(node: ast.AST, source: _Source) -> Iterator[tuple[Node, Node, st
         left, right = source.segment(node.left), source.segment(node.comparators[0])
         swapped = _BOUNDARY[type(node.ops[0])]
         yield node, node, f"({left} {swapped} {right})", f"granica `{_short(source.segment(node))}` → `{swapped}`"
+    elif id(node) in exit_codes:
+        returned, code = exit_codes[id(node)]
+        yield returned, returned, str(code), f"`return {source.segment(returned)}` → `return {code}`"
     elif isinstance(node, ast.Return) and node.value is not None and not (
         isinstance(node.value, ast.Constant) and node.value.value is None
     ):
         yield node.value, node, "None", f"`return {_short(source.segment(node.value))}` → `return None`"
     elif isinstance(node, ast.Expr) and isinstance(node.value, (ast.Call, ast.Await)):
         yield node, node, "pass", f"bez wywołania `{_short(source.segment(node.value))}`"
+    elif isinstance(node, ast.Call):
+        for keyword in node.keywords:
+            if keyword.arg is not None and not isinstance(keyword.value, ast.Constant):
+                shown = f"{keyword.arg}={_short(source.segment(keyword.value), 30)}"
+                yield keyword.value, keyword.value, "None", f"`{shown}` → `{keyword.arg}=None`"
     elif (
         isinstance(node, ast.Tuple)
         and isinstance(node.ctx, ast.Load)
@@ -441,10 +557,13 @@ def mutants(path: str, text: str, hunks: Sequence[Hunk], platform: str = sys.pla
         line for node in ast.walk(tree) if id(node) in other and isinstance(node, (ast.expr, ast.stmt)) for line in _span_lines(node)
     }
     cached = _cached_lines(tree)
+    exit_codes = _exit_codes(tree)
     found: dict[str, Mutant] = {}
     meaning = _meaning(text)
 
-    def add(lines: frozenset[int], line: int, description: str, mutated: str, *, other_system: bool, revert: bool = False) -> None:
+    def add(
+        lines: frozenset[int], line: int, description: str, mutated: str, *, other_system: bool, revert: bool = False, last_resort: bool = False
+    ) -> None:
         if revert and mutated in found:
             # Cofnięcie, które daje kod innej mutacji, to ta mutacja: biegnie jako cofnięcie.
             found[mutated] = replace(found[mutated], revert=True)
@@ -456,16 +575,18 @@ def mutants(path: str, text: str, hunks: Sequence[Hunk], platform: str = sys.pla
         except (SyntaxError, ValueError):
             return
         if _meaning(mutated) != meaning:
-            found[mutated] = Mutant(path, line, lines, description, mutated, other_system, bool(lines & cached), revert)
+            found[mutated] = Mutant(path, line, lines, description, mutated, other_system, bool(lines & cached), revert, last_resort)
 
     for node in ast.walk(tree):
         if id(node) in skipped:
             continue
-        for replaced, broken, replacement, description in _candidates(node, source):
-            lines = _span_lines(broken) & changed
-            if lines:
-                mutated = source.replaced(replaced, replacement)
-                add(lines, broken.lineno, description, mutated, other_system=id(broken) in other or id(node) in other)
+        for last_resort, candidates in ((False, _candidates(node, source, exit_codes)), (True, _predicates(node, source))):
+            for replaced, broken, replacement, description in candidates:
+                lines = _span_lines(broken) & changed
+                if lines:
+                    mutated = source.replaced(replaced, replacement)
+                    other_system = id(broken) in other or id(node) in other
+                    add(lines, broken.lineno, description, mutated, other_system=other_system, last_resort=last_resort)
     rows = _rows(text)
     for hunk in hunks:
         if not hunk.count or (not hunk.old and hunk.count == len(rows)):
@@ -483,22 +604,33 @@ def mutants(path: str, text: str, hunks: Sequence[Hunk], platform: str = sys.pla
 
 
 def selected(path: str, text: str, hunks: Sequence[Hunk], platform: str = sys.platform) -> list[Mutant]:
-    """Mutacje, które biegną w CI i liczy plan: każde cofnięcie fragmentu i ostatnia inna mutacja każdej linii."""
+    """Mutacje, które biegną w CI i liczy plan: każde cofnięcie fragmentu i ostatnia inna mutacja każdej linii.
+
+    Predykat napisu biegnie tylko na linii bez innej mutacji: ``x in y`` → ``y.startswith(x)`` przy ``y`` będącym
+    zbiorem albo słownikiem tylko rzuca ``AttributeError``, a wypierał ``bez członu`` i stały warunek (#486
+    ``tools/sciezki_w_kodzie.py:67``: przeżywa ``bez `node.func.attr in GLOBS` w `and` ``).
+    """
 
     found = mutants(path, text, hunks, platform)
-    last = {mutant.line: mutant for mutant in found if not mutant.revert}
+    last: dict[int, Mutant] = {}
+    for mutant in found:
+        if not mutant.revert and (mutant.line not in last or not mutant.last_resort or last[mutant.line].last_resort):
+            last[mutant.line] = mutant
     return [mutant for mutant in found if mutant.revert or last[mutant.line] is mutant]
 
 
 def exceptions(text: str, path: str) -> dict[int, Allowance]:
-    """Wyjątki ``# mutacje-zmiany:`` pliku według linii kodu, której dotyczą; zła postać rzuca ``ValueError``."""
+    """Wyjątki ``# mutacje-zmiany:`` pliku według linii kodu, której dotyczą; zła postać rzuca ``ValueError``.
+
+    Wyjątkiem jest tylko komentarz: napis z tym tekstem (opis postaci wyjątku w docstringu) nim nie jest.
+    """
 
     found: dict[int, Allowance] = {}
-    for number, line in enumerate(_rows(text), start=1):
-        line = line.rstrip("\n")  # noqa: PLW2901
-        match = EXCEPTION.search(line)
+    for token in tokenize.generate_tokens(io.StringIO(text).readline):
+        match = EXCEPTION.search(token.string) if token.type == tokenize.COMMENT else None
         if match is None:
             continue
+        number = token.start[0]
         form = EXCEPTION_FORM.fullmatch(match["rest"])
         if form is None:
             raise ValueError(f"{path}:{number}: wyjątek musi mieć postać `# mutacje-zmiany: <powód> | do RRRR-MM-DD | zgoda <kto>`")
@@ -508,7 +640,7 @@ def exceptions(text: str, path: str) -> dict[int, Allowance]:
             raise ValueError(f"{path}:{number}: zła data wyjątku {form['until']}") from error
         allowance = Allowance(form["reason"], until, form["who"])
         found[number] = allowance
-        if line.lstrip().startswith("#"):
+        if not token.line[: token.start[1]].strip():
             found[number + 1] = allowance
     return found
 
@@ -523,10 +655,36 @@ class Coverage:
     def covering(self, mutant: Mutant) -> list[str]:
         return sorted(test for test, files in self.lines.items() if files.get(mutant.path, set()) & mutant.lines)
 
-    def touching(self, path: str) -> list[str]:
-        """Testy, które wykonały kod pliku ``path`` albo uruchomiły proces, którego kodu zapis może nie widzieć."""
+    def touching(self, path: str, runners: frozenset[str]) -> list[str]:
+        """Testy, które wykonały kod pliku ``path`` albo z plików testów ``runners`` uruchomiły proces, którego kodu
+        zapis może nie widzieć."""
 
-        return sorted({test for test, files in self.files.items() if path in files} | self.spawners)
+        executed = {test for test, files in self.files.items() if path in files}
+        return sorted(executed | {test for test in self.spawners if test.split("::")[0] in runners})
+
+
+def runners(paths: Iterable[str]) -> dict[str, frozenset[str]]:
+    """Pliki testów, które dochodzą do każdego z ``paths`` importem albo nazwą pliku w teście lub fixture.
+
+    Tylko taki test uruchamia proces z kodem pliku, którego zapis nie widzi (``-I``, kopia narzędzia). Plik nazwany
+    tylko w innym narzędziu się nie liczy: ``tests/fixtures/git_repo.py`` kopiuje ``tools/ci_lokalnie.py``, które
+    nazywa ``tools/mutacje_zmiany.py``, więc inaczej każdy test z repozytorium Gita (``git`` to też proces) sprawdzał
+    każdą mutację tego pliku.
+    """
+
+    graph = szybko.Dependencies.of(ROOT, szybko._files(ROOT))
+    found: dict[str, set[str]] = defaultdict(set)
+    for test in sorted(path for path in graph.depends_on if szybko._is_test(path)):
+        reached, pending = {test}, [test]
+        while pending:
+            source = pending.pop()
+            named = graph.folder_files.get(source, set()) if source.startswith("tests/") else set()
+            for target in (graph.depends_on.get(source, set()) | named) - reached:
+                reached.add(target)
+                pending.append(target)
+        for path in reached:
+            found[path].add(test)
+    return {path: frozenset(found[path]) for path in paths}
 
 
 def _coverage(tests: Sequence[str], lines: dict[str, frozenset[int]]) -> tuple[subprocess.CompletedProcess[str], Coverage]:
@@ -616,7 +774,10 @@ def _mutate(args: argparse.Namespace, survived: list[str]) -> tuple[int, str]:
         fork = _git("merge-base", "HEAD", args.baza).strip()
     except subprocess.CalledProcessError:
         return 1, f"MUTACJE ZMIANY FAIL | nieznana baza {args.baza}"
-    hunks = changes(fork)
+    replaced, unseen = overlay(fork)
+    hunks = {path: found for path, found in changes(fork).items() if path not in replaced}
+    for path in unseen:
+        print(f"NIESPRAWDZONA: {path} → commit go zmienia, a tools/na_scalonych_pr.py podstawił w jego miejscu narzędzie z checkoutu")
     texts = {path: (ROOT / path).read_text(encoding="utf-8") for path in hunks}
     try:
         allowed = {path: exceptions(text, path) for path, text in texts.items()}
@@ -626,12 +787,13 @@ def _mutate(args: argparse.Namespace, survived: list[str]) -> tuple[int, str]:
     found = every[number - 1 :: count]
     if not found:
         where = f" w części {number}/{count}" if every else ""
-        return 0, f"MUTACJE ZMIANY OK | brak mutacji zmienionych linii src/ od {args.baza}{where}"
+        return 0, f"MUTACJE ZMIANY OK | brak mutacji zmienionych linii src/ i tools/ od {args.baza}{where}"
     paths = {mutant.path for mutant in found}
     by_file = {path: sorted(szybko.select(ROOT, frozenset({path})).fingerprints) for path in paths}
     tests = sorted({test for chosen in by_file.values() for test in chosen})
     part = f" (część {number}/{count} z {len(every)})" if count > 1 else ""
-    print(f"Mutacje: {len(found)}{part} w {len(paths)} plikach src/ od {args.baza}. Testy dotknięte zmianą: {len(tests)}.", flush=True)
+    print(f"Mutacje: {len(found)}{part} w {len(paths)} plikach src/ i tools/ od {args.baza}. Testy dotknięte zmianą: {len(tests)}.", flush=True)
+    near = runners(paths)
     clock = [time.monotonic()]
     coverage = Coverage()
     if tests:
@@ -662,7 +824,7 @@ def _mutate(args: argparse.Namespace, survived: list[str]) -> tuple[int, str]:
         # sprawdzają wszystkie testy pliku; inny kod testy, które wykonały jakikolwiek kod jego pliku.
         shared = mutant.shared_state or bool(mutant.lines & coverage.shared.get(mutant.path, set()))
         candidates = set(by_file[mutant.path])
-        touching = [test for test in coverage.touching(mutant.path) if test.split("::")[0] in candidates]
+        touching = [test for test in coverage.touching(mutant.path, near[mutant.path]) if test.split("::")[0] in candidates]
         second = by_file[mutant.path] if shared else touching or by_file[mutant.path]
         first = coverage.covering(mutant) or second
         edit = mutacje.Edit(Path(mutant.path), texts[mutant.path], mutant.source)

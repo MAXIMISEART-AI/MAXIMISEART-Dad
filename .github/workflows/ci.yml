@@ -262,7 +262,7 @@ jobs:
           include-hidden-files: true
 
   change-mutations:
-    # One mutation per line the pull request changes in src/, and each change reverted, must fail a test
+    # One mutation per line the pull request changes in src/ or tools/, and each change reverted, must fail a test
     # (tools/mutacje_zmiany.py). It starts only after a green Required and does not block it (ADR 0020): the reviewer
     # discusses each surviving mutation in the PASS, and tools/scal_pr.py refuses to merge until it has, or while this
     # job still runs. A push to main has no change to mutate, so there the job does not start and takes no runner.
@@ -296,9 +296,11 @@ jobs:
           enable-cache: false
 
       - name: Install dependencies
-        run: uv pip install --system --python "${{ steps.python.outputs.python-path }}" -r requirements.txt
+        # The same as the Linux pytest parts: the tests of tools/ it runs call the real ruff and mypy (tools/scal_pr.py,
+        # tools/scalenia_pr.py). The editable install does not hide a mutation: tools/mutacje.py puts the copy's src first.
+        run: uv pip install --system --python "${{ steps.python.outputs.python-path }}" -e ".[dev]"
 
-      - name: Mutate the changed lines of src/
+      - name: Mutate the changed lines of src/ and tools/
         run: python tools/mutacje_zmiany.py --baza HEAD^1 --czesc ${{ matrix.part }}/3 --zapis .ci-mutacje/czesc.json
 
       # tools/scal_pr.py reads the surviving mutations of every part from here; a re-run replaces its part's record.

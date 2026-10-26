@@ -88,7 +88,7 @@ A rule that a check enforces sits in its section's table, one line per rule, bes
 
 | Rule | Guard |
 |---|---|
-| Every changed line of `src/` has a test that fails when the line is broken, or the reviewer's `PASS` says in a `MUTACJA` line why the test is not worth it („nie warto, bo …”), and the PR body promises only what the mutations confirm. | `tools/mutacje_zmiany.py` (CI job `Change mutations`), `tools/scal_pr.py` |
+| Every changed line of `src/` and `tools/` has a test that fails when the line is broken, or the reviewer's `PASS` says in a `MUTACJA` line why the test is not worth it („nie warto, bo …”), and the PR body promises only what the mutations confirm. | `tools/mutacje_zmiany.py` (CI job `Change mutations`), `tools/scal_pr.py` |
 | A test module imports helpers only from `tests/fixtures`. | `tests/test_struktura_testow.py` |
 | A test waits for a state of Centrum rozliczeń or measures time with the test's clock, and checks the time of the code under test by equality on the fake clock `ManualClock` (`tests/fixtures/clock.py`), never by a fixed number of milliseconds. | `tests/test_struktura_testow.py` |
 | Git in tests has one configuration, the same on every computer: a test builds `env=` from `os.environ` and leaves `GIT_CONFIG_GLOBAL`/`GIT_CONFIG_NOSYSTEM` alone, sets a computer configuration with something more through `computer_git_config` (`tests/fixtures/git_config.py`), and a process of the tool's code (`src/`) has an empty `user.name` and `user.email`, so its `git commit` fails as it does at Dad's. | fixture `git_bez_konfiguracji_komputera` in `tests/conftest.py`, `tests/test_git_w_testach.py` |

@@ -113,6 +113,15 @@ def test_mutation_checks_instaluja_playwright_i_chromium_tylko_w_zadaniu_ktore_p
     assert installs == {"Install Playwright": "${{ matrix.przegladarka }}", "Install Chromium": "${{ matrix.przegladarka }}"}
 
 
+def _installs_on_linux(job: str) -> list[str]:
+    return [step["run"] for step in jobs()[job]["steps"] if "uv pip install" in step.get("run", "") and "'Windows'" not in step.get("if", "")]
+
+
+def test_change_mutations_instaluje_to_samo_co_czesci_pytest_na_linuksie() -> None:
+    # Change mutations uruchamia testy dotknięte zmianą, a testy tools/scal_pr.py i tools/scalenia_pr.py wołają ruff i mypy.
+    assert _installs_on_linux("change-mutations") == _installs_on_linux("pytest")
+
+
 def _required(
     tmp_path: Path, plan: plan_ci.Plan | None, results: dict[str, str], *, missing: frozenset[str] = frozenset(), failed: frozenset[str] = frozenset()
 ) -> subprocess.CompletedProcess[str]:
