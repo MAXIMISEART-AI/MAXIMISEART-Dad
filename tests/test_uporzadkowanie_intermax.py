@@ -830,6 +830,20 @@ def test_bez_wklejenia_wiersz_z_wygladem_z_aplikacji_w_starszym_dniu_nie_zatrzym
     assert stop.message.code == "BRAK_SUROWYCH_ZLECEN"
 
 
+def test_bez_wklejenia_wiersz_z_wygladem_z_aplikacji_wysoko_w_ostatnim_dniu_zatrzymuje(tmp_path: Path) -> None:
+    """Wiersze ostatniego dnia nie są wcześniejszym dniem, więc nie kończą przeglądu."""
+
+    ordered = tuple(Order(datetime(2026, 10, 19, 7 + index % 12), "anna.kowalska", index + 1) for index in range(14))
+    path, _ = _register(tmp_path, Intermax(ordered=ordered, raw=()))
+    _edited(path, _in_other_font(2))
+
+    with _nothing_written(tmp_path, path):
+        stop = _stop(_run(tmp_path))
+
+    assert stop.message.code == "SUROWE_ZLECENIA_NAD_UPORZADKOWANYMI"
+    assert stop.message.where.endswith("wiersz 2")
+
+
 def test_pojedyncze_wiersze_wczesniejszych_dni_miedzy_dniami_nie_koncza_przegladu(tmp_path: Path) -> None:
     def day(number: int, count: int, first: int) -> tuple[Order, ...]:
         return tuple(Order(datetime(2026, 10, number, 7 + index), "anna.kowalska", first + index) for index in range(count))
