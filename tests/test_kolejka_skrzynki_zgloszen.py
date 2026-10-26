@@ -13,13 +13,11 @@ import threading
 
 import pytest
 
-from rozliczenia.centrum.keyed_box import KeyedBox
 from rozliczenia.centrum.log import CentrumLog
-from rozliczenia.centrum.outbox import RETRY_S, Frame, Outbox, PeriodThread, Post, ReportIssue
+from rozliczenia.centrum.outbox import Frame, Outbox, PeriodThread, Post
 from rozliczenia.centrum.report_box import COMMENT_LIMIT, Refused, Rejected, Unreachable
 
 from tests.fixtures.centrum import FakeIssue, FakeReportBox
-from tests.fixtures.clock import ManualClock
 from tests.fixtures.potomne import wait_for
 
 KEY = "github_pat_SYNTETYCZNY_KLUCZ"
@@ -48,36 +46,25 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class Queue:
-    """Kolejka na folderze w ``tmp_path`` ze skrzynką ``box`` i kluczem ``key`` (``None``: bez klucza).
-
-    ``delivered`` to Uruchomienie i numer issue każdej wysyłki, którą przyjęła skrzynka (``on_delivered``).
-    """
+    """Kolejka na folderze w ``tmp_path``; ``waiting_at_pass`` to liczba linii „skrzynka-czeka” na początku każdego
+    przejścia (kolejka pyta o klucz raz na przejście, a przejścia idą po kolei w jednym wątku)."""
 
     def __init__(self, tmp_path: Path, box: FakeReportBox, key: str | None = KEY) -> None:
         self.directory = tmp_path / "config" / "zgloszenia" / "kolejka"
         self.log_path = tmp_path / "logs" / "centrum-rozliczen.log"
         self.box = box
         self.key = key
-        self.clock = ManualClock()
-        self.delivered: list[tuple[str, int]] = []
+        self.waiting_at_pass: list[int] = []
         self.outbox = self.restarted()
 
     def restarted(self) -> Outbox:
         """Kolejka nowego startu Centrum na tym samym folderze."""
 
-        keyed = KeyedBox(self.box, lambda: self.key, clock=self.clock)
-        return Outbox(
-            self.directory,
-            keyed,
-            CentrumLog(self.log_path),
-            clock=self.clock,
-            on_delivered=lambda post, number: self.delivered.append((post.run_id, number)),
-        )
+        return Outbox(self.directory, self.box, self._pass_key, CentrumLog(self.log_path))
 
-    def passed(self) -> None:
-        """Czeka, aż przejście kolejki, które właśnie ruszyło (``resume``, ``send_in_background``), się skończy."""
-
-        assert not self.outbox.wait_delivered("", THREAD.label, timeout_s=30)
+    def _pass_key(self) -> str | None:
+        self.waiting_at_pass.append(self.log().count("skrzynka-czeka"))
+        return self.key
 
     def queued(self, *texts: str) -> list[str]:
         """Pliki kolejki z poprzedniej pracy Centrum, po jednym na tekst, w tej kolejności."""
@@ -216,138 +203,35 @@ def test_bez_klucza_wysylka_czeka_w_pliku_bez_pytania_skrzynki(tmp_path: Path) -
     assert queue.box.keys == []
 
 
-@pytest.mark.parametrize(
-    ("failure", "key", "cause"),
-    [(None, None, "brak-klucza"), (Unreachable(), KEY, "brak-sieci"), (Refused(), KEY, "odmowa")],
-    ids=["brak-klucza", "brak-sieci", "odmowa"],
-)
-def test_porazka_dla_calej_kolejki_zatrzymuje_przejscie_i_ponawia_je_po_minucie_z_jedna_linia_dziennika(
-    tmp_path: Path, failure: Refused | Unreachable | None, key: str | None, cause: str
-) -> None:
-    queue = Queue(tmp_path, FakeReportBox(search_failure=failure), key=key)
+def test_bez_klucza_przejscie_kolejki_daje_jedna_linie_dziennika_przy_wielu_plikach(tmp_path: Path) -> None:
+    queue = Queue(tmp_path, FakeReportBox(), key=None)
     queue.queued("pierwsza\n", "druga\n", "trzecia\n")
 
     queue.outbox.resume()
-    queue.passed()
+    assert wait_for(lambda: len(queue.waiting_at_pass) == 1)
     queue.outbox.send_in_background()
-    queue.passed()
-    queue.clock.advance(RETRY_S)
-    queue.passed()
+    assert wait_for(lambda: len(queue.waiting_at_pass) == 2)
 
-    assert queue.log().count("skrzynka-czeka") == 1
-    assert f"skrzynka-czeka etykieta=kontrola-ilosci okres=08_14_09_2026 przyczyna={cause}\n" in queue.log()
+    assert queue.waiting_at_pass == [0, 1]
+    assert "skrzynka-czeka etykieta=kontrola-ilosci okres=08_14_09_2026 przyczyna=brak-klucza" in queue.log()
     assert len(queue.files()) == 3
-    assert (queue.box.issues, queue.clock.wakes) == ([], 1)
+    assert queue.box.keys == []
 
 
-def test_po_braku_sieci_kolejka_ponawia_po_minucie_bez_kolejnej_wysylki(tmp_path: Path) -> None:
-    queue = Queue(tmp_path, FakeReportBox(search_failure=Unreachable()))
-    queue.outbox.post(post(["treść\n"]))
-    queue.passed()
-    queue.box.search_failure = None
+@pytest.mark.parametrize("failure", [Unreachable(), Refused()], ids=["brak-sieci", "odmowa"])
+def test_brak_sieci_albo_odmowa_klucza_zatrzymuje_przejscie_z_jedna_linia_dziennika(
+    tmp_path: Path, failure: Unreachable | Refused
+) -> None:
+    queue = Queue(tmp_path, FakeReportBox(search_failure=failure))
+    queue.queued("pierwsza\n", "druga\n", "trzecia\n")
 
-    queue.clock.advance(RETRY_S - 1)
-    queue.passed()
-    assert queue.box.issues == []
-    queue.clock.advance(1)
-
-    assert queue.box.wait_until(lambda box: len(box.issues) == 1)
-    assert wait_for(lambda: queue.files() == [])
-    queue.passed()
-    assert queue.clock.wakes == 0
-
-
-def test_kolejne_przejscia_przed_budzeniem_nie_nastawiaja_drugiego_budzenia(tmp_path: Path) -> None:
-    queue = Queue(tmp_path, FakeReportBox(search_failure=Unreachable()))
-    queue.outbox.post(post(["treść\n"]))
-    queue.passed()
-
-    queue.outbox.send_in_background()
-    queue.passed()
-
-    assert queue.clock.wakes == 1
-
-
-def test_kolejka_bez_porazki_nie_nastawia_ponowienia(tmp_path: Path) -> None:
-    queue = Queue(tmp_path, FakeReportBox())
-
-    queue.outbox.post(post(["treść\n"]))
-
-    assert queue.box.wait_until(lambda box: len(box.issues) == 1)
-    queue.passed()
-    assert queue.clock.wakes == 0
-
-
-def test_odrzucona_tresc_nie_nastawia_ponowienia(tmp_path: Path) -> None:
-    queue = Queue(tmp_path, FakeReportBox(outcomes=[Rejected()]))
-
-    queue.outbox.post(post(["treść\n"]))
-
-    assert wait_for(lambda: "przyczyna=odmowa-tresci" in queue.log())
-    queue.passed()
-    assert queue.clock.wakes == 0
-
-
-def waiting_causes(queue: Queue) -> list[str]:
-    return [line.rsplit("przyczyna=", 1)[1] for line in queue.log().splitlines() if "skrzynka-czeka" in line]
-
-
-def test_czekanie_trafia_do_dziennika_przy_zmianie_przyczyny(tmp_path: Path) -> None:
-    queue = Queue(tmp_path, FakeReportBox(search_failure=Unreachable()))
-    queue.outbox.post(post(["treść\n"]))
-    queue.passed()
-    queue.clock.advance(RETRY_S)
-    queue.passed()
-    queue.box.search_failure = Refused()
-
-    queue.clock.advance(RETRY_S)
-    queue.passed()
-
-    assert waiting_causes(queue) == ["brak-sieci", "odmowa"]
-
-
-def test_po_dostarczeniu_ta_sama_przyczyna_czekania_znowu_trafia_do_dziennika(tmp_path: Path) -> None:
-    queue = Queue(tmp_path, FakeReportBox(search_failure=Unreachable()))
-    queue.outbox.post(post(["pierwsza\n"]))
-    queue.passed()
-    queue.box.search_failure = None
-    queue.clock.advance(RETRY_S)
-    assert queue.box.wait_until(lambda box: len(box.issues) == 1)
-    queue.passed()
-    queue.box.search_failure = Unreachable()
-
-    queue.outbox.post(post(["druga\n"]))
-    queue.passed()
-
-    assert waiting_causes(queue) == ["brak-sieci", "brak-sieci"]
-
-
-def test_dostarczenie_w_przejsciu_zeruje_przyczyne_czekania_takze_przed_nastepnym_plikiem(tmp_path: Path) -> None:
-    queue = Queue(tmp_path, FakeReportBox(search_failure=Unreachable(), comment_outcomes=[Unreachable()]))
-    queue.queued("pierwsza\n", "druga\n")
     queue.outbox.resume()
-    queue.passed()
-    queue.box.search_failure = None
+    assert wait_for(lambda: len(queue.waiting_at_pass) == 1)
+    queue.outbox.send_in_background()
+    assert wait_for(lambda: len(queue.waiting_at_pass) == 2)
 
-    queue.clock.advance(RETRY_S)
-    queue.passed()
-
-    assert len(queue.box.issues) == 1
-    assert waiting_causes(queue) == ["brak-sieci", "brak-sieci"]
-
-
-def test_przejscie_do_konca_po_braku_sieci_nie_nastawia_ponowienia(tmp_path: Path) -> None:
-    queue = Queue(tmp_path, FakeReportBox(search_failure=Unreachable()))
-    queue.outbox.post(post(["treść\n"]))
-    queue.passed()
-    queue.box.search_failure = None
-    queue.box.outcomes = [Rejected()]
-
-    queue.clock.advance(RETRY_S)
-    queue.passed()
-
-    assert "przyczyna=odmowa-tresci" in queue.log()
-    assert queue.clock.wakes == 0
+    assert queue.waiting_at_pass == [0, 1]
+    assert len(queue.files()) == 3
 
 
 def test_tresc_ktorej_skrzynka_odmawia_zostaje_w_kolejce_a_nastepna_wychodzi_w_tym_samym_przejsciu(
@@ -365,9 +249,9 @@ def test_tresc_ktorej_skrzynka_odmawia_zostaje_w_kolejce_a_nastepna_wychodzi_w_t
         f"skrzynka-czeka etykieta=kontrola-ilosci okres=08_14_09_2026 przyczyna=odmowa-tresci plik={refused}" in queue.log()
     )
     assert "brak-sieci" not in queue.log()
-    for _ in range(2):
+    for passes in (2, 3):
         queue.outbox.send_in_background()
-        queue.passed()
+        assert wait_for(lambda: len(queue.waiting_at_pass) == passes)
     assert queue.files() == [refused]
     assert queue.log().count("przyczyna=odmowa-tresci") == 1
 
@@ -375,41 +259,6 @@ def test_tresc_ktorej_skrzynka_odmawia_zostaje_w_kolejce_a_nastepna_wychodzi_w_t
 
     assert queue.box.wait_until(lambda box: len(box.issues[0].comments) == 1)
     assert queue.box.issues[0].comments == ["Część 1/1\n\nodrzucona\n"]
-    assert wait_for(lambda: queue.files() == [])
-
-
-def test_druga_kolejka_na_tym_folderze_nie_wysyla_pliku_w_trakcie_wysylki_pierwszej(tmp_path: Path) -> None:
-    # Restart Centrum w tym samym procesie: kolejka poprzedniego startu dalej zakłada issue okresu.
-    hold = threading.Event()
-    queue = Queue(tmp_path, FakeReportBox(open_hold=hold))
-    queue.queued("treść\n")
-    queue.outbox.resume()
-    assert queue.box.opening.wait(30)
-    restarted = queue.restarted()
-
-    restarted.resume()
-    assert not restarted.wait_delivered("", THREAD.label, timeout_s=30)
-    searched = len(queue.box.listed)
-    hold.set()
-    queue.passed()
-
-    assert (searched, len(queue.box.issues)) == (1, 1)
-    assert queue.files() == []
-
-
-def test_przejscie_pominiete_przez_druga_kolejke_robi_pierwsza_po_swoim(tmp_path: Path) -> None:
-    hold = threading.Event()
-    queue = Queue(tmp_path, FakeReportBox(open_hold=hold, outcomes=[Unreachable()]))
-    queue.queued("treść\n")
-    queue.outbox.resume()
-    assert queue.box.opening.wait(30)
-    restarted = queue.restarted()
-    restarted.resume()
-    assert not restarted.wait_delivered("", THREAD.label, timeout_s=30)
-
-    hold.set()
-
-    assert queue.box.wait_until(lambda box: len(box.issues) == 1)
     assert wait_for(lambda: queue.files() == [])
 
 
@@ -557,7 +406,6 @@ def test_wyslanej_wysylki_ktorej_nie_da_sie_usunac_skrzynka_nie_dostaje_drugi_ra
     assert wait_for(lambda: failed_removals() == 1)
     queue.outbox.post(post(["druga\n"]))
     assert wait_for(lambda: failed_removals() == 2)
-    queue.passed()  # inaczej nowa kolejka zastaje przejście tej i oddaje mu swoje (outbox._claimed)
     queue.restarted().resume()
     assert wait_for(lambda: failed_removals() == 4)
     monkeypatch.setattr(Path, "unlink", unlink)
@@ -595,89 +443,3 @@ def test_po_wyslaniu_kolejka_zna_adres_pierwszego_komentarza_uruchomienia(tmp_pa
     )
     assert queue.outbox.delivered(RUN_ID, "kontrola-ilosci") is None
     assert queue.outbox.delivered("inne-uruchomienie", "logi-uruchomienia") is None
-
-
-FINGERPRINT_LINE = "- Odcisk problemu: 0123456789abcdef"
-REPORT = ReportIssue(FINGERPRINT_LINE, "BRAK_WZORCA: Nie znaleziono wzorca.")
-REPORT_BODY = f"Zgłoszenie z Centrum rozliczeń.\n\n## Narzędzie\n\n{FINGERPRINT_LINE}\n"
-
-
-def report(body: str = REPORT_BODY, *, run_id: str = RUN_ID) -> Post:
-    return Post.of(REPORT, period="08_14_09_2026", run_id=run_id, blocks=[body], frame=unframed)
-
-
-def test_zgloszenie_to_issue_z_trescia_podgladu_bez_dopisanego_wiersza(tmp_path: Path) -> None:
-    queue = Queue(tmp_path, FakeReportBox())
-
-    queue.outbox.post(report())
-
-    assert queue.box.wait_until(lambda box: len(box.sent) == 1)
-    [issue] = queue.box.sent
-    assert (issue.title, issue.body, issue.comments) == (REPORT.title, REPORT_BODY, [])
-    assert wait_for(lambda: queue.files() == [])
-
-
-def test_zgloszenie_przejmuje_otwarte_issue_tego_odcisku_bez_nowego_i_bez_komentarza(tmp_path: Path) -> None:
-    other = FakeIssue(3, "zgloszenie", "inny problem", "- Odcisk problemu: fedcba9876543210\n")
-    open_report = FakeIssue(7, "zgloszenie", REPORT.title, REPORT_BODY)
-    queue = Queue(tmp_path, FakeReportBox(issues=[other, open_report]))
-
-    queue.outbox.post(report())
-
-    assert wait_for(lambda: queue.files() == [])
-    assert queue.delivered == [(RUN_ID, 7)]
-    assert (queue.box.issues, open_report.comments, queue.box.keys) == ([other, open_report], [], [])
-
-
-def test_zamkniete_zgloszenie_tego_odcisku_nie_jest_przejete(tmp_path: Path) -> None:
-    closed = FakeIssue(7, "zgloszenie", REPORT.title, REPORT_BODY)
-    box = FakeReportBox(issues=[closed])
-    box.close(7)
-    queue = Queue(tmp_path, box)
-
-    queue.outbox.post(report())
-
-    assert queue.box.wait_until(lambda box: len(box.sent) == 2)
-    assert queue.box.sent[1].body == REPORT_BODY
-
-
-def test_zerwane_polaczenie_po_zalozeniu_zgloszenia_nie_daje_drugiego_zgloszenia(tmp_path: Path) -> None:
-    queue = Queue(tmp_path, FakeReportBox(lost_answers=1))
-
-    queue.outbox.post(report())
-    queue.passed()
-    assert len(queue.files()) == 1
-    queue.clock.advance(RETRY_S)
-
-    assert wait_for(lambda: queue.files() == [])
-    assert [issue.body for issue in queue.box.sent] == [REPORT_BODY]
-
-
-def test_dluga_tresc_zgloszenia_idzie_w_issue_i_komentarzach_bez_ramek(tmp_path: Path) -> None:
-    queue = Queue(tmp_path, FakeReportBox())
-    long_body = REPORT_BODY + "x" * 70_000
-
-    queue.outbox.post(report(long_body))
-
-    assert queue.box.wait_until(lambda box: len(box.sent) == 1 and len(box.sent[0].comments) == 1)
-    [issue] = queue.box.sent
-    assert issue.body + "".join(issue.comments) == long_body
-
-
-def test_zgloszenie_bez_wiersza_odcisku_w_tresci_issue_to_blad_programu() -> None:
-    with pytest.raises(ValueError, match="odcisku problemu"):
-        report("Zgłoszenie bez odcisku.\n")
-
-
-def test_plik_zgloszenia_zapisany_w_kolejce_wychodzi_po_starcie(tmp_path: Path) -> None:
-    queue = Queue(tmp_path, FakeReportBox(), key=None)
-    queue.outbox.post(report())
-    queue.passed()
-    [waiting] = queue.files()
-    assert f"-zgloszenie-{RUN_ID[:8]}.json" in waiting
-
-    queue.key = KEY
-    queue.restarted().resume()
-
-    assert queue.box.wait_until(lambda box: len(box.sent) == 1)
-    assert (queue.box.sent[0].title, queue.box.sent[0].body) == (REPORT.title, REPORT_BODY)

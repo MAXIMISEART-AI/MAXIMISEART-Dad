@@ -18,14 +18,13 @@ from typing import Final, Literal, NamedTuple, assert_never
 
 from fastapi import APIRouter
 
-from rozliczenia import input_checks, settlement_messages, workbook_files
+from rozliczenia import input_checks, workbook_files
 from rozliczenia.centrum import contract
-from rozliczenia.centrum.keyed_box import KeyJudgement
 from rozliczenia.centrum.tool_freshness import Judgement, ReleaseSource, ToolFreshness, offers_update
 from rozliczenia.centrum.version import short_commit
 from rozliczenia.collective_preparation import default_collective_template_path, default_internal_template_path
 from rozliczenia.engine import default_worker_template_path
-from rozliczenia.input_checks import ProcessTemplate, Readers, WorkerConfigExplanation
+from rozliczenia.input_checks import ProcessTemplate, Readers
 from rozliczenia.message import Message
 from rozliczenia.workbook_files import Problem
 from rozliczenia.worker_config import default_config_path
@@ -87,14 +86,10 @@ _CLOSING: Final[Mapping[InputKind, str]] = {
 
 
 def open_in_excel(workbooks: Iterable[InputWorkbook]) -> list[str]:
-    """Zdania karty startu o skoroszytach wejściowych otwartych w Excelu, w kolejności ``workbooks``.
-
-    Plik blokady zostaje też po awarii Excela, więc zdanie mówi, jak go usunąć, tak jak Zatrzymanie procesu.
-    """
+    """Zdania karty startu o skoroszytach wejściowych otwartych w Excelu, w kolejności ``workbooks``."""
 
     return [
-        f"{label} jest otwarty w Excelu. {_CLOSING[kind]} Jeśli Excel jest zamknięty, usuń z tego samego folderu "
-        f"pozostawiony plik {workbook_files.excel_lock_file(path).name}."
+        f"{label} jest otwarty w Excelu. {_CLOSING[kind]}"
         for label, path, kind in workbooks
         if workbook_files.is_open_in_excel(path)
     ]
@@ -114,6 +109,12 @@ class Template:
     @property
     def path(self) -> Path:
         return self.template.file.path
+
+    def find_problem(self, readers: Readers) -> _Problem | None:
+        """Rodzaj problemu i Komunikat, którym zatrzymałby się proces; ``None``, gdy Wzorzec przechodzi Sprawdzanie."""
+
+        found = self.template.problem(readers)
+        return None if found is None else (_kind(found.problem), found.message)
 
     def problem(self, readers: Readers) -> Message | None:
         """Komunikat, którym zatrzymałby się proces używający Wzorca; ``None``, gdy przechodzi Sprawdzanie."""
@@ -138,11 +139,10 @@ def configuration_router(
     files: ConfigurationFiles,
     freshness: ToolFreshness,
     release: ReleaseSource,
-    key_judgement: Callable[[], KeyJudgement],
+    report_key: Callable[[], contract.ReportKeyState],
     readers: Readers,
 ) -> APIRouter:
-    """Konfiguracja; ``key_judgement`` mówi, co wiadomo o kluczu do Zgłoszeń (bez jego wartości) i czeka na Skrzynkę
-    najwyżej ``CONFIGURATION_WAIT_S``.
+    """Konfiguracja; ``report_key`` mówi, czy na tym komputerze jest klucz do Zgłoszeń (bez jego wartości).
 
     Aktualność narzędzia porównuje commit narzędzia z najnowszym Wydaniem na GitHubie według ``release``: odpowiedzi
     GitHuba pamiętanej wspólnie z Powiadomieniami (``RememberedRelease``).
@@ -161,7 +161,7 @@ def configuration_router(
             update_offered=offers_update(judgement),
             templates=[checked.status(template) for template in files.templates()],
             workers=_workers(files.worker_config),
-            reports=_KEY_STATE[key_judgement()],
+            reports=report_key(),
         )
 
     return router
@@ -177,29 +177,11 @@ _STATE: Final[Mapping[Judgement, contract.ToolFreshnessState]] = {
 }
 
 
-# Konfiguracja nie odróżnia klucza przyjętego od jeszcze niesprawdzonego (np. bez sieci); Diagnoza je nazywa.
-_KEY_STATE: Final[Mapping[KeyJudgement, contract.ReportKeyState]] = {
-    "accepted": "ready",
-    "unchecked": "ready",
-    "refused": "refused_key",
-    "missing": "missing_key",
-}
-# Tyle Konfiguracja czeka na trwające sprawdzenie klucza (zimny odczyt to ~200 ms); sprawdzenie rusza już przy starcie
-# Centrum, więc zwykle jest gotowe i odczyt nie czeka wcale.
-CONFIGURATION_WAIT_S: Final = 1.0
-
-
-_CONTENT_PROBLEMS: Final = frozenset({Problem.UNREADABLE, Problem.LAYOUT, Problem.HAS_DATA})
-
-
 class _CheckedTemplates:
     """Wynik Sprawdzania każdego wzorca, ważny do zmiany pliku albo jego blokady.
 
     Prawdziwe Wzorce otwierają się sekundami, a Konfiguracja jest odczytywana
-    przy każdym powrocie do karty. Pamięta tylko wynik zależny od treści pliku:
-    Wzorzec gotowy albo problem z treści. Brak pliku, plik otwarty w Excelu
-    i plik niedostępny (zmiana uprawnień albo zwolnienie przez inny program nie
-    zmieniają daty ani rozmiaru) są sprawdzane zawsze od nowa.
+    przy każdym powrocie do karty. Brak pliku jest sprawdzany zawsze od nowa.
     """
 
     def __init__(self, readers: Readers) -> None:
@@ -227,28 +209,23 @@ class _CheckedTemplates:
             cached = self._results.get(path)
             if cached is not None and cached[0] == signature:
                 return cached[1]
-        found = template.template.problem(self._readers)
-        result = None if found is None else (_kind(found.problem), found.message)
+        found = template.find_problem(self._readers)
         if signature is not None:
-            if found is None or found.problem in _CONTENT_PROBLEMS:
-                self._results[path] = (signature, result)
-        return result
+            self._results[path] = (signature, found)
+        return found
 
 
-def workers_problem(config_path: Path, explain: WorkerConfigExplanation) -> Message | None:
-    """Komunikat ``explain``, którym zatrzymałby się proces przy tej konfiguracji wykonawców; ``None``, gdy się wczytuje."""
+def workers_problem(config_path: Path) -> Message | None:
+    """Komunikat, którym zatrzymałby się Przebieg rozliczeń przy tej konfiguracji wykonawców; ``None``, gdy się wczytuje."""
 
-    workers = input_checks.workers(config_path, explain)
+    workers = input_checks.workers(config_path)
     return workers if isinstance(workers, Message) else None
 
 
 def _workers(config_path: Path) -> contract.Workers:
-    """Wykonawcy wczytani tak jak w obu procesach, w kolejności z konfiguracji wykonawców.
+    """Wykonawcy wczytani tak jak w obu procesach, w kolejności z konfiguracji wykonawców."""
 
-    Karta nie należy do jednego procesu, więc konfigurację, której nie da się użyć, opisuje Komunikat Przebiegu rozliczeń.
-    """
-
-    workers = input_checks.workers(config_path, settlement_messages.worker_config_problem)
+    workers = input_checks.workers(config_path)
     if isinstance(workers, Message):
         return contract.WorkersUnreadable(state="unreadable", message=contract.Message.of(workers))
     return contract.WorkersReady(state="ready", names=list(workers.values()))

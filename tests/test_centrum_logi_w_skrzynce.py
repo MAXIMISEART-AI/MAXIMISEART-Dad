@@ -472,7 +472,9 @@ def test_diagnoza_bez_sieci_jest_w_pliku_logow_jej_komentarz_czeka_w_kolejce_a_z
     local = local_logs(centrum, run_id)
     assert json.loads(local)["diagnosis"]["checks"][0]["label"] == shown["checks"][0]["label"]
     assert f"- Logi: jeszcze niewysłane, Uruchomienie {run_id}" in shown["report"]["body"].splitlines()
-    assert state == {"state": "queued", "waits_for": "internet"}
+    assert state["state"] == "saved"
+    [saved] = (tmp_path / "config" / "zgloszenia").glob("Zgłoszenie *.md")
+    assert saved.read_text(encoding="utf-8") == f"# {shown['report']['title']}\n\n{shown['report']['body']}"
     assert wait_for(lambda: len(queued_logs(centrum)) == 2)
     assert box(centrum).issues == []
 
@@ -480,10 +482,8 @@ def test_diagnoza_bez_sieci_jest_w_pliku_logow_jej_komentarz_czeka_w_kolejce_a_z
     centrum.restart()
     with centrum.client:
         thread = thread_with(centrum, comments=2)
-        assert box(centrum).wait_until(lambda box: len(box.sent) == 1)
 
     assert sent_json([thread.comments[1]]) == local
-    assert box(centrum).sent[0].body == shown["report"]["body"]
     assert wait_for(lambda: queued_logs(centrum) == [])
 
 

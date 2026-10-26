@@ -20,13 +20,10 @@ from typing import Any
 import pytest
 
 from rozliczenia.centrum.dad_cases import DAD_CASES_FILE
-from rozliczenia.centrum.outbox import RETRY_S
-from rozliczenia.centrum.report_box import Unreachable
 from rozliczenia.centrum.tool_update import NEW_VERSION_FAILED, RESULT_FILE, UPDATED, ToolClone, UpdateResult, write_result
 
 from tests.fixtures.centrum import NO_RELEASE, views_until
 from tests.fixtures.centrum_processes import PreparingCentrum, Surroundings, preparing_centrum, run_to_end, stopped_for_maks
-from tests.fixtures.potomne import wait_for
 from tests.fixtures.preparation import PERIOD, incomplete_period_rows
 from tests.fixtures.tool_clone import (
     NEW_REQUIREMENTS,
@@ -187,20 +184,23 @@ def test_najnowsza_wersja_zostaje_bez_zmian(tmp_path: Path) -> None:
     ]
 
 
-def release_in_clone_after_start(repository: ToolRepository) -> None:
-    """Nowe Wydanie, na które klon przeszedł po starcie Centrum (ręcznie): Centrum działa dalej na commicie ze
-    startu, więc proponuje Aktualizację, a próba kończy się ``AKTUALNA``, bo klon już zawiera to Wydanie."""
+def sleeping_release(repository: ToolRepository) -> None:
+    """Uśpiony tag: Wydanie osiągalne z `main`, które nigdy nie było jego czubkiem; klon ma je już po aktualizacji
+    na `main`, a GitHub dalej je proponuje, więc próba kończy się ``AKTUALNA`` przy proponowanym przycisku."""
 
-    repository.publish({"src/narzedzie.py": "WERSJA = 1.5\n"})
-    repository.in_clone("fetch", "--quiet", str(repository.origin), "main")
-    repository.in_clone("merge", "--quiet", "--ff-only", "FETCH_HEAD")
+    git(repository.publisher, "checkout", "--quiet", "-b", "agent")
+    git(repository.publisher, "commit", "--quiet", "--allow-empty", "--message", "Zmiana z gałęzi agenta")
+    repository.release(tag="v0.9.0")
+    git(repository.publisher, "checkout", "--quiet", "main")
+    git(repository.publisher, "merge", "--quiet", "--no-ff", "--no-edit", "agent")
+    git(repository.publisher, "push", "--quiet", "origin", "main")
 
 
 def up_to_date_while_offered(centrum: PreparingCentrum, repository: ToolRepository) -> dict[str, Any]:
-    """Wynik ``AKTUALNA`` przy proponowanym przycisku (``release_in_clone_after_start``): wynik próby i to, co zaraz po niej
+    """Wynik ``AKTUALNA`` przy proponowanym przycisku (``sleeping_release``): wynik próby i to, co zaraz po niej
     widzi karta."""
 
-    release_in_clone_after_start(repository)
+    sleeping_release(repository)
     offered_before = tool_on_configuration(centrum)["update_offered"]
     result = update_until_done(centrum)
     return {
@@ -261,7 +261,7 @@ def test_po_wyniku_aktualna_bez_odpowiedzi_githuba_wynik_zostaje(tmp_path: Path)
 
 def test_wynik_aktualna_bez_odpowiedzi_githuba_w_jego_chwili_znika_przy_pierwszej_odpowiedzi(tmp_path: Path) -> None:
     centrum, repository = updating_centrum(tmp_path)
-    release_in_clone_after_start(repository)
+    sleeping_release(repository)
     centrum.surroundings.release_unanswered = True
     result = update_until_done(centrum)
     unanswered = centrum.client.get("/api/tool-update").json()
@@ -622,7 +622,7 @@ def test_zgloszenie_nieudanej_aktualizacji_ma_te_same_fakty_co_dziennik(tmp_path
     assert log_block.startswith("\n```text\n") and log_block.endswith(f"\n{started}\n{finished}\n```\n")
     assert re.search(r"fatal|error:|hint:|proba-maksa|origin\.git", body) is None
     assert centrum.client.get("/api/tool-update").json()["report"] == {"state": "sent"}
-    assert "skrzynka-wyslano etykieta=zgloszenie okres=bez-okresu numer=1" in centrum.log_path.read_text(encoding="utf-8")
+    assert "zgloszenie-wyslane z=aktualizacja numer=1" in centrum.log_path.read_text(encoding="utf-8")
 
 
 def update_with_slow_box(centrum: PreparingCentrum) -> dict[str, Any]:
@@ -680,27 +680,8 @@ def test_nieudana_aktualizacja_ze_zgloszeniem_otwartym_w_skrzynce_karta_od_razu_
         again = update_with_slow_box(centrum)
         state = send_report(centrum)
 
-    # Przycisku nie ma; wysyłka z API przejmuje otwarte Zgłoszenie zamiast zakładać drugie.
-    assert (again["state"], again["report"], state) == ("failed", {"state": "waiting"}, {"state": "sent"})
+    assert (again["state"], again["report"], state) == ("failed", {"state": "waiting"}, {"state": "waiting"})
     assert len(box.sent) == 1
-
-
-def test_zgloszenie_nieudanej_aktualizacji_bez_sieci_czeka_w_kolejce_i_wychodzi_samo(tmp_path: Path) -> None:
-    centrum, repository = updating_centrum(tmp_path)
-    with_key(centrum)
-    box = centrum.surroundings.report_box
-    box.search_failure = Unreachable()
-    repository.publish({"src/narzedzie.py": "WERSJA = 2\n"})
-    with github_out_of_reach(repository):
-        preview = update_until_done(centrum)["draft"]
-        state = send_report(centrum)
-    box.search_failure = None
-    centrum.surroundings.clock.advance(RETRY_S)
-
-    assert state == {"state": "queued", "waits_for": "internet"}
-    assert box.wait_until(lambda box: len(box.sent) == 1)
-    assert [{"title": report.title, "body": report.body} for report in box.sent] == [preview]
-    assert wait_for(lambda: centrum.client.get("/api/tool-update").json()["report"] == {"state": "sent"})
 
 
 def test_zgloszenie_bez_nieudanej_aktualizacji_jest_odrzucone(tmp_path: Path) -> None:
