@@ -541,6 +541,22 @@ def test_bez_githuba_czasy_biora_kopie_a_bez_kopii_sa_puste_i_mowia_dlaczego(tmp
     assert (cached.runy, cached.pliki("windows-3.14"), cached.blad) == ((2,), {"tests/test_x.py": 2}, empty.blad)
 
 
+def test_po_nieudanym_pobraniu_nastepny_odczyt_pobiera_znowu_a_po_udanym_czeka_dobe(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def offline(*arguments: str) -> str:
+        raise subprocess.CalledProcessError(1, ["gh", *arguments], stderr="error connecting to api.github.com")
+
+    monkeypatch.setattr(czasy_ci, "_gh", offline)
+    failed = czasy_ci.z_mainu(tmp_path, odswiez_po_s=czasy_ci.ODSWIEZ_S)
+    monkeypatch.setattr(czasy_ci, "_gh", _Gh([3], {3: _artifact(3, A={"pytest:tests/test_x.py": 4})}))
+    retried = czasy_ci.z_mainu(tmp_path, odswiez_po_s=czasy_ci.ODSWIEZ_S)
+    monkeypatch.setattr(czasy_ci, "_gh", offline)
+    cached = czasy_ci.z_mainu(tmp_path, odswiez_po_s=czasy_ci.ODSWIEZ_S)
+
+    assert (failed.runy, failed.blad) == ((), "pobranie czasy-ci z GitHuba: error connecting to api.github.com")
+    assert (retried.runy, retried.blad) == ((3,), None)
+    assert (cached.runy, cached.blad) == ((3,), None)
+
+
 @pytest.mark.parametrize(
     ("content", "error"),
     [

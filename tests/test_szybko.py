@@ -136,10 +136,11 @@ def _repo(tmp_path: Path, structure: str = "pass") -> Path:
 
 
 def _szybko(
-    repo: Path, *arguments: str, runs: Path | None = None, workers: str | None = "2"
+    repo: Path, *arguments: str, runs: Path | None = None, workers: str | None = "2", path: Path | None = None
 ) -> subprocess.CompletedProcess[str]:
     # ``PYTEST_XDIST_WORKER`` workera, który uruchamia ten test, nie może udawać workera szybko.
     environment = {name: value for name, value in os.environ.items() if not name.startswith("PYTEST_XDIST_")}
+    environment |= {"PATH": f"{path}{os.pathsep}{environment['PATH']}"} if path else {}
     environment |= {"PRZEBIEGI": str(runs)} if runs else {}
     environment |= {"PYTEST_XDIST_AUTO_NUM_WORKERS": workers} if workers else {}
     return subprocess.run(
@@ -402,6 +403,18 @@ def test_zmiana_konfiguracji_uruchamia_w_budzecie_testy_ktore_ja_czytaja_jak_w_o
     name = re.escape(PurePosixPath(deferred).name)
     line = rf"^zostawione CI: 1 z \d+ plików testów \(~{deferred_s:.0f} s w CI\): {name}$"
     assert re.search(line, answered.stdout, re.MULTILINE), answered.stdout
+
+
+def test_bez_czasow_ci_szybko_mowi_w_jednej_linii_dlaczego(tmp_path: Path) -> None:
+    repo = _repo(tmp_path)
+    offline = tmp_path / "bin"
+    _write(offline, "gh", "#!/bin/sh\necho 'error connecting to api.github.com' >&2\nexit 1\n")
+    (offline / "gh").chmod(0o755)
+
+    answered = _szybko(repo, path=offline)
+
+    line = "SZYBKO | bez czasów CI (pobranie czasy-ci z GitHuba: error connecting to api.github.com): każdy plik waży 0, więc biegnie cały wybór"
+    assert line in answered.stdout.splitlines(), answered.stdout
 
 
 # Zmieniony ``src/a.py`` i ``docs/dane.md``: ``test_dane`` czyta ``docs/dane.md``, a ``src/czyta.py`` czyta go dla

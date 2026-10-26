@@ -25,7 +25,8 @@ leży w katalogu gita worktree. Krok pytest bierze ``WORKERS`` workerów, chyba 
 Z wybranych testów biegną zawsze pliki w odległości najwyżej 1 od zmiany w grafie zależności (``plan``), czyli
 zmienione albo zależne wprost od zmienionego pliku, a dalsze po odległości i czasie w CI rosnąco, dopóki mieszczą
 się w budżecie ``BUDGET_S``. Czas pliku to jego koszt na Linuksie z ostatnich runów main (``tools/czasy_ci.py``,
-kopia w ``.git/czasy-ci`` odświeżana raz na dobę); bez niej, na przykład bez sieci, każdy plik waży 0 i biegnie. Odległość liczy się od zmiany bez plików ``FULL``, a test, który
+kopia w ``.git/czasy-ci`` odświeżana raz na dobę, a po nieudanym pobraniu w następnym przebiegu); bez niej, na przykład
+bez sieci, każdy plik waży 0 i biegnie, a szybko mówi to linią ``SZYBKO | bez czasów CI (<przyczyna>)``. Odległość liczy się od zmiany bez plików ``FULL``, a test, który
 importuje albo czyta plik ``FULL``, ma najwyżej 2, więc przy zmianie konfiguracji biegnie w budżecie przed testami
 bez drogi w grafie. Resztę liczy pełny pytest w CI, a szybko wypisuje ją przed wynikiem
 jako „zostawione CI”, więc ``SZYBKO OK`` znaczy, że przeszły uruchomione testy.
@@ -388,7 +389,12 @@ def select(root: Path, changed: frozenset[str]) -> Selection:
 
 def _times(root: Path) -> dict[str, float]:
     folder = root / _git("rev-parse", "--git-common-dir").strip() / "czasy-ci"
-    return czasy_ci.z_mainu(folder, odswiez_po_s=czasy_ci.ODSWIEZ_S).pliki(TIMES_TOR)
+    times = czasy_ci.z_mainu(folder, odswiez_po_s=czasy_ci.ODSWIEZ_S)
+    costs = times.pliki(TIMES_TOR)
+    if not costs:
+        why = times.blad or f"brak plików testów toru {TIMES_TOR} w {czasy_ci.ARTEFAKT}"
+        print(f"SZYBKO | bez czasów CI ({why}): każdy plik waży 0, więc biegnie cały wybór", flush=True)
+    return costs
 
 
 def _fingerprint(root: Path, inputs: Iterable[str]) -> str:

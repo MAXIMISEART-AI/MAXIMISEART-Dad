@@ -375,16 +375,17 @@ def _obserwacje(dokumenty: list[dict[str, Any]]) -> dict[str, dict[str, tuple[Ob
 
 
 def z_mainu(katalog: Path, *, odswiez_po_s: float = 0) -> Czasy:
-    """``Czasy`` z artefaktów w ``katalog``, który najpierw odświeża z GitHuba, gdy ostatnia próba jest starsza niż
-    ``odswiez_po_s``. Błąd sieci, ``gh`` albo pliku nie przerywa: ``Czasy`` mają wtedy to, co się dało, i ``blad``."""
+    """``Czasy`` z artefaktów w ``katalog``, który najpierw odświeża z GitHuba, gdy ostatnie udane pobranie jest starsze
+    niż ``odswiez_po_s``. Błąd sieci, ``gh`` albo pliku nie przerywa: ``Czasy`` mają wtedy to, co się dało, i ``blad``,
+    a następny odczyt próbuje pobrać znowu."""
 
     blad = None
-    proba = katalog / "pobrane"
-    if not proba.is_file() or time.time() - proba.stat().st_mtime >= odswiez_po_s:
+    pobrane = katalog / "pobrane"
+    if not pobrane.is_file() or time.time() - pobrane.stat().st_mtime >= odswiez_po_s:
         katalog.mkdir(parents=True, exist_ok=True)
-        proba.touch()
         try:
             _pobierz(katalog)
+            pobrane.touch()
         except (OSError, subprocess.SubprocessError) as error:
             blad = f"pobranie {ARTEFAKT} z GitHuba: {getattr(error, 'stderr', None) or error}".strip()
     dokumenty = []
