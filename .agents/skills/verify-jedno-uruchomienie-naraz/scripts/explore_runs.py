@@ -381,6 +381,7 @@ class Scope:
     close_clicks: int
     decisions: int
     update_tabs: int = 0
+    restore_tabs: int = 0
 
     def describe(self) -> str:
         updates = (
@@ -388,8 +389,9 @@ class Scope:
             if self.update_tabs
             else ""
         )
+        restores = f"karty „Przywróć tę kopię”: {self.restore_tabs}, " if self.restore_tabs else ""
         return (
-            f"karty „Uruchom”: {self.start_tabs}, {updates}kliknięcia „Zamknij Centrum rozliczeń”: "
+            f"karty „Uruchom”: {self.start_tabs}, {updates}{restores}kliknięcia „Zamknij Centrum rozliczeń”: "
             f"≤ {self.close_clicks}, Decyzje taty: ≤ {self.decisions}, silnik z Decyzją albo bez"
         )
 
@@ -398,6 +400,7 @@ SCOPES = {
     "zamknij-w-trakcie": Scope("zamknij-w-trakcie", start_tabs=1, close_clicks=2, decisions=1),
     "dwie-karty": Scope("dwie-karty", start_tabs=2, close_clicks=1, decisions=2),
     "aktualizacja": Scope("aktualizacja", start_tabs=1, close_clicks=1, decisions=1, update_tabs=2),
+    "przywracanie": Scope("przywracanie", start_tabs=1, close_clicks=1, decisions=1, restore_tabs=2),
 }
 
 PREPARED: runs.PreparedRun[Any, Any] = runs.PreparedRun(
@@ -428,6 +431,16 @@ class Update:
 
 
 @dataclass
+class Restore:
+    """One przywrócenie Kopii INTERMAX that ``RunHost.begin_restore`` let in; it runs inside its HTTP request."""
+
+    name: str
+    creator: str
+    window: str
+    done: bool = False
+
+
+@dataclass
 class World:
     """One schedule: the real ``RunHost`` and ``Shutdown`` and everything the checker observes of them."""
 
@@ -442,7 +455,9 @@ class World:
     closes_refused: int = 0
     starts_refused: int = 0
     updates_refused: int = 0
+    restores_refused: int = 0
     updates: list[Update] = field(default_factory=list)
+    restores: list[Restore] = field(default_factory=list)
     violations: list[Violation] = field(default_factory=list)
 
     def in_progress(self) -> list[Any]:
@@ -450,6 +465,9 @@ class World:
 
     def updating(self) -> list[Update]:
         return [update for update in self.updates if not update.done]
+
+    def restoring(self) -> list[Restore]:
+        return [restore for restore in self.restores if not restore.done]
 
     def requested(self) -> bool:
         return any(event.label == "Shutdown._requested" and event.flag for event in self.events)
@@ -626,6 +644,31 @@ def _update_thread(world: World, update: Update) -> Callable[[], None]:
     return body
 
 
+def _restore_tab(world: World, number: int) -> Callable[[], None]:
+    """``intermax_copies_router`` behind POST /api/intermax/copies/restore: the slot, the restore, then its end."""
+
+    def body() -> None:
+        scheduler = world.scheduler
+        scheduler.step("żądanie POST /api/intermax/copies/restore dociera do serwera")
+        _current_actor().in_flight = True
+        try:
+            world.host.begin_restore()
+        except contract.Refusal as refusal:
+            world.restores_refused += 1
+            scheduler.note(f"odpowiedź {refusal.status_code}: {refusal.message}")
+            _current_actor().in_flight = False
+            return
+        restore = Restore(f"Przywrócenie {number}", _current_actor().name, world.close_window())
+        world.restores.append(restore)
+        scheduler.step("przywrócenie: Kopia stanu bieżącego i podmiana INTERMAX")
+        world.host.end_restore()
+        restore.done = True
+        scheduler.note("odpowiedź 200: kopia przywrócona")
+        _current_actor().in_flight = False
+
+    return body
+
+
 def _decision_tab(world: World, decisions: int) -> Callable[[], None]:
     def awaiting() -> Any | None:
         return next(
@@ -694,6 +737,15 @@ def _server(world: World) -> Callable[[], None]:
                     f"zaczęła się {update.window}",
                 )
             )
+        for restore in world.restoring():
+            world.violations.append(
+                Violation(
+                    "BEZ_ZAMKNIECIA_W_TRAKCIE",
+                    ("BEZ_ZAMKNIECIA_W_TRAKCIE", "przywrócenie", restore.window),
+                    f"Centrum kończy pracę, a {restore.name} (z: {restore.creator}) podmienia INTERMAX; "
+                    f"zaczęło się {restore.window}",
+                )
+            )
 
     return body
 
@@ -715,6 +767,8 @@ class Execution:
     run_ended: bool
     update_refused: bool = False
     update_restarted: bool = False
+    restore_refused: bool = False
+    restore_done: bool = False
 
 
 def _state(world: World) -> object:
@@ -742,6 +796,7 @@ def _state(world: World) -> object:
             for run in world.created
         ),
         tuple((update.name, update.creator, update.window, update.done) for update in world.updates),
+        tuple((restore.name, restore.creator, restore.window, restore.done) for restore in world.restores),
         world.lock.owner if world.lock is not None else None,
         tuple((event.label, event.flag) for event in world.events),
         world.exited,
@@ -791,6 +846,8 @@ def execute(scope: Scope, prefix: Sequence[int], visited: set[object]) -> Execut
         run_ended=any(run.model_done for run in world.created),
         update_refused=world.updates_refused > 0,
         update_restarted=any(update.restarted for update in world.updates) and not world.violations,
+        restore_refused=world.restores_refused > 0,
+        restore_done=any(restore.done for restore in world.restores) and not world.violations,
     )
 
 
@@ -811,6 +868,8 @@ def _drive(
         scheduler.spawn(f"karta Uruchom {number}", _start_tab(world, number))
     for number in range(1, scope.update_tabs + 1):
         scheduler.spawn(f"karta Zaktualizuj {number}", _update_tab(world, number))
+    for number in range(1, scope.restore_tabs + 1):
+        scheduler.spawn(f"karta Przywróć {number}", _restore_tab(world, number))
     scheduler.spawn(CLOSE_TAB, _close_tab(world, scope.close_clicks))
     scheduler.spawn("tata", _decision_tab(world, scope.decisions))
     scheduler.spawn("serwer", _server(world))
@@ -819,14 +878,17 @@ def _drive(
             scheduler.settle()
             running = world.in_progress()
             updating = world.updating()
-            if len(running) + len(updating) > 1 and not any(
+            restoring = world.restoring()
+            if len(running) + len(updating) + len(restoring) > 1 and not any(
                 violation.rule == "JEDNO_NARAZ" for violation in world.violations
             ):
                 names = ", ".join(
                     [f"{run.model_name} (z: {run.model_creator})" for run in running]
                     + [f"{update.name} (z: {update.creator})" for update in updating]
+                    + [f"{restore.name} (z: {restore.creator})" for restore in restoring]
                 )
-                kind = "Uruchomienia" if not updating else "Aktualizacja" if not running else "Uruchomienie i Aktualizacja"
+                kinds = [kind for kind, busy in (("Uruchomienie", running), ("Aktualizacja", updating), ("Przywrócenie", restoring)) if busy]
+                kind = "Uruchomienia" if kinds == ["Uruchomienie"] else " i ".join(kinds)
                 world.violations.append(Violation("JEDNO_NARAZ", ("JEDNO_NARAZ", kind), f"naraz trwają: {names}"))
             if world.exited:
                 return False
@@ -871,6 +933,8 @@ class ScopeReport:
     runs_ended: int = 0
     updates_refused: int = 0
     updates_restarted: int = 0
+    restores_refused: int = 0
+    restores_done: int = 0
     counterexamples: dict[tuple[object, ...], tuple[Violation, list[str]]] = field(default_factory=dict)
     gaps: dict[str, list[str]] = field(default_factory=dict)
 
@@ -892,6 +956,12 @@ class ScopeReport:
             missing.append("BRAK_ODMOWY_AKTUALIZACJI: „Zaktualizuj narzędzie” ani razu nie dostało 409.")
         if self.scope.update_tabs and not self.updates_restarted:
             missing.append("BRAK_PONOWNEGO_STARTU: żadna aktualizacja nie zamknęła Centrum dla nowej wersji.")
+        if self.scope.restore_tabs and not self.starts_refused:
+            missing.append("BRAK_ODMOWY_STARTU: „Uruchom” ani razu nie dostało 409 w trakcie przywracania.")
+        if self.scope.restore_tabs and not self.restores_refused:
+            missing.append("BRAK_ODMOWY_PRZYWROCENIA: „Przywróć tę kopię” ani razu nie dostało 409.")
+        if self.scope.restore_tabs and not self.restores_done:
+            missing.append("BRAK_PRZYWROCENIA: żadne przywrócenie Kopii INTERMAX nie doszło do końca.")
         return missing
 
 
@@ -909,6 +979,8 @@ def explore(scope: Scope) -> ScopeReport:
         report.runs_ended += execution.run_ended
         report.updates_refused += execution.update_refused
         report.updates_restarted += execution.update_restarted
+        report.restores_refused += execution.restore_refused
+        report.restores_done += execution.restore_done
         for violation in execution.violations:
             # Keep the shortest counterexample.
             known = report.counterexamples.get(violation.signature)

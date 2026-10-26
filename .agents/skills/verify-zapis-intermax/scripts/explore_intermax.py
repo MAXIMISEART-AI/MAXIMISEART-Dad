@@ -1,14 +1,16 @@
-"""Exhaustively check how Uporządkowanie INTERMAX replaces the Rejestr zleceń and keeps its Kopie INTERMAX.
+"""Exhaustively check how Uporządkowanie INTERMAX and Przywracanie Kopii INTERMAX replace the Rejestr zleceń.
 
-The checker runs the real ``intermax_ordering.order_register()`` on a synthetic INTERMAX (``tests/fixtures/intermax.py``)
-in a real folder, next to a Kopie folder that already holds ``KEPT`` older Kopie. Eight steps of the code are points
-where the checker picks what happens first:
+The checker runs the real ``intermax_ordering.order_register()`` and the real ``intermax_copies.restore()`` (#472) on a
+synthetic INTERMAX (``tests/fixtures/intermax.py``) in a real folder, next to a Kopie folder that already holds ``KEPT``
+older Kopie of both names, so that their order by name differs from their order in time. The restore brings back the
+oldest of them, a real workbook. Eight steps of the code are points where the checker picks what happens first:
 
-- after ``Register.read`` has read INTERMAX;
+- after ``Register.read`` has read INTERMAX (in the restore: after ``workbook_content`` has read it);
 - ``workbook_files.is_open_in_excel`` on INTERMAX (in ``check``, in ``Register.read`` and in ``before_replace``);
 - the write of the temporary file next to INTERMAX (``intermax_file.save``), which may raise ``OSError``;
-- the check of that file (``Register.check``), which may find it does not match (``WriteMismatch``);
-- ``intermax_copies.make_copy``, which may raise ``OSError``;
+- the check of that file (``Register.check``), which may find it does not match (``WriteMismatch``); the restore
+  compares bytes and has no such point;
+- ``intermax_copies.make_copy`` (in the restore: the Kopia of the current state), which may raise ``OSError``;
 - ``os.replace`` of the temporary file over INTERMAX (the ``replace`` that ``intermax_file.save`` gives
   ``workbook_save.write_atomically``), which may raise ``OSError``, may be refused by OneDrive (``PermissionError``
   without the ``~$`` lock file), and always raises ``PermissionError`` while Excel has INTERMAX open, as on Windows;
@@ -28,8 +30,9 @@ bounds and checks:
   INTERMAX as it was, no temporary file next to it, and
   the Kopie folder with the same Kopie, names and bytes, as before (docstring of ``order_register``).
 - SUKCES: a run that returns a summary has replaced INTERMAX and left no temporary file.
-- KOPIE_NAJNOWSZE: after a summary, the Kopie folder holds the ``KEPT`` newest Kopie by name, the new one among them,
-  unless removing older ones failed, which ``order_register`` turns into a warning.
+- PRZYWROCONA_KOPIA: a restore that returns has replaced INTERMAX with exactly the bytes of the chosen Kopia.
+- KOPIE_NAJNOWSZE: after a summary, the Kopie folder holds the ``KEPT`` newest Kopie of both names by the moment in
+  their name, the new one among them, unless removing older ones failed, which the code turns into a warning.
 - BEZ_WYJATKU: the run ends with a summary or a ``StopError``, or the process dies; nothing else escapes.
 
 Nothing in the product code is replaced; the checker only wraps the steps to pick at their points. A killed process
@@ -58,6 +61,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[4]))
 
 from rozliczenia import intermax_copies, intermax_file, workbook_files, workbook_save
 from rozliczenia.intermax_file import WriteMismatch
+from rozliczenia.intermax_copies import Before
 from rozliczenia.intermax_ordering import order_register
 from rozliczenia.message import StopError
 
@@ -70,6 +74,9 @@ AFTER_READ = "pracownik po odczycie, przed podmianą"
 INJECTED = "plik zablokowany"
 REPLACE = "os.replace pliku tymczasowego na INTERMAX"
 PAUSE = "przerwa przed ponowną próbą podmiany"
+Mode = Literal["Uporządkowanie", "przywrócenie Kopii"]
+ORDERING: Mode = "Uporządkowanie"
+RESTORE: Mode = "przywrócenie Kopii"
 
 Actor = Literal["pracownik", "excel"]
 Choice = Literal["ok", "pracownik", "excel", "oserror", "niezgodny", "kill", "onedrive", "dluga"]
@@ -172,6 +179,7 @@ class Scheduler:
 
 @dataclass
 class World:
+    mode: Mode
     folder: Path
     copies: Path
     original: bytes
@@ -179,6 +187,8 @@ class World:
     current: bytes
     """What INTERMAX holds as far as anyone but the run knows: the original or the worker's version."""
     old_copies: dict[str, bytes]
+    chosen: str
+    """The Kopia the restore brings back: the oldest of ``old_copies``, a real workbook."""
     read: bytes | None = None
     replaced: bytes | None = None
     written: bytes | None = None
@@ -213,6 +223,7 @@ def _points(world: World, scheduler: Scheduler) -> Iterator[None]:
     real_read: Callable[
         [type[intermax_file.Register], Path], intermax_file.Register
     ] = intermax_file.Register.read.__func__  # type: ignore[attr-defined]
+    real_content = workbook_files.workbook_content
     real_check = intermax_file.Register.check
     real_open = workbook_files.is_open_in_excel
     real_copy = intermax_copies.make_copy
@@ -230,6 +241,14 @@ def _points(world: World, scheduler: Scheduler) -> Iterator[None]:
             scheduler.point("po odczycie INTERMAX")
         return register
 
+    def content(path: Path) -> bytes:
+        read = real_content(path)
+        if world.mode == RESTORE and path == world.register and world.read is None:
+            world.read = read
+            scheduler.say("restore czyta INTERMAX (workbook_content)")
+            scheduler.point("po odczycie INTERMAX")
+        return read
+
     def check(self: intermax_file.Register, *arguments: Any) -> None:
         scheduler.point("Register.check sprawdza plik tymczasowy", fails="niezgodny")
         real_check(self, *arguments)
@@ -244,9 +263,9 @@ def _points(world: World, scheduler: Scheduler) -> Iterator[None]:
             scheduler.point("zapis pliku tymczasowego obok INTERMAX", fails="oserror")
         return real_write_bytes(path, data)
 
-    def make_copy(content: bytes, directory: Path, moment: datetime) -> Path:
+    def make_copy(content: bytes, directory: Path, moment: datetime, before: Before = "ordering") -> Path:
         scheduler.point("make_copy (Kopia INTERMAX)", fails="oserror")
-        made = real_copy(content, directory, moment)
+        made = real_copy(content, directory, moment, before)
         scheduler.say(f"Kopia INTERMAX zapisana: {made.name}")
         return made
 
@@ -279,6 +298,7 @@ def _points(world: World, scheduler: Scheduler) -> Iterator[None]:
     intermax_file.Register.read = classmethod(read)  # type: ignore[method-assign,assignment]
     intermax_file.Register.check = check  # type: ignore[method-assign,assignment]
     workbook_files.is_open_in_excel = is_open
+    workbook_files.workbook_content = content
     intermax_copies.make_copy = make_copy
     intermax_copies.keep_newest = keep_newest
     pathlib.Path.write_bytes = write_bytes  # type: ignore[method-assign,assignment]
@@ -290,6 +310,7 @@ def _points(world: World, scheduler: Scheduler) -> Iterator[None]:
         intermax_file.Register.read = classmethod(real_read)  # type: ignore[method-assign,assignment]
         intermax_file.Register.check = real_check  # type: ignore[method-assign]
         workbook_files.is_open_in_excel = real_open
+        workbook_files.workbook_content = real_content
         intermax_copies.make_copy = real_copy
         intermax_copies.keep_newest = real_keep
         pathlib.Path.write_bytes = real_write_bytes  # type: ignore[method-assign]
@@ -311,27 +332,44 @@ def _waiting(world: World, scheduler: Scheduler) -> intermax_file.Waiting:
     return intermax_file.Waiting(lambda: world.seconds, pause)
 
 
-def _synthetic(work: Path) -> tuple[bytes, bytes]:
-    """The original INTERMAX and the version a worker saves on another computer: one more ordered order above."""
+def _synthetic(work: Path) -> tuple[bytes, bytes, bytes]:
+    """The original INTERMAX, the version a worker saves on another computer (one more ordered order above) and an
+    earlier INTERMAX with one ordered order fewer, which the oldest Kopia holds."""
 
-    original, worker = Intermax(), Intermax()
+    original, worker, earlier = Intermax(), Intermax(), Intermax()
     worker.ordered = (
         *original.ordered,
         Order(datetime(2026, 10, 20, 11), "jan.nowak", 4),
     )
-    paths = (work / "oryginal.xlsx", work / "pracownik.xlsx")
-    original.write(paths[0])
-    worker.write(paths[1])
-    return paths[0].read_bytes(), paths[1].read_bytes()
+    earlier.ordered = original.ordered[:-1]
+    paths = (work / "oryginal.xlsx", work / "pracownik.xlsx", work / "wczesniejszy.xlsx")
+    for intermax, path in zip((original, worker, earlier), paths, strict=True):
+        intermax.write(path)
+    return paths[0].read_bytes(), paths[1].read_bytes(), paths[2].read_bytes()
 
 
-def _old_copies() -> dict[str, bytes]:
-    """``KEPT`` Kopie from earlier days, each with its own bytes, named as ``make_copy`` names them."""
+def _old_copies(earlier: bytes) -> dict[str, bytes]:
+    """``KEPT`` Kopie from earlier days, named as ``make_copy`` names them, alternately before an Uporządkowanie and
+    before a restore, so that sorting by name (``przywróceniem`` < ``uporządkowaniem``) differs from sorting in time.
 
-    return {
-        f"INTERMAX przed uporządkowaniem {NOW - timedelta(days=day):%Y-%m-%d %H-%M-%S}.xlsx": f"stara Kopia {day}".encode()
+    The oldest holds the ``earlier`` INTERMAX, the others their own bytes.
+    """
+
+    names = {
+        day: f"INTERMAX przed {'przywróceniem' if day % 2 else 'uporządkowaniem'} "
+        f"{NOW - timedelta(days=day):%Y-%m-%d %H-%M-%S}.xlsx"
         for day in range(1, intermax_copies.KEPT + 1)
     }
+    return {
+        name: earlier if day == intermax_copies.KEPT else f"stara Kopia {day}".encode() for day, name in names.items()
+    }
+
+
+def _newest(names: set[str]) -> list[str]:
+    """The ``KEPT`` newest Kopie by the moment in their name, sorted by name."""
+
+    by_moment = sorted(names, key=lambda name: (name[-24:], name))
+    return sorted(by_moment[-intermax_copies.KEPT :])
 
 
 Outcome = Literal["podsumowanie", "zatrzymanie", "zginal", "wyjatek"]
@@ -393,8 +431,11 @@ def _check(world: World, outcome: Outcome, failure: str) -> list[tuple[str, str]
             broken.append(("SUKCES", "wynik bez podmiany INTERMAX"))
         if left:
             broken.append(("SUKCES", f"po wyniku zostają pliki obok INTERMAX: {left}"))
-        expected = sorted({*world.old_copies, *(set(kopie) - set(world.old_copies))})
-        if not world.keep_failed and sorted(kopie) != expected[-intermax_copies.KEPT :]:
+        # What the replace put in place: a worker's change that OneDrive brings in after it is not the restore's.
+        if world.mode == RESTORE and world.written != world.old_copies[world.chosen]:
+            broken.append(("PRZYWROCONA_KOPIA", "podmiana przywrócenia nie dała INTERMAX bajtów wybranej Kopii"))
+        expected = _newest({*world.old_copies, *kopie})
+        if not world.keep_failed and sorted(kopie) != expected:
             broken.append(
                 (
                     "KOPIE_NAJNOWSZE",
@@ -403,7 +444,7 @@ def _check(world: World, outcome: Outcome, failure: str) -> list[tuple[str, str]
             )
     if outcome == "wyjatek":
         broken.append(
-            ("BEZ_WYJATKU", f"order_register kończy się wyjątkiem: {failure}")
+            ("BEZ_WYJATKU", f"{world.mode} kończy się wyjątkiem: {failure}")
         )
     return list(dict.fromkeys(broken))
 
@@ -446,14 +487,14 @@ KNOWN_FINDINGS: dict[
     str, tuple[str, Callable[[World, Sequence[tuple[str, str]]], bool]]
 ] = {
     "BEZ_UTRATY_ZMIAN": (
-        "Uporządkowanie nie sprawdza tuż przed os.replace, czy INTERMAX ma wciąż bajty, które przeczytało (przed "
-        "pierwszą próbą wcale, przed ponowną po przerwie): zmiana pracownika z innego komputera, którą OneDrive wgrał "
-        "w trakcie, przepada",
+        "Uporządkowanie i przywrócenie Kopii nie sprawdzają tuż przed os.replace, czy INTERMAX ma wciąż bajty, które "
+        "przeczytały (przed pierwszą próbą wcale, przed ponowną po przerwie): zmiana pracownika z innego komputera, "
+        "którą OneDrive wgrał w trakcie, przepada",
         _worker_change_lost,
     ),
     "KOPIA_ZASTAPIONEGO": (
-        "Kopia INTERMAX powstaje z bajtów przeczytanych na początku (register.content), więc nie ma też zmiany "
-        "pracownika, która przyszła w trakcie",
+        "Kopia INTERMAX powstaje z bajtów przeczytanych na początku (register.content, w przywróceniu current), więc "
+        "nie ma też zmiany pracownika, która przyszła w trakcie",
         _copy_of_what_was_read,
     ),
     "BEZ_WYJATKU": (
@@ -467,15 +508,15 @@ KNOWN_FINDINGS: dict[
 
 
 def execute(
-    prefix: Sequence[int], work: Path, original: bytes, worker: bytes, bounds: Bounds
+    mode: Mode, prefix: Sequence[int], work: Path, versions: tuple[bytes, bytes, bytes], bounds: Bounds
 ) -> tuple[Scheduler, list[Violation]]:
     shutil.rmtree(work / "OneDrive", ignore_errors=True)
     shutil.rmtree(work / "Kopie INTERMAX", ignore_errors=True)
     folder = work / "OneDrive"
     folder.mkdir()
-    world = World(
-        folder, work / "Kopie INTERMAX", original, worker, original, _old_copies()
-    )
+    original, worker, earlier = versions
+    old_copies = _old_copies(earlier)
+    world = World(mode, folder, work / "Kopie INTERMAX", original, worker, original, old_copies, min(old_copies, key=lambda name: name[-24:]))
     world.register.write_bytes(original)
     world.copies.mkdir()
     for name, content in world.old_copies.items():
@@ -500,12 +541,18 @@ def execute(
     scheduler = Scheduler(prefix, bounds, act, world.lock.exists)
     outcome: Outcome = "podsumowanie"
     failure = ""
+    scheduler.say(mode if mode == ORDERING else f"{mode} {world.chosen}")
     with _points(world, scheduler):
         try:
-            order_register(
-                world.register, world.copies, now=lambda: NOW, waiting=_waiting(world, scheduler)
-            )
-            scheduler.say("order_register zwraca podsumowanie")
+            if mode == ORDERING:
+                order_register(
+                    world.register, world.copies, now=lambda: NOW, waiting=_waiting(world, scheduler)
+                )
+            else:
+                intermax_copies.restore(
+                    world.chosen, world.register, world.copies, now=lambda: NOW, waiting=_waiting(world, scheduler)
+                )
+            scheduler.say(f"{mode} kończy się wynikiem")
         except StopError as stop:
             outcome = "zatrzymanie"
             scheduler.say(f"Zatrzymanie: {stop.message.code}")
@@ -544,17 +591,19 @@ def explore(bounds: Bounds | None = None) -> Report:
     report = Report()
     with tempfile.TemporaryDirectory(prefix="zapis-intermax-") as directory:
         work = Path(directory).resolve()  # order_register resolves the path of INTERMAX
-        original, worker = _synthetic(work)
-        prefix: list[int] | None = []
-        while prefix is not None:
-            scheduler, violations = execute(prefix, work, original, worker, bounds)
-            report.schedules += 1
-            for violation in violations:
-                key = (violation.rule, violation.kind)
-                seen = report.shortest.get(key)
-                if seen is None or len(violation.trace) < len(seen.trace):
-                    report.shortest[key] = violation
-            prefix = next_prefix(scheduler)
+        versions = _synthetic(work)
+        modes: tuple[Mode, ...] = (ORDERING, RESTORE)
+        for mode in modes:
+            prefix: list[int] | None = []
+            while prefix is not None:
+                scheduler, violations = execute(mode, prefix, work, versions, bounds)
+                report.schedules += 1
+                for violation in violations:
+                    key = (violation.rule, violation.kind)
+                    seen = report.shortest.get(key)
+                    if seen is None or len(violation.trace) < len(seen.trace):
+                        report.shortest[key] = violation
+                prefix = next_prefix(scheduler)
     return report
 
 
@@ -591,7 +640,7 @@ def summarize(report: Report, *, strict: bool = False) -> tuple[list[str], int]:
 
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        description="Exhaustive check of how Uporządkowanie INTERMAX replaces INTERMAX."
+        description="Exhaustive check of how Uporządkowanie INTERMAX and Przywracanie Kopii INTERMAX replace INTERMAX."
     )
     parser.add_argument(
         "--strict", action="store_true", help="report known findings as violations too"

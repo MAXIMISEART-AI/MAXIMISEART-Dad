@@ -29,6 +29,7 @@ from drive import (
     diagnoza,
     karta_z_logow,
     konfiguracja,
+    kopie_intermax,
     kontrola_ilosci,
     logi_uruchomienia,
     metryki,
@@ -61,7 +62,8 @@ from skrypt_skilla import Parser
 # of the week with its file of Logi; powiadomienia closes an Uwaga taty and that Zgłoszenie there; pomiar-u-taty
 # clicks through the pages with the files
 # of Dad's whole week; uporzadkowanie-intermax points the Rejestr zleceń to its INTERMAX files and back, so it runs after
-# every feature that reads the Rejestr zleceń; start-i-zamykanie closes Centrum, so it stays last.
+# every feature that reads the Rejestr zleceń, and kopie-intermax after it, because uporzadkowanie-intermax counts the
+# Kopie in their folder; start-i-zamykanie closes Centrum, so it stays last.
 FEATURES = (
     "ustawienia",
     "tablica-okresow",
@@ -83,6 +85,7 @@ FEATURES = (
     "powiadomienia",
     "pomiar-u-taty",
     "uporzadkowanie-intermax",
+    "kopie-intermax",
     "start-i-zamykanie",
 )
 
@@ -122,6 +125,7 @@ def main(argv: list[str] | None = None) -> int:
         "powiadomienia": powiadomienia.drive_notifications,
         "pomiar-u-taty": pomiar_u_taty.drive_measurement,
         "uporzadkowanie-intermax": uporzadkowanie_intermax.drive_intermax_ordering,
+        "kopie-intermax": kopie_intermax.drive_intermax_copies,
         "start-i-zamykanie": start_i_zamykanie.drive_start_and_close,
         "wydajnosc": functools.partial(
             wydajnosc.drive_performance, baseline_path=args.baseline.resolve(), repeats=args.powtorzenia

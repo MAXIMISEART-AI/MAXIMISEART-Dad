@@ -13,7 +13,7 @@ export type ApiTiming = {
     /**
      * Operation
      */
-    operation: 'getHealth' | 'getSettings' | 'chooseRegister' | 'openRegister' | 'choosePeriodsDirectory' | 'changeTheme' | 'getPeriodBoard' | 'openPeriodPath' | 'getQuantitiesToFill' | 'getCollectiveFileVersion' | 'getWithoutQuantity' | 'getKindTable' | 'openWorkerSettlement' | 'getRunSetup' | 'startRun' | 'getIntermaxSetup' | 'startIntermax' | 'decideRun' | 'diagnoseRun' | 'reportRun' | 'getRunCard' | 'getNotifications' | 'markNotificationsRead' | 'getMetrics' | 'getConfiguration' | 'startToolUpdate' | 'getToolUpdate' | 'reportToolUpdate' | 'getDadNoteRuns' | 'draftDadNote' | 'sendDadNote' | 'closeCentrum';
+    operation: 'getHealth' | 'getSettings' | 'chooseRegister' | 'openRegister' | 'choosePeriodsDirectory' | 'changeTheme' | 'getPeriodBoard' | 'openPeriodPath' | 'getQuantitiesToFill' | 'getCollectiveFileVersion' | 'getWithoutQuantity' | 'getKindTable' | 'openWorkerSettlement' | 'getRunSetup' | 'startRun' | 'getIntermaxSetup' | 'startIntermax' | 'getIntermaxCopies' | 'restoreIntermaxCopy' | 'decideRun' | 'diagnoseRun' | 'reportRun' | 'getRunCard' | 'getNotifications' | 'markNotificationsRead' | 'getMetrics' | 'getConfiguration' | 'startToolUpdate' | 'getToolUpdate' | 'reportToolUpdate' | 'getDadNoteRuns' | 'draftDadNote' | 'sendDadNote' | 'closeCentrum';
     /**
      * Browser Ms
      */
@@ -490,6 +490,86 @@ export type Health = {
      * Instance
      */
     instance: string;
+};
+
+/**
+ * IntermaxCopies
+ *
+ * Kopie INTERMAX w Konfiguracji, od najnowszej.
+ *
+ * ``problem`` to Komunikat, gdy folderu Kopii nie da się odczytać; ``copies`` jest wtedy puste.
+ */
+export type IntermaxCopies = {
+    /**
+     * Copies
+     */
+    copies: Array<IntermaxCopy>;
+    problem: Message | null;
+};
+
+/**
+ * IntermaxCopy
+ *
+ * Kopia INTERMAX w folderze Kopii: nazwa pliku, chwila z nazwy i to, przed czym powstała.
+ */
+export type IntermaxCopy = {
+    /**
+     * Name
+     */
+    name: string;
+    /**
+     * Taken At
+     */
+    taken_at: string;
+    /**
+     * Before
+     */
+    before: 'ordering' | 'restore';
+};
+
+/**
+ * IntermaxRestoreRefused
+ *
+ * Przywrócenie odmówiło z Komunikatem; INTERMAX i Kopie zostały takie, jak były.
+ */
+export type IntermaxRestoreRefused = {
+    /**
+     * State
+     */
+    state: 'refused';
+    message: Message;
+};
+
+/**
+ * IntermaxRestoreRequest
+ *
+ * Przywrócenie Kopii INTERMAX ``name``, którą wymieniła lista Kopii.
+ */
+export type IntermaxRestoreRequest = {
+    /**
+     * Name
+     */
+    name: string;
+};
+
+/**
+ * IntermaxRestored
+ *
+ * INTERMAX ma bajty Kopii ``restored``, a jego stan sprzed przywrócenia leży jako Kopia ``previous``.
+ *
+ * ``warnings``: Komunikaty o tym, czego przywrócenie nie dokończyło (starsze Kopie zostały).
+ */
+export type IntermaxRestored = {
+    /**
+     * State
+     */
+    state: 'restored';
+    restored: IntermaxCopy;
+    previous: IntermaxCopy;
+    /**
+     * Warnings
+     */
+    warnings: Array<Message>;
 };
 
 /**
@@ -2348,6 +2428,57 @@ export type GetIntermaxSetupResponses = {
 };
 
 export type GetIntermaxSetupResponse = GetIntermaxSetupResponses[keyof GetIntermaxSetupResponses];
+
+export type GetIntermaxCopiesData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/intermax/copies';
+};
+
+export type GetIntermaxCopiesResponses = {
+    /**
+     * Successful Response
+     */
+    200: IntermaxCopies;
+};
+
+export type GetIntermaxCopiesResponse = GetIntermaxCopiesResponses[keyof GetIntermaxCopiesResponses];
+
+export type RestoreIntermaxCopyData = {
+    body: IntermaxRestoreRequest;
+    path?: never;
+    query?: never;
+    url: '/api/intermax/copies/restore';
+};
+
+export type RestoreIntermaxCopyErrors = {
+    /**
+     * Conflict
+     */
+    409: Problem;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type RestoreIntermaxCopyError = RestoreIntermaxCopyErrors[keyof RestoreIntermaxCopyErrors];
+
+export type RestoreIntermaxCopyResponses = {
+    /**
+     * Response Restoreintermaxcopy
+     *
+     * Successful Response
+     */
+    200: ({
+        state: 'restored';
+    } & IntermaxRestored) | ({
+        state: 'refused';
+    } & IntermaxRestoreRefused);
+};
+
+export type RestoreIntermaxCopyResponse = RestoreIntermaxCopyResponses[keyof RestoreIntermaxCopyResponses];
 
 export type StartIntermaxData = {
     body?: never;

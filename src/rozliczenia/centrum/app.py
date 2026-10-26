@@ -1,8 +1,8 @@
 """Aplikacja HTTP Centrum rozliczeń: API pod ``/api`` i zbudowany frontend pod ``/``.
 
 Każda grupa zasobów ma własny router (``settings_router``, ``periods_router``, ``filling_router``,
-``runs_router``, ``intermax_router``, ``notifications_router``, ``dad_notes_router``, ``metrics_router``,
-``configuration_router``, ``tool_update_router``, ``shutdown_router``, ``timing_router``);
+``runs_router``, ``intermax_router``, ``intermax_copies_router``, ``notifications_router``, ``dad_notes_router``,
+``metrics_router``, ``configuration_router``, ``tool_update_router``, ``shutdown_router``, ``timing_router``);
 ``create_app`` składa je, pilnuje nagłówków ``Host`` i ``Origin`` (ADR 0004),
 zamienia odmowy (``contract.Refusal``) i folder okresów, którego nie da się odczytać, na bezpieczne
 odpowiedzi ``Problem``,
@@ -34,7 +34,7 @@ from rozliczenia.centrum.dad_cases import DadCases
 from rozliczenia.centrum.dad_notes import after_delivery, dad_notes_router, with_logs
 from rozliczenia.centrum.diagnosis import Surroundings, diagnose, files_of_process
 from rozliczenia.centrum.filling import FillingReads, filling_router
-from rozliczenia.centrum.intermax_run import IntermaxEntry, intermax_router
+from rozliczenia.centrum.intermax_run import IntermaxEntry, intermax_copies_router, intermax_router
 from rozliczenia.centrum.log import CentrumLog
 from rozliczenia.centrum.metrics import metrics_router, read_runs
 from rozliczenia.centrum.notifications import NOTIFICATIONS_FILE, Notifications, ReadNotifications, notifications_router
@@ -281,6 +281,7 @@ def create_app(
     entry_processes = {**{entry.key: entry.process for entry in entries}, intermax.key: intermax.process}
     app.include_router(runs_router(runs, entries))
     app.include_router(intermax_router(runs, intermax, lambda: cards.latest(intermax.key)))
+    app.include_router(intermax_copies_router(runs, intermax))
     app.include_router(run_cards_router(cards))
     app.include_router(notifications_router(notifications))
     app.include_router(

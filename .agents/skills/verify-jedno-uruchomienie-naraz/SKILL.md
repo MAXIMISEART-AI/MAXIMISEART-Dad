@@ -1,12 +1,13 @@
 ---
 name: verify-jedno-uruchomienie-naraz
-description: Exhaustively check that Centrum rozliczeń runs one Uruchomienie procesu or Aktualizacja narzędzia at a time and never closes during one (also while it waits for Dad's Decyzja), under every interleaving of browser tabs, Dad and the server. Use when a change touches `RunHost` or `_Run` in `src/rozliczenia/centrum/runs.py`, `Shutdown` in `shutdown.py`, `stop_when_asked` in `server.py`, the `refuse_while` wiring in `app.py`, `ToolUpdates.start` or `_update` in `tool_updates.py`, adds another action that must wait for a running Uruchomienie, or `test_jedno_uruchomienie_naraz` fails.
+description: Exhaustively check that Centrum rozliczeń runs one Uruchomienie procesu, Aktualizacja narzędzia or przywrócenie Kopii INTERMAX at a time and never closes during one (also while it waits for Dad's Decyzja), under every interleaving of browser tabs, Dad and the server. Use when a change touches `RunHost` or `_Run` in `src/rozliczenia/centrum/runs.py`, `Shutdown` in `shutdown.py`, `stop_when_asked` in `server.py`, the `refuse_while` wiring in `app.py`, `ToolUpdates.start` or `_update` in `tool_updates.py`, adds another action that must wait for a running Uruchomienie, or `test_jedno_uruchomienie_naraz` fails.
 pilnuje:
   - src/rozliczenia/centrum/runs.py
   - src/rozliczenia/centrum/shutdown.py
   - src/rozliczenia/centrum/server.py
   - src/rozliczenia/centrum/app.py
   - src/rozliczenia/centrum/tool_updates.py
+  - src/rozliczenia/centrum/intermax_run.py
 ci: .agents/skills/verify-jedno-uruchomienie-naraz/scripts/explore_runs.py
 ---
 
@@ -23,9 +24,12 @@ table, above all the parts modelled by hand, whose change the check cannot see.
 ## The promise
 
 - **JEDNO_NARAZ**: Centrum never has two Uruchomienia procesu in progress at once,
-  nor an Uruchomienie and an Aktualizacja narzędzia, nor two Aktualizacje. Harm: two
+  nor an Uruchomienie and an Aktualizacja narzędzia, nor two Aktualizacje, nor a
+  przywrócenie Kopii INTERMAX beside any of them or beside another przywrócenie. Harm: two
   engines work on the same Folder okresu and metrics file, and Dad gets two results
-  that contradict each other; or Git and pip change the tool under a running engine.
+  that contradict each other; or Git and pip change the tool under a running engine;
+  or a przywrócenie replaces INTERMAX under a running Uporządkowanie INTERMAX, whose
+  replace then puts the old day back over it.
 - **BEZ_ZAMKNIECIA_W_TRAKCIE**: Centrum's server never ends while an Uruchomienie
   procesu is in progress, including one waiting for Dad's Decyzja. Harm: the
   Uruchomienie thread is a daemon, so the end of the Python process kills it
@@ -54,22 +58,26 @@ after a new version, until the restart guardian has started and
 | Covered code | What the check relies on |
 | --- | --- |
 | `runs.py` `RunHost.start`, `shutdown_refusal`, `decide`, `finished`, `publish` | check and claim of `_run` under `_lock`; refusal while a run has not ended; an accepted shutdown sets `_closing` under the same lock; the start file (`run_started`, `run_cards.RunCards`) written outside the lock, after the claim and before the thread |
-| `runs.py` `RunHost.begin_update`, `end_update`, `_busy_locked` | check and claim of `_updating` under `_lock`; refusal while closing, updating or running |
+| `runs.py` `RunHost.begin_update`, `end_update`, `_busy_locked` | check and claim of `_updating` under `_lock`; refusal while closing, updating, restoring or running |
+| `runs.py` `RunHost.begin_restore`, `end_restore`; `start` | check and claim of `_restoring` under `_lock`; `start` refuses while restoring |
+| `intermax_run.py` `intermax_copies_router` | modelled by hand: `begin_restore`, the restore as one step inside the request, then `end_restore` |
 | `runs.py` `_Run.work`, `confirm`, `answer` | when `ended` is set; after-run actions (`RunHost.after`) before `finished`; waiting for the Decyzja on `_decided` |
 | `shutdown.py` `Shutdown.request`, `wait`, `refuse_while`, `close_for_update` | refusal check, then `_requested.set()`; `close_for_update` sets it without the check |
 | `tool_updates.py` `ToolUpdates.start`, `_update`, `_restart` | modelled by hand: `begin_update`, a log entry, the thread; then either `end_update` or the guardian and `close_for_update` |
 | `app.py` `create_app`: `shutdown.refuse_while(runs.shutdown_refusal)` | the wiring the harness copies |
 | `server.py` `serve.stop_when_asked` and uvicorn graceful shutdown | modelled by hand (see below) |
 
-**Sync commit: `11588db1`.** At this commit the checker was confirmed to describe
+**Sync commit: `ef1eff19`** (#472: przywrócenie Kopii INTERMAX in the slot). At this commit the checker was confirmed to describe
 the covered code. From the previous sync commit `3ac432a`, the covered files
 changed only in card views (`EndedRun.outcome`, `ProcessEntry.view` removed) and
 in `app.py` wiring of the Skrzynka queue, Sprawy taty, Diagnoza and the
 read-only `filling_router`; `refuse_while`, `after_run` and the lock in
-`runs.py` did not change. To see whether it needs another look:
+`runs.py` did not change. From `11588db1` to `ef1eff19`, `runs.py` got `begin_restore`, `end_restore` and the
+`_restoring` checks, and `app.py` the `intermax_copies_router`; the `przywracanie` scope models them. To see whether
+it needs another look:
 
 ```bash
-git log --oneline 11588db1..HEAD -- src/rozliczenia/centrum/runs.py src/rozliczenia/centrum/shutdown.py src/rozliczenia/centrum/server.py src/rozliczenia/centrum/app.py src/rozliczenia/centrum/tool_updates.py
+git log --oneline ef1eff19..HEAD -- src/rozliczenia/centrum/runs.py src/rozliczenia/centrum/shutdown.py src/rozliczenia/centrum/server.py src/rozliczenia/centrum/app.py src/rozliczenia/centrum/tool_updates.py src/rozliczenia/centrum/intermax_run.py
 ```
 
 For every listed commit, read its diff against the table. Move the sync commit
@@ -99,7 +107,7 @@ script checks the worktree's own `src`.
 | `URUCHOMIENIA: NOWE NARUSZENIE (n)` | 1 | A rule breaks in a way not listed below, or a scope never reached a behaviour it must reach (`BRAK_ZAMKNIECIA`, `BRAK_ODMOWY_ZAMKNIECIA`, `BRAK_WYNIKU`, `BRAK_ODMOWY_STARTU`), so the check would prove nothing. |
 | `URUCHOMIENIA: LUKA MODELU (n)` | 2 | `runs.py` or `shutdown.py` uses `threading` in a way the model does not cover (for example `RLock`, `Condition`, `wait(timeout=...)`). No verdict on the rules. |
 
-`--scope zamknij-w-trakcie`, `--scope dwie-karty` or `--scope aktualizacja` runs one scope. `--strict`
+`--scope zamknij-w-trakcie`, `--scope dwie-karty`, `--scope aktualizacja` or `--scope przywracanie` runs one scope. `--strict`
 counts known findings as violations too: use it to confirm a fix.
 
 ## How it works and what it covers
@@ -116,6 +124,10 @@ order. A lock entry can go only while the lock is free, and `wait()` only once t
 Event is set. The actions after the result (`AfterRun`) are one step that
 writes nothing. Schedules that reach a state already seen are cut short.
 
+Replaced: `intermax_copies_router` by a „Przywróć tę kopię” tab that calls the real
+`begin_restore`, takes one step for the Kopia and the replace of INTERMAX (`intermax_copies.restore`,
+which [`verify-zapis-intermax`](../verify-zapis-intermax/SKILL.md) checks) and calls the real `end_restore`,
+all inside its request, so uvicorn's graceful shutdown waits for it.
 Replaced: `ToolUpdates` by a „Zaktualizuj narzędzie” tab that calls the real
 `begin_update`, logs and starts the update thread, and a thread whose Git, pip and
 guardian work is one step ending either without a new version (or in a failure),
@@ -134,6 +146,7 @@ received.
 | `zamknij-w-trakcie` | 1 | ≤ 2 (a refused click is retried) | ≤ 1 |
 | `dwie-karty` | 2 | ≤ 1 | ≤ 2 |
 | `aktualizacja` | 1, plus 2 „Zaktualizuj narzędzie” tabs | ≤ 1 | ≤ 1 |
+| `przywracanie` | 1, plus 2 „Przywróć tę kopię” tabs | ≤ 1 | ≤ 1 |
 
 Not covered: Zatrzymania and errors inside the engine (`_Run.work`'s `except`
 path), `tools/uruchom_proces.py` or a second Centrum process on another port,
@@ -192,8 +205,9 @@ claim in `start` under two lock entries (two Uruchomienia at once), a refusal th
 skips a run waiting for its Decyzja, `ended` set at the start of `_Run.work`,
 the actions after the result moved below `ended = True`,
 `Shutdown.request` without the refusal, an accepted shutdown that does not set
-`_closing`, `begin_update` without the closing or the running check, and `start`
-without the updating check. `RLock` in `RunHost` gives `LUKA MODELU`.
+`_closing`, `begin_update` without the closing or the running check, `start`
+without the updating check, `begin_restore` without the running check,
+`start` without the restoring check, and `_busy_locked` blind to a restore. `RLock` in `RunHost` gives `LUKA MODELU`.
 CI runs this in the `mutations` job. A mutation reported as `NIEAKTUALNA` no longer matches its file.
 Rewrite its `anchor` and `replacement` in `check_runs_mutations.py` so it breaks
 the same rule again in the new code. Then move the sync commit forward as above.
