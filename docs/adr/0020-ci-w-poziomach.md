@@ -33,7 +33,9 @@ CI ma cztery poziomy:
    Zmiana `.github/workflows/**` wybiera wszystko.
    Podstawa skilla `verify-*` biegnie, gdy zmiana trafia w jego `pilnuje:`, a jego skrypty mutacji, gdy zmienił się folder skilla.
    Change mutations nie blokuje werdyktu CI. Biegnie po zadaniach bramki, jedna mutacja na zmienioną linię, a każdą przeżytą recenzent omawia w werdykcie.
-3. **Pełne CI `main`.** Wszystko, co przed tym ADR biegło na PR, z Windows 3.14 i wszystkimi skillami.
+   `tools/scal_pr.py` nie scala PR, którego `PASS` nie omawia przeżytych mutacji.
+3. **Pełne CI `main`.** Zestaw, który przed tym ADR biegł na pushu do `main`: wszystkie testy na trzech torach, E2E, straż czasu oraz podstawy i skrypty mutacji wszystkich skilli.
+   Change mutations mutuje zmienione linie PR, więc na `main` nie biegnie.
    Trwający run `main` się kończy, a nowy merge podmienia tylko run, który czeka.
    Czerwony `main` nie blokuje merge'ów.
    Zakłada automatyczne issue, naprawia go osobny PR, a winnego wśród kilku merge'ów wskazuje bisect.
@@ -49,7 +51,7 @@ W backteście na 28 dniach do 26.10 bramka z torem Windows 3.11 złapałaby w PR
 Najpierw poprawka w codebase albo środowisku agenta, tak żeby ta klasa błędu nie wróciła (architektura, typy, lint, test, a proza na końcu).
 Do bramki trafia tylko to, co złapałoby ten defekt, z dowodem z backtestu, czyli test, krawędź wyboru testów albo glob `pilnuje:`.
 Pełnego zestawu ani całego zadania CI do bramki się nie dokłada.
-Test kształtu planu bramki dla wzorcowych PR-ów (mały, tylko z testami, i Centrum) ma limit liczby zadań i prognozy czasu; przekroczenie to decyzja Maksa.
+Test kształtu planu bramki dla dwóch wzorcowych PR-ów, małego tylko z testami i zmiany Centrum, ma limit liczby zadań i prognozy czasu; przekroczenie to decyzja Maksa.
 
 ### Niestabilne testy
 
@@ -66,8 +68,8 @@ Maks zgodził się 26.10 na takie wpisy z góry, więc nie wymagają osobnej zgo
   Do taty nie trafi, bo Wydanie wymaga zielonego pełnego CI i zielonych testów z kwarantanny.
 - Dwa PR-y zielone osobno mogą się zepsuć dopiero razem na `main` (2 razy w 28 dniach do 26.10).
   Issue czerwonego `main` rozpoznaje takie zderzenie; gdy zderzenia się powtarzają, wraca decyzja o merge queue.
-- Przy 100 PR dziennie limit 20 zadań wydłuża bramkę w godzinach szczytu.
-  W symulacji tego kształtu (z nieblokującym Change mutations) p50 to 17,3 min i p90 38,9 min przy 20 zadaniach naraz, a 6,2 i 10,8 min przy 40.
+- Przy 100 PR dziennie limit 20 zadań jest zajęty przez 16–17 godzin na dobę i wydłuża bramkę.
+  W symulacji tego kształtu (nieblokujące Change mutations, trwający run `main` się kończy) p50 to 19,3 min i p90 46,3 min przy 20 zadaniach naraz, a 6,3 i 11,0 min przy 40.
 - Dalsze skracanie bramki to przyspieszanie samych testów, nie zdejmowanie ich z bramki.
 
 ## Odrzucone warianty
