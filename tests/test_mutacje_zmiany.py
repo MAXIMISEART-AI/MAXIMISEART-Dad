@@ -166,7 +166,7 @@ def test_mutacje_kodu_w_procesie_z_flaga_izolacji_wykrywa_test_ktory_go_uruchomi
 INNE = "def oba(a: bool, b: bool) -> bool:\n    return a and b\n"
 # Tak jak tools/ci_lokalnie.py nazywa tools/mutacje_zmiany.py, a git_repo.py kopiuje tools/ci_lokalnie.py.
 KROKI = 'KROK = "tools/pomoc/inne.py"\n'
-KROKI_TEST = "import subprocess\n\nNARZEDZIE = 'tools/kroki.py'\n\n\ndef test_krok() -> None:\n    subprocess.run(['git', '--version'], check=True, capture_output=True)\n"
+KROKI_TEST = "import subprocess\n\nNARZEDZIE = '{tool}'\n\n\ndef test_krok() -> None:\n    subprocess.run(['git', '--version'], check=True, capture_output=True)\n"
 
 
 def _isolated(reference: str, call: str = "oba(True, True)") -> str:
@@ -181,21 +181,24 @@ def _isolated(reference: str, call: str = "oba(True, True)") -> str:
 
 
 @pytest.mark.parametrize(
-    ("reference", "helper"),
+    ("reference", "helper", "tool"),
     [
-        ("SKRYPT = 'tools/pomoc/inne.py'", ""),
-        ("from pathlib import Path\nSKRYPT = str(sorted(Path('tools').glob('pomoc/*.py'))[0])", ""),
-        ("from pomocnik import SKRYPT", "SKRYPT = 'tools/pomoc/inne.py'\n"),
+        ("SKRYPT = 'tools/pomoc/inne.py'", "", "tools/kroki.py"),
+        ("from pathlib import Path\nSKRYPT = str(sorted(Path('tools').glob('pomoc/*.py'))[0])", "", "tools/kroki.py"),
+        ("from pomocnik import SKRYPT", "SKRYPT = 'tools/pomoc/inne.py'\n", "tools/kroki.py"),
+        # Narzędzie w folderze ``tests/`` pod ``tools/`` nie jest plikiem testów: jego nazwy plików też się nie liczą.
+        ("SKRYPT = 'tools/pomoc/inne.py'", "", "tools/tests/kroki.py"),
     ],
 )
 def test_kodu_procesu_nie_sprawdza_test_z_procesem_ktory_dochodzi_do_pliku_tylko_przez_inne_narzedzie(
-    tmp_path: Path, reference: str, helper: str
+    tmp_path: Path, reference: str, helper: str, tool: str
 ) -> None:
     repo = _repo(tmp_path, ONE_CASE, BASE)
     (repo / "tools" / "pomoc").mkdir()
     (repo / "tools" / "pomoc" / "inne.py").write_text(INNE, encoding="utf-8")
-    (repo / "tools" / "kroki.py").write_text(KROKI, encoding="utf-8")
-    (repo / "tests" / "test_a_kroki.py").write_text(KROKI_TEST, encoding="utf-8")
+    (repo / tool).parent.mkdir(exist_ok=True)
+    (repo / tool).write_text(KROKI, encoding="utf-8")
+    (repo / "tests" / "test_a_kroki.py").write_text(KROKI_TEST.format(tool=tool), encoding="utf-8")
     (repo / "tests" / "test_inne.py").write_text(_isolated(reference), encoding="utf-8")
     if helper:
         (repo / "tests" / "pomocnik.py").write_text(helper, encoding="utf-8")
