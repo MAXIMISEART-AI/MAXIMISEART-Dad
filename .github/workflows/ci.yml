@@ -106,8 +106,8 @@ jobs:
         run: python -m mypy --platform linux
 
   plan:
-    # Decides the pytest jobs of this run and whether Change mutations start (tools/plan_ci.py), from the unit times
-    # of the last green main runs (artifact czasy-ci). Standard library only, so the runner's python3 runs it as is.
+    # Decides the pytest and Mutation checks jobs of this run and whether Change mutations start (tools/plan_ci.py), from
+    # the unit times of the last green main runs (artifact czasy-ci). Standard library only, so the runner's python3 runs it as is.
     name: Plan CI
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -117,6 +117,7 @@ jobs:
       actions: read
     outputs:
       pytest: ${{ steps.plan.outputs.pytest }}
+      mutations: ${{ steps.plan.outputs.mutations }}
       mutacje-zmiany: ${{ steps.plan.outputs.mutacje-zmiany }}
     steps:
       - uses: actions/checkout@v7
@@ -276,11 +277,13 @@ jobs:
     # A mutation check's verdict does not depend on the Python version, so it runs once, beside pytest.
     # Besides a skill's mutations it runs the skill's own check on unchanged code (the ci: key of its SKILL.md), so
     # agents need not run it on the Mac: Centrum --feature all and the TLA+ model of Aktualizacja narzędzia run only here.
-    # A pull request runs only the skills whose verdict its changes can alter; a push to main runs them all.
-    # Each part runs a third of the selected steps (a baseline or one mutation script) by their CI time: side by side on one
-    # runner they exceed their time limits.
-    name: Mutation checks (${{ matrix.part }}/3)
-    runs-on: windows-latest
+    # The plan takes the steps whose verdict the pull request can alter (all on a push to main), packs them into jobs by
+    # their CI time and splits a long mutation script into parts; each job runs its steps one by one, because side by
+    # side on one runner they exceed their time limits.
+    name: ${{ matrix.nazwa }}
+    needs: plan
+    if: ${{ needs.plan.outputs.mutations != '[]' }}
+    runs-on: ${{ matrix.os }}
     permissions:
       contents: read
       # tools/czasy_ci.py reads the step times of this job from the run's jobs API.
@@ -290,19 +293,16 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        part: [1, 2, 3]
+        include: ${{ fromJSON(needs.plan.outputs.mutations) }}
     env:
       PYTHONUTF8: '1'
     steps:
       - uses: actions/checkout@v7
-        with:
-          # On a pull request HEAD is the merge commit and HEAD^1 the base it merges into.
-          fetch-depth: 2
 
       - id: python
         uses: actions/setup-python@v7
         with:
-          python-version: '3.14'
+          python-version: ${{ matrix.python }}
 
       - uses: astral-sh/setup-uv@v10.3.2
         with:
@@ -311,44 +311,43 @@ jobs:
       - name: Install dependencies
         run: uv pip install --system --python "${{ steps.python.outputs.python-path }}" -r requirements.txt
 
-      # verify-centrum-rozliczen drives Centrum in Chromium.
+      # verify-centrum-rozliczen drives Centrum in Chromium; the plan marks the jobs that run its steps.
       - name: Install Playwright
+        if: ${{ matrix.przegladarka }}
         run: uv pip install --system --python "${{ steps.python.outputs.python-path }}" -e ".[dev]"
 
       - name: Install Chromium
+        if: ${{ matrix.przegladarka }}
         run: python -m playwright install chromium
 
-      - name: Run each verify skill's baseline check and prove it fails on broken variants
-        id: skills
-        # tee keeps the step lines (OK/FAIL <step> (N s)) for tools/czasy_ci.py; bash passes the output bytes through
-        # unchanged and, with pipefail, fails with the exit code of tools/mutacje_skilli.py.
-        shell: bash
-        run: |
-          mkdir -p .ci-czasy
-          if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
-            python tools/mutacje_skilli.py --czesc ${{ matrix.part }}/3 --zmiany-od HEAD^1 | tee .ci-czasy/mutacje.log
-          else
-            python tools/mutacje_skilli.py --czesc ${{ matrix.part }}/3 | tee .ci-czasy/mutacje.log
-          fi
+      - uses: actions/download-artifact@v8
+        with:
+          name: plan
+          path: .ci-plan
+
+      # Each baseline and mutation script (or part of one) of the job, also after a red one.
+      - name: Run the planned units
+        id: units
+        run: python tools/plan_ci.py wykonaj --plan .ci-plan/plan.json --zadanie ${{ matrix.id }}
 
       # A red baseline (e.g. Centrum --feature all) leaves its screenshots and logs here; mutation copies keep none.
       - name: Upload baseline evidence on failure
-        if: ${{ failure() && steps.skills.outcome == 'failure' }}
+        if: ${{ failure() && steps.units.outcome == 'failure' }}
         uses: actions/upload-artifact@v7
         with:
-          name: mutation-checks-evidence-${{ matrix.part }}
+          name: evidence-${{ matrix.id }}-${{ github.run_attempt }}
           path: .verification/evidence/
           retention-days: 7
           if-no-files-found: ignore
           include-hidden-files: true
 
-      # Measurement only: a missing or broken record prints CZASY CI FAIL and does not fail the job.
+      # Measurement and the proof that the planned units ran: Required checks the record against the plan.
       - name: Record the time of each unit of work
         if: ${{ !cancelled() }}
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
-        run: python tools/czasy_ci.py zadanie --tor "${{ runner.os }}-${{ steps.python.outputs.python-version }}" --mutacje .ci-czasy/mutacje.log --wyjscie ".ci-czasy/zapis/${{ github.job }}-${{ strategy.job-index }}-${{ github.run_attempt }}.json"
+        run: python tools/czasy_ci.py zadanie --tor "${{ runner.os }}-${{ steps.python.outputs.python-version }}" --wykonanie .ci-czasy/wykonanie.json --wyjscie ".ci-czasy/zapis/${{ github.job }}-${{ strategy.job-index }}-${{ github.run_attempt }}.json"
 
       - name: Upload the unit times
         if: ${{ !cancelled() }}
@@ -363,8 +362,9 @@ jobs:
 
   required:
     # Configure only this stable status as required in branch protection.
-    # It passes when every job succeeded, a job was skipped only because the plan gave it no work, and every pytest
-    # job of the plan reported each of its units, passed in its latest attempt (no test file lost between jobs).
+    # It passes when every job succeeded, a job was skipped only because the plan gave it no work, and every pytest and
+    # Mutation checks job of the plan reported each of its units, passed in its latest attempt (no test file or skill
+    # step lost between jobs).
     name: Required CI status
     runs-on: ubuntu-latest
     needs:

@@ -72,11 +72,10 @@ def _tool(root: Path) -> list[str]:
     return [sys.executable, str(root / "tools" / TOOL.name)]
 
 
-def _run(root: Path, *args: str, hash_seed: int | None = None) -> subprocess.CompletedProcess[str]:
+def _run(root: Path, *args: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         [*_tool(root), *args],
         cwd=root,
-        env=None if hash_seed is None else {**os.environ, "PYTHONHASHSEED": str(hash_seed)},
         stdin=subprocess.DEVNULL,
         capture_output=True,
         text=True,
@@ -378,150 +377,6 @@ def test_skrypt_mutacji_czyta_kazdy_plik_repozytorium_ladowany_przez_jego_sprawd
     assert unread == {script.parents[1].name: [] for script in scripts}
 
 
-def test_czesci_uruchamiaja_kazdy_skrypt_dokladnie_raz(tmp_path: Path) -> None:
-    for skill in ("verify-a", "verify-b", "verify-c"):
-        _skill(tmp_path, skill, {f"check_{skill[-1]}_mutations.py": PASSING})
-
-    parts = [_run(tmp_path, "--czesc", f"{number}/2") for number in (1, 2)]
-
-    ran = [line.split()[1] for part in parts for line in part.stdout.splitlines() if line.startswith("OK   ")]
-    assert [part.stdout.splitlines()[-1] for part in parts] == ["MUTACJE SKILLI OK"] * 2
-    assert sorted(ran) == [f".agents/skills/verify-{name}/scripts/check_{name}_mutations.py" for name in "abc"]
-
-
-def _scripts_guarding_own_docs(root: Path, names: str, changed: str) -> str:
-    """Skille ``verify-<nazwa>`` z jednym skryptem mutacji spoza tabeli czasów i ``pilnuje`` na ``docs/<nazwa>.md``.
-
-    Commit bazy, potem commit, który zmienia dokumenty skilli ``changed``; zwraca commit bazy. Jak w repozytorium,
-    Git pomija ``__pycache__``, które zostawia w skillach wczytanie tabel mutacji przez poprzednią część.
-    """
-
-    (root / ".gitignore").write_text("__pycache__/\n", encoding="utf-8")
-    (root / "docs").mkdir()
-    for name in names:
-        (root / f"docs/{name}.md").write_text("opis\n", encoding="utf-8")
-        script = f"MUTATIONS = ()\n{PASSING}"
-        _skill(root, f"verify-{name}", {f"check_{name}_mutations.py": script}, f"---\nname: verify-{name}\npilnuje:\n  - docs/{name}.md\n---\n")
-    _tool(root)
-    git(root, "init", "--quiet")
-    base = commit(root, "baza")
-    for name in changed:
-        (root / f"docs/{name}.md").write_text("zmieniony opis\n", encoding="utf-8")
-    commit(root, "zmiana")
-    return base
-
-
-def _ran_skills(result: subprocess.CompletedProcess[str]) -> list[str]:
-    assert result.stdout.splitlines()[-1] == "MUTACJE SKILLI OK", result.stdout + result.stderr
-    return [line.split("/")[2].removeprefix("verify-") for line in result.stdout.splitlines() if line.startswith("OK   ")]
-
-
-@pytest.mark.parametrize("count", [1, 2, 3, 4])
-def test_czesci_uruchamiaja_kazdy_wybrany_krok_dokladnie_raz_a_pominiety_nigdzie(tmp_path: Path, count: int) -> None:
-    base = _scripts_guarding_own_docs(tmp_path, "abcde", changed="ace")
-
-    # Każda część to osobny proces CI, który sam liczy podział: inne ziarno haszowania zmienia kolejność zbiorów.
-    parts = [_run(tmp_path, "--czesc", f"{number}/{count}", "--zmiany-od", base, hash_seed=number) for number in range(1, count + 1)]
-
-    assert sorted(name for part in parts for name in _ran_skills(part)) == ["a", "c", "e"]
-    for part in parts:
-        assert [line.split(":")[0] for line in part.stdout.splitlines() if line.startswith("POMINIĘTY")] == [
-            f"POMINIĘTY .agents/skills/verify-{name}/scripts/check_{name}_mutations.py" for name in "bd"
-        ]
-
-
-def test_czesci_dziela_tylko_wybrane_kroki(tmp_path: Path) -> None:
-    # Kroki spoza tabeli ważą po równo; podział wszystkich sześciu dałby a i c tej samej części.
-    base = _scripts_guarding_own_docs(tmp_path, "abcdef", changed="ac")
-
-    parts = [_run(tmp_path, "--czesc", f"{number}/2", "--zmiany-od", base) for number in (1, 2)]
-
-    assert [_ran_skills(part) for part in parts] == [["a"], ["c"]]
-    assert "== .agents/skills/verify-c/scripts/check_c_mutations.py (zmienione: docs/c.md)" in parts[1].stdout.splitlines()
-
-
-def _steps(tool: ModuleType, keys: str) -> list[object]:
-    skills = ROOT / ".agents" / "skills"
-    return [
-        tool.Step(skills / key.split("/")[0], key, key, (key,), None if key.endswith("/ci") else tool.VERDICT) for key in keys.split()
-    ]
-
-
-def test_kazdy_nastepny_najdluzszy_krok_idzie_do_najlzejszej_czesci(monkeypatch: pytest.MonkeyPatch) -> None:
-    tool = _load_tool(monkeypatch)
-    steps = _steps(tool, "verify-a/check_a_mutations.py verify-b/check_b_mutations.py verify-c/ci verify-d/check_d_mutations.py")
-
-    chosen = tool.parts(steps, 3, {"verify-a/check_a_mutations.py": 60, "verify-b/check_b_mutations.py": 300, "verify-c/ci": 90, "verify-d/check_d_mutations.py": 60})
-
-    assert [[step.key for step in part] for part in chosen] == [
-        ["verify-b/check_b_mutations.py"],
-        ["verify-c/ci"],
-        ["verify-a/check_a_mutations.py", "verify-d/check_d_mutations.py"],
-    ]
-
-
-def test_krok_spoza_tabeli_czasow_wazy_mediane_tabeli(monkeypatch: pytest.MonkeyPatch) -> None:
-    tool = _load_tool(monkeypatch)
-    steps = _steps(tool, "verify-a/ci verify-b/check_b_mutations.py verify-c/check_c_mutations.py verify-nowy/ci")
-
-    chosen = tool.parts(steps, 3, {"verify-a/ci": 100, "verify-b/check_b_mutations.py": 60, "verify-c/check_c_mutations.py": 50})
-
-    assert [[step.key for step in part] for part in chosen] == [
-        ["verify-a/ci"],
-        ["verify-b/check_b_mutations.py", "verify-c/check_c_mutations.py"],
-        ["verify-nowy/ci"],
-    ]
-
-
-def test_podstawa_i_mutacje_jednego_skilla_moga_biec_w_roznych_czesciach(monkeypatch: pytest.MonkeyPatch) -> None:
-    tool = _load_tool(monkeypatch)
-    steps = _steps(tool, "verify-a/check_a_mutations.py verify-a/ci verify-b/check_b_mutations.py verify-b/ci")
-
-    chosen = tool.parts(steps, 2, {"verify-a/check_a_mutations.py": 300, "verify-a/ci": 200, "verify-b/check_b_mutations.py": 100, "verify-b/ci": 10})
-
-    assert [[step.key for step in part] for part in chosen] == [
-        ["verify-a/check_a_mutations.py", "verify-b/ci"],
-        ["verify-a/ci", "verify-b/check_b_mutations.py"],
-    ]
-
-
-def test_w_czesci_podstawa_skilla_biegnie_przed_jego_mutacjami(monkeypatch: pytest.MonkeyPatch) -> None:
-    tool = _load_tool(monkeypatch)
-    steps = _steps(tool, "verify-a/check_a_mutations.py verify-a/ci verify-b/check_b_mutations.py")
-
-    chosen = tool.parts(steps, 2, {"verify-a/check_a_mutations.py": 100, "verify-a/ci": 100, "verify-b/check_b_mutations.py": 300})
-
-    assert [[step.key for step in part] for part in chosen] == [["verify-b/check_b_mutations.py"], ["verify-a/ci", "verify-a/check_a_mutations.py"]]
-
-
-def test_czesci_z_tabeli_czasow_uruchamiaja_kazdy_krok_raz_i_zadna_nie_przekracza_dolnej_granicy_o_wiecej_niz_najkrotszy_krok(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    times = _load_tool(monkeypatch).CI_TIMES_S
-    skills = {key.split("/")[0] for key in times}
-    for skill in skills:
-        command = f".agents/skills/{skill}/scripts/sprawdz.py"
-        scripts = {key.split("/")[1]: PASSING for key in times if key.startswith(f"{skill}/") and not key.endswith("/ci")}
-        baseline = f"{skill}/ci" in times
-        _skill(tmp_path, skill, {**scripts, **({"sprawdz.py": CHECKED_IN_CI.format(code=0)} if baseline else {})}, _with_ci(skill, command) if baseline else "")
-
-    parts = [_run(tmp_path, "--czesc", f"{number}/3") for number in (1, 2, 3)]
-
-    ran = [[line.split(" (")[0].removeprefix("OK   ") for line in part.stdout.splitlines() if line.startswith("OK   ")] for part in parts]
-    name = {key: f"PODSTAWA {key.split('/')[0]}" if key.endswith("/ci") else f".agents/skills/{key.split('/')[0]}/scripts/{key.split('/')[1]}" for key in times}
-    key = {shown: key for key, shown in name.items()}
-    assert [part.stdout.splitlines()[-1] for part in parts] == ["MUTACJE SKILLI OK"] * 3
-    assert sorted(step for part in ran for step in part) == sorted(name.values())
-    # Ścieżka krytyczna Mutation checks to najdłuższa część. Żaden podział nie zejdzie poniżej najdłuższego kroku ani
-    # średniej części, a ten przekracza dłuższą z nich najwyżej o najkrótszy krok.
-    floor = max(max(times.values()), sum(times.values()) / len(parts))
-    assert max(sum(times[key[step]] for step in part) for part in ran) <= floor + min(times.values()), ran
-
-
-def test_tabela_czasow_wymienia_tylko_kroki_skilli(monkeypatch: pytest.MonkeyPatch) -> None:
-    tool = _load_tool(monkeypatch)
-
-    assert set(tool.CI_TIMES_S) <= {step.key for step in tool.steps({})}
-
-
 def test_polecenie_ci_kazdego_skilla_to_skrypt_z_repozytorium(monkeypatch: pytest.MonkeyPatch) -> None:
     tool = _load_tool(monkeypatch)
 
@@ -530,14 +385,32 @@ def test_polecenie_ci_kazdego_skilla_to_skrypt_z_repozytorium(monkeypatch: pytes
     assert {"verify-centrum-rozliczen", "verify-aktualizacja-narzedzia"} <= {skill for skill, command in commands.items() if command}
 
 
-@pytest.mark.parametrize("part", ["0/2", "3/2", "1", "a/b"])
-def test_czesc_spoza_zakresu_jest_bledem_wywolania(tmp_path: Path, part: str) -> None:
-    _skill(tmp_path, "verify-a", {"check_a_mutations.py": PASSING})
+def test_wybor_oznacza_kroki_skilla_ktorego_skrypty_importuja_playwright_i_liczy_mutacje_skryptu(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    table = (
+        "from pathlib import Path\nimport sys\n\nsys.path.insert(0, str(Path(__file__).resolve().parents[4] / 'tools'))\n"
+        "from mutacje import Edit, Mutation  # noqa: E402\n\n"
+        "MUTATIONS = tuple(Mutation(f'm{numer}', (Edit(Path('a.txt'), 'X', 'Y'),), ('a.py',)) for numer in range({count}))\n"
+    )
+    drive = ".agents/skills/verify-a/scripts/drive/przegladarka.py"
+    _skill(tmp_path, "verify-a", {"check_a_mutations.py": table.replace("{count}", "3"), "drive/przegladarka.py": "from playwright.sync_api import sync_playwright\n"}, _with_ci("verify-a", drive))
+    _skill(tmp_path, "verify-b", {"check_b_mutations.py": table.replace("{count}", "0"), "opis.py": "TEKST = 'import playwright'\n"})
+    _tool(tmp_path)
+    monkeypatch.syspath_prepend(str(tmp_path / "tools"))
+    spec = importlib.util.spec_from_file_location("mutacje_skilli_w_kopii", tmp_path / "tools" / TOOL.name)
+    assert spec is not None and spec.loader is not None
+    tool = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(tool)
 
-    result = _run(tmp_path, "--czesc", part)
+    selection = tool.wybor(None)
 
-    assert result.returncode == 2
-    assert "OK   " not in result.stdout
+    assert [(step.key, step.mutations, step.browser) for step, _ in selection.chosen] == [
+        ("verify-a/ci", 0, True),
+        ("verify-a/check_a_mutations.py", 3, True),
+        ("verify-b/check_b_mutations.py", 1, False),
+    ]
+    assert (selection.skipped, selection.failed) == ([], {})
 
 
 CHECKED_IN_CI = (

@@ -92,7 +92,7 @@ def ci_runs(skill: Path) -> list[tuple[str, ...]]:
     """Polecenia skilla (nazwa skryptu z argumentami), które liczy CI.
 
     To polecenie ``ci:`` i skrypty mutacji (zadanie Mutation checks) oraz wywołania skryptów skilla w krokach
-    ``ci.yml`` i ``tools/plan_ci.py``. Klucz ``ci:``, którego nie da się odczytać, pomija: Mutation checks i tak na nim pada.
+    ``ci.yml`` i ``tools/plan_ci.py``. Klucz ``ci:``, którego nie da się odczytać, pomija: plan CI zgłasza go w Required.
     """
 
     try:

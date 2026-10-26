@@ -26,6 +26,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
 
 from ciezkie_ci import HEAVY, mutations_refusal, refusal  # noqa: E402
+import plan_ci  # noqa: E402
 
 PASSES = ("GITHUB_ACTIONS", "MAXIMISEART_NA_SCALONYCH_PR", "MAXIMISEART_ODTWARZAM")
 OUTSIDE_CI = {name: value for name, value in os.environ.items() if name not in PASSES}
@@ -361,5 +362,8 @@ def test_odtwarzam_z_wiersza_polecen_trafia_do_straznika(tmp_path: Path) -> None
 
 def test_nazwy_ciezkich_zadan_zgadzaja_sie_z_ci() -> None:
     jobs = yaml.safe_load((ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8"))["jobs"]
+    # Zadanie, którego macierz układa plan, nazywa się jak jego tor w planie.
+    planned = {lane.szablon: lane.zadanie for lane in (*plan_ci.TORY, plan_ci.MUTACJE)}
+    names = {job: planned[job] if jobs[job]["name"] == "${{ matrix.nazwa }}" else jobs[job]["name"] for job in HEAVY}
 
-    assert {job: re.sub(r" \(\$\{\{.*", "", jobs[job]["name"]) for job in HEAVY} == HEAVY
+    assert {job: re.sub(r" \((\$\{\{|\{numer\}).*", "", name) for job, name in names.items()} == HEAVY
