@@ -306,6 +306,7 @@ def test_zgloszenie_z_kolejki_wychodzi_po_restarcie_centrum_z_numerem_w_stanie_w
     with centrum.client:
         assert centrum.surroundings.report_box.wait_until(lambda box: len(box.sent) == 1)
         assert wait_for(lambda: case_states(centrum.client, "zgloszenie") == ["wyslana"])
+    centrum.client.stop()
 
     assert [case["number"] for case in cases(centrum)] == [1]
     assert queued_reports(centrum) == []
@@ -325,6 +326,7 @@ def test_numer_zgloszenia_z_kolejki_zostaje_po_restarcie_gdy_windows_na_chwile_b
     with centrum.client:
         assert centrum.surroundings.report_box.wait_until(lambda box: len(box.sent) == 1)
         assert wait_for(lambda: case_states(centrum.client, "zgloszenie") == ["wyslana"])
+    centrum.client.stop()
     centrum.restart()
 
     assert case_states(centrum.client, "zgloszenie") == ["wyslana"]
