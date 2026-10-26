@@ -497,6 +497,7 @@ def _seconds(run: int) -> dict[str, dict[str, float]]:
 def test_czasy_z_main_to_mediana_trzech_najnowszych_zielonych_runow_z_artefaktem_i_ostatniej_proby_zadania(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    # Runy 11 i 6 anulowano: Required wysłał częściowy artefakt, ale lista zielonych runów main ich nie ma.
     gh = _Gh([10, 9, 8, 7, 5], {run: _artifact(run, **_seconds(run)) for run in (11, 10, 9, 8, 7, 6)})
     monkeypatch.setattr(czasy_ci, "_gh", gh)
     (tmp_path / "5.json").write_text(json.dumps(_artifact(5, A={"pytest:tests/test_x.py": 9000})), encoding="utf-8")
