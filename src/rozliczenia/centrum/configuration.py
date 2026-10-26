@@ -87,10 +87,14 @@ _CLOSING: Final[Mapping[InputKind, str]] = {
 
 
 def open_in_excel(workbooks: Iterable[InputWorkbook]) -> list[str]:
-    """Zdania karty startu o skoroszytach wejściowych otwartych w Excelu, w kolejności ``workbooks``."""
+    """Zdania karty startu o skoroszytach wejściowych otwartych w Excelu, w kolejności ``workbooks``.
+
+    Plik blokady zostaje też po awarii Excela, więc zdanie mówi, jak go usunąć, tak jak Zatrzymanie procesu.
+    """
 
     return [
-        f"{label} jest otwarty w Excelu. {_CLOSING[kind]}"
+        f"{label} jest otwarty w Excelu. {_CLOSING[kind]} Jeśli Excel jest zamknięty, usuń z tego samego folderu "
+        f"pozostawiony plik {workbook_files.excel_lock_file(path).name}."
         for label, path, kind in workbooks
         if workbook_files.is_open_in_excel(path)
     ]
