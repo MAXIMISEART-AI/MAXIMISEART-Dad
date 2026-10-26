@@ -7,6 +7,7 @@ Kopię stanu bieżącego ``INTERMAX przed przywróceniem RRRR-MM-DD GG-MM-SS.xls
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 import errno
@@ -344,7 +345,7 @@ def test_bez_wskazanego_intermax_przywrocenie_jest_odrzucone(tmp_path: Path) -> 
 
 
 def _replace_failing(
-    monkeypatch: pytest.MonkeyPatch, error: Callable[[], OSError], before: Callable[[], None] = lambda: None
+    monkeypatch: pytest.MonkeyPatch, error: Callable[[], OSError], before: Callable[[], object] = lambda: None
 ) -> list[int]:
     """Podmiana INTERMAX zawsze się nie udaje z ``error()``; ``before`` dzieje się tuż przed każdą próbą."""
 

@@ -132,8 +132,8 @@ MUTATIONS = (
         (
             Edit(
                 COPIES,
-                "    copies = sorted(path for path in directory.iterdir() if _NAME.fullmatch(path.name))\n",
-                "    copies = sorted((path for path in directory.iterdir() if _NAME.fullmatch(path.name)), reverse=True)\n",
+                "    return sorted(copies, key=lambda copy: (copy.moment, copy.path.name), reverse=True)\n",
+                "    return sorted(copies, key=lambda copy: (copy.moment, copy.path.name))\n",
             ),
         ),
         EXPLORER,
@@ -145,12 +145,64 @@ MUTATIONS = (
         (
             Edit(
                 COPIES,
-                "    for path in copies[:-KEPT]:\n",
-                "    for path in copies[:-1]:\n",
+                "    for copy in listed(directory)[KEPT:]:\n",
+                "    for copy in listed(directory)[1:]:\n",
             ),
         ),
         EXPLORER,
         "tata ma jedną Kopię INTERMAX zamiast dziesięciu",
+        NEW,
+    ),
+    Mutation(
+        "Kopie ułożone po nazwie zamiast po chwili z nazwy",
+        (
+            Edit(
+                COPIES,
+                "    return sorted(copies, key=lambda copy: (copy.moment, copy.path.name), reverse=True)\n",
+                "    return sorted(copies, key=lambda copy: copy.path.name, reverse=True)\n",
+            ),
+        ),
+        EXPLORER,
+        "limit 10 usuwa świeże Kopie „przed przywróceniem”, bo ich nazwa stoi wcześniej w alfabecie",
+        NEW,
+    ),
+    Mutation(
+        "przywrócenie bez Kopii stanu bieżącego",
+        (
+            Edit(
+                COPIES,
+                '            made.append(make_copy(current, directory, moment, "restore"))\n',
+                "            made.append(directory / \"brak\")\n",
+            ),
+        ),
+        EXPLORER,
+        "przywrócenie podmienia INTERMAX, a stanu sprzed niego nie ma w żadnej Kopii",
+        NEW,
+    ),
+    Mutation(
+        "Kopia stanu bieżącego zostaje po nieudanym przywróceniu",
+        (
+            Edit(
+                COPIES,
+                "        for path in made:\n            path.unlink()\n",
+                "        pass\n",
+            ),
+        ),
+        EXPLORER,
+        "odmowa przywrócenia zostawia nową Kopię, choć INTERMAX się nie zmienił",
+        NEW,
+    ),
+    Mutation(
+        "przywrócenie podmienia INTERMAX bajtami sprzed przywrócenia",
+        (
+            Edit(
+                COPIES,
+                "        intermax_file.restore(register, current, content, before_replace=before_replace, waiting=waiting)\n",
+                "        intermax_file.restore(register, current, current, before_replace=before_replace, waiting=waiting)\n",
+            ),
+        ),
+        EXPLORER,
+        "tata klika „Przywróć tę kopię”, a INTERMAX dalej ma zepsuty stan",
         NEW,
     ),
     Mutation(
