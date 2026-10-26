@@ -26,10 +26,6 @@ BY_CHANGE_ONLY = {
     "tests/test_git_w_testach.py": (
         "sprawdza gita sesji testów, a nie całe repozytorium"
     ),
-    "tests/test_ksztalt_bramki.py": (
-        "liczy plan dwóch zamrożonych PR-ów; graf wybiera go przy zmianie planu, wyboru testów i ci.yml, a bramkę rozdętą "
-        "grafem testów pokazuje pełne CI main"
-    ),
     "tests/test_mutacje.py": "sprawdza silnik mutacji na repozytoriach testu, a nie całe repozytorium",
     "tests/test_na_scalonych_pr.py": "sprawdza narzędzie na repozytoriach testu, a nie całe repozytorium",
     "tests/test_plan_ci.py": "sprawdza plan na repozytoriach testu i atrapach czasów; graf wybiera go przy zmianie planu i ci.yml",

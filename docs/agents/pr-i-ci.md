@@ -9,14 +9,15 @@ Dlaczego PR dostaje mniej sprawdzeń niż `main`, mówi [ADR 0020](../adr/0020-c
 - `Ruff, mypy, Frontend` biegnie na każdym PR.
 - pytest biegnie na torach Windows 3.11 i Linux 3.14.
   Każdy tor bierze pliki, które `tools/szybko.py` wybiera dla zmiany od bazy (bez jego budżetu czasu), i testy `szybko.STRUCTURE`.
-  Lokalne `tools/szybko.py` uruchamia z tego wyboru tylko pliki, które mieszczą się w jego budżecie, a resztę wypisuje jako „zostawione CI”.
+  Lokalne `tools/szybko.py` uruchamia z tego wyboru zawsze pliki w odległości najwyżej 1 od zmiany, a dalsze tylko w swoim budżecie czasu, i resztę wypisuje jako „zostawione CI”.
+  Pomija przy tym plik testu, który już przeszedł, jeśli od tamtej pory nie zmienił się ani on, ani nic, od czego zależy.
 - Zmiana pliku z `szybko.FULL` albo pod `.github/workflows/` wybiera wszystkie pliki testów, E2E i straż czasu.
 - E2E biegnie na Windows 3.11 przy zmianie pod `src/`, a straż czasu przy zmianie w domknięciu jej skryptów (`STRAZ` w `tools/plan_ci.py`).
 - Mutation checks biegną tylko wtedy, gdy `tools/mutacje_skilli.py` wybrał dla zmiany krok skilla.
   Kiedy wybiera krok, mówi [`docs/agents/skille.md`](skille.md).
 - Change mutations startują po zielonym `Required CI status`, więc go nie blokują (sekcja `Change mutations` niżej).
 - Nowy push do PR anuluje run jego starszego commitu.
-- Co biegnie na Twojej gałęzi, drukuje `.venv/bin/python tools/plan_ci.py plan --baza origin/main` (Windows: `py -3 tools/plan_ci.py plan --baza origin/main`).
+- Co biegnie na swojej gałęzi, drukuje `.venv/bin/python tools/plan_ci.py plan --baza origin/main` (Windows: `py -3 tools/plan_ci.py plan --baza origin/main`).
   Linia `PLAN CI` podaje źródło plików (`wybór <n> plików` albo `FULL (<pliki>)`) i liczbę mutacji zmiany, a linie `WYBRANY` i `POMINIĘTY` kroki skilli z powodem.
 
 ## Pełne CI na `main`
@@ -75,7 +76,7 @@ Dlaczego PR dostaje mniej sprawdzeń niż `main`, mówi [ADR 0020](../adr/0020-c
 | Ciężkie zadania CI (`change-mutations`, `mutations`) liczy GitHub, a lokalnie biegną tylko do odtworzenia porażki z runu Actions tej gałęzi. | `tools/ciezkie_ci.py`, `tests/test_ciezkie_ci.py`, `tests/test_na_scalonych_pr.py` |
 | Lista dłuższa niż `TARGETED` mutacji w `tools/mutacje.py` to ręczne `change-mutations`, więc poza CI biegnie tylko z tymi samymi wyjątkami, a skrypty mutacji skilli `verify-*` (`check_all`) nie mają tego limitu. | `tools/ciezkie_ci.py` (`TARGETED`), `tests/test_ciezkie_ci.py` |
 | Bramka PR uruchamia pytest na Windows 3.11 i Linux 3.14 na wyborze `tools/szybko.py` dla zmiany, a zmiana pliku z `szybko.FULL` albo pod `.github/workflows/` wybiera wszystkie pliki, E2E i straż czasu. | `tests/test_plan_ci.py::test_bramka_pr_biegnie_na_windows_311_i_linuksie_z_wyborem_szybko_a_e2e_i_straz_czasu_tylko_przy_ich_zmianie` |
-| Do bramki PR dokładasz tylko to, co złapałoby defekt, który przez nią przeszedł, z dowodem z backtestu, a plan wzorcowych PR-ów L i C ponad limit testów, zadań albo prognozy ściany to decyzja Maksa. | `tests/test_ksztalt_bramki.py` |
+| Do bramki PR dokładasz tylko to, co złapałoby defekt, który przez nią przeszedł, z dowodem z backtestu, a plan wzorcowych PR-ów L i C ponad limit testów, zadań albo prognozy ściany to decyzja Maksa. | limitu testów, zadań i prognozy ściany (+20%) pilnuje `tests/test_ksztalt_bramki.py`, a dowodu z backtestu tylko przegląd |
 | Trwający run `main` kończy się, a nowy push do PR anuluje run jego starszego commitu. | `tests/test_zadania_ci.py::test_push_do_main_nie_anuluje_trwajacego_runu_a_nowy_push_pr_anuluje_stary` |
 | `Required CI status` biegnie także w anulowanym runie, bo pominięty wymagany check przepuszcza merge. | `tests/test_zadania_ci.py::test_required_biegnie_takze_w_anulowanym_runie_bo_pominiety_wymagany_check_przepuszcza_merge` |
 | Change mutations startują po zielonym `Required CI status` i go nie blokują, a `tools/scal_pr.py` nie scala PR, dopóki trwają. | `tests/test_zadania_ci.py::test_required_czeka_na_kazde_zadanie_bramki_a_change_mutations_startuja_po_zielonym_required_z_mutacjami_planu`, `tests/test_scal_pr.py::test_change_mutations_po_zielonym_required_musza_sie_skonczyc_a_pass_omawia_kazda_przezyta` |

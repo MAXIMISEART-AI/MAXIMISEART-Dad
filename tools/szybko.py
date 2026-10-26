@@ -105,6 +105,9 @@ STRUCTURE = (
     "tests/test_mutacje_skilli.py::test_kazdy_modul_silnika_jest_w_pilnuje_verify_rozliczenia_albo_na_liscie_wylaczen",
     "tests/test_skille_dla_zmiany.py::test_frontmatter_kazdego_skilla_jest_poprawnym_yaml",
     "tests/test_skille_dla_zmiany.py::test_workflow_skilla_windows_biegnie_dla_tych_samych_sciezek_co_jego_pilnuje",
+    # Plan bramki liczy graf zależności całego repozytorium, więc test, który zaczyna zależeć od wszystkiego, rośnie
+    # bramkę bez zmiany kodu CI.
+    "tests/test_ksztalt_bramki.py",
     # ``.gitignore`` czyta tu ``git check-ignore``, nie Python, więc graf nie wiąże go z tym testem.
     "tests/test_centrum_rozliczen.py::test_lokalne_pliki_taty_sa_poza_gitem",
 )
