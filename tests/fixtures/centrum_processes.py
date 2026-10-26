@@ -192,7 +192,6 @@ def _client(
         cloud_files=None if onedrive is None else onedrive.cloud_files(),
         report_box=surroundings.report_box,
         clock=surroundings.clock,
-        pause=surroundings.clock.pause,
         report_search_deadline_s=surroundings.report_search_deadline_s,
         tool_update=surroundings.tool_update(),
         guardian=surroundings.guardian,
