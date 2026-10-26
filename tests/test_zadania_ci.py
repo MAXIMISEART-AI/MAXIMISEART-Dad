@@ -20,7 +20,7 @@ import sys
 import pytest
 import yaml
 
-from tests.fixtures.ci_workflow import combinations, jobs
+from tests.fixtures.ci_workflow import WORKFLOW, combinations, jobs
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
@@ -57,6 +57,16 @@ def test_required_czeka_na_kazde_zadanie_bramki_a_change_mutations_startuja_po_z
         ["plan", REQUIRED],
         "${{ needs.required.result == 'success' && needs.plan.outputs.mutacje-zmiany != '0' }}",
     )
+
+
+def test_push_do_main_nie_anuluje_trwajacego_runu_a_nowy_push_pr_anuluje_stary() -> None:
+    workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+
+    assert workflow["concurrency"]["cancel-in-progress"] == "${{ github.event_name == 'pull_request' }}"
+
+
+def test_required_biegnie_takze_w_anulowanym_runie_bo_pominiety_wymagany_check_przepuszcza_merge() -> None:
+    assert jobs()[REQUIRED]["if"] == "${{ always() }}"
 
 
 def test_zadania_z_planu_czekaja_na_plan_i_startuja_tylko_z_praca_od_niego() -> None:

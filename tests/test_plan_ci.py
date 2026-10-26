@@ -27,6 +27,7 @@ import czasy_ci  # noqa: E402
 import mutacje_skilli  # noqa: E402
 import mutacje_zmiany  # noqa: E402
 import plan_ci  # noqa: E402
+import szybko  # noqa: E402
 
 FILES = [f"tests/test_{index:02}.py" for index in range(40)]
 # Plik dłuższy niż zadanie, jak test_uszkodzone_wejscia: 1100 s testów na Windows.
@@ -182,10 +183,16 @@ def _record(
     return czasy_ci.Zapis(1, attempt, "pytest", job.nazwa, job.tor, "pull_request", "0" * 40, 9.0, reported, (), digest or plan.digest, job.id)
 
 
+def _reported(job: plan_ci.Zadanie) -> list[str]:
+    """Klucze, pod którymi zapis czasów zgłasza jednostki zadania: udział i węzeł testu pod swoim plikiem."""
+
+    return sorted({unit.partition("#")[0].partition("::")[0] for unit in job.jednostki})
+
+
 def test_required_czerwienieje_gdy_zaplanowana_jednostka_nie_zglosila_wyniku_w_ostatniej_probie_zadania() -> None:
     plan = _plan(_times(), [*FILES, LONG])
     results = {"plan": "success", "pytest": "success"}
-    complete = [_record(plan, job, [unit.partition("#")[0] for unit in job.jednostki]) for job in plan.zadania]
+    complete = [_record(plan, job, _reported(job)) for job in plan.zadania]
     split = next(job for job in plan.zadania if any("#" in unit for unit in job.jednostki))
     missing = f"pytest:{LONG}"
     partial = _record(plan, split, [unit.partition("#")[0] for unit in split.jednostki if not unit.startswith(missing)], attempt=2)
@@ -200,9 +207,9 @@ def test_required_czerwienieje_gdy_zaplanowana_jednostka_nie_zglosila_wyniku_w_o
 def test_required_czerwienieje_gdy_jednostka_zadania_padla_w_ostatniej_probie_a_przechodzi_po_ponowieniu_zadania() -> None:
     plan = _plan(_times(), [*FILES, LONG])
     results = {"plan": "success", "pytest": "success"}
-    complete = [_record(plan, job, [unit.partition("#")[0] for unit in job.jednostki]) for job in plan.zadania]
+    complete = [_record(plan, job, _reported(job)) for job in plan.zadania]
     job = next(job for job in plan.zadania if "krok:e2e" in job.jednostki)
-    units = [unit.partition("#")[0] for unit in job.jednostki]
+    units = _reported(job)
     failed = _record(plan, job, units, failed=frozenset({units[0], "krok:e2e"}))
     others = [record for record in complete if record.zadanie_planu != job.id]
 
@@ -215,7 +222,7 @@ def test_plan_zmieniony_po_digest_nie_wykonuje_sie_a_required_nie_bierze_zapisow
     tampered = json.loads(plan.do_json())
     tampered["zadania"][0]["jednostki"] = tampered["zadania"][0]["jednostki"][1:]
     (tmp_path / "plan.json").write_text(json.dumps(tampered), encoding="utf-8")
-    other = [_record(plan, job, [unit.partition("#")[0] for unit in job.jednostki], digest="inny") for job in plan.zadania]
+    other = [_record(plan, job, _reported(job), digest="inny") for job in plan.zadania]
 
     code = plan_ci.main(["wykonaj", "--plan", str(tmp_path / "plan.json"), "--zadanie", plan.zadania[0].id])
 
@@ -244,7 +251,7 @@ def test_bez_czasow_z_main_plan_wazy_prace_domyslnie_mowi_to_i_daje_macierz(
 
     assert code == 0
     assert out[0] == "CZASY CI | pobranie czasy-ci z GitHuba: gh: not logged in; plan waży pracę bez pomiaru domyślnie"
-    assert re.fullmatch(r"PLAN CI \| push \| cel \d+ s \| (\d+) zadań runu \(limit 19\) \| mutacje zmiany 0 \| czasy z runów main: brak \(wagi domyślne\)", out[1]), out[1]
+    assert re.fullmatch(r"PLAN CI \| push \| wszystkie pliki \| cel \d+ s \| (\d+) zadań runu \(limit 19\) \| mutacje zmiany 0 \| czasy z runów main: brak \(wagi domyślne\)", out[1]), out[1]
     assert out[-1] == f"PLAN CI DIGEST | {plan.digest}"
     assert {unit for job in plan.zadania if job.tor == "linux-3.14" for unit in job.jednostki} == {f"pytest:{name}" for name in plan_ci.pliki_testow()}
     # Push biegnie każdy krok każdego skilla repozytorium.
@@ -401,7 +408,7 @@ def test_plan_pull_requestu_startuje_change_mutations_i_mutation_checks_tylko_z_
     with (repo / changed).open("a", encoding="utf-8") as file:
         file.write(appended)
     commit(repo, "zmiana")
-    for module in (plan_ci, mutacje_zmiany, mutacje_skilli):
+    for module in (plan_ci, mutacje_zmiany, mutacje_skilli, szybko):
         monkeypatch.setattr(module, "ROOT", repo)
     monkeypatch.setattr(mutacje_skilli, "SKILLS", repo / ".agents" / "skills")
     monkeypatch.setattr(czasy_ci, "_gh", offline)
@@ -449,7 +456,7 @@ def test_zgubiony_skrypt_mutacji_albo_zly_klucz_ci_trafia_z_wyboru_do_planu_i_cz
         (repo / name).parent.mkdir(parents=True, exist_ok=True)
         (repo / name).write_text(text, encoding="utf-8")
     commit(repo, "zmiana")
-    for module in (plan_ci, mutacje_zmiany, mutacje_skilli):
+    for module in (plan_ci, mutacje_zmiany, mutacje_skilli, szybko):
         monkeypatch.setattr(module, "ROOT", repo)
     monkeypatch.setattr(mutacje_skilli, "SKILLS", repo / ".agents" / "skills")
     monkeypatch.setattr(czasy_ci, "_gh", offline)
@@ -457,9 +464,83 @@ def test_zgubiony_skrypt_mutacji_albo_zly_klucz_ci_trafia_z_wyboru_do_planu_i_cz
     code = plan_ci.main(["plan", "--zdarzenie", "pull_request", "--baza", "baza", "--czasy", str(tmp_path / "czasy"), "--wyjscie", str(tmp_path / "plan.json")])
     plan = plan_ci.Plan.z_json((tmp_path / "plan.json").read_text(encoding="utf-8"))
     every_job_green = {"plan": "success", "pytest": "success", "mutations": "success"}
-    complete = [_record(plan, job, [unit.partition("#")[0] for unit in job.jednostki]) for job in plan.zadania]
+    complete = [_record(plan, job, _reported(job)) for job in plan.zadania]
 
     assert code == 0
     assert f"FAIL {failure}" in capsys.readouterr().out.splitlines()
     assert plan.bledy == (failure,)
     assert plan_ci.werdykt(plan, every_job_green, complete) == [f"mutacje skilli: {failure}"]
+
+
+GATE = {
+    "src/pakiet/__init__.py": "",
+    "src/pakiet/a.py": "def a(x: int) -> bool:\n    return x > 1\n",
+    "src/pakiet/b.py": "def b(x: int) -> bool:\n    return x < 3\n",
+    "tests/test_a.py": "from pakiet.a import a\n\n\ndef test_a() -> None:\n    assert a(2)\n",
+    "tests/test_b.py": "from pakiet.b import b\n\n\ndef test_b() -> None:\n    assert b(2)\n",
+    "tools/benchmark_przebiegu.py": "from pakiet.a import a\n",
+    "tools/syntetyczne_wzorce.py": "",
+    "tools/raport.py": "",
+    "README.md": "Repozytorium\n",
+    ".github/workflows/ci.yml": "name: CI\n",
+}
+WINDOWS, LINUX = "windows-3.11", "linux-3.14"
+
+
+@pytest.mark.parametrize(
+    ("changed", "source", "files", "steps"),
+    [
+        ("tests/test_b.py", "wybór 1 plików", ["tests/test_b.py"], ()),
+        ("src/pakiet/b.py", "wybór 1 plików", ["tests/test_b.py"], ("e2e",)),
+        ("src/pakiet/a.py", "wybór 1 plików", ["tests/test_a.py"], ("e2e", "timing")),
+        ("tools/syntetyczne_wzorce.py", "wybór 0 plików", [], ("timing",)),
+        ("tools/raport.py", "wybór 0 plików", [], ()),
+        ("README.md", "wybór 0 plików", [], ()),
+        (".github/workflows/ci.yml", "FULL (.github/workflows/ci.yml)", None, ("e2e", "timing")),
+        ("requirements.txt", "FULL (requirements.txt)", None, ("e2e", "timing")),
+    ],
+    ids=["test", "src poza straza czasu", "src w domknieciu strazy czasu", "skrypt strazy czasu", "tools", "dokument", "workflow", "plik FULL"],
+)
+def test_bramka_pr_biegnie_na_windows_311_i_linuksie_z_wyborem_szybko_a_e2e_i_straz_czasu_tylko_przy_ich_zmianie(
+    tmp_path: Path, changed: str, source: str, files: list[str] | None, steps: tuple[str, ...]
+) -> None:
+    repo = repository(tmp_path / "repo", GATE)
+
+    gate = plan_ci.zakres("pull_request", frozenset({changed}), repo)
+
+    assert [(lane.nazwa, lane.kroki) for lane in gate.tory] == [(WINDOWS, steps), (LINUX, ())]
+    assert gate.zrodlo == source
+    # GATE nie ma plików testów ze szybko.STRUCTURE, więc wybór biegnie z całą strukturą.
+    assert list(gate.pliki) == (plan_ci.pliki_testow(repo) if files is None else [*files, *szybko.STRUCTURE])
+
+
+def test_bramka_pr_biegnie_wybrany_plik_testow_raz_bez_jego_wezlow_ze_struktury(tmp_path: Path) -> None:
+    file = next(node.partition("::")[0] for node in szybko.STRUCTURE if "::" in node)
+    repo = repository(tmp_path / "repo", {**GATE, file: "def test_wezel() -> None:\n    pass\n"})
+
+    gate = plan_ci.zakres("pull_request", frozenset({file}), repo)
+
+    assert [unit for unit in gate.pliki if unit.startswith(file)] == [file]
+
+
+def test_push_biegnie_pelne_ci_main_na_trzech_torach_z_kazdym_plikiem_testow(tmp_path: Path) -> None:
+    repo = repository(tmp_path / "repo", GATE)
+
+    main = plan_ci.zakres("push", frozenset(), repo)
+
+    assert (main.tory, main.pliki, main.zrodlo) == (plan_ci.TORY, ("tests/test_a.py", "tests/test_b.py"), "wszystkie pliki")
+    assert [(lane.nazwa, lane.kroki) for lane in main.tory] == [("windows-3.11", ("e2e",)), ("windows-3.14", ("e2e", "timing")), ("linux-3.14", ())]
+
+
+def test_wezel_testu_biegnie_caly_w_jednym_zadaniu_a_required_przyjmuje_go_z_zapisu_jego_pliku() -> None:
+    node = f"{LONG}::test_struktura"
+    gate = [dataclasses.replace(lane, kroki=()) for lane in plan_ci.TORY if lane.nazwa in (WINDOWS, LINUX)]
+    plan = plan_ci.rozplanuj([plan_ci.wycen(lane, [*FILES[:2], node], _times()) for lane in gate], "pull_request", 0)
+    results = {"plan": "success", "pytest": "success"}
+    without_node = [_record(plan, job, [unit for unit in _reported(job) if unit != f"pytest:{LONG}"]) for job in plan.zadania]
+
+    # Cały plik LONG (1100 s testów) plan dzieli na udziały w kilku zadaniach, a jego jeden test nie.
+    assert [(job.tor, job.jednostki) for job in plan.zadania] == [(lane.nazwa, (*(f"pytest:{name}" for name in FILES[:2]), f"pytest:{node}")) for lane in gate]
+    assert all(job.sciana_s <= plan.cel_s == plan_ci.CEL_S for job in plan.zadania)
+    assert plan_ci.werdykt(plan, results, [_record(plan, job, _reported(job)) for job in plan.zadania]) == []
+    assert plan_ci.werdykt(plan, results, without_node) == [f"{job.nazwa}: jednostki bez wyniku: pytest:{LONG}" for job in plan.zadania]

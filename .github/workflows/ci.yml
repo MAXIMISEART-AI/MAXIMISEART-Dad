@@ -14,9 +14,10 @@ permissions:
   contents: read
 
 concurrency:
-  # A new push to a pull request or to main cancels the run of the older commit: the account runs at most 20 jobs at once.
+  # A new push to a pull request cancels the run of its older commit. On main the running run finishes, so every
+  # Wydanie candidate gets a full verdict, and a newer push replaces only the run still waiting (ADR 0020).
   group: ci-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   szybkie:
@@ -141,10 +142,12 @@ jobs:
           overwrite: true
 
   pytest:
-    # Tata has Windows, so both Pythons run there; Linux runs every file once more, for the tests Windows skips (POSIX
-    # signals, process groups, the pre-push hook). The plan decides how many jobs each runs and which files (or crc32
-    # shares of a long file) each takes, so that every job ends near the same time; E2E and the timing guard are units
-    # of the Windows jobs it puts them in.
+    # Tata has Windows; Linux runs the tests Windows skips (POSIX signals, process groups, the pre-push hook). A push to
+    # main runs every test file on Windows 3.11, Windows 3.14 and Linux 3.14. A pull request runs on Windows 3.11 (tata's
+    # oldest Python) and Linux 3.14 only the files tools/szybko.py selects for the change, plus its structure tests; a
+    # change under .github/workflows/ or in szybko.FULL runs every file (ADR 0020). The plan decides how many jobs each
+    # lane runs and which files (or crc32 shares of a long file) each takes, so that every job ends near the same time;
+    # E2E and the timing guard are units of the Windows jobs it puts them in.
     name: ${{ matrix.nazwa }}
     needs: plan
     if: ${{ needs.plan.outputs.pytest != '[]' }}
@@ -387,6 +390,7 @@ jobs:
       - szybkie
       - pytest
       - mutations
+    # Also in a cancelled run: a skipped required check counts as success and would not block the merge.
     if: ${{ always() }}
     steps:
       - uses: actions/checkout@v7

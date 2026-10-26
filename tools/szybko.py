@@ -466,7 +466,9 @@ def _files(root: Path) -> frozenset[str]:
     return frozenset(path for path in listed.split("\0") if path)
 
 
-def _changed(base: str) -> frozenset[str]:
+def changed_since(base: str) -> frozenset[str]:
+    """Paths in which the checkout (with uncommitted and untracked files) differs from the merge-base of HEAD and ``base``."""
+
     fork = _git("merge-base", "HEAD", base).strip()
     diff = _git("diff", "-z", "--name-only", "--no-renames", fork)
     untracked = _git("ls-files", "-z", "--others", "--exclude-standard")
@@ -601,7 +603,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--baza", default=BASE, help=f"Gałąź, od której liczy się zmiana (domyślnie {BASE}).")
     args = parser.parse_args(argv)
     try:
-        changed = _changed(args.baza)
+        changed = changed_since(args.baza)
     except subprocess.CalledProcessError:
         print(f"SZYBKO FAIL | nieznana baza {args.baza}")
         return 1

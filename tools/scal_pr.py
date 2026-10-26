@@ -76,6 +76,8 @@ PARTS = tuple(f"{CHANGE_MUTATIONS} ({number}/3)" for number in (1, 2, 3))
 RUN = re.compile(r"/actions/runs/(\d+)/")
 PART = re.compile(r"\((\d+)/\d+\)$")
 DISCUSSED = re.compile(r" \| (test dodany|nie warto, bo \S.*)")
+# „Re-run failed jobs” nie powtarza zielonego zadania plan, więc nie odtwarza jego artefaktu.
+PLAN_FIX = "odtwórz go przez „Re-run all jobs” tego runu albo nowy push (samo „Re-run failed jobs” planu nie odtworzy)"
 VERDICT_LINE = re.compile(r"WERDYKT: (PASS|FAIL) ([0-9a-f]{40})")
 TRUSTED = frozenset({"OWNER", "MEMBER", "COLLABORATOR"})
 CLEANUP = ROOT / "tools" / "sprzatanie.py"
@@ -177,11 +179,11 @@ def _planned_mutations(run: str, folder: Path) -> tuple[int | None, str | None]:
     """Liczba mutacji z planu runu albo przyczyna odmowy, gdy jej nie ma."""
 
     if failed := _download(run, folder, "--name", "plan"):
-        return None, failed
+        return None, f"{failed}; {PLAN_FIX}"
     try:
         return int(json.loads((folder / "plan.json").read_text(encoding="utf-8"))["mutacje_zmiany"]), None
     except (OSError, ValueError, KeyError, TypeError):
-        return None, f"plan runu {run} bez liczby mutacji"
+        return None, f"plan runu {run} bez liczby mutacji; {PLAN_FIX}"
 
 
 def _survivors(run: str, parts: list[dict[str, str | None]], folder: Path) -> tuple[list[str], list[str]]:

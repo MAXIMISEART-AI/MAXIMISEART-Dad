@@ -515,7 +515,8 @@ def _records(**survivors: tuple[str, list[str]]) -> dict[str, dict[str, str]]:
 
 
 NO_RECORDS = f"artefakt mutacje-zmiany-* runu {RUN} nie do pobrania: no valid artifacts found to download"
-NO_PLAN = f"artefakt plan runu {RUN} nie do pobrania: no valid artifacts found to download"
+PLAN_FIX = "odtwórz go przez „Re-run all jobs” tego runu albo nowy push (samo „Re-run failed jobs” planu nie odtworzy)"
+NO_PLAN = f"artefakt plan runu {RUN} nie do pobrania: no valid artifacts found to download; {PLAN_FIX}"
 ALL_PARTS = (_part(2), _part(3))
 
 
@@ -569,7 +570,7 @@ ALL_PARTS = (_part(2), _part(3))
         (None, [], {}, "", f"Change mutations w toku: run {RUN} nie ma jeszcze ich checku"),
         (None, [_check_run("COMPLETED", "SKIPPED", name=TEMPLATE)], {}, "", NO_PLAN),
         (None, [_part(1), *ALL_PARTS], {}, "", NO_PLAN),
-        (None, [_part(1), *ALL_PARTS], {"plan": {"plan.json": "{}"}}, "", f"plan runu {RUN} bez liczby mutacji"),
+        (None, [_part(1), *ALL_PARTS], {"plan": {"plan.json": "{}"}}, "", f"plan runu {RUN} bez liczby mutacji; {PLAN_FIX}"),
     ],
     ids=[
         "przezyta-bez-linii",
