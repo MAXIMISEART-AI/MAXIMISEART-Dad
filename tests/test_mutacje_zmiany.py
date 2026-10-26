@@ -317,6 +317,19 @@ def test_biegnie_kazde_cofniecie_fragmentu_i_jedna_mutacja_linii_z_jej_najglebsz
     assert {mutant.line for mutant in every if not mutant.revert} == {line for line, description in chosen if "cofnięta" not in description}
 
 
+def test_biegnie_cofniecie_rowne_innej_mutacji_linii() -> None:
+    # #523, src/rozliczenia/intermax_file.py:476: dodany element krotki, a jej cofnięcie to „krotka bez” tego elementu.
+    code = "def xf(number_format, font, fill_id, border):\n    return FORMAT % (number_format, font, fill_id, border)\n"
+    base = "def xf(number_format, font, fill_id, border):\n    return FORMAT % (number_format, font, border)\n"
+
+    chosen = selected("m.py", code, [Hunk(2, 1, ("    return FORMAT % (number_format, font, border)",))])
+
+    assert [(mutant.description, mutant.revert, mutant.source == base) for mutant in chosen] == [
+        ("krotka bez `fill_id`", True, True),
+        ("krotka bez `border`", False, False),
+    ]
+
+
 def test_niezmieniona_linia_nie_dostaje_mutacji() -> None:
     assert _described("x = a or b\ny = c or d\n", [2]).keys() == {"bez `c` w `or`", "bez `d` w `or`", "zmiana linii 2 cofnięta do bazy"}
 

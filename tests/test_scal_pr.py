@@ -79,13 +79,19 @@ RUN = "4077"
 URL = f"https://github.com/o/r/actions/runs/{RUN}/job/1"
 
 
+def _plan(mutations: int) -> str:
+    return plan_ci.Plan("pull_request", plan_ci.CEL_S, (), mutations, ()).do_json()
+
+
 def _check_run(status: str, conclusion: str | None, *, workflow: str = "CI", name: str = "Required CI status") -> dict[str, str | None]:
     return {"__typename": "CheckRun", "name": name, "status": status, "conclusion": conclusion, "workflowName": workflow, "detailsUrl": URL}
 
 
+TEMPLATE = "Change mutations (${{ matrix.part }}/3)"
 GREEN = [
     {"__typename": "CheckRun", "name": "Ruff", "status": "COMPLETED", "conclusion": "SUCCESS", "workflowName": "CI"},
     _check_run("COMPLETED", "SUCCESS"),
+    _check_run("COMPLETED", "SKIPPED", name=TEMPLATE),
 ]
 COMMIT_STATUS = {"__typename": "StatusContext", "context": "Required CI status", "state": "SUCCESS"}
 NOT_ACTIONS = "CI: brak „Required CI status” z GitHub Actions na HEAD"
@@ -116,7 +122,7 @@ class FakeGitHub:
         gh.chmod(0o755)
         self.pulls: dict[str, dict[str, object]] = {}
         self.written = 0
-        (self.bin / "artifacts.json").write_text("{}", encoding="utf-8")
+        self.artifacts(RUN, {"plan": {"plan.json": _plan(0)}})
 
     def open_pull(self, number: int, files: dict[str, str], *, parent: str = "") -> str:
         """HEAD nowego PR z zielonym CI i bez werdyktu: commit ``files`` na ``parent`` (domyślnie commit ``start``)."""
@@ -508,19 +514,24 @@ def _records(**survivors: tuple[str, list[str]]) -> dict[str, dict[str, str]]:
     }
 
 
+NO_RECORDS = f"artefakt mutacje-zmiany-* runu {RUN} nie do pobrania: no valid artifacts found to download"
+NO_PLAN = f"artefakt plan runu {RUN} nie do pobrania: no valid artifacts found to download"
+ALL_PARTS = (_part(2), _part(3))
+
+
 @pytest.mark.parametrize(
     ("planned", "parts", "records", "approval", "reason"),
     [
-        (9, [_part(1, "FAILURE"), _part(2), _part(3)], _records(czesc_1=(SURVIVED, [SURVIVOR])), "", UNDISCUSSED + SURVIVOR),
-        (9, [_part(1, "FAILURE"), _part(2), _part(3)], _records(czesc_1=(SURVIVED, [SURVIVOR])), f"MUTACJA {SURVIVOR} | nie warto, bo log tylko dla diagnozy", None),
-        (9, [_part(1, "FAILURE"), _part(2), _part(3)], _records(czesc_1=(SURVIVED, [SURVIVOR])), f"  MUTACJA {SURVIVOR} | test dodany  ", None),
-        (9, [_part(1, "FAILURE")], _records(czesc_1=(SURVIVED, [SURVIVOR])), f"MUTACJA {OTHER} | nie warto, bo log", UNDISCUSSED + SURVIVOR),
-        (9, [_part(1, "FAILURE")], _records(czesc_1=(SURVIVED, [SURVIVOR])), f"MUTACJA {SURVIVOR} | nie warto, bo ", UNDISCUSSED + SURVIVOR),
-        (9, [_part(1, "FAILURE")], _records(czesc_1=(SURVIVED, [SURVIVOR])), f"MUTACJA {SURVIVOR}", UNDISCUSSED + SURVIVOR),
-        (9, [_part(1, "FAILURE")], _records(czesc_1=(SURVIVED, [SURVIVOR])), f"- MUTACJA {SURVIVOR} | test dodany", UNDISCUSSED + SURVIVOR),
+        (9, [_part(1, "FAILURE"), *ALL_PARTS], _records(czesc_1=(SURVIVED, [SURVIVOR])), "", UNDISCUSSED + SURVIVOR),
+        (9, [_part(1, "FAILURE"), *ALL_PARTS], _records(czesc_1=(SURVIVED, [SURVIVOR])), f"MUTACJA {SURVIVOR} | nie warto, bo log tylko dla diagnozy", None),
+        (9, [_part(1, "FAILURE"), *ALL_PARTS], _records(czesc_1=(SURVIVED, [SURVIVOR])), f"  MUTACJA {SURVIVOR} | test dodany  ", None),
+        (9, [_part(1, "FAILURE"), *ALL_PARTS], _records(czesc_1=(SURVIVED, [SURVIVOR])), f"MUTACJA {OTHER} | nie warto, bo log", UNDISCUSSED + SURVIVOR),
+        (9, [_part(1, "FAILURE"), *ALL_PARTS], _records(czesc_1=(SURVIVED, [SURVIVOR])), f"MUTACJA {SURVIVOR} | nie warto, bo ", UNDISCUSSED + SURVIVOR),
+        (9, [_part(1, "FAILURE"), *ALL_PARTS], _records(czesc_1=(SURVIVED, [SURVIVOR])), f"MUTACJA {SURVIVOR}", UNDISCUSSED + SURVIVOR),
+        (9, [_part(1, "FAILURE"), *ALL_PARTS], _records(czesc_1=(SURVIVED, [SURVIVOR])), f"- MUTACJA {SURVIVOR} | test dodany", UNDISCUSSED + SURVIVOR),
         (
             9,
-            [_part(1, "FAILURE"), _part(2, "FAILURE")],
+            [_part(1, "FAILURE"), _part(2, "FAILURE"), _part(3)],
             _records(czesc_1=(SURVIVED, [SURVIVOR]), czesc_2=(SURVIVED, [OTHER])),
             f"MUTACJA {SURVIVOR} | test dodany",
             UNDISCUSSED + OTHER,
@@ -532,14 +543,33 @@ def _records(**survivors: tuple[str, list[str]]) -> dict[str, dict[str, str]]:
             "",
             "Change mutations w toku: Change mutations (1/3) IN_PROGRESS, Change mutations (2/3) QUEUED",
         ),
-        (9, [], {}, "", f"Change mutations w toku: plan runu {RUN} ma 9 mutacji, a ich zadania jeszcze nie wystartowały"),
+        (9, [], {}, "", f"Change mutations w toku: run {RUN} nie ma jeszcze ich checku"),
+        (0, [], {}, "", f"Change mutations w toku: run {RUN} nie ma jeszcze ich checku"),
+        (9, [_part(1), _part(2)], {}, "", f"Change mutations w toku: plan runu {RUN} ma 9 mutacji, a nie ma checku Change mutations (3/3)"),
+        (0, [_check_run("COMPLETED", "SKIPPED", name=TEMPLATE)], {}, "", None),
         (0, [_part(1, "SKIPPED"), _part(2, "SKIPPED"), _part(3, "SKIPPED")], {}, "", None),
-        (9, [_part(1, "FAILURE")], _records(czesc_1=(TESTS_FAIL, [])), "", f"Change mutations (1/3) FAILURE: {TESTS_FAIL}"),
-        (9, [_part(1, "FAILURE")], {}, "", "Change mutations (1/3) FAILURE: bez zapisu przeżytych mutacji"),
-        (9, [_part(1, "CANCELLED")], {}, "", "Change mutations (1/3) CANCELLED: bez zapisu przeżytych mutacji"),
-        (None, [_part(1, "FAILURE")], _records(czesc_1=(SURVIVED, [SURVIVOR])), "", UNDISCUSSED + SURVIVOR),
-        (None, [], {}, "", None),
-        (None, [_check_run("COMPLETED", "SKIPPED", name="Change mutations (${{ matrix.part }}/3)")], {}, "", None),
+        (
+            9,
+            [_check_run("COMPLETED", "SKIPPED", name=TEMPLATE)],
+            {},
+            "",
+            f"Change mutations w toku: plan runu {RUN} ma 9 mutacji, a nie ma checku "
+            "Change mutations (1/3), Change mutations (2/3), Change mutations (3/3)",
+        ),
+        (
+            9,
+            [_part(1, "SKIPPED"), _part(2, "SKIPPED"), _part(3, "SKIPPED")],
+            {},
+            "",
+            "; ".join(f"Change mutations ({number}/3) SKIPPED: {NO_RECORDS}" for number in (1, 2, 3)),
+        ),
+        (9, [_part(1, "FAILURE"), *ALL_PARTS], _records(czesc_1=(TESTS_FAIL, [])), "", f"Change mutations (1/3) FAILURE: {TESTS_FAIL}"),
+        (9, [_part(1, "FAILURE"), *ALL_PARTS], {}, "", f"Change mutations (1/3) FAILURE: {NO_RECORDS}"),
+        (9, [_part(1, "CANCELLED"), *ALL_PARTS], {}, "", f"Change mutations (1/3) CANCELLED: {NO_RECORDS}"),
+        (None, [], {}, "", f"Change mutations w toku: run {RUN} nie ma jeszcze ich checku"),
+        (None, [_check_run("COMPLETED", "SKIPPED", name=TEMPLATE)], {}, "", NO_PLAN),
+        (None, [_part(1), *ALL_PARTS], {}, "", NO_PLAN),
+        (None, [_part(1), *ALL_PARTS], {"plan": {"plan.json": "{}"}}, "", f"plan runu {RUN} bez liczby mutacji"),
     ],
     ids=[
         "przezyta-bez-linii",
@@ -551,14 +581,20 @@ def _records(**survivors: tuple[str, list[str]]) -> dict[str, dict[str, str]]:
         "linia-w-liscie-markdown",
         "omowiona-tylko-jedna-z-dwoch-czesci",
         "w-toku",
-        "plan-z-mutacjami-a-zadania-jeszcze-nie-wystartowaly",
-        "plan-bez-mutacji-i-pominiete-zadania",
+        "plan-z-mutacjami-a-zadnego-checku",
+        "plan-bez-mutacji-a-zadnego-checku",
+        "plan-z-mutacjami-bez-jednej-czesci",
+        "plan-bez-mutacji-i-pominiete-zadanie",
+        "plan-bez-mutacji-i-pominiete-czesci",
+        "plan-z-mutacjami-a-tylko-pominiete-zadanie",
+        "plan-z-mutacjami-a-pominiete-czesci",
         "porazka-bez-przezytych",
         "porazka-bez-zapisu",
         "anulowane",
-        "plan-wygasl-a-zadania-skonczone",
-        "plan-wygasl-i-brak-zadan",
-        "plan-wygasl-a-zadania-pominiete",
+        "plan-nie-do-pobrania-i-zadnego-checku",
+        "plan-nie-do-pobrania-a-pominiete-zadanie",
+        "plan-nie-do-pobrania-a-czesci-skonczone",
+        "plan-bez-liczby-mutacji",
     ],
 )
 def test_change_mutations_po_zielonym_required_musza_sie_skonczyc_a_pass_omawia_kazda_przezyta(
@@ -566,8 +602,8 @@ def test_change_mutations_po_zielonym_required_musza_sie_skonczyc_a_pass_omawia_
 ) -> None:
     github = FakeGitHub(tmp_path, {"kod/__init__.py": SUM})
     head = github.open_pull(1, {"kod/inne.py": "INNE: int = 1\n"})
-    github.update(1, statusCheckRollup=[*GREEN, *parts])
-    plan = {} if planned is None else {"plan": {"plan.json": plan_ci.Plan("pull_request", plan_ci.CEL_S, (), planned, ()).do_json()}}
+    github.update(1, statusCheckRollup=[*GREEN[:2], *parts])
+    plan = {} if planned is None else {"plan": {"plan.json": _plan(planned)}}
     github.artifacts(RUN, {**plan, **records})
     github.comment(1, f"WERDYKT: PASS {head}\n{approval}")
 
@@ -584,8 +620,8 @@ def test_change_mutations_po_zielonym_required_musza_sie_skonczyc_a_pass_omawia_
 def test_przezyta_mutacja_bez_pass_daje_obie_przyczyny_a_przy_czerwonym_required_change_mutations_nie_sa_czytane(tmp_path: Path) -> None:
     github = FakeGitHub(tmp_path, {"kod/__init__.py": SUM})
     head = github.open_pull(1, {"kod/inne.py": "INNE: int = 1\n"})
-    github.artifacts(RUN, {"plan": {"plan.json": plan_ci.Plan("pull_request", plan_ci.CEL_S, (), 9, ()).do_json()}, **_records(czesc_1=(SURVIVED, [SURVIVOR]))})
-    github.update(1, statusCheckRollup=[*GREEN, _part(1, "FAILURE")])
+    github.artifacts(RUN, {"plan": {"plan.json": _plan(9)}, **_records(czesc_1=(SURVIVED, [SURVIVOR]))})
+    github.update(1, statusCheckRollup=[*GREEN[:2], _part(1, "FAILURE"), *ALL_PARTS])
 
     without_pass = github.run("1", "--bez-merge")
     github.update(1, statusCheckRollup=[_check_run("COMPLETED", "FAILURE"), _part(1, "FAILURE")])

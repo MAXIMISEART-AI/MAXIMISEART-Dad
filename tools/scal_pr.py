@@ -11,13 +11,16 @@ Narzędzie scala PR numer N do jego bazy, gdy jednocześnie:
 5. Change mutations runu z zielonym Required skończyły się, a ``PASS`` z warunku 3 omawia każdą przeżytą mutację.
 
 Change mutations (``tools/mutacje_zmiany.py``) startują po zielonym Required i go nie blokują, więc pilnuje ich to
-narzędzie (ADR 0020). Czy run ma mutacje, mówi artefakt ``plan`` runu (``mutacje_zmiany``), bo zadanie, które czeka
-na Required, nie ma jeszcze checku; bez planu (artefakt wygasł) decydują same checki. Gdy plan ma mutacje, każda część
-musi być ``COMPLETED`` (inaczej odmowa „w toku”) z ``SUCCESS``, ``SKIPPED`` (bez pracy z planu; nazwa pominiętej części
-zostaje z ``${{ matrix.part }}``) albo ``FAILURE``. Część z ``FAILURE`` musi mieć w
-artefakcie ``mutacje-zmiany-<k>`` listę przeżytych mutacji. Każda przeżyta mutacja ``<id>`` (``<plik>:<linia> <opis>``,
-jak w linii ``NIEWYKRYTA`` jej zadania) potrzebuje w najnowszym ``PASS`` dla HEAD osobnej linii, bez odstępów na
-brzegach, ``MUTACJA <id> | test dodany`` albo ``MUTACJA <id> | nie warto, bo <powód>`` (Q20 z 26.10).
+narzędzie (ADR 0020), a każda niepewność to odmowa. Run z zielonym Required bez żadnego checku Change mutations jest
+„w toku”: zadanie, które czeka na Required, nie ma jeszcze checku, a pominięte zostawia check ``SKIPPED`` z nazwą
+``Change mutations (${{ matrix.part }}/3)``. Czy run ma mutacje, mówi artefakt ``plan`` runu (``mutacje_zmiany``);
+plan, którego nie da się pobrać (błąd ``gh``, wygasły artefakt), to odmowa. Przy 0 mutacji checki części nie mają
+znaczenia. Gdy plan ma mutacje, każda z części ``Change mutations (1/3)``–``(3/3)`` musi mieć check (inaczej odmowa
+„w toku”), ``COMPLETED`` (też „w toku”) z ``SUCCESS`` albo ``FAILURE``; ``SKIPPED`` i check z nazwą-szablonem nie
+wystarczą. Część z ``FAILURE`` musi mieć w artefakcie ``mutacje-zmiany-<k>`` listę przeżytych mutacji. Każda
+przeżyta mutacja ``<id>`` (``<plik>:<linia> <opis>``, jak w linii ``NIEWYKRYTA`` jej zadania) potrzebuje w najnowszym
+``PASS`` dla HEAD osobnej linii, bez odstępów na brzegach, ``MUTACJA <id> | test dodany`` albo
+``MUTACJA <id> | nie warto, bo <powód>`` (Q20 z 26.10).
 
 Werdykty to komentarze i recenzje PR kont z prawem zapisu (``OWNER``, ``MEMBER``, ``COLLABORATOR``), w kolejności
 utworzenia; nieopublikowana recenzja (``PENDING``) się nie liczy. Werdykt to komentarz albo recenzja, której pierwsza
@@ -68,6 +71,8 @@ CHANGE_MUTATIONS = "Change mutations"
 # Artefakt części k zadania Change mutations w ci.yml: ``mutacje-zmiany-<k>`` z plikiem ``--zapis`` narzędzia.
 RECORD_ARTIFACT = "mutacje-zmiany-"
 RECORD = "czesc.json"
+# Części zadania Change mutations w ci.yml (``matrix.part``).
+PARTS = tuple(f"{CHANGE_MUTATIONS} ({number}/3)" for number in (1, 2, 3))
 RUN = re.compile(r"/actions/runs/(\d+)/")
 PART = re.compile(r"\((\d+)/\d+\)$")
 DISCUSSED = re.compile(r" \| (test dodany|nie warto, bo \S.*)")
@@ -150,24 +155,33 @@ def _run_of(check: dict[str, str | None]) -> str:
     return found[1] if found else "?"
 
 
-def _download(run: str, folder: Path, *selection: str) -> None:
-    """Artefakty runu do ``folder``; brak artefaktu zostawia ``folder`` bez nich."""
+def _download(run: str, folder: Path, *selection: str) -> str | None:
+    """Artefakty runu do ``folder``; błąd ``gh``, także brak artefaktu, wraca jako przyczyna odmowy."""
 
-    subprocess.run(
+    done = subprocess.run(
         ["gh", "run", "download", run, "--dir", str(folder), *selection],
         cwd=ROOT,
         capture_output=True,
+        text=True,
+        encoding="utf-8",
         timeout=scalenia_pr.GITHUB_TIMEOUT_S,
         check=False,
     )
-
-
-def _planned_mutations(run: str, folder: Path) -> int | None:
-    _download(run, folder, "--name", "plan")
-    try:
-        return int(json.loads((folder / "plan.json").read_text(encoding="utf-8"))["mutacje_zmiany"])
-    except (OSError, ValueError, KeyError, TypeError):
+    if done.returncode == 0:
         return None
+    reason = next((line.strip() for line in reversed(done.stderr.splitlines()) if line.strip()), f"kod {done.returncode}")
+    return f"artefakt {selection[-1]} runu {run} nie do pobrania: {reason}"
+
+
+def _planned_mutations(run: str, folder: Path) -> tuple[int | None, str | None]:
+    """Liczba mutacji z planu runu albo przyczyna odmowy, gdy jej nie ma."""
+
+    if failed := _download(run, folder, "--name", "plan"):
+        return None, failed
+    try:
+        return int(json.loads((folder / "plan.json").read_text(encoding="utf-8"))["mutacje_zmiany"]), None
+    except (OSError, ValueError, KeyError, TypeError):
+        return None, f"plan runu {run} bez liczby mutacji"
 
 
 def _survivors(run: str, parts: list[dict[str, str | None]], folder: Path) -> tuple[list[str], list[str]]:
@@ -177,7 +191,7 @@ def _survivors(run: str, parts: list[dict[str, str | None]], folder: Path) -> tu
     unfinished = [f"{check['name']} {check.get('status')}" for check in parts if check.get("status") != "COMPLETED"]
     if unfinished:
         return [], [f"Change mutations w toku: {', '.join(unfinished)}"]
-    _download(run, folder, "--pattern", f"{RECORD_ARTIFACT}*")
+    missing = _download(run, folder, "--pattern", f"{RECORD_ARTIFACT}*")
     survivors = []
     for check in parts:
         number = PART.search(str(check["name"]))
@@ -189,9 +203,25 @@ def _survivors(run: str, parts: list[dict[str, str | None]], folder: Path) -> tu
         conclusion = check.get("conclusion")
         if conclusion == "FAILURE" and record.get("przezyte"):
             survivors += record["przezyte"]
-        elif conclusion not in ("SUCCESS", "SKIPPED"):
-            problems.append(f"{check['name']} {conclusion}: {record.get('wynik', 'bez zapisu przeżytych mutacji')}")
+        elif conclusion != "SUCCESS":
+            problems.append(f"{check['name']} {conclusion}: {record.get('wynik', missing or 'bez zapisu przeżytych mutacji')}")
     return survivors, problems
+
+
+def _run_mutations(run: str, checks: list[dict[str, str | None]], folder: Path) -> tuple[list[str], list[str]]:
+    """Przeżyte mutacje runu ``run`` z zielonym Required i przyczyny odmowy; ``checks`` to checki Change mutations runu."""
+
+    if not checks:
+        return [], [f"Change mutations w toku: run {run} nie ma jeszcze ich checku"]
+    planned, failed = _planned_mutations(run, folder / "plan")
+    if failed:
+        return [], [failed]
+    if planned == 0:
+        return [], []
+    by_name = {check["name"]: check for check in checks}
+    if absent := [name for name in PARTS if name not in by_name]:
+        return [], [f"Change mutations w toku: plan runu {run} ma {planned} mutacji, a nie ma checku {', '.join(absent)}"]
+    return _survivors(run, [by_name[name] for name in PARTS], folder / "czesci")
 
 
 def _discussed(survivor: str, lines: list[str]) -> bool:
@@ -211,13 +241,7 @@ def _mutation_problems(checks: tuple[dict[str, str | None], ...], approval: str)
                 for check in checks
                 if str(check.get("name")).startswith(CHANGE_MUTATIONS) and check.get("workflowName") and _run_of(check) == run
             ]
-            planned = _planned_mutations(run, Path(folder, run, "plan"))
-            if planned == 0 or (planned is None and not parts):
-                continue
-            if not parts:
-                problems.append(f"Change mutations w toku: plan runu {run} ma {planned} mutacji, a ich zadania jeszcze nie wystartowały")
-                continue
-            found, failed = _survivors(run, parts, Path(folder, run, "czesci"))
+            found, failed = _run_mutations(run, parts, Path(folder, run))
             survivors += found
             problems += failed
     lines = [line.strip() for line in approval.splitlines()]

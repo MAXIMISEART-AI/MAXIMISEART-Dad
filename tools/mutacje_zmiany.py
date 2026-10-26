@@ -17,7 +17,8 @@ które przeglądy PR-ów robiły ręcznie i które przeżywały testy:
 Biegnie każde cofnięcie fragmentu i najwyżej jedna inna mutacja na linię (``selected``): ta z najgłębszego węzła
 drzewa składni linii, czyli ostatnia, którą daje przejście drzewa wszerz (``ast.walk``), a z kilku na tym samym węźle
 ostatnia z nich. Psuje ona najmniejszy kawałek linii, więc przeżywa test, który sprawdza tylko ogólny skutek linii;
-ogólny skutek fragmentu sprawdza już jego cofnięcie. Linia mutacji to linia jej wyjątku (``Mutant.line``).
+ogólny skutek fragmentu sprawdza już jego cofnięcie. Cofnięcie, które daje ten sam kod co inna mutacja (bez elementu
+krotki, ``False`` → ``True``), biegnie jako cofnięcie pod jej opisem. Linia mutacji to linia jej wyjątku (``Mutant.line``).
 
 Mutacja, która zmienia tylko docstringi, komentarze, adnotacje argumentów i wyników funkcji, importy albo aliasy
 typów (``Nazwa = Callable[...]``, ``A | B`` czytane tylko w adnotacjach), nie zmienia zachowania, więc jej nie ma.
@@ -70,7 +71,7 @@ import argparse
 import ast
 from collections import defaultdict
 from collections.abc import Iterator, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 import datetime
 import itertools
 import json
@@ -444,6 +445,10 @@ def mutants(path: str, text: str, hunks: Sequence[Hunk], platform: str = sys.pla
     meaning = _meaning(text)
 
     def add(lines: frozenset[int], line: int, description: str, mutated: str, *, other_system: bool, revert: bool = False) -> None:
+        if revert and mutated in found:
+            # Cofnięcie, które daje kod innej mutacji, to ta mutacja: biegnie jako cofnięcie.
+            found[mutated] = replace(found[mutated], revert=True)
+            return
         if mutated == text or mutated in found:
             return
         try:
