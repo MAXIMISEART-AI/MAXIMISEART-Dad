@@ -63,6 +63,7 @@ _STATUS = {
 }
 # Odpowiedzi GitHuba w innym kształcie niż w API: czubek `main` i porównanie (``None``: zerwane połączenie).
 _ODD_REFS = {
+    "czubek-lista": json.dumps([]),
     "czubek-nie-obiektem": json.dumps({"object": "main"}),
     "czubek-bez-napisu": json.dumps({"object": {"sha": 5}}),
 }
@@ -110,6 +111,7 @@ _PAGES = {
     "/odmowa-w-wyszukiwaniu/tags?per_page=100": (_tags(("v0.1.0", REFUSED_MIDWAY)), None),
     "/od-pierwszego-commitu/tags?per_page=100": (_tags(("v0.1.0", FIRST_COMMIT)), None),
     "/daleko/tags?per_page=100": (_tags(("v0.1.0", FAR_ON_LINE)), None),
+    "/czubek-lista/tags?per_page=100": (_tags(("v0.1.0", NEWEST)), None),
     "/czubek-nie-obiektem/tags?per_page=100": (_tags(("v0.1.0", NEWEST)), None),
     "/czubek-bez-napisu/tags?per_page=100": (_tags(("v0.1.0", NEWEST)), None),
     "/porownanie-nie-obiektem/tags?per_page=100": (_tags(("v0.1.0", NEWEST)), None),
