@@ -9,12 +9,16 @@ bez openpyxl: ~42 tys. wierszy taty to dziesiątki MB XML, a rozpoznanie potrzeb
 
 - w XML arkusza zleceń wiersze pod wierszem, pod którym staje dzień (``RawBlock.anchor``): wiersz zlecenia
   dostaje komórki Surowego zlecenia (w przesuniętym pierwszym wierszu o dwie kolumny w prawo), w kolumnach od
-  ``AKCJE`` do ``UWAGI`` z wyglądem reszty INTERMAX, a za ``UWAGI`` takie, jak przyszły; pusty wiersz między
-  segmentami ma puste komórki od ``AKCJE`` do ``UWAGI`` z tym samym wyglądem; inny pusty wiersz, który był pusty,
-  zostaje bajt w bajt, a wiersz, z którego zlecenie odeszło, i wiersz, którego nie było, są pustym wierszem
-  taty; wygląd ``<row>`` (styl wiersza, wysokość) daje ``_RowLooks``;
+  ``AKCJE`` do ``UWAGI`` z wyglądem reszty INTERMAX i Kolorem operatora z planu dnia, a za ``UWAGI`` takie, jak
+  przyszły; pusty wiersz między segmentami ma puste komórki od ``AKCJE`` do ``UWAGI`` z tym samym wyglądem; inny
+  pusty wiersz, który był pusty, zostaje bajt w bajt, a wiersz, z którego zlecenie odeszło, i wiersz, którego nie
+  było, są pustym wierszem taty; wygląd ``<row>`` (styl wiersza, wysokość) daje ``_RowLooks``;
 - ``ref`` Hiperłączy z tych wierszy, które idą razem ze swoją komórką, i ``<dimension>``, gdy dzień sięga dalej;
-- w ``xl/styles.xml`` czcionki, obramowanie i style komórek dopisane na końcu swoich list.
+- widok arkusza zleceń (``<sheetViews>``): karta zaznaczona, a górny wiersz widoku pod zamrożonym nagłówkiem i
+  zaznaczenie na wierszu widoku z planu dnia (``DayPlan.view_row``);
+- aktywna karta skoroszytu (``activeTab`` w ``xl/workbook.xml``) na arkuszu zleceń i znacznik zaznaczenia karty
+  (``tabSelected``) zdjęty z pozostałych arkuszy;
+- w ``xl/styles.xml`` czcionki, wypełnienia, obramowanie i style komórek dopisane na końcu swoich list.
 
 Każda inna część pliku i każdy bajt nad tymi wierszami zostają. Arkusz, w którego zmienianych wierszach jest
 formuła albo zakres (scalenie, formatowanie warunkowe, sprawdzanie poprawności, autofiltr, Hiperłącze na kilka
@@ -42,6 +46,8 @@ from typing import Any, Final, cast
 from xml.etree import ElementTree
 
 from openpyxl.styles.borders import Border
+from openpyxl.styles.colors import Color
+from openpyxl.styles.fills import Fill, PatternFill
 from openpyxl.styles.fonts import Font
 from openpyxl.styles.numbers import BUILTIN_FORMATS, is_date_format
 from openpyxl.utils.cell import column_index_from_string, coordinate_from_string, get_column_letter, range_boundaries
@@ -49,8 +55,8 @@ from openpyxl.utils.datetime import MAC_EPOCH, WINDOWS_EPOCH, from_excel
 from openpyxl.workbook.properties import WorkbookProperties
 
 from . import workbook_files
-from .preparation_register import COLUMNS, DATE, WORKER
-from .raw_orders import SHIFT, CellFacts, DayPlan, OrderColumns, RawBlock, RowFacts
+from .preparation_register import ACTIVITIES, COLUMNS, DATE, DEVICES, WORKER
+from .raw_orders import SHIFT, CellFacts, DayPlan, OperatorColor, OrderColumns, RawBlock, RowFacts
 from .row_look import BORDER
 from .workbook_files import WorkbookError, header_columns, is_blank
 from .workbook_parts import MAIN, OFFICE_REL, IrregularSheetData, SheetData, SheetRow, office_document, relationships
@@ -82,7 +88,14 @@ _HEADER_ROW = re.compile(rb'<row r="1"[^>]*?(?:/>|>.*?</row>)', re.S)
 _ATTRIBUTE = re.compile(rb'\s([\w:]+)="([^"]*)"')
 _ROW_LOOK: Final = (b"s", b"customFormat", b"ht", b"customHeight", b"x14ac:dyDescent")
 """Atrybuty ``<row>``, które dają wiersz wygląd: styl wiersza i wysokość; ``x14ac`` deklaruje arkusz taty."""
-_STYLE_LISTS: Final = (b"fonts", b"borders", b"cellXfs")
+_SHEET_VIEWS: Final = re.compile(rb"<sheetViews\b.*?</sheetViews>", re.S)
+_SHEET_VIEW: Final = re.compile(rb"<sheetView\b([^>]*?)(?:/>|>.*?</sheetView>)", re.S)
+_PANE: Final = re.compile(rb"<pane\b([^>]*?)\s*/>")
+_CONTRACT_NUMBER: Final = "NUMER UMOWY/ZLECENIA ORANGE"
+"""Nagłówek docelowy kolumny ``NUMER UMOWY`` w ``COLUMNS`` Rejestru."""
+_TAB_SELECTED: Final = re.compile(rb'(<sheetView\b[^>]*?)\stabSelected="(?:1|true)"')
+_WORKBOOK_VIEW: Final = re.compile(rb"<workbookView\b([^>]*?)(/?>)")
+_STYLE_LISTS: Final = (b"fonts", b"fills", b"borders", b"cellXfs")
 """Listy ``xl/styles.xml``, na których końcu zapis dopisuje wpisy."""
 _RETRY_S: Final = 5.0
 """Tyle sekund ``save`` ponawia podmianę, której system odmawia, choć Excel nie trzyma INTERMAX."""
@@ -119,6 +132,7 @@ class _Styles:
     yellow: tuple[bool, ...]
     date_formats: frozenset[int]
     fonts: tuple[Font, ...]
+    fills: tuple[Fill, ...]
     borders: tuple[Border, ...]
     xfs: tuple[bytes, ...]
 
@@ -128,7 +142,8 @@ class _Styles:
         codes = {int(item.get("numFmtId", "0")): item.get("formatCode", "") for item in root.iter(f"{MAIN}numFmt")}
         fonts = [Font.from_tree(cast(Any, font)) for font in root.iterfind(f"{MAIN}fonts/{MAIN}font")]
         borders = [cast(Border, Border.from_tree(cast(Any, border))) for border in root.iterfind(f"{MAIN}borders/{MAIN}border")]
-        fills = [_is_yellow(fill) for fill in root.iterfind(f"{MAIN}fills/{MAIN}fill")]
+        fill_trees = list(root.iterfind(f"{MAIN}fills/{MAIN}fill"))
+        fills = [_is_yellow(fill) for fill in fill_trees]
         xfs = list(root.iterfind(f"{MAIN}cellXfs/{MAIN}xf"))
         raw_xfs = re.findall(rb"<xf\b[^>]*?(?:/>|>.*?</xf>)", _style_list(xml, b"cellXfs").group(2), re.S)
         number_formats = tuple(int(xf.get("numFmtId", "0")) for xf in xfs)
@@ -140,6 +155,7 @@ class _Styles:
                 number for number in number_formats if is_date_format(codes.get(number) or BUILTIN_FORMATS.get(number, ""))
             ),
             fonts=tuple(fonts),
+            fills=tuple(cast(Fill, Fill.from_tree(cast(Any, fill))) for fill in fill_trees),
             borders=tuple(borders),
             xfs=tuple(raw_xfs),
         )
@@ -253,6 +269,8 @@ class Register:
                 (sheet.get("name", ""), rels[sheet.get(f"{{{OFFICE_REL}}}id", "")].target)
                 for sheet in root.iter(f"{MAIN}sheet")
             ]
+            self._workbook_part = workbook
+            self._sheet_parts = [part for _, part in sheets]
             self.order_sheets = [
                 OrderSheet(name, part, columns, self)
                 for name, part in sheets
@@ -281,7 +299,15 @@ class Register:
         first, last = found.get(normalize_text(_FIRST)), found.get(normalize_text(_LAST))
         if first is None or last is None or None in named.values():
             return None
-        return OrderColumns(first, cast(int, named[DATE.target_header]), cast(int, named[WORKER.target_header]), last)
+        return OrderColumns(
+            first,
+            cast(int, named[DATE.target_header]),
+            cast(int, named[WORKER.target_header]),
+            last,
+            devices=cast(int, named[DEVICES.target_header]),
+            activities=cast(int, named[ACTIVITIES.target_header]),
+            contract_number=cast(int, named[_CONTRACT_NUMBER]),
+        )
 
     def _value(self, cell: _Cell) -> object:
         """Wartość komórki: tekst (także prawda/fałsz jako 1 i 0), liczba, data w formacie daty; ``None`` dla pustej."""
@@ -325,7 +351,11 @@ class Register:
         xml = sheet.sheet_xml
         looks = _Looks(self._styles, sheet.columns)
         sheet_xml = _ordered_sheet(xml, sheet.columns, block, plan, looks)
-        parts = {sheet.part: sheet_xml, self._styles_part: looks.styles(self._parts[self._styles_part])}
+        parts = {
+            **self._tabs(sheet),
+            sheet.part: sheet_xml,
+            self._styles_part: looks.styles(self._parts[self._styles_part]),
+        }
         out = BytesIO()
         with zipfile.ZipFile(out, "w") as target:
             for info in self._infos:
@@ -346,11 +376,63 @@ class Register:
             parts = {name: archive.read(name) for name in names}
         if names != [info.filename for info in self._infos]:
             raise WriteMismatch("części")
+        tabs = self._tabs(sheet)
         for name in names:
-            if name not in (sheet.part, self._styles_part) and parts[name] != self._parts[name]:
+            if name not in (sheet.part, self._styles_part) and parts[name] != tabs.get(name, self._parts[name]):
                 raise WriteMismatch(name)
         _check_styles(self._parts[self._styles_part], parts[self._styles_part])
         _check_sheet(sheet.sheet_xml, parts[sheet.part], sheet.columns, block, plan)
+
+    def _tabs(self, sheet: OrderSheet) -> dict[str, bytes]:
+        """Części, które zapis zmienia poza arkuszem zleceń: ``sheet`` jako aktywna karta i inne karty bez zaznaczenia.
+
+        Znacznik zaznaczenia karty (``<sheetView tabSelected>``) może stać tylko w arkuszu.
+        """
+
+        return {
+            **{part: _TAB_SELECTED.sub(rb"\1", self._parts[part]) for part in self._sheet_parts if part != sheet.part},
+            self._workbook_part: _with_active_tab(self._parts[self._workbook_part], self._sheet_parts.index(sheet.part)),
+        }
+
+
+def _with_active_tab(xml: bytes, index: int) -> bytes:
+    """``xl/workbook.xml`` z aktywną kartą ``index`` (od 0) w każdym widoku skoroszytu."""
+
+    tab = b' activeTab="%d"' % index
+
+    def active(found: re.Match[bytes]) -> bytes:
+        attributes, replaced = re.subn(rb'\sactiveTab="[^"]*"', tab, found.group(1))
+        return b"<workbookView" + attributes + (b"" if replaced else tab) + found.group(2)
+
+    return _WORKBOOK_VIEW.sub(active, xml)
+
+
+def _with_view(head: bytes, row: int, column: int) -> bytes:
+    """Nagłówek arkusza z kartą zaznaczoną, górnym wierszem widoku ``row`` i zaznaczeniem komórki ``column`` w nim.
+
+    Zamrożony nagłówek (``<pane>``) zostaje, a zmienia się jego ``topLeftCell``; bez niego ``topLeftCell`` widoku.
+    Widok zaczyna się od kolumny A (u taty nie ma zamrożonych kolumn) i ma potem tylko ``<pane>`` i jedno
+    zaznaczenie, w aktywnym panelu.
+    """
+
+    cell = f"{get_column_letter(column)}{row}".encode("ascii")
+
+    def top(attributes: bytes) -> bytes:
+        return re.sub(rb'\stopLeftCell="[^"]*"', b"", attributes) + b' topLeftCell="A%d"' % row
+
+    def view(found: re.Match[bytes]) -> bytes:
+        attributes = re.sub(rb'\stabSelected="[^"]*"', b"", found.group(1))
+        pane = _PANE.search(found.group(0))
+        if pane is None:
+            attributes, panes, name = top(attributes), b"", b""
+        else:
+            active = re.search(rb'\sactivePane="(\w+)"', pane.group(1))
+            panes = b"<pane" + top(pane.group(1)) + b"/>"
+            name = b' pane="%s"' % (active.group(1) if active else b"topLeft")
+        selection = b'<selection%s activeCell="%s" sqref="%s"/>' % (name, cell, cell)
+        return b'<sheetView tabSelected="1"' + attributes + b">" + panes + selection + b"</sheetView>"
+
+    return _SHEET_VIEW.sub(view, head)
 
 
 def _shared_strings(xml: bytes) -> list[str]:
@@ -369,31 +451,36 @@ class _Looks:
         self._styles = styles
         self._columns = columns
         self._fonts: list[Font] = []
+        self._fills: list[Fill] = []
         self._borders: list[Border] = []
         self._xfs: list[bytes] = []
-        self._ids: dict[tuple[int, int], int] = {}
+        self._style_ids: dict[tuple[int, int, str | None], int] = {}
 
-    def style(self, column: int, number_format: int) -> int:
-        """Styl komórki kolumny zlecenia ``column``: Calibri 8 (WYKONAWCA 9), czarna, cienka ramka, do lewej i środka."""
+    def style(self, column: int, number_format: int, fill: str | None) -> int:
+        """Styl komórki kolumny zlecenia ``column``: Calibri 8 (WYKONAWCA 9), czarna, cienka ramka, do lewej i środka.
+
+        ``fill``: wypełnienie RGB z Koloru operatora, jak to, które nadaje Excel; ``None``: bez wypełnienia.
+        """
 
         if column == self._columns.date:
             number_format = _DATE_FORMAT
         size = _WORKER_SIZE if column == self._columns.worker else _SIZE
-        key = (size, number_format)
-        if key not in self._ids:
+        key = (size, number_format, fill)
+        if key not in self._style_ids:
             font = _index(self._styles.fonts, self._fonts, Font(name=_FACE, sz=size, color=_BLACK, family=2))
+            fill_id = 0 if fill is None else _index(self._styles.fills, self._fills, _solid(fill))
             border = _index(self._styles.borders, self._borders, BORDER)
             xf = (
-                b'<xf numFmtId="%d" fontId="%d" fillId="0" borderId="%d" xfId="0" applyNumberFormat="1" applyFont="1" '
+                b'<xf numFmtId="%d" fontId="%d" fillId="%d" borderId="%d" xfId="0" applyNumberFormat="1" applyFont="1" '
                 b'applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="left" vertical="center"/></xf>'
-                % (number_format, font, border)
+                % (number_format, font, fill_id, border)
             )
             if xf in self._styles.xfs:
-                self._ids[key] = self._styles.xfs.index(xf)
+                self._style_ids[key] = self._styles.xfs.index(xf)
             else:
                 self._xfs.append(xf)
-                self._ids[key] = len(self._styles.xfs) + len(self._xfs) - 1
-        return self._ids[key]
+                self._style_ids[key] = len(self._styles.xfs) + len(self._xfs) - 1
+        return self._style_ids[key]
 
     def number_format(self, style: int) -> int:
         return self._styles.number_formats[style]
@@ -401,9 +488,16 @@ class _Looks:
     def styles(self, xml: bytes) -> bytes:
         styles = self._styles
         xml = _appended(xml, b"fonts", [ElementTree.tostring(font.to_tree()) for font in self._fonts], len(styles.fonts))
+        xml = _appended(xml, b"fills", [ElementTree.tostring(fill.to_tree()) for fill in self._fills], len(styles.fills))
         borders = [ElementTree.tostring(border.to_tree()) for border in self._borders]
         xml = _appended(xml, b"borders", borders, len(styles.borders))
         return _appended(xml, b"cellXfs", self._xfs, len(styles.xfs))
+
+
+def _solid(rgb: str) -> PatternFill:
+    """Pełne wypełnienie ``rgb`` tak, jak zapisuje je Excel taty (``bgColor`` 64)."""
+
+    return PatternFill(patternType="solid", fgColor=Color(rgb=f"FF{rgb}"), bgColor=Color(indexed=64))
 
 
 def _index(existing: Sequence[object], added: list[Any], item: object) -> int:
@@ -476,36 +570,41 @@ def _ordered_sheet(sheet: _SheetXml, columns: OrderColumns, block: RawBlock, pla
         if placement is not None:
             source = by_number[placement.order.row]
             offset = SHIFT if placement.order.shifted else 0
-            row_xml, right = _order_row(xml[source.start : source.end], number, offset, columns, looks, row_looks.order)
+            row_xml, right = _order_row(
+                xml[source.start : source.end], number, offset, columns, looks, row_looks.order, placement.color
+            )
             rows.append(row_xml)
             widest = max(widest, right)
         elif number in separators:
-            rows.append(_order_row(b"", number, 0, columns, looks, row_looks.order)[0])
+            rows.append(_order_row(b"", number, 0, columns, looks, row_looks.order, OperatorColor())[0])
         elif number in by_number and number not in raw:
             rows.append(xml[by_number[number].start : by_number[number].end])
         else:
             rows.append(b'<row r="%d"%s/>' % (number, row_looks.blank))
-    head = _with_dimension(xml[: region[0].start], last, widest)
+    head = _with_view(_with_dimension(xml[: region[0].start], last, widest), plan.view_row, columns.first)
     return head + b"".join(rows) + xml[data.rows[-1].end : tail_at] + _moved_hyperlinks(xml[tail_at:], block, plan)
 
 
 def _order_row(
-    row_xml: bytes, number: int, offset: int, columns: OrderColumns, looks: _Looks, row_look: bytes
+    row_xml: bytes, number: int, offset: int, columns: OrderColumns, looks: _Looks, row_look: bytes, color: OperatorColor
 ) -> tuple[bytes, int]:
-    """Wiersz zlecenia ``number`` z komórek Surowego zlecenia i wyglądem ``row_look`` oraz najdalsza kolumna z komórką."""
+    """Wiersz zlecenia ``number`` z komórek Surowego zlecenia, Kolorem operatora ``color`` i wyglądem ``row_look``
+    oraz najdalsza kolumna z komórką."""
 
+    fills = {columns.activities: color.activities, columns.contract_number: color.contract_number, columns.devices: color.devices}
     written: dict[int, bytes] = {}
     for cell in _cells(row_xml):
         column = cell.column + offset
         if columns.first <= column <= columns.last:
-            style = looks.style(column, looks.number_format(cell.style))
+            style = looks.style(column, looks.number_format(cell.style), fills.get(column))
             attributes = _STYLE.sub(b"", cell.attributes) + b' s="%d"' % style
             written[column] = cell.xml(column, number, attributes)
         else:
             written[column] = cell.xml(column, number)
     for column in range(columns.first, columns.last + 1):
         if column not in written:
-            written[column] = _Cell(column, b"", None).xml(column, number, b' s="%d"' % looks.style(column, 0))
+            style = looks.style(column, 0, fills.get(column))
+            written[column] = _Cell(column, b"", None).xml(column, number, b' s="%d"' % style)
     cells = b"".join(written[column] for column in sorted(written))
     return b'<row r="%d"%s>' % (number, row_look) + cells + b"</row>", max(written)
 
@@ -576,7 +675,7 @@ def _check_sheet(original: _SheetXml, written: bytes, columns: OrderColumns, blo
     xml, before = original.xml, original.data
     start = next((row.start for row in before.rows if row.number > block.anchor), before.end)
     new_start = next((row.start for row in data.rows if row.number > block.anchor), data.end)
-    if _DIMENSION.sub(b"", xml[:start]) != _DIMENSION.sub(b"", written[:new_start]):
+    if _without_view(xml[:start]) != _without_view(written[:new_start]):
         raise WriteMismatch("wiersze nad dniem")
     tail, new_tail = xml[before.end :], written[data.end :]
     if _moved_hyperlinks(tail, block, plan) != new_tail:
@@ -608,6 +707,12 @@ def _check_sheet(original: _SheetXml, written: bytes, columns: OrderColumns, blo
                 raise WriteMismatch(f"wiersz {number}")
     if set(placed) - set(rows):
         raise WriteMismatch("brak zlecenia")
+
+
+def _without_view(head: bytes) -> bytes:
+    """Nagłówek arkusza zleceń bez tego, co zmienia zapis: ``<dimension>`` i widoku arkusza."""
+
+    return _SHEET_VIEWS.sub(b"", _DIMENSION.sub(b"", head))
 
 
 def _has_value(cell: _Cell) -> bool:

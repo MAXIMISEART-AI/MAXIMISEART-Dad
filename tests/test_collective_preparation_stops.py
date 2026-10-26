@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from typing import cast
 from dataclasses import replace
 from datetime import datetime
 import errno
@@ -474,6 +475,51 @@ def test_okres_po_uporzadkowaniu_intermax_przechodzi_z_uporzadkowanymi_zleceniam
 
     assert (summary.period_order_count, summary.successful_order_count) == (6, 5)
     assert fixture.collective_file_path.exists()
+
+
+def order_fills(path: Path, number: str) -> dict[str, str | None]:
+    """Wypełnienie RGB komórek ``URZĄDZENIA``, ``CZYNNOŚCI`` i numeru umowy zlecenia ``number`` w pliku okresu."""
+
+    workbook = load_workbook(path)
+    try:
+        sheet = workbook.worksheets[0]
+        [header] = [row for row in sheet.iter_rows(max_row=20) if any(cell.value == "NUMER ZL." for cell in row)]
+        columns = {cell.value: cell.column for cell in header if cell.value}
+        first = cast(int, header[0].row) + 1
+        [row] = [row for row in range(first, sheet.max_row + 1) if sheet.cell(row, columns["NUMER ZL."]).value == number]
+        cells = {name: sheet.cell(row, columns[name]) for name in ("URZĄDZENIA", "CZYNNOŚCI", "NUMER UMOWY/ZLECENIA ORANGE")}
+        return {name: cell.fill.fgColor.rgb if cell.fill.fill_type == "solid" else None for name, cell in cells.items()}
+    finally:
+        workbook.close()
+
+
+def test_kolor_operatora_z_uporzadkowania_intermax_przechodzi_do_obu_plikow_okresu(tmp_path: Path) -> None:
+    fixture = make_preparation_fixture(tmp_path)
+    tmobile, fault = raw_order(11, datetime(2026, 9, 13, 12)), raw_order(12, datetime(2026, 9, 13, 10))
+    tmobile["CZYNNOŚCI"] = fault["CZYNNOŚCI"] = "TMOBILE"
+    fault["URZĄDZENIA"] = "Usterka"
+    paste_raw_orders(fixture.register_path, [tmobile, fault])
+    clock = ManualClock()
+    order_register(
+        fixture.register_path,
+        tmp_path / "Kopie INTERMAX",
+        now=lambda: datetime(2026, 9, 12, 20),
+        waiting=Waiting(clock, clock.pause),
+    )
+
+    run_preparation(fixture)
+
+    for path in (fixture.internal_settlement_path, fixture.collective_file_path):
+        assert order_fills(path, "ZL-SYN-011") == {
+            "URZĄDZENIA": None,
+            "CZYNNOŚCI": "FF99FF66",
+            "NUMER UMOWY/ZLECENIA ORANGE": "FF99FF66",
+        }, path.name
+        assert order_fills(path, "ZL-SYN-012") == {
+            "URZĄDZENIA": "FFE89CA7",
+            "CZYNNOŚCI": None,
+            "NUMER UMOWY/ZLECENIA ORANGE": None,
+        }, path.name
 
 
 @pytest.mark.parametrize(
