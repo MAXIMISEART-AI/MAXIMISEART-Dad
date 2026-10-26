@@ -16,7 +16,7 @@ Decyzja taty czeka w stanie ``awaiting_decision``, aż przyjdzie przez API.
 
 Zakończone Uruchomienie każdą drogą to jedna wartość (``EndedRun``): fakty
 wyliczone raz, z których powstaje wynik na karcie, a czytają je działania po
-wyniku (``AfterRun``: Logi Uruchomienia, Kontrola ilości). Każde z nich dostaje
+wyniku (``AfterRun``: Logi Uruchomienia, Kontrola ilości, odczyty Uzupełnienia). Każde z nich dostaje
 ją po wyniku, a przed końcem Uruchomienia w dzienniku, w osobnej osłonie: tylko
 krótka praca lokalna, nigdy sieć, a jego wyjątek nie zmienia wyniku.
 """
