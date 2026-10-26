@@ -702,6 +702,7 @@ def test_surowe_zlecenie_bez_daty_to_zatrzymanie_dla_taty_z_wierszem_i_kolumna(
     assert (stop.message.code, stop.stop_kind) == ("SUROWE_ZLECENIE_BEZ_DATY", "for_tata")
     assert f"w wierszu {row} nie ma daty z godziną w kolumnie C." in stop.message.what
     assert stop.message.where == f"plik {REGISTER_NAME}, folder OneDrive, arkusz {ORDER_SHEET}, komórka C{row}"
+    assert stop.message.action == f"Wpisz datę z godziną w komórce C{row}, zapisz i zamknij INTERMAX i uruchom ponownie."
     _without_order_data(stop.message, layout.raw)
 
 
@@ -720,6 +721,24 @@ def test_surowe_zlecenie_bez_wykonawcy_to_zatrzymanie_dla_taty_z_wierszem_i_kolu
     assert stop.message.where.endswith(f"komórka {column}{layout.first_raw}")
     assert stop.message.action.startswith(f"Wpisz Wykonawcę w komórce {column}{layout.first_raw}")
     _without_order_data(stop.message, layout.raw)
+
+
+def test_zlecenie_bez_daty_we_wklejeniu_z_kilku_dni_to_najpierw_brak_daty(tmp_path: Path) -> None:
+    """Bez daty nie wiadomo, z którego dnia jest zlecenie, więc tata najpierw wpisuje datę."""
+
+    raw = (
+        Order(datetime(2026, 10, 27, 9), "jan.nowak", 101),
+        Order(datetime(2026, 10, 26, 10), "anna.kowalska", 102),
+        Order(datetime(2026, 10, 26, 11), "jan.nowak", 103),
+    )
+    path, layout = _register(tmp_path, Intermax(raw=raw))
+    _edited(path, lambda sheet: setattr(sheet.cell(layout.first_raw + 2, DATE), "value", "jutro"))
+
+    with _nothing_written(tmp_path, path):
+        stop = _stop(_run(tmp_path))
+
+    assert stop.message.code == "SUROWE_ZLECENIE_BEZ_DATY"
+    assert stop.message.where.endswith(f"komórka C{layout.first_raw + 2}")
 
 
 def test_przesuniety_pierwszy_wiersz_bez_daty_wskazuje_kolumne_a(tmp_path: Path) -> None:
@@ -747,6 +766,10 @@ def test_wklejenie_z_kilku_dni_to_zatrzymanie_dla_taty_z_dniami(tmp_path: Path) 
     assert (stop.message.code, stop.stop_kind) == ("WKLEJENIE_Z_KILKU_DNI", "for_tata")
     assert "26.10.2026, 27.10.2026" in stop.message.what
     assert stop.message.where.endswith(f"wiersze {layout.first_raw}–{layout.first_raw + 2}")
+    assert stop.message.action == (
+        "Zostaw na dole arkusza zleceń zlecenia jednego dnia, a pozostałe usuń. Zapisz i zamknij INTERMAX i uruchom "
+        "ponownie, a następny dzień wklej i uporządkuj osobno."
+    )
     _without_order_data(stop.message, layout.raw)
 
 
@@ -787,6 +810,10 @@ def test_surowe_zlecenia_nad_uporzadkowanym_wierszem_to_zatrzymanie_dla_taty(tmp
         stop.message.what
     )
     assert stop.message.where.endswith(f"arkusz {ORDER_SHEET}, wiersz {last_raw}")
+    assert stop.message.action == (
+        "Przenieś wklejone zlecenia na dół arkusza zleceń, pod ostatni uporządkowany wiersz. Jeśli wiersz "
+        f"{last_raw} jest już uporządkowany, nadaj mu czcionkę Calibri 8. Zapisz i zamknij INTERMAX i uruchom ponownie."
+    )
     _without_order_data(stop.message, [*layout.raw, typed, replace(typed, number=303)])
 
 
@@ -807,7 +834,7 @@ def test_pojedyncze_wiersze_wczesniejszych_dni_miedzy_dniami_nie_koncza_przeglad
     def day(number: int, count: int, first: int) -> tuple[Order, ...]:
         return tuple(Order(datetime(2026, 10, number, 7 + index), "anna.kowalska", first + index) for index in range(count))
 
-    path, _ = _register(tmp_path, Intermax(ordered=(*day(26, 1, 1), *day(25, 6, 2), *day(27, 1, 8), *day(25, 6, 9))))
+    path, _ = _register(tmp_path, Intermax(ordered=(*day(26, 2, 1), *day(25, 6, 3), *day(27, 1, 9), *day(25, 6, 10))))
 
     with _nothing_written(tmp_path, path):
         stop = _stop(_run(tmp_path))
@@ -863,6 +890,15 @@ def test_wklejony_dzien_uporzadkowany_nad_nowszymi_dniami_jest_juz_uporzadkowany
         "DZIEN_JUZ_UPORZADKOWANY",
         "Dzień 26.10.2026 jest już uporządkowany. INTERMAX nie został zmieniony.",
     )
+
+
+def test_zlecenie_na_jutro_wpisane_w_dzisiejszym_dniu_nie_czyni_jutra_uporzadkowanym(tmp_path: Path) -> None:
+    def day(number: int, count: int, first: int) -> tuple[Order, ...]:
+        return tuple(Order(datetime(2026, 10, number, 7 + index), "anna.kowalska", first + index) for index in range(count))
+
+    path, layout = _register(tmp_path, Intermax(ordered=(*day(25, 6, 1), *day(26, 1, 7), *day(25, 4, 8))))
+
+    assert _ordered(_run(tmp_path)).order_count == len(layout.raw)
 
 
 def test_uporzadkowany_wiersz_bez_daty_nad_wklejeniem_nie_zatrzymuje(tmp_path: Path) -> None:
@@ -1143,8 +1179,12 @@ def test_folder_kopii_ktorego_nie_da_sie_utworzyc_to_zatrzymanie_dla_taty_bez_za
     assert [entry.name for entry in path.parent.iterdir()] == [REGISTER_NAME]
 
 
-def _refused(monkeypatch: pytest.MonkeyPatch, times: int | None, *, excel: bool = False) -> list[float]:
+def _refused(
+    monkeypatch: pytest.MonkeyPatch, times: int | None, *, excel: bool = False, code: int = errno.EACCES
+) -> list[float]:
     """Podmiana INTERMAX odmawiana ``times`` razy (``None``: zawsze), z plikiem blokady Excela (``excel``) albo bez.
+
+    ``code``: błąd systemu przy podmianie; domyślnie odmowa dostępu.
 
     Zwraca listę, do której trafia liczba prób.
     """
@@ -1159,7 +1199,7 @@ def _refused(monkeypatch: pytest.MonkeyPatch, times: int | None, *, excel: bool 
             if excel:
                 Path(target).with_name(f"~${REGISTER_NAME}").write_bytes(b"")
             if times is None or len(attempts) <= times:
-                raise PermissionError(errno.EACCES, "Permission denied")
+                raise OSError(code, os.strerror(code))
         replace_file(source, target)
 
     monkeypatch.setattr(os, "replace", refused)
@@ -1171,15 +1211,15 @@ def test_odmowa_podmiany_bez_excela_po_krotkiej_ponownej_probie_to_onedrive_dla_
 ) -> None:
     path, layout = _register(tmp_path)
     attempts = _refused(monkeypatch, None)
-    clock = ManualClock()
+    clock = ManualClock(seconds=4000.0)
 
     with _nothing_written(tmp_path, path):
         stop = _stop(_run(tmp_path, clock=clock))
 
     assert (stop.message.code, stop.stop_kind) == ("INTERMAX_SYNCHRONIZOWANY", "for_tata")
     assert stop.message.what == "OneDrive jeszcze synchronizuje INTERMAX. INTERMAX nie został zmieniony."
-    assert stop.message.action.startswith("Spróbuj za chwilę")
-    assert (clock.seconds, len(attempts)) == (5.0, 11)
+    assert stop.message.action == "Spróbuj za chwilę: poczekaj, aż OneDrive skończy synchronizację, i uruchom ponownie."
+    assert (clock.seconds, len(attempts)) == (4005.0, 11)
     _without_order_data(stop.message, layout.raw)
 
 
@@ -1187,11 +1227,11 @@ def test_podmiana_po_chwilowej_odmowie_onedrive_porzadkuje_intermax(tmp_path: Pa
     path, layout = _register(tmp_path)
     original = path.read_bytes()
     attempts = _refused(monkeypatch, 2)
-    clock = ManualClock()
+    clock = ManualClock(seconds=4000.0)
 
     assert _ordered(_run(tmp_path, clock=clock)).order_count == len(layout.raw)
 
-    assert (clock.seconds, len(attempts)) == (1.0, 3)
+    assert (clock.seconds, len(attempts)) == (4001.0, 3)
     assert path.read_bytes() != original
     assert (tmp_path / "Kopie INTERMAX" / COPY_NAME).read_bytes() == original
 
@@ -1201,6 +1241,20 @@ def test_odmowa_podmiany_przy_otwartym_excelu_to_zatrzymanie_dla_taty_bez_czekan
 ) -> None:
     path, _ = _register(tmp_path)
     attempts = _refused(monkeypatch, None, excel=True)
+    clock = ManualClock()
+
+    with _nothing_written(tmp_path, path):
+        stop = _stop(_run(tmp_path, clock=clock))
+
+    assert (stop.message.code, stop.stop_kind) == ("INTERMAX_OTWARTY", "for_tata")
+    assert (clock.seconds, len(attempts)) == (0.0, 1)
+
+
+def test_inny_blad_podmiany_niz_odmowa_to_zatrzymanie_dla_taty_bez_czekania(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path, _ = _register(tmp_path)
+    attempts = _refused(monkeypatch, None, code=errno.ENOSPC)
     clock = ManualClock()
 
     with _nothing_written(tmp_path, path):

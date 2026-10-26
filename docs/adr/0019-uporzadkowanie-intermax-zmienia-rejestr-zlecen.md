@@ -70,6 +70,12 @@ od 2021 roku: około 42 tys. wierszy, cztery arkusze, około 6,5 MB, w OneDrive.
 - **INTERMAX musi być zapisany i zamknięty.** Otwarty plik albo plik, który
   OneDrive dalej trzyma po krótkiej ponownej próbie, daje Zatrzymanie „dla
   taty”.
+- **Drugie wklejenie dnia, który już jest uporządkowany, daje Zatrzymanie
+  „dla taty”.** Dzień jest już uporządkowany, gdy nad wklejeniem stoją dwa
+  kolejne uporządkowane wiersze z jego datą albo jeden, pod którym nie ma
+  wiersza wcześniejszego dnia, więc zlecenie na jutro wpisane w dzisiejszym
+  dniu nie czyni jutra uporządkowanym (sprawdzone na historii kopii INTERMAX
+  taty, #469).
 - **Przygotowanie pliku zbiorczego nie zaczyna**, gdy okres ma Surowe
   zlecenia.
 - **Uruchomienie Uporządkowania ma okres dzisiejszej daty** z zegara,

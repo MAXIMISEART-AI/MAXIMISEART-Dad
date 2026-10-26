@@ -136,10 +136,12 @@ def order_register(
             try:
                 intermax_file.save(register, sheet, block, day, before_replace=before_replace, waiting=waiting)
             except WorkbookSaveError as error:
-                _remove(copies)
+                for copy in copies:
+                    copy.unlink()
                 raise StopError(messages.register_open(register_path)) from error
             except HeldByOneDrive as error:
-                _remove(copies)
+                for copy in copies:
+                    copy.unlink()
                 raise StopError(messages.register_syncing(register_path)) from error
         try:
             intermax_copies.keep_newest(copies_directory)
@@ -163,8 +165,3 @@ def _obstacle(register: Path, sheet: str, obstacle: Obstacle) -> Message:
             return messages.several_days(register, sheet, days, first_row, last_row)
         case DayOrdered(day, first_row, last_row):
             return messages.day_already_ordered(register, sheet, day, first_row, last_row)
-
-
-def _remove(copies: list[Path]) -> None:
-    for copy in copies:
-        copy.unlink()

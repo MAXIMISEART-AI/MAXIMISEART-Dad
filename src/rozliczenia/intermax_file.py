@@ -56,7 +56,7 @@ from .workbook_parts import MAIN, OFFICE_REL, IrregularSheetData, SheetData, She
 from .workbook_save import write_atomically
 from .worker_config import normalize_text
 
-__all__ = ["HeldByOneDrive", "OrderSheet", "Register", "UnsupportedShape", "Waiting", "WriteMismatch", "save"]
+__all__ = ["OrderSheet", "Register", "UnsupportedShape", "WriteMismatch", "save"]
 
 _FIRST: Final = "AKCJE"
 _LAST: Final = "UWAGI"

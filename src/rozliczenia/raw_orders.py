@@ -15,7 +15,9 @@ Przeszkody: wiersz z wyglądem z aplikacji nad uporządkowanym wierszem, Surowe 
 Wykonawcy, blok z więcej niż jednego dnia i dzień, który już jest uporządkowany. Pierwsza i ostatnia wymagają
 przeglądu nad blokiem: od ostatniego uporządkowanego wiersza w górę, aż ``_EARLIER_ROWS`` kolejnych uporządkowanych
 wierszy ma dzień wcześniejszy niż dzień bloku (bez bloku: niż dzień ostatniego uporządkowanego wiersza z datą).
-Pojedyncze wcześniejsze dni (usterka z poprzedniego dnia dopisana pod dniem) nie kończą przeglądu.
+Pojedyncze wcześniejsze dni (usterka z poprzedniego dnia dopisana pod dniem) nie kończą przeglądu. Dzień jest już
+uporządkowany, gdy w przeglądzie stoją dwa kolejne uporządkowane wiersze z jego datą albo jeden, pod którym nie ma
+wiersza wcześniejszego dnia: zlecenie na jutro wpisane w dzisiejszym dniu nie czyni jutra uporządkowanym.
 
 Plan dnia (``plan_day``) z bloku wyznacza docelowe wiersze zleceń: jeden pusty wiersz pod żółtym wierszem albo
 10 pustych pod ostatnim uporządkowanym zleceniem, segmenty Wykonawców w kolejności alfabetycznej z jednym
@@ -97,7 +99,6 @@ class RawBlock:
     """
 
     orders: tuple[RawOrder, ...]
-    day: date
     anchor: int
     under_yellow: bool
     last_ordered: int
@@ -207,7 +208,7 @@ def recognize(rows_from_bottom: Iterable[RowFacts], columns: OrderColumns) -> Ra
     if days[0] in ordered_days:
         return DayOrdered(days[0], raw[0].number, raw[-1].number)
     anchor = 1 if ordered is None else ordered.number
-    return RawBlock(tuple(orders), days[0], yellow if yellow is not None else anchor, yellow is not None, anchor, blank)
+    return RawBlock(tuple(orders), yellow if yellow is not None else anchor, yellow is not None, anchor, blank)
 
 
 def plan_day(block: RawBlock) -> DayPlan:
@@ -227,7 +228,7 @@ def plan_day(block: RawBlock) -> DayPlan:
         for order in segment:
             placements.append(Placement(order, row))
             row += 1
-    return DayPlan(block.day, tuple(placements), segments)
+    return DayPlan(min(order.when for order in block.orders).date(), tuple(placements), segments)
 
 
 def _order(row: RowFacts, columns: OrderColumns, shifted: bool) -> RawOrder | Undated | WithoutWorker:
@@ -246,12 +247,16 @@ def _above(
 ) -> tuple[AboveOrdered | None, set[date]]:
     """Przegląd od ostatniego uporządkowanego wiersza ``first`` w górę: wiersz z wyglądem z aplikacji nad nim i dni.
 
-    Dni to dni uporządkowanych wierszy nie wcześniejsze niż ``day`` (bez niego: dzień pierwszego wiersza z datą).
+    Dni to uporządkowane dni przeglądu: dzień dwóch kolejnych wierszy z datą albo wiersza, pod którym nie ma
+    wcześniejszego dnia. Przegląd kończy ``_EARLIER_ROWS`` kolejnych wierszy z dniem wcześniejszym niż ``day`` (bez
+    niego: dzień pierwszego wiersza z datą).
     """
 
     below = first.number
     days: set[date] = set()
     earlier = 0
+    previous: date | None = None
+    lowest: date | None = None
     for row in chain([first], rows):
         if row.blank:
             continue
@@ -263,13 +268,16 @@ def _above(
             continue
         if day is None:
             day = when.date()
+        lowest = when.date() if lowest is None else min(lowest, when.date())
+        if when.date() in (previous, lowest):
+            days.add(when.date())
+        previous = when.date()
         if when.date() < day:
             earlier += 1
             if earlier == _EARLIER_ROWS:
                 break
         else:
             earlier = 0
-            days.add(when.date())
     return None, days
 
 
