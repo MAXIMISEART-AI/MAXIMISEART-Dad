@@ -63,7 +63,7 @@ def test_required_czeka_na_kazde_inne_zadanie() -> None:
 
 
 def _required(event: str, results: dict[str, str]) -> subprocess.CompletedProcess[str]:
-    step = jobs()[REQUIRED]["steps"][-1]
+    step = next(step for step in jobs()[REQUIRED]["steps"] if step.get("name") == "Require every CI check to succeed")
     assert step["shell"] == "python3 {0}"
     needs = {job: {"result": result, "outputs": {}} for job, result in results.items()}
     env = {**os.environ, "NEEDS": json.dumps(needs), "EVENT": event}
