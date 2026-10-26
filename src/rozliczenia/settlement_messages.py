@@ -154,6 +154,7 @@ def worker_config_problem(config_path: Path, error: WorkerConfigError) -> Messag
 def worker_template_unusable(error: WorkbookError) -> Message:
     """Wzorzec rozliczenia pracownika nie przeszedł Sprawdzania; ``error`` mówi dlaczego."""
 
+    otherwise = f"W innym wypadku {REPORT_TO_MAINTAINER.lower()}"
     match error.problem:
         case Problem.MISSING:
             detail = f"Nie znaleziono Wzorca rozliczenia pracownika: {error.path.name}."
@@ -161,6 +162,10 @@ def worker_template_unusable(error: WorkbookError) -> Message:
                 detail += f" Zmień nazwę pliku {_LEGACY_WORKER_TEMPLATE_NAME} w tym samym folderze na „{error.path.name}”."
         case Problem.OPEN_IN_EXCEL:
             detail = "Wzorzec rozliczenia pracownika jest otwarty lub zablokowany."
+            otherwise = (
+                "Jeśli Excel jest zamknięty, a komunikat wraca, usuń z tego samego folderu "
+                f"pozostawiony plik ~${error.path.name} i uruchom ponownie."
+            )
         case Problem.LAYOUT:
             detail = f"Wzorzec rozliczenia pracownika nie ma nagłówka WYKONAWCA w {WORKER_HEADER.column}:{WORKER_HEADER.row}."
         case Problem.HAS_DATA:
@@ -173,10 +178,7 @@ def worker_template_unusable(error: WorkbookError) -> Message:
         code="ZLY_WZORZEC_PRACOWNIKA",
         what=f"Nie można użyć Wzorca rozliczenia pracownika. {detail}",
         where=file_label(error.path),
-        action=(
-            "Jeśli Wzorzec jest otwarty w Excelu, zamknij go bez zapisywania zmian i uruchom ponownie. "
-            f"W innym wypadku {REPORT_TO_MAINTAINER.lower()}"
-        ),
+        action=f"Jeśli Wzorzec jest otwarty w Excelu, zamknij go bez zapisywania zmian i uruchom ponownie. {otherwise}",
     )
 
 
