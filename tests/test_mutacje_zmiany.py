@@ -385,7 +385,10 @@ def test_narzedzia_podstawione_przez_probe_na_scalonych_pr_nie_sa_zmiana(tmp_pat
     checkout = _run(repo)
 
     assert trial.returncode == 0, trial.stdout + trial.stderr
-    assert "NIESPRAWDZONA: tools/inne.py → commit go zmienia" in trial.stdout
+    # Nowy plik tools/nowe.py też jest podstawiony, ale commit go nie zmienia.
+    assert [line for line in trial.stdout.splitlines() if line.startswith("NIESPRAWDZONA")] == [
+        "NIESPRAWDZONA: tools/inne.py → commit go zmienia, a tools/na_scalonych_pr.py podstawił w jego miejscu narzędzie z checkoutu"
+    ]
     assert trial.stdout.splitlines()[-1] == "MUTACJE ZMIANY OK | brak mutacji zmienionych linii src/ i tools/ od baza"
     assert checkout.returncode == 1, checkout.stdout + checkout.stderr
     assert "NIEWYKRYTA: tools/inne.py:2 bez `b` w `and`" in checkout.stdout
@@ -432,6 +435,7 @@ def _described(text: str, changed: list[int], old: tuple[str, ...] = ()) -> dict
         ("ok = tekst.endswith(slowo)\n", "`tekst.endswith(slowo)` → `tekst.startswith(slowo)`", "ok = ((tekst).startswith(slowo))\n"),
         ("ok = '/' in sciezka\n", "`'/' in sciezka` → `sciezka.startswith('/')`", "ok = ((sciezka).startswith('/'))\n"),
         ("odpowiedz(stan, wersja=wersja)\n", "`wersja=wersja` → `wersja=None`", "odpowiedz(stan, wersja=None)\n"),
+        ("odpowiedz(wersja=wersja, czas=teraz)\n", "`czas=teraz` → `czas=None`", "odpowiedz(wersja=wersja, czas=None)\n"),
     ],
 )
 def test_kazdy_rodzaj_mutacji_psuje_zmieniona_linie(code: str, description: str, mutated: str) -> None:
@@ -446,6 +450,12 @@ def test_kazdy_rodzaj_mutacji_psuje_zmieniona_linie(code: str, description: str,
         "x = f(plik, wersja)\n",
         "x = f(encoding='utf-8', limit=3, wersja=None, **opcje)\n",
         "x = a in [1, 2] or b in {c: d}\n",
+        "x = a in ('p', 'q')\n",
+        "x = a in {'p', 'q'}\n",
+        "x = a in [y for y in z]\n",
+        "x = a in {y for y in z}\n",
+        "x = a in {y: 1 for y in z}\n",
+        "x = a in (y for y in z)\n",
         "x = 1 in liczby\n",
         "x = t.startswith(('a', 'b')) or t.endswith(a, 2)\n",
         "x = t.startswith(a, start=1) or t.endswith(*koncowki)\n",
@@ -462,6 +472,54 @@ def test_predykat_nie_dostaje_zamiany_na_samego_siebie() -> None:
         "`slowo not in tekst` → `not tekst.startswith(slowo)`",
         "`slowo not in tekst` → `not tekst.endswith(slowo)`",
     }
+
+
+# Wzorzec narzędzi z ``tools/`` (``tools/hooks/czekanie.py``): wynik ``main()`` to kod wyjścia procesu.
+EXITING = (
+    "import sys\n\n\n"
+    "def main() -> int:\n"
+    "    def pomoc() -> int:\n"
+    "        return 3\n\n"
+    "    async def czekaj() -> int:\n"
+    "        return 4\n\n"
+    "    class Krok:\n"
+    "        def wynik(self) -> int:\n"
+    "            return 5\n\n"
+    "    if sys.argv:\n"
+    "        return 0\n"
+    "    if pomoc():\n"
+    "        return 'błąd'\n"
+    "    return 2\n\n\n"
+    "class Narzedzie:\n"
+    "    def main(self) -> int:\n"
+    "        return 7\n\n\n"
+    "if __name__ == '__main__':\n"
+    "    {ending}\n"
+)
+
+
+def _returns(code: str) -> set[str]:
+    return {description for description in _described(code, list(range(1, code.count("\n") + 1))) if "`return" in description}
+
+
+@pytest.mark.parametrize("ending", ["sys.exit(main())", "raise SystemExit(main())"])
+def test_liczba_zwracana_do_sys_exit_dostaje_inny_kod_wyjscia_zamiast_none(ending: str) -> None:
+    # ``sys.exit(None)`` kończy się kodem 0, więc ``return 0`` → ``return None`` niczego by nie zmieniło.
+    assert _returns(EXITING.format(ending=ending)) == {
+        "`return 0` → `return 1`",
+        "`return 2` → `return 0`",
+        "`return 'błąd'` → `return None`",
+        "`return 3` → `return None`",
+        "`return 4` → `return None`",
+        "`return 5` → `return None`",
+        "`return 7` → `return None`",
+    }
+
+
+def test_liczba_zwracana_poza_sys_exit_dostaje_none() -> None:
+    code = "import sys\n\nimport cli\n\n\ndef policz() -> int:\n    return 0\n\n\nprint(policz())\nsys.exit(cli.main())\nraise SystemExit(1)\n"
+
+    assert _returns(code) == {"`return 0` → `return None`"}
 
 
 def test_niezmieniona_linia_nie_dostaje_mutacji() -> None:
@@ -601,9 +659,10 @@ def test_wyjatek_w_samodzielnym_komentarzu_dotyczy_linii_pod_nim() -> None:
 
 def test_opis_postaci_wyjatku_w_napisie_nie_jest_wyjatkiem() -> None:
     form = "# mutacje-zmiany: <powód> | do RRRR-MM-DD | zgoda <kto>"
-    code = f'OPIS = """\n``{form}``\n"""\nPOSTAC = "{form}"\nx = 1  # mutacje-zmiany: inne | do 2027-01-31 | zgoda Maks\n'
+    # Od Pythona 3.12 tekst f-stringu to osobny token (``FSTRING_MIDDLE``), a nie ``STRING``.
+    code = f'OPIS = """\n``{form}``\n"""\nPOSTAC = "{form}"\nW_F = f"{{OPIS}} {form}"\nx = 1  # mutacje-zmiany: inne | do 2027-01-31 | zgoda Maks\n'
 
-    assert sorted(exceptions(code, "m.py")) == [5]
+    assert sorted(exceptions(code, "m.py")) == [6]
 
 
 @pytest.mark.parametrize("comment", ["# mutacje-zmiany: bez terminu", "# mutacje-zmiany: powód | do 2026-13-01 | zgoda Maks"])

@@ -9,7 +9,9 @@ robi mutacje, które przeglądy PR-ów robiły ręcznie i które przeżywały te
 - ``True`` zamienione na ``False`` i odwrotnie;
 - warunek ``if`` zawsze prawdziwy i zawsze fałszywy;
 - granica porównania (``<`` i ``<=``, ``>`` i ``>=``);
-- ``return wartość`` zamienione na ``return None``;
+- ``return wartość`` zamienione na ``return None``, a w funkcji modułu, której wynik moduł podaje ``sys.exit(...)``
+  albo ``raise SystemExit(...)`` (``sys.exit(main())``), ``return <liczba>`` zamienione na inny kod wyjścia
+  (``return 0`` na ``return 1``, inna liczba na ``return 0``), bo ``sys.exit(None)`` kończy się kodem 0 jak ``return 0``;
 - ``a in b``, ``b.startswith(a)`` i ``b.endswith(a)`` zamienione na siebie nawzajem (także ``not in``), gdy ``b`` nie
   jest literałem kolekcji, a ``startswith``/``endswith`` mają jeden argument, który nie jest krotką;
 - argument nazwany (``wersja=wersja``) ustawiony na ``None``, gdy jego wartość nie jest stałą (stałą psuje już
@@ -331,6 +333,37 @@ def _cached_lines(tree: ast.AST) -> set[int]:
     return found
 
 
+def _own(function: ast.FunctionDef) -> Iterator[ast.AST]:
+    """Węzły ciała funkcji bez ciał funkcji zagnieżdżonych w niej (także metod klasy): ich ``return`` nie jest jej wynikiem."""
+
+    pending: list[ast.AST] = list(function.body)
+    while pending:
+        node = pending.pop()
+        yield node
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            pending.extend(ast.iter_child_nodes(node))
+
+
+def _exit_codes(tree: ast.Module) -> dict[int, tuple[ast.expr, int]]:
+    """Wartość i inny kod wyjścia każdego ``return <liczba>`` funkcji modułu, której wynik moduł podaje ``sys.exit(...)``
+    albo ``raise SystemExit(...)``: ``0`` dla liczby różnej od zera, ``1`` dla zera."""
+
+    exiting = {
+        argument.func.id
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call) and ast.unparse(node.func) in {"sys.exit", "SystemExit"}
+        for argument in node.args
+        if isinstance(argument, ast.Call) and isinstance(argument.func, ast.Name)
+    }
+    return {
+        id(node): (node.value, 0 if node.value.value else 1)
+        for function in tree.body
+        if isinstance(function, ast.FunctionDef) and function.name in exiting
+        for node in _own(function)
+        if isinstance(node, ast.Return) and isinstance(node.value, ast.Constant) and type(node.value.value) is int
+    }
+
+
 _BOUNDARY: dict[type[ast.cmpop], str] = {ast.Lt: "<=", ast.LtE: "<", ast.Gt: ">=", ast.GtE: ">"}
 _PREDICATES = ("startswith", "endswith")
 # Literał kolekcji nigdy nie jest napisem, więc ``x in [...]`` zamienione na ``startswith`` tylko wywraca kod.
@@ -369,8 +402,11 @@ def _predicates(node: ast.Compare | ast.Call, source: _Source) -> Iterator[tuple
         yield node, node, f"({negation}{code})", f"`{_short(source.segment(node))}` → `{_short(negation + shown)}`"
 
 
-def _candidates(node: ast.AST, source: _Source) -> Iterator[tuple[Node, Node, str, str]]:
-    """(węzeł do zastąpienia, węzeł, którego linie psuje mutacja, zamiana, opis) dla jednego węzła."""
+def _candidates(node: ast.AST, source: _Source, exit_codes: dict[int, tuple[ast.expr, int]]) -> Iterator[tuple[Node, Node, str, str]]:
+    """(węzeł do zastąpienia, węzeł, którego linie psuje mutacja, zamiana, opis) dla jednego węzła.
+
+    ``exit_codes`` to inny kod wyjścia dla ``return <liczba>`` funkcji, której wynik trafia do ``sys.exit``.
+    """
 
     if isinstance(node, ast.BoolOp):
         word = "and" if isinstance(node.op, ast.And) else "or"
@@ -391,6 +427,9 @@ def _candidates(node: ast.AST, source: _Source) -> Iterator[tuple[Node, Node, st
         yield node, node, f"({left} {swapped} {right})", f"granica `{_short(source.segment(node))}` → `{swapped}`"
     elif isinstance(node, ast.Compare):
         yield from _predicates(node, source)
+    elif id(node) in exit_codes:
+        returned, code = exit_codes[id(node)]
+        yield returned, returned, str(code), f"`return {source.segment(returned)}` → `return {code}`"
     elif isinstance(node, ast.Return) and node.value is not None and not (
         isinstance(node.value, ast.Constant) and node.value.value is None
     ):
@@ -506,6 +545,7 @@ def mutants(path: str, text: str, hunks: Sequence[Hunk], platform: str = sys.pla
         line for node in ast.walk(tree) if id(node) in other and isinstance(node, (ast.expr, ast.stmt)) for line in _span_lines(node)
     }
     cached = _cached_lines(tree)
+    exit_codes = _exit_codes(tree)
     found: dict[str, Mutant] = {}
     meaning = _meaning(text)
 
@@ -522,7 +562,7 @@ def mutants(path: str, text: str, hunks: Sequence[Hunk], platform: str = sys.pla
     for node in ast.walk(tree):
         if id(node) in skipped:
             continue
-        for replaced, broken, replacement, description in _candidates(node, source):
+        for replaced, broken, replacement, description in _candidates(node, source, exit_codes):
             lines = _span_lines(broken) & changed
             if lines:
                 mutated = source.replaced(replaced, replacement)
