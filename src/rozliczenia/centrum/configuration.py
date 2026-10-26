@@ -87,10 +87,14 @@ _CLOSING: Final[Mapping[InputKind, str]] = {
 
 
 def open_in_excel(workbooks: Iterable[InputWorkbook]) -> list[str]:
-    """Zdania karty startu o skoroszytach wejściowych otwartych w Excelu, w kolejności ``workbooks``."""
+    """Zdania karty startu o skoroszytach wejściowych otwartych w Excelu, w kolejności ``workbooks``.
+
+    Plik blokady zostaje też po awarii Excela, więc zdanie mówi, jak go usunąć, tak jak Zatrzymanie procesu.
+    """
 
     return [
-        f"{label} jest otwarty w Excelu. {_CLOSING[kind]}"
+        f"{label} jest otwarty w Excelu. {_CLOSING[kind]} Jeśli Excel jest zamknięty, usuń z tego samego folderu "
+        f"pozostawiony plik {workbook_files.excel_lock_file(path).name}."
         for label, path, kind in workbooks
         if workbook_files.is_open_in_excel(path)
     ]
@@ -110,12 +114,6 @@ class Template:
     @property
     def path(self) -> Path:
         return self.template.file.path
-
-    def find_problem(self, readers: Readers) -> _Problem | None:
-        """Rodzaj problemu i Komunikat, którym zatrzymałby się proces; ``None``, gdy Wzorzec przechodzi Sprawdzanie."""
-
-        found = self.template.problem(readers)
-        return None if found is None else (_kind(found.problem), found.message)
 
     def problem(self, readers: Readers) -> Message | None:
         """Komunikat, którym zatrzymałby się proces używający Wzorca; ``None``, gdy przechodzi Sprawdzanie."""
@@ -191,11 +189,17 @@ _KEY_STATE: Final[Mapping[KeyJudgement, contract.ReportKeyState]] = {
 CONFIGURATION_WAIT_S: Final = 1.0
 
 
+_CONTENT_PROBLEMS: Final = frozenset({Problem.UNREADABLE, Problem.LAYOUT, Problem.HAS_DATA})
+
+
 class _CheckedTemplates:
     """Wynik Sprawdzania każdego wzorca, ważny do zmiany pliku albo jego blokady.
 
     Prawdziwe Wzorce otwierają się sekundami, a Konfiguracja jest odczytywana
-    przy każdym powrocie do karty. Brak pliku jest sprawdzany zawsze od nowa.
+    przy każdym powrocie do karty. Pamięta tylko wynik zależny od treści pliku:
+    Wzorzec gotowy albo problem z treści. Brak pliku, plik otwarty w Excelu
+    i plik niedostępny (zmiana uprawnień albo zwolnienie przez inny program nie
+    zmieniają daty ani rozmiaru) są sprawdzane zawsze od nowa.
     """
 
     def __init__(self, readers: Readers) -> None:
@@ -223,10 +227,12 @@ class _CheckedTemplates:
             cached = self._results.get(path)
             if cached is not None and cached[0] == signature:
                 return cached[1]
-        found = template.find_problem(self._readers)
+        found = template.template.problem(self._readers)
+        result = None if found is None else (_kind(found.problem), found.message)
         if signature is not None:
-            self._results[path] = (signature, found)
-        return found
+            if found is None or found.problem in _CONTENT_PROBLEMS:
+                self._results[path] = (signature, result)
+        return result
 
 
 def workers_problem(config_path: Path) -> Message | None:

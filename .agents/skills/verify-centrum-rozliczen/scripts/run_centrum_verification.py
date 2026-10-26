@@ -67,6 +67,8 @@ REQUIRED_SCREENSHOTS = {
         "10-konfiguracja-gotowa.png",
         "11-konfiguracja-tylko-do-odczytu.png",
         "12-konfiguracja-wzorzec-otwarty.png",
+        "12a-konfiguracja-wzorzec-niedostepny.png",
+        "12b-konfiguracja-wzorzec-dostepny.png",
         "13-konfiguracja-brak-wzorca.png",
         "14-konfiguracja-nieczytelna-konfiguracja-wykonawcow.png",
     ),
