@@ -46,8 +46,11 @@ HEADERS = (
 )
 FIRST = 2  # B: AKCJE
 DATE = 3  # C
+DEVICES = 7  # G: URZĄDZENIA
+ACTIVITIES = 8  # H: CZYNNOŚCI
 NUMBER = 9  # I: NUMER ZL.
 WORKER = 10  # J
+CONTRACT_NUMBER = 11  # K: NUMER UMOWY
 LAST = 15  # O: UWAGI
 APP_LAST = 37  # AK: ostatnia kolumna z aplikacji
 DATE_FORMAT = "m/d/yy h:mm"
@@ -66,11 +69,16 @@ BLANK_HEIGHT = 11.25
 
 @dataclass(frozen=True)
 class Order:
-    """Zlecenie syntetyczne: chwila, Wykonawca i numer, z którego powstają pozostałe wartości wiersza."""
+    """Zlecenie syntetyczne: chwila, Wykonawca i numer, z którego powstają pozostałe wartości wiersza.
+
+    ``operator`` stoi w ``CZYNNOŚCI`` (``None``: pusta komórka), a ``kind`` w ``URZĄDZENIA``, jak z aplikacji.
+    """
 
     when: datetime
     worker: str
     number: int
+    operator: str | None = "INEA"
+    kind: str = "Instalacja"
 
     def values(self) -> dict[int, datetime | str]:
         """Wartości kolumn od B do AK na swoim miejscu (nieprzesunięte)."""
@@ -80,12 +88,13 @@ class Order:
             4: "Miasto",
             5: f"Ulica {self.number}",
             6: "Umowa",
-            7: "Instalacja",
-            8: "INEA",
+            DEVICES: self.kind,
             NUMBER: f"ZL-{self.number}",
             WORKER: self.worker,
-            11: f"UM-{self.number}",
+            CONTRACT_NUMBER: f"UM-{self.number}",
         }
+        if self.operator is not None:
+            values[ACTIVITIES] = self.operator
         values.update({column: f"APP{column}-{self.number}" for column in range(LAST + 1, APP_LAST + 1)})
         return values
 
@@ -141,6 +150,10 @@ class Intermax:
     excel: bool = True
     raw_date_format: str = APP_DATE_FORMAT
     """Format daty Surowych zleceń: własny format aplikacji albo wbudowany format Excela."""
+    active_sheet: str = ORDER_SHEET
+    """Arkusz, który tata zostawił aktywny i zaznaczony przy ostatnim zapisie."""
+    frozen: bool = True
+    """Zamrożony nagłówek arkusza zleceń, jak u taty; bez niego widok bez panelu."""
     """Zapis jak w Excelu (teksty wspólne, liczby bez ``t``); bez tego teksty wbudowane z openpyxl."""
 
     def write(self, path: Path) -> Layout:
@@ -153,7 +166,7 @@ class Intermax:
         hidden.sheet_state = "hidden"
         if self.older_sheet:
             _ordered_days(_order_sheet(workbook, "ZLECENIA OD 08_11_2021"), self.ordered)
-        sheet = _order_sheet(workbook, ORDER_SHEET)
+        sheet = _order_sheet(workbook, ORDER_SHEET, frozen=self.frozen)
         workbook.active = len(workbook.worksheets) - 1
         last_ordered = _ordered_days(sheet, self.ordered)
         yellow = None
@@ -190,6 +203,9 @@ class Intermax:
         lists["A1"] = "lista"
         notes = workbook.create_sheet("komentarze")
         notes["B1"] = "komentarz"
+        workbook.active = workbook[self.active_sheet]
+        for worksheet in workbook.worksheets:
+            worksheet.sheet_view.tabSelected = True if worksheet.title == self.active_sheet else None
         workbook.save(path)
         if self.excel:
             like_excel(path)
@@ -257,10 +273,11 @@ def rewrite_parts(path: Path, change: Callable[[str, bytes], bytes], added: dict
             target.writestr(name, data)
 
 
-def _order_sheet(workbook: Workbook, title: str) -> Worksheet:
+def _order_sheet(workbook: Workbook, title: str, *, frozen: bool = True) -> Worksheet:
     sheet = workbook.create_sheet(title)
     assert isinstance(sheet, Worksheet)
-    sheet.freeze_panes = "A2"
+    if frozen:
+        sheet.freeze_panes = "A2"
     for column, header in enumerate(HEADERS, start=FIRST):
         sheet.cell(1, column, header).font = Font(name="Calibri", sz=11, b=True)
     for column, header in enumerate(("BOS", "TYP", "STATUS 1"), start=LAST + 1):

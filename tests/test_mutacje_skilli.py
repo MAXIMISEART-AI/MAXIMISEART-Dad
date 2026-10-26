@@ -67,7 +67,7 @@ def _skill(root: Path, name: str, scripts: dict[str, str], skill_md: str = "") -
 
 def _tool(root: Path) -> list[str]:
     (root / "tools").mkdir(exist_ok=True)
-    for name in (TOOL.name, "potomne.py", "mutacje.py", "sciezki_w_kodzie.py"):
+    for name in (TOOL.name, "potomne.py", "ciezkie_ci.py", "mutacje.py", "sciezki_w_kodzie.py"):
         shutil.copy(TOOLS / name, root / "tools" / name)
     return [sys.executable, str(root / "tools" / TOOL.name)]
 

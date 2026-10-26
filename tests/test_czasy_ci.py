@@ -28,6 +28,7 @@ sys.path.insert(0, str(ROOT / "tools"))
 
 import czasy_ci  # noqa: E402
 from czasy_ci import KROKI, main  # noqa: E402
+import plan_ci  # noqa: E402
 
 RUNNER = "GitHub Actions 1000012606"
 ENV = {
@@ -95,33 +96,28 @@ def _api(steps: list[dict[str, str | None]]) -> dict[str, object]:
 
 PYTEST_STEPS: list[dict[str, str | None]] = [
     _step("Set up job", "success", "02:30:51", "02:30:54"),
-    _step("Run tests", "failure", "02:31:08", "02:37:31"),
-    _step("Run tests (Linux)", "skipped", "02:37:31", "02:37:31"),
-    _step("E2E (verify-rozliczenia --variant all)", "success", "02:37:31", "02:38:32"),
-    _step("Timing guard: generate synthetic Wzorce", "success", "02:38:32", "02:38:42"),
-    _step("Timing guard: measure Przebieg rozliczeń (typowy tydzień)", "success", "02:38:42", "02:39:02"),
-    _step("Timing guard: report timings and enforce the budget", "success", "02:39:02", "02:39:07"),
-    _step("Upload benchmark failure output", "success", "02:39:07", "02:39:09"),
+    _step("Run the planned units", "failure", "02:31:08", "02:39:07"),
+    _step("Upload E2E and timing guard evidence on failure", "success", "02:39:07", "02:39:09"),
 ]
 # Krok zapisu sam trwa, gdy czyta API.
 RECORDING = _running(_step("Record the time of each unit of work", "success", "02:39:09", "02:39:10"))
 PYTEST_STEPS.append(RECORDING)
-LINUX_STEPS = [
-    PYTEST_STEPS[0],
-    _step("Run tests", "skipped", "02:31:08", "02:31:08"),
-    _step("Run tests (Linux)", "failure", "02:31:08", "02:37:31"),
-    RECORDING,
-]
-PYTEST_UNITS = [
-    {"klucz": "krok:e2e", "s": 61.0, "status": "ok"},
-    {"klucz": "krok:pytest", "s": 383.0, "status": "fail"},
-    {"klucz": "krok:timing", "s": 35.0, "status": "ok"},
+API_UNITS = [{"klucz": "krok:praca", "s": 479.0, "status": "fail"}]
+JUNIT_UNITS = [
     {"klucz": "pytest:tests/test_a.py", "s": 1.5, "status": "fail"},
     {"klucz": "pytest:tests/test_b.py", "s": 0.3, "status": "ok"},
     {"klucz": "pytest:tests/test_c.py", "s": 0.254, "status": "fail"},
     {"klucz": "pytest:tests/test_d.py", "s": 2.0, "status": "ok"},
     {"klucz": "pytest:tests/test_e.py", "s": 0.0, "status": "fail"},
 ]
+# Jednostki, które mierzy ``tools/plan_ci.py wykonaj``, i plan, z którego biegły.
+PLANNED = {"plan": "digest-planu", "zadanie": "windows-3.14-1"}
+PLANNED_UNITS = [
+    {"klucz": "krok:pytest", "s": 383.0, "status": "fail"},
+    {"klucz": "krok:e2e", "s": 61.0, "status": "ok"},
+    {"klucz": "krok:timing", "s": 35.0, "status": "ok"},
+]
+PYTEST_UNITS = [*API_UNITS, *JUNIT_UNITS, *PLANNED_UNITS]
 
 
 class _Api:
@@ -170,8 +166,9 @@ def api(monkeypatch: pytest.MonkeyPatch) -> Iterator[_Api]:
 
 def _inputs(folder: Path) -> dict[str, Path]:
     folder.mkdir(parents=True, exist_ok=True)
-    paths = {"junit": folder / "junit.xml", "mutacje": folder / "mutacje.log"}
+    paths = {"junit": folder / "junit.xml", "mutacje": folder / "mutacje.log", "wykonanie": folder / "wykonanie.json"}
     paths["junit"].write_text(JUNIT, encoding="utf-8")
+    paths["wykonanie"].write_text(json.dumps({**PLANNED, "jednostki": PLANNED_UNITS}), encoding="utf-8")
     paths["mutacje"].write_bytes("skrypt wypisał w cp1250: zażółć\r\n".encode("cp1250") + MUTATIONS_LOG.encode("utf-8"))
     return paths
 
@@ -183,10 +180,10 @@ def _record(tmp_path: Path, paths: dict[str, Path], *sources: str, tor: str = "W
     return code, json.loads(record.read_text(encoding="utf-8"))
 
 
-def test_zadanie_pytest_zapisuje_czas_kazdego_pliku_testow_i_kazdego_kroku_z_narzutem(
+def test_zadanie_pytest_zapisuje_czas_kazdego_pliku_testow_i_kazdej_jednostki_planu_z_narzutem_i_planem(
     tmp_path: Path, capsys: pytest.CaptureFixture[str], api: _Api
 ) -> None:
-    code, record = _record(tmp_path, _inputs(tmp_path / "wejscie"), "junit")
+    code, record = _record(tmp_path, _inputs(tmp_path / "wejscie"), "junit", "wykonanie")
 
     assert code == 0
     assert api.requests == [("/repos/MAXIMISEART-AI/MAXIMISEART-Dad/actions/runs/40259456807/attempts/2/jobs?per_page=100", "Bearer token-testu")]
@@ -202,8 +199,10 @@ def test_zadanie_pytest_zapisuje_czas_kazdego_pliku_testow_i_kazdego_kroku_z_nar
         "narzut_s": 17.0,
         "jednostki": PYTEST_UNITS,
         "bledy": [],
+        "plan": "digest-planu",
+        "zadanie_planu": "windows-3.14-1",
     }
-    assert capsys.readouterr().out.splitlines() == ["CZASY CI | pytest (Python 3.14, 1/2) | windows-3.14 | 8 jednostek | narzut 17 s | pytest-0-2.json"]
+    assert capsys.readouterr().out.splitlines() == ["CZASY CI | pytest (Python 3.14, 1/2) | windows-3.14 | 9 jednostek | narzut 17 s | pytest-0-2.json"]
 
 
 def test_zadanie_mutation_checks_zapisuje_czas_kazdego_kroku_skilla_takze_nieudanego(tmp_path: Path, api: _Api) -> None:
@@ -224,8 +223,8 @@ def test_zadanie_bez_kroku_jednostki_skonczonego_sukcesem_albo_porazka_nie_ma_na
     api.steps(
         [
             _step("Set up job", "success", "02:30:51", "02:30:54"),
-            _step("Run tests", "cancelled", "02:31:00", "02:31:30"),
-            _step("Run tests (Linux)", "skipped", "02:31:30", "02:31:30"),
+            _step("Run the planned units", "cancelled", "02:31:00", "02:31:30"),
+            _step("Run each verify skill's baseline check and prove it fails on broken variants", "skipped", "02:31:30", "02:31:30"),
         ]
     )
     code, record = _record(tmp_path, {}, tor="Linux-3.14.0")
@@ -240,12 +239,12 @@ def test_krok_bez_wyniku_w_api_zadanie_czyta_ponownie_az_api_pokaze_wynik(
 ) -> None:
     waits: list[float] = []
     monkeypatch.setattr(time, "sleep", waits.append)
-    lagging = [*LINUX_STEPS[:2], _running(LINUX_STEPS[2]), *LINUX_STEPS[3:]]
-    api.steps(lagging, lagging, LINUX_STEPS)
+    lagging = [PYTEST_STEPS[0], _running(PYTEST_STEPS[1]), *PYTEST_STEPS[2:]]
+    api.steps(lagging, lagging, PYTEST_STEPS)
 
     code, record = _record(tmp_path, {}, tor="Linux-3.14.0")
 
-    assert (code, record["bledy"], record["jednostki"], record["narzut_s"]) == (0, [], PYTEST_UNITS[1:2], 17.0)
+    assert (code, record["bledy"], record["jednostki"], record["narzut_s"]) == (0, [], API_UNITS, 17.0)
     assert (waits, len(api.requests)) == ([1.0, 1.0], 3)
 
 
@@ -254,12 +253,12 @@ def test_krok_bez_wyniku_po_piatym_odczycie_jest_zgloszony(
 ) -> None:
     waits: list[float] = []
     monkeypatch.setattr(time, "sleep", waits.append)
-    api.steps([*PYTEST_STEPS[:3], _running(PYTEST_STEPS[3])])
+    api.steps([PYTEST_STEPS[0], _running(PYTEST_STEPS[1])])
 
     code, record = _record(tmp_path, {})
 
     assert (code, record["jednostki"], waits, len(api.requests)) == (1, [], [1.0] * 4, 5)
-    assert record["bledy"] == ["API zadań runu: ValueError(\"kroki ['E2E (verify-rozliczenia --variant all)'] bez wyniku w API po 5 odczytach\")"]
+    assert record["bledy"] == ["API zadań runu: ValueError(\"kroki ['Run the planned units'] bez wyniku w API po 5 odczytach\")"]
     assert capsys.readouterr().out.startswith(f"CZASY CI FAIL | {record['bledy'][0]}\n")
 
 
@@ -293,6 +292,10 @@ def _replace(path: Path, content: str | None) -> None:
         ("mutacje", None, "mutacje.log: FileNotFoundError("),
         ("mutacje", "OK   PODSTAWA verify-b (23 s)\n", "mutacje.log: ValueError('brak linii MUTACJE SKILLI OK/FAIL"),
         ("mutacje", "OK   PODSTAWA verify-b (23 s)\nskrypt wypisał: MUTACJE SKILLI OK | 1 kroków\n", "mutacje.log: ValueError('brak linii MUTACJE"),
+        ("wykonanie", None, "wykonanie.json: FileNotFoundError("),
+        ("wykonanie", "{", "wykonanie.json: JSONDecodeError("),
+        ("wykonanie", '{"plan": "digest-planu", "jednostki": []}', "wykonanie.json: KeyError('zadanie')"),
+        ("wykonanie", '{"plan": "p", "zadanie": "z", "jednostki": [{"klucz": "krok:e2e"}]}', "wykonanie.json: TypeError("),
         ("api", None, "API zadań runu: URLError(ConnectionRefusedError("),
         ("api", (401, '{"message": "Bad credentials"}'), "API zadań runu: <HTTPError 401: "),
         ("api", (200, ""), "API zadań runu: JSONDecodeError("),
@@ -323,16 +326,17 @@ def test_brakujace_albo_zepsute_wejscie_jest_zgloszone_a_reszta_pomiaru_zostaje(
     else:
         monkeypatch.setenv("GITHUB_API_URL", "http://127.0.0.1:1")
 
-    code, record = _record(tmp_path, paths, "junit", "mutacje")
+    code, record = _record(tmp_path, paths, "junit", "mutacje", "wykonanie")
     errors = record["bledy"]
     out = capsys.readouterr().out.splitlines()
 
     assert code == 1
     assert isinstance(errors, list) and len(errors) == 1 and errors[0].startswith(error), errors
     assert out[0] == f"CZASY CI FAIL | {errors[0]}"
-    kept = {"api": PYTEST_UNITS[:3], "junit": PYTEST_UNITS[3:], "mutacje": MUTATION_UNITS}
-    assert record["jednostki"] == [unit for other in ("api", "junit", "mutacje") if other != source for unit in kept[other]]
+    kept = {"api": API_UNITS, "junit": JUNIT_UNITS, "mutacje": MUTATION_UNITS, "wykonanie": PLANNED_UNITS}
+    assert record["jednostki"] == [unit for other in ("api", "junit", "mutacje", "wykonanie") if other != source for unit in kept[other]]
     assert record["zadanie"] == ("pytest" if source == "api" else "pytest (Python 3.14, 1/2)")
+    assert (record["plan"], record["zadanie_planu"]) == ((None, None) if source == "wykonanie" else ("digest-planu", "windows-3.14-1"))
 
 
 def _merge(folder: Path, output: Path) -> int:
@@ -358,10 +362,10 @@ def _saved(folder: Path, name: str, *, run: int, attempt: int, job: str, tor: st
 
 
 def test_scalenie_zapisow_runu_daje_obserwacje_kazdego_klucza_na_torze(tmp_path: Path, capsys: pytest.CaptureFixture[str], api: _Api) -> None:
-    for lane, (python, steps) in {"windows": ("Windows-3.14.0", PYTEST_STEPS), "linux": ("Linux-3.14.0", LINUX_STEPS)}.items():
-        api.steps(steps)
+    for lane, (python, planned) in {"windows": ("Windows-3.14.0", "wykonanie"), "linux": ("Linux-3.14.0", None)}.items():
         paths = _inputs(tmp_path / lane)
-        main(["zadanie", "--tor", python, "--junit", str(paths["junit"]), "--wyjscie", str(tmp_path / "zapisy" / f"{lane}.json")])
+        sources = ["--junit", str(paths["junit"]), *(["--wykonanie", str(paths["wykonanie"])] if planned else [])]
+        main(["zadanie", "--tor", python, *sources, "--wyjscie", str(tmp_path / "zapisy" / f"{lane}.json")])
     capsys.readouterr()
 
     code = _merge(tmp_path / "zapisy", tmp_path / "czasy-ci.json")
@@ -375,9 +379,8 @@ def test_scalenie_zapisow_runu_daje_obserwacje_kazdego_klucza_na_torze(tmp_path:
     assert merged["runy"] == [{"run": 40259456807, "proba": 2, "sha": ENV["GITHUB_SHA"], "zdarzenie": "push"}]
     assert merged["tory"] == {
         "linux-3.14": {
-            "krok:pytest": observed(PYTEST_UNITS[1]),
+            **{str(unit["klucz"]): observed(unit) for unit in [*API_UNITS, *JUNIT_UNITS]},
             "narzut:pytest": observed({"s": 17.0, "status": "ok"}),
-            **{str(unit["klucz"]): observed(unit) for unit in PYTEST_UNITS[3:]},
         },
         "windows-3.14": {
             **{str(unit["klucz"]): observed(unit) for unit in PYTEST_UNITS},
@@ -387,7 +390,7 @@ def test_scalenie_zapisow_runu_daje_obserwacje_kazdego_klucza_na_torze(tmp_path:
     assert list(merged["tory"]["windows-3.14"]) == sorted(merged["tory"]["windows-3.14"])
     assert capsys.readouterr().out.splitlines() == [
         "CZASY CI | linux-3.14 | 7 kluczy, w tym 5 plików testów",
-        "CZASY CI | windows-3.14 | 9 kluczy, w tym 5 plików testów",
+        "CZASY CI | windows-3.14 | 10 kluczy, w tym 5 plików testów",
         "CZASY CI SCALONE | 2 zapisów zadań | czasy-ci.json",
     ]
 
@@ -451,6 +454,129 @@ def test_bez_zadnego_dobrego_zapisu_scalenie_nie_tworzy_czasow_ci(tmp_path: Path
     assert (f"brak zapisów zadań w {tmp_path / 'zapisy'}" in out[0]) == (not records)
 
 
+def _artifact(run: int, **jobs: dict[str, float]) -> dict[str, object]:
+    """Artefakt ``czasy-ci`` runu main: zadanie (``nazwa`` albo ``nazwa@próba``) -> klucz -> sekundy na windows-3.14."""
+
+    keys: dict[str, list[dict[str, object]]] = {}
+    for job, units in jobs.items():
+        name, _, attempt = job.partition("@")
+        for key, seconds in units.items():
+            keys.setdefault(key, []).append({"run": run, "proba": int(attempt or 1), "zadanie": name, "s": seconds, "status": "ok"})
+    return {"wersja": 1, "runy": [{"run": run, "proba": 1, "sha": f"sha{run}", "zdarzenie": "push"}], "tory": {"windows-3.14": keys}}
+
+
+class _Gh:
+    """``gh`` z zielonymi runami main i ich artefaktami ``czasy-ci``; zapamiętuje wywołania."""
+
+    def __init__(self, green: list[int], artifacts: dict[int, dict[str, object]]) -> None:
+        self.green, self.artifacts = green, artifacts
+        self.calls: list[tuple[str, ...]] = []
+
+    def __call__(self, *arguments: str) -> str:
+        self.calls.append(arguments)
+        if arguments[0] == "api":
+            listed = self.green if "/runs?" in arguments[1] else list(self.artifacts)
+            return "\n".join(map(str, listed)) + "\n"
+        assert arguments[:2] == ("run", "download"), arguments
+        folder = Path(arguments[arguments.index("--dir") + 1])
+        folder.mkdir(parents=True)
+        (folder / "czasy-ci.json").write_text(json.dumps(self.artifacts[int(arguments[2])]), encoding="utf-8")
+        return ""
+
+
+def _seconds(run: int) -> dict[str, dict[str, float]]:
+    """Plik testów podzielony między dwa zadania i narzut każdego zadania; zadanie B powtórzone, liczy się próba 2."""
+
+    return {
+        "A": {"pytest:tests/test_x.py": run, "narzut:pytest": 10},
+        "B": {"pytest:tests/test_x.py": 1000, "narzut:pytest": 1000},
+        "B@2": {"pytest:tests/test_x.py": 2 * run, "narzut:pytest": 20},
+    }
+
+
+def test_czasy_z_main_to_mediana_trzech_najnowszych_zielonych_runow_z_artefaktem_i_ostatniej_proby_zadania(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Runy 11 i 6 anulowano: Required wysłał częściowy artefakt, ale lista zielonych runów main ich nie ma.
+    gh = _Gh([10, 9, 8, 7, 5], {run: _artifact(run, **_seconds(run)) for run in (11, 10, 9, 8, 7, 6)})
+    monkeypatch.setattr(czasy_ci, "_gh", gh)
+    (tmp_path / "5.json").write_text(json.dumps(_artifact(5, A={"pytest:tests/test_x.py": 9000})), encoding="utf-8")
+
+    czasy = czasy_ci.z_mainu(tmp_path)
+
+    assert (czasy.runy, czasy.blad) == ((8, 9, 10), None)
+    assert [call[2] for call in gh.calls if call[0] == "run"] == ["10", "9", "8"]
+    assert sorted(path.name for path in tmp_path.iterdir()) == ["10.json", "8.json", "9.json", "pobrane"]
+    assert czasy.praca("windows-3.14", "pytest:tests/test_x.py") == 27
+    assert czasy.pliki("windows-3.14") == {"tests/test_x.py": 27}
+    assert (czasy.praca("linux-3.14", "pytest:tests/test_x.py"), czasy.pliki("linux-3.14")) == (None, {})
+    assert czasy.zadania("windows-3.14")[:2] == [{"pytest:tests/test_x.py": 8, "narzut:pytest": 10}, {"pytest:tests/test_x.py": 16, "narzut:pytest": 20}]
+
+
+def test_swieze_czasy_nie_pytaja_githuba_a_starsze_niz_doba_odswiezaja(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    gh = _Gh([3], {3: _artifact(3, A={"pytest:tests/test_x.py": 4})})
+    monkeypatch.setattr(czasy_ci, "_gh", gh)
+    (tmp_path / "2.json").write_text(json.dumps(_artifact(2, A={"pytest:tests/test_x.py": 2})), encoding="utf-8")
+    (tmp_path / "pobrane").touch()
+
+    fresh = czasy_ci.z_mainu(tmp_path, odswiez_po_s=czasy_ci.ODSWIEZ_S)
+    os.utime(tmp_path / "pobrane", (time.time() - czasy_ci.ODSWIEZ_S - 1,) * 2)
+    refreshed = czasy_ci.z_mainu(tmp_path, odswiez_po_s=czasy_ci.ODSWIEZ_S)
+
+    assert (fresh.runy, refreshed.runy) == ((2,), (3,))
+    assert len([call for call in gh.calls if call[0] == "api"]) == 2
+
+
+def test_bez_githuba_czasy_biora_kopie_a_bez_kopii_sa_puste_i_mowia_dlaczego(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def offline(*arguments: str) -> str:
+        raise subprocess.CalledProcessError(1, ["gh", *arguments], stderr="error connecting to api.github.com")
+
+    monkeypatch.setattr(czasy_ci, "_gh", offline)
+    empty = czasy_ci.z_mainu(tmp_path / "pusty")
+    (tmp_path / "kopia").mkdir()
+    (tmp_path / "kopia" / "2.json").write_text(json.dumps(_artifact(2, A={"pytest:tests/test_x.py": 2})), encoding="utf-8")
+    cached = czasy_ci.z_mainu(tmp_path / "kopia")
+
+    assert (empty.runy, empty.tory, empty.blad) == ((), {}, "pobranie czasy-ci z GitHuba: error connecting to api.github.com")
+    assert (cached.runy, cached.pliki("windows-3.14"), cached.blad) == ((2,), {"tests/test_x.py": 2}, empty.blad)
+
+
+def test_po_nieudanym_pobraniu_nastepny_odczyt_pobiera_znowu_a_po_udanym_czeka_dobe(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def offline(*arguments: str) -> str:
+        raise subprocess.CalledProcessError(1, ["gh", *arguments], stderr="error connecting to api.github.com")
+
+    monkeypatch.setattr(czasy_ci, "_gh", offline)
+    failed = czasy_ci.z_mainu(tmp_path, odswiez_po_s=czasy_ci.ODSWIEZ_S)
+    monkeypatch.setattr(czasy_ci, "_gh", _Gh([3], {3: _artifact(3, A={"pytest:tests/test_x.py": 4})}))
+    retried = czasy_ci.z_mainu(tmp_path, odswiez_po_s=czasy_ci.ODSWIEZ_S)
+    monkeypatch.setattr(czasy_ci, "_gh", offline)
+    cached = czasy_ci.z_mainu(tmp_path, odswiez_po_s=czasy_ci.ODSWIEZ_S)
+
+    assert (failed.runy, failed.blad) == ((), "pobranie czasy-ci z GitHuba: error connecting to api.github.com")
+    assert (retried.runy, retried.blad) == ((3,), None)
+    assert (cached.runy, cached.blad) == ((3,), None)
+
+
+@pytest.mark.parametrize(
+    ("content", "error"),
+    [
+        (None, "brak artefaktu czasy-ci z zielonego runu main"),
+        ("{", "2.json: Expecting property name"),
+        ('{"wersja": 1, "runy": [], "tory": {"windows-3.14": {"k": [{"run": 2}]}}}', "czasy-ci w innym kształcie: KeyError('zadanie')"),
+    ],
+)
+def test_brak_albo_zepsuty_artefakt_daje_puste_czasy_z_przyczyna(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, content: str | None, error: str) -> None:
+    monkeypatch.setattr(czasy_ci, "_gh", _Gh([], {}))
+    if content is not None:
+        (tmp_path / "2.json").write_text(content, encoding="utf-8")
+    (tmp_path / "pobrane").touch()
+
+    czasy = czasy_ci.z_mainu(tmp_path, odswiez_po_s=czasy_ci.ODSWIEZ_S)
+
+    assert (czasy.runy, czasy.tory) == ((), {})
+    assert czasy.blad is not None and czasy.blad.startswith(error), czasy.blad
+
+
 def _recorded(job: str, option: str) -> str:
     """Ścieżka, którą krok zapisu zadania ``job`` w ``ci.yml`` podaje opcją ``option``."""
 
@@ -460,16 +586,14 @@ def _recorded(job: str, option: str) -> str:
     return arguments[arguments.index(option) + 1]
 
 
-def test_kazdy_krok_jednostki_jest_krokiem_ci_a_pytest_w_ci_zapisuje_junit_z_plikiem_testu() -> None:
+def test_kazdy_krok_jednostki_jest_krokiem_ci_a_zapis_czyta_junit_i_wynik_tam_gdzie_pisze_je_plan_ci() -> None:
     workflow = jobs()
     names = {step.get("name") for job in ("pytest", "mutations") for step in workflow[job]["steps"]}
-    pytest_runs = [line for step in workflow["pytest"]["steps"] for line in step.get("run", "").splitlines() if "-m pytest" in line]
-    junit = _recorded("pytest", "--junit")
 
     assert set(KROKI) - names == set()
-    assert len(pytest_runs) == 2
     assert tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["tool"]["pytest"]["ini_options"]["junit_family"] == "xunit1"
-    assert all(line.endswith(f" --junitxml {junit}") for line in pytest_runs), (junit, pytest_runs)
+    assert Path(_recorded("pytest", "--junit")) == plan_ci.JUNIT
+    assert Path(_recorded("pytest", "--wykonanie")) == plan_ci.WYKONANIE
 
 
 # Polecenie, którym GitHub Actions uruchamia skrypt kroku z danym ``shell:``; inna wartość to własny szablon z ``{0}``.
@@ -502,16 +626,19 @@ def test_pomiar_czasow_nie_zmienia_werdyktu_ci_i_biegnie_takze_po_porazce_z_dost
         for name, job in workflow.items()
     }
     required = workflow["required"]["steps"]
-    verdict = next(index for index, step in enumerate(required) if step.get("name") == "Require every CI check to succeed")
+    verdict = next(index for index, step in enumerate(required) if "tools/plan_ci.py werdykt" in step.get("run", ""))
+    # Zapisy zadań Required pobiera przed werdyktem, bo z nich sprawdza, że każda jednostka planu biegła.
+    records, *merging = measuring["required"]
 
-    assert {name: len(steps) for name, steps in measuring.items() if steps} == {"pytest": 2, "mutations": 2, "required": 4}
+    assert {name: len(steps) for name, steps in measuring.items() if steps} == {"pytest": 2, "mutations": 2, "required": 3}
     assert [
         step.get("name", step.get("uses"))
-        for steps in measuring.values()
+        for steps in (measuring["pytest"], measuring["mutations"], merging)
         for step in steps
         if step.get("continue-on-error") is not True or not step.get("if", "").startswith("${{ !cancelled()")
     ] == []
-    assert all(required.index(step) > verdict for step in measuring["required"])
+    assert (required.index(records) < verdict, records.get("continue-on-error")) == (True, True)
+    assert all(required.index(step) > verdict for step in merging)
     for job in ("pytest", "mutations"):
         assert workflow[job]["permissions"]["actions"] == "read", job
         assert [step["env"]["GH_TOKEN"] for step in measuring[job] if "run" in step] == ["${{ github.token }}"], job
@@ -523,7 +650,7 @@ def test_pomoc_pokazuje_ksztalt_danych_z_docstringu_z_jego_wcieciami(capsys: pyt
         main(["--help"])
 
     assert stopped.value.code == 0
-    assert "\n    krok:timing              trzy kroki straży czasu razem\n" in capsys.readouterr().out
+    assert "\n    krok:timing              trzy polecenia straży czasu razem\n" in capsys.readouterr().out
 
 
 @pytest.mark.parametrize(

@@ -3,7 +3,8 @@
 Ciężkie zadania to ``change-mutations`` (``tools/mutacje_zmiany.py``) i ``mutations`` (``tools/mutacje_skilli.py``
 dla wszystkich skilli): trwają kilkanaście minut i dłużej, a CI liczy je po pushu w trzech częściach każde.
 ``tools/mutacje_zmiany.py`` i ``tools/ci_lokalnie.py`` z jednym z nich (także pełne, bez ``--tylko``) pytają
-``refusal`` przed startem i poza CI odmawiają (kod 2 i linia ``CIĘŻKIE CI ODMOWA``), chyba że:
+``refusal`` przed startem, a ``tools/mutacje.py`` pyta ``mutations_refusal``, bo lista dłuższa niż ``TARGETED``
+mutacji to ręczne ``change-mutations``. Poza CI odmawiają (kod 2 i linia ``CIĘŻKIE CI ODMOWA``), chyba że:
 
 - biegną w CI (``GITHUB_ACTIONS=true``);
 - ``--odtwarzam <id runu Actions albo URL>`` wskazuje run, w którym każde z tych zadań padło i który dotyczy bieżącej
@@ -12,10 +13,14 @@ dla wszystkich skilli): trwają kilkanaście minut i dłużej, a CI liczy je po 
 - uruchamia je ``tools/na_scalonych_pr.py`` (``MAXIMISEART_NA_SCALONYCH_PR=1``): próba narzędzia na commicie scalenia
   cudzego PR-u, nie sprawdzenie przed pushem.
 
-Granica: ``GITHUB_ACTIONS``, ``MAXIMISEART_ODTWARZAM`` albo ``MAXIMISEART_NA_SCALONYCH_PR`` podstawione ręcznie,
-``tools/na_scalonych_pr.py --commit`` z commitem własnej gałęzi, pełny pytest i mutacje uruchomione bez tych narzędzi
-(pytest z własną pętlą mutacji, skrypt ``check_*_mutations.py`` wołany z ręki poza workflow skilla,
-``tools/mutacje_skilli.py`` wprost) łapie tylko przegląd.
+Skrypty ``check_*_mutations.py`` skilli ``verify-*`` wołają ``check_all`` wprost i nie mają limitu: ich lista leży
+w repozytorium, więc przegląda ją PR.
+
+Granica: tylko przegląd łapie ``GITHUB_ACTIONS``, ``MAXIMISEART_ODTWARZAM`` albo ``MAXIMISEART_NA_SCALONYCH_PR``
+podstawione ręcznie, ``tools/na_scalonych_pr.py --commit`` z commitem własnej gałęzi, ``tools/mutacje_skilli.py``
+uruchomione wprost, własny skrypt, który woła silnik (``check_all``, ``verdicts``) z długą listą, pytest z własną
+pętlą mutacji, a także ręczne ``change-mutations`` w kilku uruchomieniach ``tools/mutacje.py`` po najwyżej ``TARGETED``
+mutacji albo dla zmiany, która daje ich najwyżej tyle: strażnik liczy listę jednego uruchomienia, nie jej pochodzenie.
 """
 
 from __future__ import annotations
@@ -34,6 +39,9 @@ HEAVY = {"change-mutations": "Change mutations", "mutations": "Mutation checks"}
 FROM_MERGED_PRS = "MAXIMISEART_NA_SCALONYCH_PR"
 # Run, który sprawdził już strażnik narzędzia nadrzędnego: ``tools/ci_lokalnie.py`` przekazuje go swoim krokom.
 REPRODUCING = "MAXIMISEART_ODTWARZAM"
+# Do 26.10 dowody nowych testów z 300 PR-ów miały najwyżej 32 mutacje (p99 21), ręczne listy przeglądów najwyżej 100,
+# a lista z generatora Change mutations 335.
+TARGETED = 100
 
 Gh = Callable[[Sequence[str]], str]
 
@@ -75,6 +83,24 @@ def refusal(
     except (OSError, subprocess.CalledProcessError, ValueError, KeyError, TypeError) as error:
         why = f"nie odczytałem runu {reproduces} przez gh: {error}"
     return f"CIĘŻKIE CI ODMOWA | --odtwarzam {reproduces}: {why}" if why else None
+
+
+def mutations_refusal(
+    count: int,
+    reproduces: str | None,
+    *,
+    root: Path,
+    env: Mapping[str, str] = os.environ,
+    gh: Gh = _gh,
+) -> str | None:
+    """Powód odmowy startu ``count`` mutacji ``tools/mutacje.py`` albo ``None``, gdy mogą biec."""
+
+    if count <= TARGETED:
+        return None
+    refused = refusal({"change-mutations"}, reproduces, root=root, env=env, gh=gh)
+    if refused is None:
+        return None
+    return f"{refused.rstrip('.')}. Celowany dowód nowego testu ma najwyżej {TARGETED} mutacji, a ta lista ma {count}."
 
 
 def _not_reproducing(heavy: list[str], reproduces: str, root: Path, gh: Gh) -> str | None:

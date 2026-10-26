@@ -90,6 +90,27 @@ MUTATIONS = (
         "URUCHOMIENIA: NOWE NARUSZENIE",
     ),
     Mutation(
+        "begin_restore bez sprawdzenia trwającego Uruchomienia",
+        (Edit(RUNS, "            busy = self._busy_locked(_RESTORE)\n", "            busy = None\n"),),
+        (EXPLORER, "--scope", "przywracanie"),
+        "przywrócenie Kopii podmienia INTERMAX pod pracującym Uporządkowaniem INTERMAX",
+        "URUCHOMIENIA: NOWE NARUSZENIE",
+    ),
+    Mutation(
+        "RunHost.start bez odmowy w trakcie przywracania",
+        (Edit(RUNS, "            if self._restoring:\n                raise contract.Refusal(409, _RESTORING.format(then=\"uruchom proces\"))\n", ""),),
+        (EXPLORER, "--scope", "przywracanie"),
+        "Uporządkowanie INTERMAX startuje, gdy przywrócenie podmienia INTERMAX",
+        "URUCHOMIENIA: NOWE NARUSZENIE",
+    ),
+    Mutation(
+        "zajęte miejsce nie widzi przywracania",
+        (Edit(RUNS, "        if self._restoring:\n            return _RESTORING.format(then=then)\n", ""),),
+        (EXPLORER, "--scope", "przywracanie"),
+        "dwie karty „Przywróć tę kopię” podmieniają INTERMAX naraz",
+        "URUCHOMIENIA: NOWE NARUSZENIE",
+    ),
+    Mutation(
         "RLock zamiast Lock w RunHost",
         (Edit(RUNS, "        self._lock = threading.Lock()\n", "        self._lock = threading.RLock()\n"),),
         (EXPLORER, "--scope", "zamknij-w-trakcie"),

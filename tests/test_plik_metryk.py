@@ -10,6 +10,7 @@ import pytest
 
 from rozliczenia import preparation_process, settlement_process
 from rozliczenia.telemetry import COUNTER_NAMES, MetricsStore, metric_record
+from rozliczenia.template_file import Route, TemplateKind
 from tests.fixtures.message_samples import PREPARATION_SAMPLES, SETTLEMENT_SAMPLES, Samples
 from tests.fixtures.preparation import PERIOD
 
@@ -24,6 +25,7 @@ def completed_record() -> dict[str, Any]:
         result="OK",
         counters=dict.fromkeys(COUNTER_NAMES, 1),
         stop=None,
+        routes={(TemplateKind.COLLECTIVE_FILE, Route.OPENPYXL): 1, (TemplateKind.WORKER_SETTLEMENT, Route.COPY): 2},
     )
 
 
@@ -37,23 +39,75 @@ def stopped_record(stop: Any) -> dict[str, Any]:
         result="BLAD_KRYTYCZNY",
         counters=dict.fromkeys(COUNTER_NAMES, 0),
         stop=stop,
+        routes={},
     )
 
 
-def test_plik_metryk_czyta_rekordy_wersji_1_bez_rodzaju_zatrzymania(tmp_path: Path) -> None:
+def test_plik_metryk_czyta_rekordy_wersji_1_bez_rodzaju_zatrzymania_i_wersji_2_bez_drogi_zapisu(
+    tmp_path: Path,
+) -> None:
     metrics_path = tmp_path / "metrics.jsonl"
     old_completed = {**completed_record(), "schema_version": 1}
     old_stopped = {**stopped_record(None), "schema_version": 1}
-    del old_completed["stop"], old_stopped["stop"]
-    metrics_path.write_text(f"{json.dumps(old_completed)}\n{json.dumps(old_stopped)}\n", encoding="utf-8")
+    del old_completed["stop"], old_stopped["stop"], old_completed["routes"], old_stopped["routes"]
+    without_routes = {**stopped_record({"kind": "for_maks", "code": "BLAD_NIEOCZEKIWANY"}), "schema_version": 2}
+    del without_routes["routes"]
+    metrics_path.write_text(
+        "".join(json.dumps(record) + "\n" for record in (old_completed, old_stopped, without_routes)), encoding="utf-8"
+    )
 
     MetricsStore(metrics_path).append(stopped_record({"kind": "for_tata", "code": "ZLE_SKUTECZNE"}))
 
     assert MetricsStore(metrics_path).read() == [
         old_completed,
         old_stopped,
+        without_routes,
         stopped_record({"kind": "for_tata", "code": "ZLE_SKUTECZNE"}),
     ]
+
+
+def test_rekord_metryk_liczy_zapisane_pliki_kazdego_rodzaju_kazdej_drogi_zapisu() -> None:
+    assert completed_record()["routes"] == {
+        "worker_settlement": {"kopia": 2, "openpyxl": 0},
+        "collective_file": {"kopia": 0, "openpyxl": 1},
+        "internal_settlement": {"kopia": 0, "openpyxl": 0},
+    }
+    assert stopped_record(None)["routes"] == dict.fromkeys(
+        ("worker_settlement", "collective_file", "internal_settlement"), {"kopia": 0, "openpyxl": 0}
+    )
+
+
+NO_FILES = {"kopia": 0, "openpyxl": 0}
+
+
+@pytest.mark.parametrize(
+    "routes",
+    [
+        {"worker_settlement": NO_FILES, "collective_file": NO_FILES, "internal_settlement": NO_FILES, "Anna Testowa": NO_FILES},
+        {"worker_settlement": NO_FILES, "collective_file": NO_FILES},
+        {"worker_settlement": NO_FILES, "collective_file": NO_FILES, "internal_settlement": {"kopia": 1}},
+        {"worker_settlement": {**NO_FILES, "Anna Testowa": 1}, "collective_file": NO_FILES, "internal_settlement": NO_FILES},
+        {"worker_settlement": NO_FILES, "collective_file": NO_FILES, "internal_settlement": {"kopia": -1, "openpyxl": 0}},
+        {"worker_settlement": NO_FILES, "collective_file": NO_FILES, "internal_settlement": {"kopia": True, "openpyxl": 0}},
+        {"worker_settlement": NO_FILES, "collective_file": NO_FILES, "internal_settlement": ["kopia", "openpyxl"]},
+        ["worker_settlement", "collective_file", "internal_settlement"],
+        "brak",
+    ],
+    ids=["nazwa-wykonawcy", "bez-rodzaju", "bez-drogi", "nazwa-wykonawcy-obok-drog", "ujemna", "nie-liczba", "drogi-lista", "lista", "bez-pola"],
+)
+def test_plik_metryk_odrzuca_rekord_bez_licznika_kazdej_drogi_zapisu(tmp_path: Path, routes: Any) -> None:
+    metrics_path = tmp_path / "metrics.jsonl"
+    record = completed_record()
+    if routes == "brak":
+        del record["routes"]
+    else:
+        record["routes"] = routes
+
+    with pytest.raises(ValueError, match="Niepoprawny rekord metryk"):
+        MetricsStore(metrics_path).append(record)
+    metrics_path.write_text(json.dumps(record) + "\n", encoding="utf-8")
+
+    assert MetricsStore(metrics_path).read() == []
 
 
 @pytest.mark.parametrize(
@@ -72,10 +126,12 @@ def test_plik_metryk_czyta_rekordy_wersji_1_bez_rodzaju_zatrzymania(tmp_path: Pa
 def test_plik_metryk_odrzuca_zatrzymanie_bez_rodzaju_i_kodu_komunikatu(tmp_path: Path, stop: Any) -> None:
     metrics_path = tmp_path / "metrics.jsonl"
     record = stopped_record(stop)
+    # Rekord wersji 2 (bez dróg zapisu) z pliku metryk taty sprzed tej wersji narzędzia sprawdza się tak samo.
+    from_older_tool = {key: value for key, value in record.items() if key != "routes"} | {"schema_version": 2}
 
     with pytest.raises(ValueError, match="Niepoprawny rekord metryk"):
         MetricsStore(metrics_path).append(record)
-    metrics_path.write_text(json.dumps(record) + "\n", encoding="utf-8")
+    metrics_path.write_text(json.dumps(record) + "\n" + json.dumps(from_older_tool) + "\n", encoding="utf-8")
 
     assert MetricsStore(metrics_path).read() == []
 

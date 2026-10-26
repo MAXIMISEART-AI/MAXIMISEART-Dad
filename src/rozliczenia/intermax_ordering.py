@@ -3,8 +3,8 @@
 Jedyną operacją publiczną jest ``order_register()``. Silnik sekwencjonuje cztery etapy i jako jedyny tłumaczy fakty
 rozpoznania, planu dnia i zapisu na Komunikaty: Sprawdzanie (INTERMAX jest i nie jest otwarty w Excelu), Odczyt
 danych (``intermax_file.Register``), Planowanie (``raw_orders.recognize`` w każdym arkuszu zleceń i
-``raw_orders.plan_day``) i Zapisywanie (``intermax_file.save`` z Kopią INTERMAX z ``intermax_copies`` przed
-podmianą). Nie ma podglądu bez zapisu ani Decyzji taty. Zatrzymania zgłasza jako ``StopError``, a wynik nie zawiera
+``raw_orders.plan_day`` z widokiem na dzisiejszy dzień z ``now``) i Zapisywanie (``intermax_file.save`` z Kopią
+INTERMAX z ``intermax_copies`` przed podmianą). Nie ma podglądu bez zapisu ani Decyzji taty. Zatrzymania zgłasza jako ``StopError``, a wynik nie zawiera
 danych klientów.
 """
 
@@ -116,7 +116,7 @@ def order_register(
         [(sheet, recognized)] = found
         if not isinstance(recognized, RawBlock):
             raise StopError(_obstacle(register_path, sheet.name, recognized))
-        return sheet, recognized, raw_orders.plan_day(recognized)
+        return sheet, recognized, raw_orders.plan_day(recognized, sheet.rows_from_bottom(), sheet.columns, now().date())
 
     sheet, block, day = phases.plan(plan, issue_count=lambda _: 0)
     copies: list[Path] = []

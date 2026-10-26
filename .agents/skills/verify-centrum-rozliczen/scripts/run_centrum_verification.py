@@ -237,6 +237,12 @@ REQUIRED_SCREENSHOTS = {
         "236-intermax-historia.png",
         "237-intermax-metryki.png",
     ),
+    "kopie-intermax": (
+        "240-kopie-intermax-lista.png",
+        "241-kopie-intermax-ostrzezenie.png",
+        "242-kopie-intermax-otwarty.png",
+        "243-kopie-intermax-przywrocona.png",
+    ),
     "powiadomienia": (
         "180-powiadomienia-dzwonek.png",
         "181-powiadomienia-kropka.png",

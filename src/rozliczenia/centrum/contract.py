@@ -781,6 +781,56 @@ class IntermaxSetup(_Model):
     last: RunRestored | None
 
 
+# Przed czym powstała Kopia INTERMAX: przed Uporządkowaniem INTERMAX albo przed przywróceniem innej Kopii.
+IntermaxCopyBefore = Literal["ordering", "restore"]
+
+
+class IntermaxCopy(_Model):
+    """Kopia INTERMAX w folderze Kopii: nazwa pliku, chwila z nazwy i to, przed czym powstała."""
+
+    name: str
+    taken_at: datetime
+    before: IntermaxCopyBefore
+
+
+class IntermaxCopies(_Model):
+    """Kopie INTERMAX w Konfiguracji, od najnowszej.
+
+    ``problem`` to Komunikat, gdy folderu Kopii nie da się odczytać; ``copies`` jest wtedy puste.
+    """
+
+    copies: list[IntermaxCopy]
+    problem: Message | None
+
+
+class IntermaxRestoreRequest(_Model):
+    """Przywrócenie Kopii INTERMAX ``name``, którą wymieniła lista Kopii."""
+
+    name: str
+
+
+class IntermaxRestored(_Model):
+    """INTERMAX ma bajty Kopii ``restored``, a jego stan sprzed przywrócenia leży jako Kopia ``previous``.
+
+    ``warnings``: Komunikaty o tym, czego przywrócenie nie dokończyło (starsze Kopie zostały).
+    """
+
+    state: Literal["restored"]
+    restored: IntermaxCopy
+    previous: IntermaxCopy
+    warnings: list[Message]
+
+
+class IntermaxRestoreRefused(_Model):
+    """Przywrócenie odmówiło z Komunikatem; INTERMAX i Kopie zostały takie, jak były."""
+
+    state: Literal["refused"]
+    message: Message
+
+
+IntermaxRestore = Annotated[IntermaxRestored | IntermaxRestoreRefused, Field(discriminator="state")]
+
+
 class RunEvent(_Model):
     """Jedno zdarzenie strumienia SSE: kolejny numer i pełny widok bieżącego Uruchomienia procesu."""
 
@@ -1097,6 +1147,8 @@ ApiOperation = Literal[
     "startRun",
     "getIntermaxSetup",
     "startIntermax",
+    "getIntermaxCopies",
+    "restoreIntermaxCopy",
     "decideRun",
     "diagnoseRun",
     "reportRun",

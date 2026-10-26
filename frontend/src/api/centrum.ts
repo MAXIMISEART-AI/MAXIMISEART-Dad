@@ -6,6 +6,7 @@ import type {
   FillKind,
   GetCurrentRunResponse,
   GetIntermaxSetupResponse,
+  IntermaxRestoreRequest,
   GetNotificationsResponse,
   GetPeriodBoardResponse,
   GetQuantitiesToFillResponse,
@@ -37,6 +38,7 @@ import {
   zGetDadNoteRunsResponse,
   zGetConfigurationResponse,
   zGetHealthResponse,
+  zGetIntermaxCopiesResponse,
   zGetIntermaxSetupResponse,
   zGetMetricsResponse,
   zGetNotificationsResponse,
@@ -55,6 +57,7 @@ import {
   zOpenWorkerSettlementResponse,
   zReportRunResponse,
   zReportToolUpdateResponse,
+  zRestoreIntermaxCopyResponse,
   zRunEvent,
   zSendDadNoteResponse,
   zStartIntermaxResponse,
@@ -76,6 +79,7 @@ export type {
   DiagnosisCheck,
   Figure,
   FillKind,
+  IntermaxCopy,
   KindToFill,
   QuantitiesToFillReady,
   KindTableCell,
@@ -139,6 +143,9 @@ export type PeriodProcess = RunRequest["process"]
 /** Karta „Uporządkuj INTERMAX” poza okresami. */
 export type IntermaxSetup = GetIntermaxSetupResponse
 
+/** Wynik przywrócenia Kopii INTERMAX: przywrócona albo odmowa z Komunikatem (unia z kontraktu po `state`). */
+export type IntermaxRestore = Awaited<ReturnType<typeof restoreIntermaxCopy>>
+
 export type OpenTarget = OpenRequest["target"]
 
 /** Powiadomienia od najnowszego i liczba nowych (kropka na dzwonku). */
@@ -174,6 +181,7 @@ function send(
     | DadNoteText
     | DadNoteRequest
     | NotificationsRead
+    | IntermaxRestoreRequest
 ): RequestInit {
   return {
     method,
@@ -284,6 +292,21 @@ export function getIntermaxSetup() {
 /** Start Uporządkowania INTERMAX z Rejestrem zleceń z Ustawień taty; gdy trwa inne Uruchomienie, serwer odmawia. */
 export function startIntermax() {
   return call(zStartIntermaxResponse, "startIntermax", "/api/intermax/run", send("POST"))
+}
+
+/** Kopie INTERMAX w Konfiguracji, od najnowszej. */
+export function getIntermaxCopies() {
+  return call(zGetIntermaxCopiesResponse, "getIntermaxCopies", "/api/intermax/copies")
+}
+
+/** Przywrócenie Kopii INTERMAX `name`; gdy trwa Uruchomienie albo aktualizacja, serwer odmawia. */
+export function restoreIntermaxCopy(name: string) {
+  return call(
+    zRestoreIntermaxCopyResponse,
+    "restoreIntermaxCopy",
+    "/api/intermax/copies/restore",
+    send("POST", { name })
+  )
 }
 
 /** Decyzja taty o niepełnym okresie dla Uruchomienia `runId`. */

@@ -5,9 +5,10 @@ from __future__ import annotations
 import json
 import re
 import time
+import urllib.parse
 import urllib.request
 
-from playwright.sync_api import Page, Response, Route, expect
+from playwright.sync_api import Page, Request, Response, Route, expect
 
 from drive.common import PAGES, REPO_ROOT, Run, ensure_files_set
 
@@ -23,10 +24,20 @@ NOTIFICATIONS = {"powiadomienia": "Powiadomienia"}
 # A skeleton shows only once a read takes about 120 ms (index.css); a read held this long shows it for the rest.
 SLOW_READ_S = 0.6
 SKELETON_DELAY_MS = 120
+CONTRACT = json.loads((REPO_ROOT / "frontend" / "src" / "api" / "openapi.json").read_text(encoding="utf-8"))
 # How many API requests one measurement of a view carries at most: the contract's `ViewTiming.requests`.
-MAX_TIMED_REQUESTS = json.loads((REPO_ROOT / "frontend" / "src" / "api" / "openapi.json").read_text(encoding="utf-8"))[
-    "components"
-]["schemas"]["ViewTiming"]["properties"]["requests"]["maxItems"]
+MAX_TIMED_REQUESTS = CONTRACT["components"]["schemas"]["ViewTiming"]["properties"]["requests"]["maxItems"]
+# The contract's operation of every read (`GET`), by its address with `{…}` for any path segment.
+READS = [
+    (re.compile(re.sub(r"\\\{[^}]*\\\}", "[^/]+", re.escape(path))), operations["get"]["operationId"])
+    for path, operations in CONTRACT["paths"].items()
+    if "get" in operations
+]
+
+
+def _read_operation(url: str) -> str | None:
+    path = urllib.parse.urlsplit(url).path
+    return next((operation for address, operation in READS if address.fullmatch(path)), None)
 
 
 def _log_lines(run: Run) -> list[str]:
@@ -169,7 +180,23 @@ def drive_measurement(run: Run, page: Page) -> None:
             time.sleep(SLOW_READ_S)
         route.continue_()
 
+    # The read that made the view ready is the last one the page got before it sent the measurement: on
+    # Konfiguracja the Kopie INTERMAX card reads only after the configuration, so it is not always that one.
+    reads: list[str] = []
+    measured: list[list[str]] = []
+
+    def finished(request: Request) -> None:
+        operation = _read_operation(request.url) if request.method == "GET" else None
+        if operation is not None and not measured:
+            reads.append(operation)
+
+    def sent(request: Request) -> None:
+        if request.method == "POST" and urllib.parse.urlsplit(request.url).path == "/api/view-timings":
+            measured.append(list(reads))
+
     page.route("**/api/configuration", hold_first)
+    page.on("requestfinished", finished)
+    page.on("request", sent)
     since = len(_log_lines(run))
     try:
         # Dad returns to the tab again and again while Konfiguracja is still reading: every return reads the
@@ -188,11 +215,15 @@ def drive_measurement(run: Run, page: Page) -> None:
         [timing] = _wait_for_timings(run, since, 1, "the menu click with more requests than one measurement is logged")
     finally:
         page.unroute("**/api/configuration", hold_first)
+        page.remove_listener("requestfinished", finished)
+        page.remove_listener("request", sent)
     requests = timing.get("zapytania", "").split(",")
+    last_read = measured[0][-1] if measured and measured[0] else None
     run.check(
-        len(requests) == MAX_TIMED_REQUESTS and requests[-1].startswith("getConfiguration:"),
+        len(requests) == MAX_TIMED_REQUESTS and requests[-1].split(":")[0] == last_read,
         f"a view with more API requests than the contract's {MAX_TIMED_REQUESTS} is logged with its newest "
-        f"{len(requests)}, ending with the read that made it ready ({requests[-1]})",
+        f"{len(requests)}, ending with the read that made it ready ({requests[-1]}; the page's last read before "
+        f"it sent the measurement: {last_read})",
     )
 
     run.step(FEATURE, "pomiar-bez-sladu")

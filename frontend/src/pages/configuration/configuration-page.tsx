@@ -18,9 +18,13 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { useContentEntrance } from "@/lib/content-entrance"
 import { useResource } from "@/lib/use-resource"
+import { IntermaxCopiesCard } from "@/pages/configuration/intermax-copies-card"
 import { ToolCard } from "@/pages/configuration/tool-card"
 
-/** Konfiguracja tylko do odczytu: czy Wzorce są gotowe, kto jest Wykonawcą i jaka jest wersja narzędzia (z jej aktualizacją). */
+/**
+ * Konfiguracja tylko do odczytu: czy Wzorce są gotowe, kto jest Wykonawcą i jaka jest wersja narzędzia (z jej
+ * aktualizacją). Jedyną zmianą pliku taty stąd jest przywrócenie Kopii INTERMAX.
+ */
 export function ConfigurationPage() {
   const { resource: configuration, reload } = useResource(getConfiguration)
   const entrance = useContentEntrance(configuration.state === "loading")
@@ -50,6 +54,7 @@ export function ConfigurationPage() {
           />
           <TemplatesCard templates={configuration.data.templates} />
           <WorkersCard workers={configuration.data.workers} />
+          <IntermaxCopiesCard />
         </div>
       ) : null}
     </>
