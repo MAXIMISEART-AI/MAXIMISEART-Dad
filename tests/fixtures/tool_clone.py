@@ -97,8 +97,18 @@ def git_failing_on(tmp_path: Path, *words: str) -> Path:
     return git_command(tmp_path, script)
 
 
+def _comparison(origin: Path, base: str, head: str) -> dict[str, object]:
+    """Strona porównania GitHuba bez commitów i plików: stan ``head`` względem ``base`` i liczby commitów."""
+
+    ahead = int(git(origin, "rev-list", "--count", f"{base}..{head}"))
+    behind = int(git(origin, "rev-list", "--count", f"{head}..{base}"))
+    status = "identical" if ahead == behind == 0 else "ahead" if behind == 0 else "behind" if ahead == 0 else "diverged"
+    return {"status": status, "ahead_by": ahead, "behind_by": behind, "commits": [], "files": []}
+
+
 def _succeeds(directory: Path, *args: str) -> bool:
-    return subprocess.run(["git", "-C", str(directory), *args], env=isolated_git_environment(), check=False).returncode == 0
+    command = ["git", "-C", str(directory), *args]
+    return subprocess.run(command, env=isolated_git_environment(), capture_output=True, check=False).returncode == 0
 
 
 def _write(root: Path, files: Mapping[str, str | None]) -> None:
@@ -147,11 +157,8 @@ class ToolRepository:
         """Odpowiedź „origin” o najnowszym Wydaniu na `main`, wybranym jak w Centrum (``newest_on_main``)."""
 
         commits = {tag: git(self.origin, "rev-parse", f"{tag}^{{commit}}") for tag in git(self.origin, "tag").split()}
-
-        def on_main(commit: str) -> bool:
-            return _succeeds(self.origin, "merge-base", "--is-ancestor", commit, "main")
-
-        newest = newest_on_main(commits, on_main)
+        tips = frozenset(git(self.origin, "rev-list", "--first-parent", "main").split())
+        newest = newest_on_main(commits, lambda commit: commit in tips)
         return GitHubReleases(newest.commit, None if newest.release is None else newest.release.tag)
 
     def published(self) -> tuple[PublishedRelease, ...]:
@@ -299,24 +306,31 @@ class FakeInstaller:
 
 
 @contextmanager
-def github_api_of(origin: Path) -> Iterator[str]:
-    """API GitHuba (lista tagów i porównanie z `main`) dla repozytorium ``origin``, liczone Gitem w ``origin``.
+def github_api_of(origin: Path, *, asked: list[str] | None = None) -> Iterator[str]:
+    """API GitHuba (lista tagów, czubek `main` i porównanie commitów) dla repozytorium ``origin``, liczone Gitem w
+    ``origin``; ścieżka każdego pytania trafia do ``asked``.
 
-    Adres zwrócony przez blok to repozytorium w tym API (``REPOSITORY_API``).
+    Adres zwrócony przez blok to repozytorium w tym API (``REPOSITORY_API``). Porównanie przyjmuje commity tak jak
+    GitHub, także ``<commit>~k``, a commitu, którego nie ma (``~k`` sprzed pierwszego commitu), nie zna (404).
     """
 
     class _Api(BaseHTTPRequestHandler):
         def do_GET(self) -> None:
+            if asked is not None:
+                asked.append(self.path)
+            compared = self.path.removeprefix("/repo/compare/").removesuffix("?per_page=1&page=2").split("...")
             if self.path == "/repo/tags?per_page=100":
                 tags = [
                     {"name": tag, "commit": {"sha": git(origin, "rev-parse", f"{tag}^{{commit}}")}}
                     for tag in git(origin, "tag").split()
                 ]
                 self._answer(json.dumps(tags))
-            elif self.path.startswith("/repo/compare/") and self.path.endswith("...main?per_page=1&page=2"):
-                commit = self.path.removeprefix("/repo/compare/").partition("...")[0]
-                on_main = _succeeds(origin, "merge-base", "--is-ancestor", commit, "main")
-                self._answer(json.dumps({"status": "ahead" if on_main else "diverged"}))
+            elif self.path == "/repo/git/ref/heads/main":
+                self._answer(json.dumps({"ref": "refs/heads/main", "object": {"sha": git(origin, "rev-parse", "main")}}))
+            elif self.path.startswith("/repo/compare/") and len(compared) == 2 and _succeeds(
+                origin, "rev-parse", "--quiet", "--verify", f"{compared[1]}^{{commit}}"
+            ):
+                self._answer(json.dumps(_comparison(origin, *compared)))
             else:
                 self.send_response(404)
                 self.end_headers()

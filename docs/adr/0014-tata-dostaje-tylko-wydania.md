@@ -44,8 +44,7 @@ zamiast każdej naprawy z osobna.
   Wydaniami. Wyższe Wydanie spoza `main` (tag założony z gałęzi agenta) jest
   pominięte i nie zatrzymuje niższego Wydania na `main`; same Wydania spoza
   `main` to tak, jakby Wydań nie było. Ten sam wybór robią Aktualizacja
-  narzędzia i instalacja z README; Aktualność narzędzia z jednym wyjątkiem
-  (niżej).
+  narzędzia, instalacja z README i Aktualność narzędzia.
 - **Dowolny MAJOR.** #315 mówi o `v0.MINOR.PATCH`, ale kod przyjmuje każdy
   MAJOR. Gdyby kiedyś powstało `v1.0.0`, kod tylko z `v0` zostawiłby tatę na
   zawsze na ostatnim `v0`. Zabłąkany `v1.0.0` na `main` trafiłby do taty, tak
@@ -64,8 +63,13 @@ zamiast każdej naprawy z osobna.
   pominięciem.
 - **Aktualność narzędzia.** Diagnoza i Konfiguracja pytają API GitHuba o listę
   tagów (`tags?per_page=100`, wszystkie strony, najwyżej 10) i o to, czy commit
-  najwyższego Wydania leży na `main` (`compare/<commit>...main` ze stroną bez
-  commitów i plików, kilkanaście kB; najwyżej 5 Wydań po kolei). Narzędzie jest
+  najwyższego Wydania leży na linii pierwszych rodziców `main` (najwyżej 5
+  Wydań po kolei). Pytanie to porównanie z `<czubek>~k` (`compare` ze stroną
+  bez commitów i plików, kilkanaście kB) dla czubka `main` ustalonego raz na
+  sprawdzenie (`git/ref/heads/main`) i k wybranego wyszukiwaniem binarnym:
+  Wydanie leży na linii, gdy jest jednym z `<czubek>~k`. Odpowiedź dla
+  Wydania, które jest przodkiem `main`, Centrum pamięta do końca swojego
+  działania, bo `main` rośnie tylko o nowe commity. Narzędzie jest
   `Aktualna`, gdy jego commit zawiera commit najnowszego Wydania: sprawdza to
   `git merge-base --is-ancestor` w klonie taty, bez pytania API. Narzędzie na
   nowszym commicie `main` niż Wydanie jest więc aktualne. Brak odpowiedzi to
@@ -75,13 +79,13 @@ zamiast każdej naprawy z osobna.
   a brak odpowiedzi przez minutę: zwykle dwa pytania co 10 minut przy limicie
   60 na godzinę bez logowania.
 
-  Kompromis: API bez logowania mówi w jednym pytaniu tylko, czy commit leży na
-  `main` (osiągalny), a nie, czy był jego czubkiem. Linię pierwszych rodziców
-  trzeba by przejść commit po commicie, setki pytań na tydzień zmian. Aktualność
-  sprawdza więc osiągalność. Różni się od aktualizacji tylko przy uśpionym tagu
-  wciągniętym do `main` merge'em: Aktualność pokaże wtedy `Jest nowsza wersja`,
-  a aktualizacja odpowie `Masz najnowszą wersję.` i zapisze pominięcie w
-  dzienniku Centrum. Takiemu tagowi zapobiega brama pre-push i narzędzie Wydań.
+  Koszt: nowe Wydanie to raz na działanie Centrum około log2 z liczby commitów
+  `main` od Wydania pytań (kilkanaście przy tygodniu zmian), potem tylko lista
+  tagów. Do 25.10 Aktualność sprawdzała tylko osiągalność (jedno pytanie), więc
+  przy uśpionym tagu wciągniętym do `main` merge'em pokazywała `Jest nowsza
+  wersja`, a aktualizacja odpowiadała `Masz najnowszą wersję.`. Linię
+  pierwszych rodziców przez `<czubek>~k` przyjął Maks w przeglądzie z 25.10
+  (Q21).
 - **Tworzenie Wydania** (osobna zmiana, #316) sprawdza, że commit leży na
   `main` i ma zielone `Required CI status`, i dopiero wtedy zakłada tag i
   Wydanie na GitHubie z notką „Co nowego”. Notkę pokazuje Powiadomienie o
@@ -95,7 +99,7 @@ zamiast każdej naprawy z osobna.
   (#319, #324). Powiadomienie o naprawie miało przycisk zawsze; #323 je
   usunęło. Powiadomienie o nowej wersji ocenia ostatnią odpowiedź GitHuba, więc
   bez sieci zostaje takie, jakie było. Odpowiedź `Masz najnowszą wersję.`
-  zostaje na uśpiony tag (wyżej) i na każdego klienta HTTP. Dotyczy
+  zostaje na klon przesunięty po starcie Centrum i na każdego klienta HTTP. Dotyczy
   najnowszego Wydania, które Centrum znało w jej chwili: gdy pozna inne
   (pamięć Konfiguracji i Powiadomień, do której trafia też każda odpowiedź z
   Diagnozy), odpowiedź znika, więc przy przycisku nowszego Wydania jej nie ma
@@ -125,8 +129,7 @@ ręcznie. Ochrona ma trzy warstwy:
 Nie chroni: tag na commicie `main` bez zielonego CI, który ominie bramę
 (`--no-verify`, push spoza agenta), i tag na commicie, który `main` potem
 zrewertował, trafią do taty. Centrum nie pyta API o `Required CI status`
-commitu, a Aktualność zostaje przy kompromisie przy uśpionym tagu (wyżej):
-decyzja Maksa z 23.10.
+commitu: decyzja Maksa z 23.10.
 
 ## Przejście
 

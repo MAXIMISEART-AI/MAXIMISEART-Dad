@@ -313,7 +313,7 @@ jobs:
     # Besides a skill's mutations it runs the skill's own check on unchanged code (the ci: key of its SKILL.md), so
     # agents need not run it on the Mac: Centrum --feature all and the TLA+ model of Aktualizacja narzędzia run only here.
     # A pull request runs only the skills whose verdict its changes can alter; a push to main runs them all.
-    # Each part runs a third of the steps (a baseline or one mutation script) by their CI time: side by side on one
+    # Each part runs a third of the selected steps (a baseline or one mutation script) by their CI time: side by side on one
     # runner they exceed their time limits.
     name: Mutation checks (${{ matrix.part }}/3)
     runs-on: windows-latest

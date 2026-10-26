@@ -30,6 +30,12 @@ MUTATIONS = (
         "zaraz po Przygotowaniu karta wyniku pokazuje przez sekundę stan sprzed niego, np. „Nie ma Pliku zbiorczego”",
     ),
     Mutation(
+        "karta wyniku bez odpowiedzi serwera jest pusta",
+        (Edit(BUILD, "what:`Pliku zbiorczego`,message:", "what:`Pliku zbiorczego`,className:`hidden`,message:"),),
+        UZUPELNIENIE,
+        "gdy Centrum nie odpowie, pod wynikiem Przygotowania jest pusto i tata nie wie, że nic nie odczytano",
+    ),
+    Mutation(
         "podsumowanie bez Pliku zbiorczego proponuje go otworzyć",
         (Edit(FILLING, "collective_file_exists=os.path.isfile(path)", "collective_file_exists=True"),),
         UZUPELNIENIE,

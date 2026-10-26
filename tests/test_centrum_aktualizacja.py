@@ -187,23 +187,20 @@ def test_najnowsza_wersja_zostaje_bez_zmian(tmp_path: Path) -> None:
     ]
 
 
-def sleeping_release(repository: ToolRepository) -> None:
-    """Uśpiony tag: Wydanie osiągalne z `main`, które nigdy nie było jego czubkiem; klon ma je już po aktualizacji
-    na `main`, a GitHub dalej je proponuje, więc próba kończy się ``AKTUALNA`` przy proponowanym przycisku."""
+def release_in_clone_after_start(repository: ToolRepository) -> None:
+    """Nowe Wydanie, na które klon przeszedł po starcie Centrum (ręcznie): Centrum działa dalej na commicie ze
+    startu, więc proponuje Aktualizację, a próba kończy się ``AKTUALNA``, bo klon już zawiera to Wydanie."""
 
-    git(repository.publisher, "checkout", "--quiet", "-b", "agent")
-    git(repository.publisher, "commit", "--quiet", "--allow-empty", "--message", "Zmiana z gałęzi agenta")
-    repository.release(tag="v0.9.0")
-    git(repository.publisher, "checkout", "--quiet", "main")
-    git(repository.publisher, "merge", "--quiet", "--no-ff", "--no-edit", "agent")
-    git(repository.publisher, "push", "--quiet", "origin", "main")
+    repository.publish({"src/narzedzie.py": "WERSJA = 1.5\n"})
+    repository.in_clone("fetch", "--quiet", str(repository.origin), "main")
+    repository.in_clone("merge", "--quiet", "--ff-only", "FETCH_HEAD")
 
 
 def up_to_date_while_offered(centrum: PreparingCentrum, repository: ToolRepository) -> dict[str, Any]:
-    """Wynik ``AKTUALNA`` przy proponowanym przycisku (``sleeping_release``): wynik próby i to, co zaraz po niej
+    """Wynik ``AKTUALNA`` przy proponowanym przycisku (``release_in_clone_after_start``): wynik próby i to, co zaraz po niej
     widzi karta."""
 
-    sleeping_release(repository)
+    release_in_clone_after_start(repository)
     offered_before = tool_on_configuration(centrum)["update_offered"]
     result = update_until_done(centrum)
     return {
@@ -264,7 +261,7 @@ def test_po_wyniku_aktualna_bez_odpowiedzi_githuba_wynik_zostaje(tmp_path: Path)
 
 def test_wynik_aktualna_bez_odpowiedzi_githuba_w_jego_chwili_znika_przy_pierwszej_odpowiedzi(tmp_path: Path) -> None:
     centrum, repository = updating_centrum(tmp_path)
-    sleeping_release(repository)
+    release_in_clone_after_start(repository)
     centrum.surroundings.release_unanswered = True
     result = update_until_done(centrum)
     unanswered = centrum.client.get("/api/tool-update").json()
