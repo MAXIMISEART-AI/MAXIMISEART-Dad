@@ -48,6 +48,7 @@ def test_podglad_bez_zapisu_pokazuje_plan_plikow_na_wykonawce_bez_folderu_rozlic
         "counts": None,
         "files": [],
         "worker_settlements": WORKER_SETTLEMENT_ROWS,
+        "intermax_copy": None,
     }
     assert (result["stops"], result["warnings"]) == ([], [])
     assert sorted(path.name for path in centrum.period_directory.iterdir()) == [SOURCE_NAME]

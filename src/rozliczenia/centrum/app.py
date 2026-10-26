@@ -1,7 +1,7 @@
 """Aplikacja HTTP Centrum rozliczeń: API pod ``/api`` i zbudowany frontend pod ``/``.
 
 Każda grupa zasobów ma własny router (``settings_router``, ``periods_router``, ``filling_router``,
-``runs_router``, ``notifications_router``, ``dad_notes_router``, ``metrics_router``,
+``runs_router``, ``intermax_router``, ``notifications_router``, ``dad_notes_router``, ``metrics_router``,
 ``configuration_router``, ``tool_update_router``, ``shutdown_router``, ``timing_router``);
 ``create_app`` składa je, pilnuje nagłówków ``Host`` i ``Origin`` (ADR 0004),
 zamienia odmowy (``contract.Refusal``) i folder okresów, którego nie da się odczytać, na bezpieczne
@@ -15,7 +15,7 @@ from __future__ import annotations
 from collections.abc import AsyncIterator, Awaitable, Callable, MutableMapping
 from contextlib import asynccontextmanager
 from dataclasses import replace
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 import time
@@ -34,6 +34,7 @@ from rozliczenia.centrum.dad_cases import DadCases
 from rozliczenia.centrum.dad_notes import after_delivery, dad_notes_router, with_logs
 from rozliczenia.centrum.diagnosis import Surroundings, diagnose, files_of_process
 from rozliczenia.centrum.filling import filling_router
+from rozliczenia.centrum.intermax_run import IntermaxEntry, intermax_router
 from rozliczenia.centrum.log import CentrumLog
 from rozliczenia.centrum.metrics import metrics_router, read_runs
 from rozliczenia.centrum.notifications import NOTIFICATIONS_FILE, Notifications, ReadNotifications, notifications_router
@@ -62,6 +63,7 @@ from rozliczenia.centrum.tool_update import RESULT_FILE, ToolClone
 from rozliczenia.centrum.tool_updates import GuardianLauncher, ToolUpdates, tool_update_router
 from rozliczenia.centrum.version import SERVICE, short_commit
 from rozliczenia.input_checks import FILE_READERS, Readers
+from rozliczenia.intermax_copies import default_directory as default_intermax_copies
 from rozliczenia.period_folder import PeriodFolderInaccessible
 
 STATIC_DIRECTORY = Path(__file__).resolve().parent / "static"
@@ -87,6 +89,8 @@ def create_app(
     tool_update: ToolClone | None = None,
     guardian: GuardianLauncher | None = None,
     readers: Readers = FILE_READERS,
+    intermax_copies: Path | None = None,
+    now: Callable[[], datetime] = lambda: datetime.now().astimezone(),
 ) -> FastAPI:
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
@@ -239,12 +243,14 @@ def create_app(
     )
     preparation = PreparationEntry(store, configuration, processes.preparation, today, readers)
     settlement = SettlementEntry(store, configuration, processes.settlement, today, readers)
+    # Uporządkowanie INTERMAX ma własną kartę poza okresami, więc nie jest wpisem procesu z okresem.
+    intermax = IntermaxEntry(store, processes.intermax, intermax_copies or default_intermax_copies(), now)
     entries: list[ProcessEntry] = [preparation, settlement]
     # Karty Uruchomień z pliku startu i Logów Uruchomienia: ostatnie po starcie Centrum i wiersz Historii (ADR 0017).
     cards = RunCards(
         log.directory / RUN_LOGS_DIRECTORY,
         log.directory / LAST_STARTED_FILE,
-        {preparation.key: preparation, settlement.key: settlement},
+        {preparation.key: preparation, settlement.key: settlement, intermax.key: intermax},
     )
     runs = RunHost(
         log,
@@ -268,8 +274,9 @@ def create_app(
         result_file=settings_path.parent / RESULT_FILE,
         release=release,
     )
-    entry_processes = {entry.key: entry.process for entry in entries}
+    entry_processes = {**{entry.key: entry.process for entry in entries}, intermax.key: intermax.process}
     app.include_router(runs_router(runs, entries))
+    app.include_router(intermax_router(runs, intermax, lambda: cards.latest(intermax.key)))
     app.include_router(run_cards_router(cards))
     app.include_router(notifications_router(notifications))
     app.include_router(

@@ -30,7 +30,7 @@ from functools import cached_property
 from pathlib import Path
 from typing import Final, Literal
 
-from rozliczenia import input_checks, preparation_messages, settlement_messages, workbook_files
+from rozliczenia import input_checks, intermax_messages, intermax_ordering, preparation_messages, settlement_messages, workbook_files
 from rozliczenia.centrum import contract, diagnosis_messages
 from rozliczenia.centrum.diagnosis_messages import NEWER_TOOL_VERSION
 from rozliczenia.centrum.cloud_files import CloudFiles
@@ -181,12 +181,17 @@ class _ProcessFiles:
 
     @property
     def files(self) -> list[Path]:
-        """Rejestr zleceń (tylko Przygotowanie), Wzorce i pliki Folderu okresu; ścieżki mogą nie istnieć."""
+        """Rejestr zleceń (Przygotowanie i Uporządkowanie INTERMAX), Wzorce i pliki Folderu okresu; ścieżki mogą nie istnieć.
+
+        Uporządkowanie INTERMAX nie należy do okresu, więc jego plikiem jest tylko INTERMAX.
+        """
 
         files = []
         register = self.settings.existing_register
-        if self.process == "preparation" and register is not None:
+        if self.process in ("preparation", "intermax") and register is not None:
             files.append(register)
+        if self.process == "intermax":
+            return files
         files += [template.path for template in self.templates]
         return files + list(self.period_files)
 
@@ -285,6 +290,9 @@ class _Setting:
 @_check("Ustawienia taty")
 def _tata_settings(computer: _Computer, label: str) -> list[CheckResult]:
     settings = computer.settings
+    if computer.process == "intermax":
+        intermax = [_Setting("Rejestr zleceń", settings.register, settings.existing_register, intermax_messages.register_missing)]
+        return _settings_result(label, intermax)
     needed = [
         _Setting(
             "folder okresów",
@@ -300,12 +308,17 @@ def _tata_settings(computer: _Computer, label: str) -> list[CheckResult]:
                 "Rejestr zleceń", settings.register, settings.existing_register, preparation_messages.register_missing
             ),
         )
+    return _settings_result(label, needed)
+
+
+def _settings_result(label: str, needed: Sequence[_Setting]) -> list[CheckResult]:
     for setting in needed:
         if setting.chosen is None:
             return [CheckResult.not_checked(label, f"Nie wskazano: {setting.name}.")]
         if setting.existing is None:
             return [CheckResult.failed(label, setting.missing(setting.chosen))]
-    return [CheckResult.passed(label, " i ".join(setting.name for setting in needed).capitalize() + " są na miejscu.")]
+    names = " i ".join(setting.name for setting in needed).capitalize()
+    return [CheckResult.passed(label, f"{names} {'są' if len(needed) > 1 else 'jest'} na miejscu.")]
 
 
 @_check("Rejestr zleceń")
@@ -317,6 +330,17 @@ def _register(computer: _Computer, label: str) -> list[CheckResult]:
     if problem is not None:
         return [CheckResult.failed(label, problem)]
     return [CheckResult.passed(label, "Nie jest otwarty w Excelu, otwiera się i ma wymagane nagłówki.")]
+
+
+@_check("INTERMAX")
+def _intermax(computer: _Computer, label: str) -> list[CheckResult]:
+    register = computer.settings.existing_register
+    if register is None:
+        return [CheckResult.not_checked(label, "INTERMAX nie ma na miejscu.")]
+    problem = intermax_ordering.register_problem(register)
+    if problem is not None:
+        return [CheckResult.failed(label, problem)]
+    return [CheckResult.passed(label, "Nie jest otwarty w Excelu, otwiera się i ma arkusz zleceń.")]
 
 
 @_check("Wzorce")
@@ -455,6 +479,14 @@ _CHECKS: Final[Mapping[contract.ProcessKey, Sequence[_Check]]] = {
         _worker_config,
         _period_folder,
         _period_files_in_excel,
+        _tool_freshness,
+        _report_key,
+        _centrum_log,
+    ),
+    "intermax": (
+        _tata_settings,
+        _files_in_onedrive,
+        _intermax,
         _tool_freshness,
         _report_key,
         _centrum_log,

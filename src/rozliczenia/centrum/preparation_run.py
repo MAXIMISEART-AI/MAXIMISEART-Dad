@@ -25,7 +25,7 @@ from rozliczenia.process_run import Process
 from rozliczenia.settlement_period import SettlementPeriod, last_complete_period
 from rozliczenia.telemetry import MetricsStore
 
-_KEY: Final[contract.ProcessKey] = "preparation"
+_KEY: Final[contract.PeriodProcessKey] = "preparation"
 _VIEW: Final = run_view.PREPARATION
 _CHOSEN_WEEKS: Final = 8
 
@@ -41,7 +41,7 @@ class PreparationEntry:
     readers: Readers
 
     @property
-    def key(self) -> contract.ProcessKey:
+    def key(self) -> contract.PeriodProcessKey:
         return _KEY
 
     @property

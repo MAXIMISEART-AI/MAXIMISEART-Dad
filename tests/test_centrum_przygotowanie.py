@@ -52,6 +52,7 @@ SUMMARY: dict[str, Any] = {
         {"name": COLLECTIVE_FILE_NAME, "kind": "collective_file"},
     ],
     "worker_settlements": None,
+    "intermax_copy": None,
 }
 # Domyślny syntetyczny Rejestr ma w URZĄDZENIA tylko urządzenia nieznane Regułom ilości.
 QUANTITY_WARNINGS_WHERE = [

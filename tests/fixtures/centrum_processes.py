@@ -69,7 +69,11 @@ class Engines:
 
     def processes(self) -> Processes:
         real = self.metrics.processes()
-        return Processes(preparation=self._steered(real.preparation), settlement=self._steered(real.settlement))
+        return Processes(
+            preparation=self._steered(real.preparation),
+            settlement=self._steered(real.settlement),
+            intermax=self._steered(real.intermax),
+        )
 
     def _steered(self, real: Process[InputsT, SummaryT]) -> Process[InputsT, SummaryT]:
         def execute(inputs: InputsT, observer: ProgressObserver, conversation: Conversation) -> SummaryT:
@@ -240,6 +244,7 @@ def _metrics(tmp_path: Path) -> MetricsPaths:
     return MetricsPaths(
         preparation=tmp_path / ".przygotowanie-pliku-zbiorczego-metrics.jsonl",
         settlement=tmp_path / ".rozliczenia-metrics.jsonl",
+        intermax=tmp_path / ".uporzadkowanie-intermax-metrics.jsonl",
     )
 
 

@@ -28,7 +28,7 @@ from rozliczenia.process_run import Process
 from rozliczenia.settlement_process import SettlementInputs
 from rozliczenia.telemetry import MetricsStore
 
-_KEY: Final[contract.ProcessKey] = "settlement"
+_KEY: Final[contract.PeriodProcessKey] = "settlement"
 _VIEW: Final = run_view.SETTLEMENT
 _ELIGIBLE: Final[PeriodStatus] = "collective_file_prepared"
 
@@ -44,7 +44,7 @@ class SettlementEntry:
     readers: Readers
 
     @property
-    def key(self) -> contract.ProcessKey:
+    def key(self) -> contract.PeriodProcessKey:
         return _KEY
 
     @property

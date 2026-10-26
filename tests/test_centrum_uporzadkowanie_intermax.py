@@ -1,0 +1,288 @@
+"""Uporządkowanie INTERMAX z Centrum rozliczeń przez HTTP API i strumień zdarzeń, jak widzi je przeglądarka (#470).
+
+Karta „Uporządkuj INTERMAX” stoi poza okresami: INTERMAX to Rejestr zleceń z Ustawień taty, a okres Uruchomienia to
+okres dzisiejszej daty z zegara procesu, ustalony przy starcie (ADR 0019).
+"""
+
+from __future__ import annotations
+
+from datetime import datetime
+from pathlib import Path
+from typing import Any
+
+from openpyxl import load_workbook
+
+from tests.fixtures.centrum import phase_states, views_until
+from tests.fixtures.centrum_intermax import (
+    PERIOD,
+    REGISTER_NAME,
+    Clock,
+    OrderingCentrum,
+    copies,
+    open_in_excel,
+    ordering_centrum,
+)
+from tests.fixtures.intermax import ORDER_SHEET, Intermax
+
+COPY = "INTERMAX przed uporządkowaniem 2026-10-26 14-05-07.xlsx"
+SUMMARY: dict[str, Any] = {
+    "figures": [
+        {"label": "Zlecenia", "value": 6, "unit": "count"},
+        {"label": "Wykonawcy", "value": 3, "unit": "count"},
+    ],
+    "counts": {"title": "Uporządkowany dzień", "counts": [{"label": "pon 26.10.2026", "count": 6}]},
+    "files": [],
+    "worker_settlements": None,
+    "intermax_copy": COPY,
+}
+OPEN = "INTERMAX jest otwarty w Excelu. Zapisz go i zamknij."
+
+
+def _stopped(centrum: OrderingCentrum) -> dict[str, Any]:
+    view = centrum.run_to_end()
+    assert view["result"]["ending"] == "stop", view["result"]
+    return view
+
+
+def test_bez_wskazanego_rejestru_zlecen_karta_mowi_co_ustawic_a_start_jest_odrzucony(tmp_path: Path) -> None:
+    centrum = ordering_centrum(tmp_path, chosen=False)
+
+    setup = centrum.setup()
+    started = centrum.start()
+
+    assert setup == {
+        "title": "Uporządkowanie INTERMAX",
+        "reminder": "Zapisz i zamknij INTERMAX w Excelu",
+        "blocker": "Najpierw wskaż INTERMAX.",
+        "open_in_excel": [],
+        "last": None,
+    }
+    assert (started.status_code, started.json()) == (409, {"message": "Najpierw wskaż INTERMAX."})
+    assert centrum.client.get("/api/runs/current").json()["state"] == "idle"
+
+
+def test_karta_mowi_ze_intermax_jest_otwarty_w_excelu_az_do_jego_zamkniecia(tmp_path: Path) -> None:
+    centrum = ordering_centrum(tmp_path)
+
+    lock = open_in_excel(centrum.register)
+    while_open = centrum.setup()
+    lock.unlink()
+    closed = centrum.setup()
+
+    assert (while_open["blocker"], while_open["open_in_excel"]) == (None, [OPEN])
+    assert closed["open_in_excel"] == []
+
+
+def test_uporzadkuj_porzadkuje_intermax_z_ustawien_taty_i_pokazuje_liczby_dzien_i_kopie(tmp_path: Path) -> None:
+    centrum = ordering_centrum(tmp_path)
+    original = centrum.register.read_bytes()
+
+    started = centrum.start()
+    views = views_until(centrum.client, "finished")
+    finished = views[-1]
+
+    assert started.status_code == 200
+    assert started.json()["state"] == "running"
+    run = finished["run"]
+    assert (run["process"], run["title"], run["period"], run["dry_run"]) == (
+        "intermax",
+        "Uporządkowanie INTERMAX",
+        PERIOD,
+        False,
+    )
+    result = finished["result"]
+    assert (result["result"], result["ending"], result["headline"], result["next_action"]) == (
+        "OK",
+        "finished",
+        "INTERMAX uporządkowany",
+        "open_order_register",
+    )
+    assert result["summary"] == SUMMARY
+    assert (result["stops"], result["warnings"], result["files_unchanged"]) == ([], [], False)
+    assert phase_states(finished) == dict.fromkeys(("Sprawdzanie", "Odczyt danych", "Planowanie", "Zapisywanie"), "completed")
+    assert copies(centrum) == [COPY]
+    assert (centrum.copies / COPY).read_bytes() == original
+    assert centrum.register.read_bytes() != original
+
+
+def test_okres_uruchomienia_to_okres_dnia_startu_takze_gdy_skonczy_sie_po_polnocy(tmp_path: Path) -> None:
+    # Poniedziałek tuż przed północą: następne pytania zegara są już we wtorek, w następnym okresie.
+    clock = Clock([datetime(2026, 10, 26, 23, 59, 59), datetime(2026, 10, 27, 0, 0, 3)])
+    centrum = ordering_centrum(tmp_path, clock=clock)
+
+    view = centrum.run_to_end()
+
+    assert view["run"]["period"] == PERIOD
+    assert [record["period"] for record in centrum.metric_records()] == [PERIOD]
+    assert [record["period"] for record in centrum.run_logs()] == [PERIOD]
+    assert centrum.last_started()["period"] == PERIOD
+    assert copies(centrum) == ["INTERMAX przed uporządkowaniem 2026-10-27 00-00-03.xlsx"]
+
+
+def test_intermax_otwarty_to_zatrzymanie_dla_taty_przed_odczytem_w_okresie_dzisiejszej_daty(tmp_path: Path) -> None:
+    centrum = ordering_centrum(tmp_path)
+    original = centrum.register.read_bytes()
+    open_in_excel(centrum.register)
+
+    view = _stopped(centrum)
+
+    result = view["result"]
+    assert (result["result"], result["stop_kind"], result["headline"], result["next_action"]) == (
+        "BLAD_KRYTYCZNY",
+        "for_tata",
+        "Do poprawy",
+        "rerun",
+    )
+    assert result["stops"][0]["what"] == "INTERMAX jest otwarty w Excelu. INTERMAX nie został zmieniony."
+    assert result["stops"][0]["where"] == f"plik {REGISTER_NAME}, folder OneDrive"
+    assert (result["opens"], result["diagnosis"], result["files_unchanged"]) == ("order_register", None, True)
+    assert phase_states(view)["Sprawdzanie"] == "failed"
+    assert view["run"]["period"] == PERIOD
+    assert centrum.last_started()["period"] == PERIOD
+    assert [(record["period"], record["stop"]["code"]) for record in centrum.metric_records()] == [
+        (PERIOD, "INTERMAX_OTWARTY")
+    ]
+    assert centrum.register.read_bytes() == original
+    assert copies(centrum) == []
+
+
+def test_logi_zatrzymania_przed_odczytem_ida_do_skrzynki_przy_okresie_dzisiejszej_daty(tmp_path: Path) -> None:
+    centrum = ordering_centrum(tmp_path)
+    (tmp_path / "config" / "zgloszenia-klucz.txt").write_text("github_pat_SYNTETYCZNY123\n", encoding="utf-8")
+    open_in_excel(centrum.register)
+
+    run_id = _stopped(centrum)["run"]["id"]
+
+    [logs] = centrum.run_logs()
+    assert (logs["run_id"], logs["process"], logs["mode"], logs["period"]) == (run_id, "intermax", "zapis", PERIOD)
+    assert [message["code"] for message in logs["messages"]] == ["INTERMAX_OTWARTY"]
+    assert [file["name"] for file in logs["environment"]["files"]] == [REGISTER_NAME]
+    box = centrum.surroundings.report_box
+    line = f"- Logi Uruchomienia okresu: {PERIOD}"
+    assert box.wait_until(lambda box: any(line in issue.body and issue.comments for issue in box.background_issues))
+    [issue] = box.background_issues
+    assert issue.title == f"Logi Uruchomienia {PERIOD}"
+    assert run_id in issue.comments[0]
+
+
+def test_zatrzymanie_do_maksa_prowadzi_do_diagnozy_intermax_i_zgloszenia(tmp_path: Path) -> None:
+    centrum = ordering_centrum(tmp_path)
+    workbook = load_workbook(centrum.register)
+    workbook[ORDER_SHEET].cell(centrum.layout.first_raw + 1, 4).value = "=1+1"
+    workbook.save(centrum.register)
+
+    view = _stopped(centrum)
+    diagnosis = centrum.client.post(f"/api/runs/{view['run']['id']}/diagnosis")
+    report = centrum.client.post(f"/api/runs/{view['run']['id']}/report")
+
+    result = view["result"]
+    assert (result["stop_kind"], result["headline"], result["diagnosis"]) == ("for_maks", "Błąd", "on_request")
+    assert result["stops"][0]["where"] == f"plik {REGISTER_NAME}, folder OneDrive, arkusz {ORDER_SHEET}"
+    assert diagnosis.status_code == 200
+    checks = {check["label"]: (check["state"], check["detail"]) for check in diagnosis.json()["checks"]}
+    assert list(checks) == [
+        "Ustawienia taty",
+        "Pliki w OneDrive",
+        "INTERMAX",
+        "Aktualność narzędzia",
+        "Klucz do Zgłoszeń",
+        "Dziennik Centrum rozliczeń",
+    ]
+    assert checks["Ustawienia taty"] == ("passed", "Rejestr zleceń jest na miejscu.")
+    assert checks["Pliki w OneDrive"] == ("passed", "Sprawdzone pliki są na tym komputerze: 1.")
+    assert checks["INTERMAX"] == ("passed", "Nie jest otwarty w Excelu, otwiera się i ma arkusz zleceń.")
+    assert diagnosis.json()["next_action"] == "report"
+    assert "- Proces: Uporządkowanie INTERMAX" in diagnosis.json()["report"]["body"]
+    assert report.status_code == 200
+    assert report.json()["state"] in ("sent", "queued")
+
+
+def test_powtorzone_zatrzymanie_intermax_wyjasnia_diagnoza_intermax(tmp_path: Path) -> None:
+    centrum = ordering_centrum(tmp_path)
+    open_in_excel(centrum.register)
+
+    _stopped(centrum)
+    repeated = _stopped(centrum)
+    diagnosis = centrum.client.post(f"/api/runs/{repeated['run']['id']}/diagnosis").json()
+
+    assert (repeated["result"]["stop_kind"], repeated["result"]["diagnosis"]) == ("repeated", "on_request")
+    assert diagnosis["confirms_stop"] is True
+    assert diagnosis["explanation"] == repeated["result"]["stops"][0]
+    assert diagnosis["next_action"] == "rerun"
+    assert {check["label"]: check["state"] for check in diagnosis["checks"]}["INTERMAX"] == "failed"
+
+
+def test_diagnoza_mowi_ktorego_intermax_z_ustawien_taty_nie_ma(tmp_path: Path) -> None:
+    centrum = ordering_centrum(tmp_path, Intermax())
+    centrum.engines.fail_summary = True
+    view = centrum.run_to_end()
+    centrum.register.unlink()
+
+    diagnosis = centrum.client.post(f"/api/runs/{view['run']['id']}/diagnosis").json()
+
+    assert view["result"]["stop_kind"] == "for_maks"
+    assert diagnosis["explanation"]["what"] == "Nie znaleziono INTERMAX. INTERMAX nie został zmieniony."
+    assert diagnosis["next_action"] == "rerun"
+    states = {check["label"]: check["state"] for check in diagnosis["checks"]}
+    assert (states["Ustawienia taty"], states["INTERMAX"]) == ("failed", "not_checked")
+
+
+def test_historia_metryki_i_karta_maja_uporzadkowanie_intermax(tmp_path: Path) -> None:
+    centrum = ordering_centrum(tmp_path)
+    run_id = centrum.run_to_end()["run"]["id"]
+
+    metrics = centrum.client.get("/api/metrics").json()
+    card = centrum.client.get(f"/api/runs/{run_id}/card").json()
+
+    [run] = metrics["runs"]
+    assert (run["process"], run["process_label"], run["period"], run["mode"]) == (
+        "intermax",
+        "Uporządkowanie INTERMAX",
+        PERIOD,
+        "RUN",
+    )
+    assert (run["result"], run["origin"], run["run_id"]) == ("OK", "centrum", run_id)
+    assert {(entry["process"], entry["mode"]) for entry in metrics["statistics"]} >= {("intermax", "RUN")}
+    assert card["state"] == "restored"
+    assert (card["run"]["title"], card["result"]["headline"]) == ("Uporządkowanie INTERMAX", "INTERMAX uporządkowany")
+    assert card["result"]["summary"] == SUMMARY
+    pinnable = centrum.client.get("/api/dad-notes/runs").json()
+    assert [(entry["run_id"], entry["process_label"]) for entry in pinnable] == [(run_id, "Uporządkowanie INTERMAX")]
+
+
+def test_karta_pokazuje_ostatnie_uporzadkowanie_z_logow_takze_po_ponownym_starcie_centrum(tmp_path: Path) -> None:
+    centrum = ordering_centrum(tmp_path)
+    ordered = centrum.run_to_end()["run"]["id"]
+    after_ordering = centrum.setup()["last"]
+    open_in_excel(centrum.register)
+    stopped = _stopped(centrum)["run"]["id"]
+
+    centrum.restart()
+    last = centrum.setup()["last"]
+    previous = centrum.client.get("/api/runs/current").json()["previous"]
+
+    assert (after_ordering["run"]["id"], after_ordering["result"]["summary"]) == (ordered, SUMMARY)
+    assert (last["run"]["id"], last["result"]["headline"], last["result"]["stops"][0]["what"]) == (
+        stopped,
+        "Do poprawy",
+        "INTERMAX jest otwarty w Excelu. INTERMAX nie został zmieniony.",
+    )
+    assert previous == last
+
+
+def test_karta_bez_ostatniego_uporzadkowania_nie_bierze_innego_procesu(tmp_path: Path) -> None:
+    centrum = ordering_centrum(tmp_path)
+    logs = tmp_path / "logs" / "uruchomienia"
+    logs.mkdir(parents=True)
+    (logs / "20261026T080000Z-preparation-0123456789abcdef0123456789abcdef.json").write_text("{}", encoding="utf-8")
+
+    assert centrum.setup()["last"] is None
+
+
+def test_start_z_okresem_nie_przyjmuje_uporzadkowania_intermax(tmp_path: Path) -> None:
+    centrum = ordering_centrum(tmp_path)
+
+    refused = centrum.client.post("/api/runs", json={"process": "intermax", "period": PERIOD, "dry_run": False})
+
+    assert refused.status_code == 422
+    assert copies(centrum) == []
