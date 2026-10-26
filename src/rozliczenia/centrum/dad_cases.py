@@ -2,16 +2,21 @@
 
 Sprawa ma rodzaj (``NOTE``, ``REPORT``), który mówi, pod jaką etykietą leży w Skrzynce Zgłoszeń i jak nazywa ją
 słownik, numer issue i ostatnie znane zamknięcie przez Maksa. Uwaga taty jest sprawą od „Wyślij” i bez numeru czeka
-w kolejce Skrzynki, dopóki ``delivered`` nie dopisze numeru; Zgłoszenie idzie do skrzynki wprost (ADR 0007), więc
-jest sprawą od razu z numerem. Stan sprawy (``Case.state``) wynika tylko z tabeli ``_STATES``. ``ask_box`` pyta
-skrzynkę o zamknięcie otwartych spraw, raz na rodzaj, który je ma.
+w kolejce Skrzynki, dopóki ``delivered`` nie dopisze numeru. Zgłoszenie też idzie kolejką (ADR 0007), ale jego
+``id`` to odcisk problemu, który wraca po zamknięciu, więc numer dopisuje ``numbered`` tylko czekającej sprawie.
+Stan sprawy (``DadCases.state``) wynika tylko z tabeli ``_STATES``, a sprawy, która czeka w Kolejce wysyłki, także
+z tego, na co czeka (``DadCases.hold``): na internet, na Token do Zgłoszeń (brak albo odmowa Skrzynki) albo na nic, bo
+Skrzynka odrzuciła jej treść. Odrzuconą treść kolejka ponawia dopiero przy następnym starcie Centrum, więc Sprawy taty
+pamiętają ją tylko w pamięci tej pracy Centrum. ``ask_box`` pyta skrzynkę o zamknięcie otwartych spraw, raz na
+rodzaj, który je ma.
 
 Stan leży w ``config/sprawy-taty.json`` poza Gitem. Dopóki tego pliku nie ma, Sprawy taty czytają pliki sprzed
 jednego magazynu (``OLD_FILES``), które mogą leżeć u taty, a pierwszy zapis przenosi ich wpisy do nowego pliku;
 stare pliki zostają nietknięte. Brak, uszkodzenie albo nieznany schemat pliku to brak spraw z tego pliku, a wpis,
 którego nie da się odczytać, jest pomijany. Plik jest czytany raz, przy starcie Centrum. Piszą do niego wysyłka
-Zgłoszenia, „Wyślij” Uwagi, wątek kolejki i sprawdzanie Powiadomień, więc każda zmiana idzie pod blokadą. Nieudany
-zapis trafia do dziennika Centrum, a sprawa zostaje w pamięci do końca pracy Centrum.
+Zgłoszenia, „Wyślij” Uwagi, wątek kolejki i sprawdzanie Powiadomień, więc każda zmiana idzie pod blokadą. Plik,
+którego nie da się zapisać, jest niedostępny (``StateFile``): sprawy czekają w pamięci, a Centrum zapisuje je przy
+następnej zmianie, także takiej, która niczego nie zmienia, i przy każdym odczycie Powiadomień.
 """
 
 from __future__ import annotations
@@ -25,7 +30,8 @@ from pathlib import Path
 from typing import Final, Literal
 
 from rozliczenia.centrum import contract
-from rozliczenia.centrum.atomic_file import replace_atomically
+from rozliczenia.centrum.atomic_file import StateFile
+from rozliczenia.centrum.keyed_box import KeyedBox, NoKey
 from rozliczenia.centrum.log import CentrumLog
 from rozliczenia.centrum.outbox import Post
 from rozliczenia.centrum.report_box import (
@@ -33,7 +39,6 @@ from rozliczenia.centrum.report_box import (
     CloseReason,
     Label,
     Refused,
-    ReportBox,
     Unreachable,
     close_reason,
     read_moment,
@@ -60,15 +65,20 @@ NOTE: Final = CaseKind("uwaga", "uwaga-taty", "Uwaga taty")
 KINDS: Final = (REPORT, NOTE)
 _BY_KEY: Final[Mapping[str, CaseKind]] = {kind.key: kind for kind in KINDS}
 
-# (czeka w kolejce, issue zamknięte, state_reason) → stan sprawy. GitHub zamyka issue bez powodu jako ``completed``,
-# a duplikat to sprawa przeczytana bez zmian.
-_STATES: Final[Mapping[tuple[bool, bool, CloseReason | None], contract.CaseState]] = {
-    (True, False, None): "czeka_na_internet",
-    (False, False, None): "wyslana",
-    (False, True, "completed"): "rozwiazana",
-    (False, True, None): "rozwiazana",
-    (False, True, "not_planned"): "przeczytana",
-    (False, True, "duplicate"): "przeczytana",
+Hold = Literal["internet", "key", "rejected"]
+"""Na co czeka sprawa w Kolejce wysyłki: ``contract.WaitsFor`` albo ``rejected``, gdy Skrzynka odrzuciła jej treść."""
+
+# (na co czeka w kolejce, issue zamknięte, state_reason) → stan sprawy; ``None``: sprawa ma numer issue. GitHub zamyka
+# issue bez powodu jako ``completed``, a duplikat to sprawa przeczytana bez zmian.
+_STATES: Final[Mapping[tuple[Hold | None, bool, CloseReason | None], contract.CaseState]] = {
+    ("internet", False, None): "czeka_na_internet",
+    ("key", False, None): "czeka_na_token",
+    ("rejected", False, None): "odrzucona",
+    (None, False, None): "wyslana",
+    (None, True, "completed"): "rozwiazana",
+    (None, True, None): "rozwiazana",
+    (None, True, "not_planned"): "przeczytana",
+    (None, True, "duplicate"): "przeczytana",
 }
 
 
@@ -93,11 +103,6 @@ class Case:
     run_id: str | None = None
 
     @property
-    def state(self) -> contract.CaseState:
-        closure = self.closure
-        return _STATES[(self.number is None, closure is not None, None if closure is None else closure.reason)]
-
-    @property
     def open(self) -> bool:
         """Wysłana, a Maks jeszcze jej nie zamknął."""
 
@@ -107,11 +112,11 @@ class Case:
 class DadCases:
     """Sprawy taty z tego komputera w pliku stanu obok Ustawień taty."""
 
-    def __init__(self, config_directory: Path, log: CentrumLog) -> None:
-        self._path = config_directory / DAD_CASES_FILE
-        self._log = log
+    def __init__(self, config_directory: Path, log: CentrumLog, *, pause: Callable[[float], None]) -> None:
+        self.file = StateFile(config_directory / DAD_CASES_FILE, log, where="stan Spraw taty", pause=pause)
         self._lock = threading.Lock()
         self._cases = _load(config_directory)
+        self._rejected: set[str] = set()  # ``id`` spraw, których treść Skrzynka odrzuciła w tej pracy Centrum
 
     def all(self) -> list[Case]:
         with self._lock:
@@ -130,6 +135,36 @@ class DadCases:
 
         self._change(lambda cases: [case for case in cases if not (case.kind == kind and case.id == case_id)])
 
+    def withdraw(self, case: Case) -> None:
+        """Usuwa tę jedną sprawę, której wysyłki kolejka nie zapisała; wcześniejsze sprawy o tym ``id`` zostają."""
+
+        self._change(lambda cases: [known for known in cases if known != case])
+
+    def numbered(self, kind: CaseKind, case_id: str, number: int) -> bool:
+        """Numer issue dla czekającej sprawy ``kind`` o ``case_id``; ``False``, gdy żadna taka nie czeka.
+
+        Gdy inna sprawa ma już ten numer (wysyłka przejęła otwarte Zgłoszenie znane z tego komputera; numery issue są
+        wspólne dla całej Skrzynki), czekająca znika, bo jedno issue to jedna sprawa i jedno Powiadomienie. Ten sam
+        numer drugi raz to ``False``.
+        """
+
+        found: list[Case] = []
+
+        def change(cases: list[Case]) -> list[Case]:
+            pending = next(
+                (case for case in reversed(cases) if case.kind == kind and case.id == case_id and case.number is None),
+                None,
+            )
+            if pending is None:
+                return cases
+            found.append(pending)
+            if any(case.number == number for case in cases):
+                return [case for case in cases if case is not pending]
+            return [replace(case, number=number) if case is pending else case for case in cases]
+
+        self._change(change)
+        return bool(found)
+
     def delivered(self, post: Post, number: int) -> None:
         """Dopisuje numer issue sprawie z wysyłki, którą przyjęła skrzynka; wysyłki, które nie są sprawą, pomija."""
 
@@ -139,7 +174,36 @@ class DadCases:
 
         self._change(lambda cases: [numbered(case) for case in cases])
 
-    def ask_box(self, box: ReportBox, key: str) -> None:
+    def rejected(self, case_id: str) -> None:
+        """Skrzynka odrzuciła w tej pracy Centrum treść wysyłki sprawy o ``case_id`` (``Outbox.on_rejected``).
+
+        ``id`` Uwagi to identyfikator jej wysyłki, a odcisk Zgłoszenia podaje ``Reports.rejected``. Identyfikator
+        wysyłki, która nie jest sprawą (Logi Uruchomienia), żadnej sprawy nie zmienia.
+        """
+
+        with self._lock:
+            self._rejected.add(case_id)
+
+    def hold(self, case_id: str, box: KeyedBox) -> Hold:
+        """Na co czeka sprawa o ``case_id`` w Kolejce wysyłki; nie pyta Skrzynki o token, gdy werdykt jest znany.
+
+        Odrzucona treść nie czeka na nic. Bez tokenu albo z odrzuconym kolejka nie wyśle niczego, a z tokenem, którego
+        Skrzynka nie odrzuciła (także jeszcze niesprawdzonym), czeka tylko na internet.
+        """
+
+        with self._lock:
+            if case_id in self._rejected:
+                return "rejected"
+        return "key" if box.judge(wait_s=0) in ("missing", "refused") else "internet"
+
+    def state(self, case: Case, box: KeyedBox) -> contract.CaseState:
+        """Stan sprawy w Powiadomieniu, a sprawy bez numeru issue z tym, na co czeka w Kolejce wysyłki."""
+
+        hold = None if case.number is not None else self.hold(case.id, box)
+        closure = case.closure
+        return _STATES[(hold, closure is not None, None if closure is None else closure.reason)]
+
+    def ask_box(self, box: KeyedBox) -> None:
         """Pyta skrzynkę o zamknięcie spraw, raz na rodzaj z otwartymi sprawami; bez odpowiedzi zostaje, co wiadomo.
 
         Pytanie idzie bez blokady, żeby wysyłka i „Wyślij” nie czekały na sieć. Numer issue jest jeden w całej
@@ -148,26 +212,24 @@ class DadCases:
 
         asked = {case.kind for case in self.all() if case.open}
         for kind in (kind for kind in KINDS if kind in asked):
-            issues = box.labelled_issues(kind.label, include_closed=True, key=key)
-            if not isinstance(issues, Refused | Unreachable):
+            issues = box.labelled_issues(kind.label, include_closed=True)
+            if not isinstance(issues, NoKey | Refused | Unreachable):
                 self._close({issue.number: issue.closure for issue in issues})
 
     def _close(self, closures: Mapping[int | None, Closure | None]) -> None:
         self._change(lambda cases: [replace(case, closure=closures.get(case.number, case.closure)) for case in cases])
 
     def _change(self, change: Callable[[list[Case]], list[Case]]) -> None:
-        """Zmienia sprawy i zapisuje plik, gdy coś się zmieniło."""
+        """Zmienia sprawy i zapisuje plik, gdy coś się zmieniło; bez zmiany zapisuje sprawy, które czekają."""
 
         with self._lock:
             changed = change(self._cases)
             if changed == self._cases:
+                self.file.retry()
                 return
             self._cases = changed
             document = {"schema_version": SCHEMA_VERSION, "sprawy": [_case_json(case) for case in self._cases]}
-            try:
-                replace_atomically(self._path, json.dumps(document, ensure_ascii=False, indent=2) + "\n")
-            except OSError as failure:
-                self._log.unexpected_failure(failure, where="stan Spraw taty")
+            self.file.write(json.dumps(document, ensure_ascii=False, indent=2) + "\n")
 
 
 def _load(config_directory: Path) -> list[Case]:
