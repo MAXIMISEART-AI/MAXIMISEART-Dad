@@ -135,7 +135,7 @@ def test_plan_zmieniony_po_digest_nie_wykonuje_sie_a_required_nie_bierze_zapisow
     code = plan_ci.main(["wykonaj", "--plan", str(tmp_path / "plan.json"), "--zadanie", plan.zadania[0].id])
 
     assert code == 1
-    assert capsys.readouterr().out.startswith(f"WYKONANIE FAIL | plan {tmp_path / 'plan.json'}: treść planu nie zgadza się z jego digest {plan.digest[:12]}")
+    assert capsys.readouterr().out.startswith(f"WYKONANIE FAIL | plan {(tmp_path / 'plan.json').as_posix()}: treść planu nie zgadza się z jego digest {plan.digest[:12]}")
     assert len(plan_ci.werdykt(plan, {"plan": "success"}, other)) == len(plan.zadania)
 
 
@@ -181,6 +181,8 @@ def mini_repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Path]
     (tmp_path / "pytest.ini").write_text("[pytest]\njunit_family = xunit1\n", encoding="utf-8")
     monkeypatch.setattr(plan_ci, "ROOT", tmp_path)
     monkeypatch.chdir(tmp_path)
+    # ``wykonaj`` uruchamia pytest z ``-n auto``: tu jeden worker, bo test sam biegnie w workerze xdist.
+    monkeypatch.setenv("PYTEST_XDIST_AUTO_NUM_WORKERS", "1")
     yield tmp_path
 
 
