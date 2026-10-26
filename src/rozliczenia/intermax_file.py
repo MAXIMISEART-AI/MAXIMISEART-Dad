@@ -454,7 +454,7 @@ class _Looks:
         self._fills: list[Fill] = []
         self._borders: list[Border] = []
         self._xfs: list[bytes] = []
-        self._ids: dict[tuple[int, int, str | None], int] = {}
+        self._style_ids: dict[tuple[int, int, str | None], int] = {}
 
     def style(self, column: int, number_format: int, fill: str | None) -> int:
         """Styl komórki kolumny zlecenia ``column``: Calibri 8 (WYKONAWCA 9), czarna, cienka ramka, do lewej i środka.
@@ -466,7 +466,7 @@ class _Looks:
             number_format = _DATE_FORMAT
         size = _WORKER_SIZE if column == self._columns.worker else _SIZE
         key = (size, number_format, fill)
-        if key not in self._ids:
+        if key not in self._style_ids:
             font = _index(self._styles.fonts, self._fonts, Font(name=_FACE, sz=size, color=_BLACK, family=2))
             fill_id = 0 if fill is None else _index(self._styles.fills, self._fills, _solid(fill))
             border = _index(self._styles.borders, self._borders, BORDER)
@@ -476,11 +476,11 @@ class _Looks:
                 % (number_format, font, fill_id, border)
             )
             if xf in self._styles.xfs:
-                self._ids[key] = self._styles.xfs.index(xf)
+                self._style_ids[key] = self._styles.xfs.index(xf)
             else:
                 self._xfs.append(xf)
-                self._ids[key] = len(self._styles.xfs) + len(self._xfs) - 1
-        return self._ids[key]
+                self._style_ids[key] = len(self._styles.xfs) + len(self._xfs) - 1
+        return self._style_ids[key]
 
     def number_format(self, style: int) -> int:
         return self._styles.number_formats[style]
