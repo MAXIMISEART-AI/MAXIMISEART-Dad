@@ -14,6 +14,7 @@ import json
 from pathlib import Path
 import socket
 import threading
+import time
 
 import pytest
 
@@ -303,18 +304,15 @@ def test_jedno_sprawdzenie_pyta_o_czubek_main_raz_dla_wszystkich_kandydatow(gith
     assert sum(path.endswith("/git/ref/heads/main") for path in _ASKED) == 1
 
 
-def test_limit_czasu_konczy_pytanie_milczacego_serwera() -> None:
-    answers: list[GitHubReleases | None] = []
-    with socket.socket() as silent:  # przyjmuje połączenie i nigdy nie odpowiada, więc pytanie kończy tylko limit
+def test_milczacy_serwer_nie_wydluza_diagnozy_ponad_limit_czasu() -> None:
+    with socket.socket() as silent:  # przyjmuje połączenie i nigdy nie odpowiada
         silent.bind(("127.0.0.1", 0))
         silent.listen()
-        url = f"http://127.0.0.1:{silent.getsockname()[1]}/tagi"
-        asking = threading.Thread(target=lambda: answers.append(releases_from(url, timeout_s=0.3)), daemon=True)
+        started = time.monotonic()
 
-        asking.start()
-        asking.join(timeout=30)
+        answer = releases_from(f"http://127.0.0.1:{silent.getsockname()[1]}/tagi", timeout_s=0.3)
 
-        assert answers == [None]
+        assert (answer, time.monotonic() - started < 1.5) == (None, True)
 
 
 def test_brak_sieci_to_nie_wiadomo() -> None:

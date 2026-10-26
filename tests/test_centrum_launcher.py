@@ -244,8 +244,8 @@ def test_zamkniecie_z_karty_konczy_proces_centrum_i_zostawia_wpis_w_dzienniku(tm
     assert closing == {"state": "closing"}
     assert exit_code == 0
     assert _log_events(runtime) == ["start", "zamkniecie", "stop"]
-    with pytest.raises(urllib.error.URLError):
-        _health(port, timeout_s=0)
+    with pytest.raises(urllib.error.URLError):  # port zamknięty: połączenie zostaje odrzucone od razu
+        urllib.request.urlopen(f"http://127.0.0.1:{port}/api/health", timeout=30)
 
 
 def _windowless(runtime: Path, port: int) -> list[str]:
