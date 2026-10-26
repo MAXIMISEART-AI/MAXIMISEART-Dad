@@ -490,9 +490,10 @@ def test_wyjatek_w_samodzielnym_komentarzu_dotyczy_linii_pod_nim() -> None:
 
 
 def test_opis_postaci_wyjatku_w_napisie_nie_jest_wyjatkiem() -> None:
-    code = 'OPIS = """\n``# mutacje-zmiany: <powód> | do RRRR-MM-DD | zgoda <kto>``\n"""\nx = 1  # mutacje-zmiany: inne | do 2027-01-31 | zgoda Maks\n'
+    form = "# mutacje-zmiany: <powód> | do RRRR-MM-DD | zgoda <kto>"
+    code = f'OPIS = """\n``{form}``\n"""\nPOSTAC = "{form}"\nx = 1  # mutacje-zmiany: inne | do 2027-01-31 | zgoda Maks\n'
 
-    assert sorted(exceptions(code, "m.py")) == [4]
+    assert sorted(exceptions(code, "m.py")) == [5]
 
 
 @pytest.mark.parametrize("comment", ["# mutacje-zmiany: bez terminu", "# mutacje-zmiany: powód | do 2026-13-01 | zgoda Maks"])
