@@ -30,6 +30,9 @@ OTHER = "3333333333333333333333333333333333333333"
 OFF_MAIN = "4444444444444444444444444444444444444444"
 NOT_COMPARED = "5555555555555555555555555555555555555555"
 UNCOUNTED = "6666666666666666666666666666666666666666"
+MERGED_BRANCH = "7777777777777777777777777777777777777777"
+REFUSED_MIDWAY = "8888888888888888888888888888888888888888"
+FIRST_COMMIT = "9999999999999999999999999999999999999999"
 NOT_A_COMMIT = "nie-commit"
 # Odpowiedź porównania commitu tagu z czubkiem `main` ``MAIN`` albo jego pierwszym rodzicem (``compare``); brak wpisu
 # to odmowa GitHuba. ``OLDER`` jest pierwszym rodzicem ``MAIN``.
@@ -39,11 +42,22 @@ _STATUS = {
     (NEWEST, MAIN): "identical",
     (OTHER, MAIN): "diverged",
     (OFF_MAIN, MAIN): "behind",
+    # Commit gałęzi wciągniętej merge'em: przodek `main`, ale nie jego pierwszego rodzica. Przy ``REFUSED_MIDWAY``
+    # GitHub odmawia dopiero porównania z pierwszym rodzicem, czyli w połowie wyszukiwania.
+    (MERGED_BRANCH, MAIN): "ahead",
+    (MERGED_BRANCH, f"{MAIN}~1"): "behind",
+    (REFUSED_MIDWAY, MAIN): "ahead",
     # Porównanie bez liczby commitów i porównanie z czubkiem `main`, który nie jest commitem: GitHub, który by je
     # dał, nie daje pełnej odpowiedzi.
     (UNCOUNTED, MAIN): "identical",
     (NEWEST, NOT_A_COMMIT): "identical",
+    # Pierwszy commit repozytorium jest pierwszym rodzicem `main`, a `main` ma jeszcze dwa commity z wciągniętej
+    # gałęzi (``ahead_by`` 3): ``MAIN~2`` i dalej nie istnieją (404).
+    (FIRST_COMMIT, MAIN): "ahead",
+    (FIRST_COMMIT, f"{MAIN}~1"): "identical",
 }
+_AHEAD_BY = {FIRST_COMMIT: 3}
+_NOT_FOUND = {(FIRST_COMMIT, f"{MAIN}~2"), (FIRST_COMMIT, f"{MAIN}~3")}
 
 
 def _tags(*named: tuple[str, str]) -> str:
@@ -67,6 +81,9 @@ _PAGES = {
     "/bez-czubka/tags?per_page=100": (_tags(("v0.1.0", NEWEST)), None),
     "/bez-czubka/git/ref/heads/main": (json.dumps({"object": {"sha": NOT_A_COMMIT}}), None),
     "/bez-liczby/tags?per_page=100": (_tags(("v0.1.0", UNCOUNTED)), None),
+    "/z-galezi/tags?per_page=100": (_tags(("v0.1.0", MERGED_BRANCH)), None),
+    "/odmowa-w-wyszukiwaniu/tags?per_page=100": (_tags(("v0.1.0", REFUSED_MIDWAY)), None),
+    "/od-pierwszego-commitu/tags?per_page=100": (_tags(("v0.1.0", FIRST_COMMIT)), None),
 }
 
 NOTES = "Plik zbiorczy ma kolumnę z kilometrami.\n\n## Rozwiązane sprawy taty\n\n- Uwaga taty #12: Kilometry\n"
@@ -112,10 +129,12 @@ class _GitHub(BaseHTTPRequestHandler):
         elif rest.startswith("compare/") and rest.endswith("?per_page=1&page=2"):
             base, _, head = rest.removeprefix("compare/").removesuffix("?per_page=1&page=2").partition("...")
             status = _STATUS.get((base, head))
-            if status is None:
+            if (base, head) in _NOT_FOUND:
+                self._answer(404, '{"message": "Not Found"}')
+            elif status is None:
                 self._answer(403, '{"message": "API rate limit exceeded"}')
             else:
-                counted = {} if base == UNCOUNTED else {"ahead_by": 1}
+                counted = {} if base == UNCOUNTED else {"ahead_by": _AHEAD_BY.get(base, 1)}
                 self._answer(200, json.dumps({"status": status, **counted, "commits": [], "files": []}))
         elif repository == "limit":
             self._answer(403, '{"message": "API rate limit exceeded"}')
@@ -165,6 +184,24 @@ def test_bez_wydania_na_main_github_odpowiada_ze_nie_ma_wydania(github: str, rep
 )
 def test_odmowa_odpowiedz_nie_z_api_albo_niepelna_lista_to_nie_wiadomo(github: str, repository: str) -> None:
     assert releases_from(f"{github}/{repository}", timeout_s=2) is None
+
+
+def test_wydanie_z_galezi_wciagnietej_mergem_nie_jest_na_main_i_ta_odpowiedz_zostaje_w_pamieci(github: str) -> None:
+    known: dict[str, bool] = {}
+
+    assert releases_from(f"{github}/z-galezi", timeout_s=2, known=known) == GitHubReleases(None, None)
+    assert known == {MERGED_BRANCH: False}
+
+
+def test_wydanie_na_pierwszym_commicie_repozytorium_jest_na_main(github: str) -> None:
+    assert releases_from(f"{github}/od-pierwszego-commitu", timeout_s=2) == GitHubReleases(FIRST_COMMIT, "v0.1.0")
+
+
+def test_odmowa_githuba_w_polowie_wyszukiwania_to_nie_wiadomo_i_nic_nie_zostaje_w_pamieci(github: str) -> None:
+    known: dict[str, bool] = {}
+
+    assert releases_from(f"{github}/odmowa-w-wyszukiwaniu", timeout_s=2, known=known) is None
+    assert known == {}
 
 
 def test_milczacy_serwer_nie_wydluza_diagnozy_ponad_limit_czasu() -> None:
