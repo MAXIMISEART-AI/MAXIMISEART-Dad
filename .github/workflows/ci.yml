@@ -203,10 +203,32 @@ jobs:
           path: .ci-plan
 
       # pytest with the job's files longest first, then its steps (E2E, timing guard), each with its own time limit,
-      # also after red tests.
+      # also after red tests. On a pull request the tests that failed run once more; passing then makes them flaky.
       - name: Run the planned units
         id: units
         run: python tools/plan_ci.py wykonaj --plan .ci-plan/plan.json --zadanie ${{ matrix.id }}
+
+      # Tests that passed only on their retry; the workflow zgloszenia.yml files an issue "Flak: <test>" for each.
+      - name: Upload the flaky tests
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: flaki-${{ matrix.id }}-${{ github.run_attempt }}
+          path: .ci-niestabilne/flaki.json
+          retention-days: 7
+          if-no-files-found: ignore
+          include-hidden-files: true
+
+      # Quarantined tests do not turn Required red, so tools/wydanie.py reads their results on the main commit.
+      - name: Upload the results of quarantined tests
+        if: ${{ !cancelled() && github.event_name == 'push' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: kwarantanna-${{ matrix.id }}-${{ github.run_attempt }}
+          path: .ci-niestabilne/kwarantanna.json
+          retention-days: 30
+          if-no-files-found: warn
+          include-hidden-files: true
 
       - name: Upload E2E and timing guard evidence on failure
         if: ${{ failure() && steps.units.outcome == 'failure' }}

@@ -1,0 +1,45 @@
+name: Zgłoszenia CI
+
+# After every CI run: an issue "Flak: <test>" for each test that passed only on its retry, and on a push to main one
+# issue for a red main, closed by the next green main (tools/zgloszenia_ci.py, ADR 0020).
+on:
+  workflow_run:
+    workflows:
+      - CI
+    types:
+      - completed
+
+# workflow_run also follows CI runs of pull requests from forks, with this token. A fork writes its own ci.yml, so its
+# artifacts could name any test: the job skips those runs. It never checks out or runs the code of a run either: it
+# runs main's tools/zgloszenia_ci.py, which takes from the artifacts only a test id it can file and everything else
+# from the API of the run.
+permissions:
+  contents: read
+  actions: read
+  issues: write
+
+concurrency:
+  # Pushes to main share one group, so two red runs cannot both open an issue; other runs do not wait.
+  group: zgloszenia-${{ github.event.workflow_run.event == 'push' && 'main' || github.event.workflow_run.id }}
+  cancel-in-progress: false
+
+jobs:
+  zgloszenia:
+    name: Flaki i czerwony main
+    if: github.event.workflow_run.head_repository.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      # The history of main finds the last green commit and the PRs merged since it.
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+          fetch-depth: ${{ github.event.workflow_run.event == 'push' && 0 || 1 }}
+          persist-credentials: false
+
+      - name: File the flaky tests and the red main of the CI run
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RUN: ${{ github.event.workflow_run.id }}
+        run: python3 tools/zgloszenia_ci.py --run "$RUN"

@@ -38,7 +38,7 @@ REPO = {
 
 
 TOOLS_FOR_CHANGE = (
-    "skille_dla_zmiany.py", "mutacje_skilli.py", "plan_ci.py", "mutacje_zmiany.py", "pokrycie_procesu.py", "potomne.py", "szybko.py",
+    "skille_dla_zmiany.py", "mutacje_skilli.py", "plan_ci.py", "niestabilne_testy.py", "mutacje_zmiany.py", "pokrycie_procesu.py", "potomne.py", "szybko.py",
     "ci_lokalnie.py", "czasy_ci.py", "ciezkie_ci.py", "mutacje.py", "sciezki_w_kodzie.py",
 )
 
