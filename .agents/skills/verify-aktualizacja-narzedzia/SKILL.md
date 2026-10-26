@@ -141,13 +141,14 @@ Sync commit: `06fefb63` (2026-10-26, `main` after #540 merged into #534). Since
 the repository address after the move to the `maximiseartai` organization
 (#540), which the model does not describe, and in the docstring and one comment
 of `ToolUpdates._after_restart`, which now name the limit of the #491 rule.
-The model did not change.
+No action of the model changed.
 
 `7acf755b` (#490 and #491): at this commit every row above was checked against
-the code. After it only `CentrumLog.update_awaits` in `log.py`, outside the
-covered files, changed: an `aktualizacja-koniec` lets a result through only
-with `wynik=ok`. The model lets every start skip the result anyway, so it did
-not change.
+the code. Outside the covered files, after it only `CentrumLog.update_awaits`
+in `log.py` changed in a way that matters here: an `aktualizacja-koniec` lets a
+result through only with `wynik=ok`. The model lets every start skip the result
+anyway, so no action of the model changed; `5b367eb3` only rewrote the
+`StartCentrumZ` comment to the exact rule.
 
 `7acf755b`: since `9d31b08c` only the skipped
 result's `unlink` in `_after_restart` lost `missing_ok`; it stays inside
