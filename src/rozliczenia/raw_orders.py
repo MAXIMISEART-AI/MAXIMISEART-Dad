@@ -131,8 +131,8 @@ class RawOrder:
     shifted: bool
     when: datetime
     worker: str
-    operator: str | None = None
-    fault: bool = False
+    operator: str | None
+    fault: bool
 
 
 @dataclass(frozen=True)

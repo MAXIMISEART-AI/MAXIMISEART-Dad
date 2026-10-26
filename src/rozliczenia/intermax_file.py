@@ -10,10 +10,9 @@ bez openpyxl: ~42 tys. wierszy taty to dziesiątki MB XML, a rozpoznanie potrzeb
 - w XML arkusza zleceń wiersze pod wierszem, pod którym staje dzień (``RawBlock.anchor``): wiersz zlecenia
   dostaje komórki Surowego zlecenia (w przesuniętym pierwszym wierszu o dwie kolumny w prawo), w kolumnach od
   ``AKCJE`` do ``UWAGI`` z wyglądem reszty INTERMAX i Kolorem operatora z planu dnia, a za ``UWAGI`` takie, jak
-  przyszły; pusty wiersz między
-  segmentami ma puste komórki od ``AKCJE`` do ``UWAGI`` z tym samym wyglądem; inny pusty wiersz, który był pusty,
-  zostaje bajt w bajt, a wiersz, z którego zlecenie odeszło, i wiersz, którego nie było, są pustym wierszem
-  taty; wygląd ``<row>`` (styl wiersza, wysokość) daje ``_RowLooks``;
+  przyszły; pusty wiersz między segmentami ma puste komórki od ``AKCJE`` do ``UWAGI`` z tym samym wyglądem; inny
+  pusty wiersz, który był pusty, zostaje bajt w bajt, a wiersz, z którego zlecenie odeszło, i wiersz, którego nie
+  było, są pustym wierszem taty; wygląd ``<row>`` (styl wiersza, wysokość) daje ``_RowLooks``;
 - ``ref`` Hiperłączy z tych wierszy, które idą razem ze swoją komórką, i ``<dimension>``, gdy dzień sięga dalej;
 - widok arkusza zleceń (``<sheetViews>``): karta zaznaczona, a górny wiersz widoku pod zamrożonym nagłówkiem i
   zaznaczenie na wierszu widoku z planu dnia (``DayPlan.view_row``);
@@ -384,7 +383,6 @@ class Register:
                 raise WriteMismatch(name)
         _check_styles(self._parts[self._styles_part], parts[self._styles_part])
         _check_sheet(sheet.sheet_xml, parts[sheet.part], sheet.columns, block, plan)
-
 
     def _without_tabs(self, name: str, xml: bytes) -> bytes:
         """Część bez tego, co zapis zmienia poza arkuszem zleceń: aktywnej karty skoroszytu i zaznaczenia kart.
