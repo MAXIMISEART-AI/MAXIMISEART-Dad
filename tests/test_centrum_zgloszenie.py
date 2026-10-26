@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import codecs
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 import json
@@ -36,14 +37,19 @@ from tests.fixtures.centrum import (
     case_states,
     centrum as plain_centrum,
     dad_cases,
+    join_threads_since,
+    new_line,
 )
+from tests.fixtures.centrum_intermax import OrderingCentrum, ordering_centrum
 from tests.fixtures.clock import ManualClock
 from tests.fixtures.locked_file import lock_file
 from tests.fixtures.centrum_processes import (
     PreparingCentrum,
+    SettlingCentrum,
     Surroundings,
     preparing_centrum,
     run_to_end,
+    settling_centrum,
     stopped_for_maks,
 )
 from tests.fixtures.potomne import wait_for
@@ -52,7 +58,7 @@ from tests.fixtures.preparation import PERIOD
 KEY = "github_pat_SYNTETYCZNY_KLUCZ_ZGLOSZEN"
 
 
-def with_key(centrum: PreparingCentrum) -> Path:
+def with_key(centrum: PreparingCentrum | SettlingCentrum | OrderingCentrum) -> Path:
     """Klucz do Zgłoszeń w lokalnym pliku obok Ustawień taty, jak go wpisuje Maks."""
 
     key_file = centrum.tmp_path / "config" / "zgloszenia-klucz.txt"
@@ -60,14 +66,14 @@ def with_key(centrum: PreparingCentrum) -> Path:
     return key_file
 
 
-def diagnose(centrum: PreparingCentrum, run_id: str) -> dict[str, Any]:
+def diagnose(centrum: PreparingCentrum | SettlingCentrum, run_id: str) -> dict[str, Any]:
     response = centrum.client.post(f"/api/runs/{run_id}/diagnosis")
     assert response.status_code == 200, response.json()
     diagnosis: dict[str, Any] = response.json()
     return diagnosis
 
 
-def send(centrum: PreparingCentrum, run_id: str) -> dict[str, Any]:
+def send(centrum: PreparingCentrum | SettlingCentrum, run_id: str) -> dict[str, Any]:
     response = centrum.client.post(f"/api/runs/{run_id}/report")
     assert response.status_code == 200, response.json()
     state: dict[str, Any] = response.json()
@@ -303,6 +309,7 @@ def test_zgloszenie_z_kolejki_wychodzi_po_restarcie_centrum_z_numerem_w_stanie_w
     with centrum.client:
         assert centrum.surroundings.report_box.wait_until(lambda box: len(box.sent) == 1)
         assert wait_for(lambda: case_states(centrum.client, "zgloszenie") == ["wyslana"])
+    centrum.client.stop()
 
     assert [case["number"] for case in cases(centrum)] == [1]
     assert queued_reports(centrum) == []
@@ -322,6 +329,7 @@ def test_numer_zgloszenia_z_kolejki_zostaje_po_restarcie_gdy_windows_na_chwile_b
     with centrum.client:
         assert centrum.surroundings.report_box.wait_until(lambda box: len(box.sent) == 1)
         assert wait_for(lambda: case_states(centrum.client, "zgloszenie") == ["wyslana"])
+    centrum.client.stop()
     centrum.restart()
 
     assert case_states(centrum.client, "zgloszenie") == ["wyslana"]
@@ -333,8 +341,9 @@ def test_zgloszenie_ktorego_nie_da_sie_zapisac_w_kolejce_daje_komunikat(tmp_path
     centrum = preparing_centrum(tmp_path)
     run_id = stopped_for_maks(centrum)
     diagnose(centrum, run_id)
+    centrum.client.stop()
     queue = tmp_path / "config" / "zgloszenia" / "kolejka"
-    assert wait_for(lambda: removed(queue))  # Logi Uruchomienia w kolejce
+    shutil.rmtree(queue)  # Logi Uruchomienia w kolejce
     queue.write_text("", encoding="utf-8")  # plik zamiast folderu: zapis się nie uda
 
     state = send(centrum, run_id)
@@ -362,9 +371,8 @@ def test_niezapisane_zgloszenie_powracajacego_problemu_zostawia_jego_poprzednie_
     centrum.restart()
     again = stopped_for_maks(centrum)
     diagnose(centrum, again)
+    centrum.client.stop()
     queue = tmp_path / "config" / "zgloszenia" / "kolejka"
-    # Kolejka z kluczem wysyła Logi Uruchomienia w tle; na Windows folder z plikiem usuwanym w tej chwili nie znika.
-    assert wait_for(lambda: not any(queue.iterdir()))
     shutil.rmtree(queue)
     queue.write_text("", encoding="utf-8")  # plik zamiast folderu: zapis się nie uda
 
@@ -377,16 +385,118 @@ def test_niezapisane_zgloszenie_powracajacego_problemu_zostawia_jego_poprzednie_
     assert [case["number"] for case in cases(centrum)] == [1]
 
 
-def removed(folder: Path) -> bool:
-    """Usuwa ``folder``; ``False``, gdy na Windows przejście kolejki bez klucza czyta w tej chwili jego plik."""
+@pytest.mark.parametrize("started", [preparing_centrum, settling_centrum], ids=["przygotowanie", "przebieg"])
+def test_zatrzymanie_centrum_czeka_na_kazdy_jego_watek_takze_sprzed_ponownego_startu_a_drugie_nic_nie_robi(
+    tmp_path: Path, started: Callable[[Path], PreparingCentrum | SettlingCentrum]
+) -> None:
+    centrum = started(tmp_path)
+    with_key(centrum)
+    hold = centrum.surroundings.report_box.search_hold = threading.Event()
+    run_id = stopped_for_maks(centrum)
+    diagnose(centrum, run_id)  # Diagnoza pyta skrzynkę o Zgłoszenie w tle, a skrzynka nie odpowiada
+    centrum.restart()
+
+    with centrum.client:
+        running = centrum.client.threads()
+        with pytest.raises(AssertionError, match="żyją wątki .*zgloszenie-skrzynka"):
+            centrum.client.stop(timeout_s=0)
+        hold.set()
+        centrum.client.stop()
+        centrum.client.stop()
+
+    assert {"zgloszenie-skrzynka", "skrzynka-klucz"} <= {thread.name for thread in running}
+    assert [thread.name for thread in running if thread.is_alive()] == []
+
+
+@pytest.mark.parametrize("started", [preparing_centrum, settling_centrum], ids=["przygotowanie", "przebieg"])
+def test_ponowny_start_centrum_zaczyna_sie_po_koncu_przejscia_kolejki_poprzedniego_jak_nowy_proces(
+    tmp_path: Path, started: Callable[[Path], PreparingCentrum | SettlingCentrum], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    centrum = started(tmp_path)
+    with_key(centrum)
+    run_id = stopped_for_maks(centrum)
+    diagnose(centrum, run_id)
+    box = centrum.surroundings.report_box
+    hold = box.open_hold = threading.Event()
+    monkeypatch.setattr("rozliczenia.centrum.reports.DELIVERY_WAIT_S", 0.01)
+    queued = send(centrum, run_id)
+    release = threading.Timer(0.2, hold.set)
+    release.start()
+
+    centrum.restart()
+
+    assert (queued, len(box.sent)) == (FOR_INTERNET, 1)
+
+
+@pytest.mark.parametrize("started", [preparing_centrum, settling_centrum], ids=["przygotowanie", "przebieg"])
+def test_po_ponownym_starcie_kolejke_ponawia_tylko_budzik_nowego_centrum_jak_w_nowym_procesie(
+    tmp_path: Path, started: Callable[[Path], PreparingCentrum | SettlingCentrum]
+) -> None:
+    centrum = started(tmp_path)
+    stopped_for_maks(centrum)  # bez klucza Logi Uruchomienia czekają, a kolejka nastawia ponowienie za ``RETRY_S``
+    box, clock = centrum.surroundings.report_box, centrum.surroundings.clock
+    centrum.restart()
+    clock.advance(RETRY_S / 2)
+    with centrum.client:  # nowe Centrum przy starcie przechodzi kolejkę i bez klucza ponowi ją za ``RETRY_S``
+        pass
+    centrum.client.stop()
+    with_key(centrum)
+
+    clock.advance(RETRY_S / 2)  # chwila ponowienia poprzedniego Centrum
+    centrum.client.stop()
+    after_previous_alarm = len(box.background_issues)
+    clock.advance(RETRY_S / 2)  # chwila ponowienia nowego Centrum
+    centrum.client.stop()
+
+    assert (after_previous_alarm, len(box.background_issues)) == (0, 1)
+
+
+def test_po_ponownym_starcie_uporzadkowania_intermax_kolejke_ponawia_tylko_budzik_nowego_centrum(
+    tmp_path: Path,
+) -> None:
+    since = new_line()  # klient ``OrderingCentrum`` nie ma ``stop``, więc test czeka na wątki Centrum od tej chwili
+    centrum = ordering_centrum(tmp_path)
+    centrum.run_to_end()  # bez klucza Logi Uruchomienia czekają, a kolejka nastawia ponowienie za ``RETRY_S``
+    join_threads_since(since)
+    box, clock = centrum.surroundings.report_box, centrum.surroundings.clock
+    centrum.restart()
+    clock.advance(RETRY_S / 2)
+    with centrum.client:  # nowe Centrum przy starcie przechodzi kolejkę i bez klucza ponowi ją za ``RETRY_S``
+        pass
+    join_threads_since(since)
+    with_key(centrum)
+
+    clock.advance(RETRY_S / 2)  # chwila ponowienia poprzedniego Centrum
+    join_threads_since(since)
+    after_previous_alarm = len(box.background_issues)
+    clock.advance(RETRY_S / 2)  # chwila ponowienia nowego Centrum
+    join_threads_since(since)
+
+    assert (after_previous_alarm, len(box.background_issues)) == (0, 1)
+
+
+def test_zatrzymanie_centrum_nie_czeka_na_budzik_centrum_poprzedniego_testu_nastawiony_po_jego_starcie(
+    tmp_path: Path,
+) -> None:
+    rings = threading.Event()
+    next_rings = threading.Event()
+
+    def ring() -> None:
+        rings.wait()
+        threading.Thread(target=next_rings.wait, name="budzik", daemon=True).start()
+
+    # Budzik kolejki Centrum z poprzedniego testu (``SYSTEM_CLOCK``): dzwoni co ``RETRY_S`` i nastawia następny.
+    earlier = threading.Thread(target=ring, name="budzik", daemon=True)
+    earlier.start()
+    started = plain_centrum(tmp_path)
+    rings.set()
+    earlier.join()
 
     try:
-        shutil.rmtree(folder)
-    except FileNotFoundError:
-        return True
-    except OSError:
-        return False
-    return True
+        assert started.client.threads() == []
+        started.client.stop(timeout_s=0)
+    finally:
+        next_rings.set()
 
 
 def current_report(centrum: PreparingCentrum) -> object:

@@ -33,7 +33,14 @@ from rozliczenia.centrum.reports import (
 from rozliczenia.centrum.tool_update import NO_CONNECTION, OTHER_BRANCH, UpdateResult
 from rozliczenia.message import Message
 
-from tests.fixtures.centrum import TOOL_COMMIT, FakeReportBox, dad_cases
+from tests.fixtures.centrum import (
+    QUEUE_THREAD,
+    TOOL_COMMIT,
+    FakeReportBox,
+    dad_cases,
+    join_threads_since,
+    new_line,
+)
 from tests.fixtures.clock import ManualClock
 from tests.fixtures.potomne import wait_for
 
@@ -68,7 +75,9 @@ class Computer:
     """Katalog konfiguracji tego komputera, skrzynka Zgłoszeń, zegar i dziennik Centrum; ``reports()`` to start Centrum.
 
     ``outbox`` to kolejka Skrzynki ostatniego startu. Każdy kolejny start ma nowy zegar, jak nowy proces Centrum:
-    budzik kolejki poprzedniego startu już nie dzwoni.
+    budzik kolejki poprzedniego startu już nie dzwoni. Z tego samego powodu kolejny start czeka na koniec przejścia
+    kolejki poprzedniego: kolejka, która zastałaby przejście poprzedniej na tym samym folderze, oddałaby jej swoje
+    (``outbox._claimed``).
     """
 
     tmp_path: Path
@@ -78,6 +87,7 @@ class Computer:
     outbox: Outbox | None = None
     keyed: KeyedBox | None = None
     stored: DadCases | None = None
+    since: int | None = None
 
     @property
     def config(self) -> Path:
@@ -92,8 +102,10 @@ class Computer:
         (self.config / "zgloszenia-klucz.txt").write_text(KEY + "\n", encoding="utf-8")
 
     def reports(self) -> Reports:
-        if self.outbox is not None:
+        if self.since is not None:
+            join_threads_since(self.since, named=QUEUE_THREAD)
             self.clock = ManualClock()
+        self.since = new_line()
         keyed = KeyedBox(self.box, lambda: read_report_key(self.config), clock=self.clock)
         outbox = Outbox(
             self.config / "zgloszenia" / "kolejka",
@@ -433,6 +445,22 @@ def test_wyslane_zgloszenie_czeka_na_naprawe_po_restarcie_bez_pytania_skrzynki_a
     assert [{name: entry[name] for name in ("id", "number", "commit", "closure")} for entry in computer.cases()] == [
         {"id": fingerprint, "number": 1, "commit": TOOL_COMMIT, "closure": None}
     ]
+
+
+def test_kolejny_start_zaczyna_sie_po_koncu_przejscia_kolejki_poprzedniego_jak_nowy_proces(
+    computer: Computer, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    computer.with_key()
+    hold = computer.box.open_hold = threading.Event()
+    handle, _, _ = prepared(computer.reports(), computer)
+    monkeypatch.setattr("rozliczenia.centrum.reports.DELIVERY_WAIT_S", 0.01)
+    queued = dump(handle.send())
+    release = threading.Timer(0.2, hold.set)
+    release.start()
+
+    computer.reports()
+
+    assert (queued, len(computer.box.sent)) == (FOR_INTERNET, 1)
 
 
 def test_inny_problem_wysyla_sie_osobno_obok_otwartego_zgloszenia(computer: Computer) -> None:
