@@ -344,6 +344,13 @@ SHORT_TIMEOUTS = {
     "test_centrum_launcher.py::test_zamkniecie_z_karty_konczy_proces_centrum_i_zostawia_wpis_w_dzienniku": (
         "Centrum już się zamknęło, a limit 0 s to jedno pytanie bez ponawiania, które ma się nie udać"
     ),
+    "test_centrum_zgloszenie.py::test_zatrzymanie_centrum_czeka_na_kazdy_jego_watek_takze_sprzed_ponownego_startu_a_drugie_nic_nie_robi": (
+        "wątek skrzynki trzyma hold, którego test nie zwolni przed tym stop, więc stop ma paść, a limit 0 s robi to od razu"
+    ),
+    "test_centrum_zgloszenie.py::test_zatrzymanie_centrum_nie_czeka_na_budzik_centrum_poprzedniego_testu_nastawiony_po_jego_starcie": (
+        "budzik poprzedniego testu nie kończy się nigdy, a test sprawdził, że Centrum nie ma już wątków, więc każde "
+        "czekanie na budzik wywraca test, a limit 0 s robi to od razu"
+    ),
     "test_potomne.py::test_po_limicie_drzewo_ginie_a_run_rzuca_timeout": (
         "limit jest tym, co test sprawdza: dziecko śpi 60 s, więc limit 5 s kończy polecenie zawsze"
     ),
