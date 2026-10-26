@@ -354,27 +354,47 @@ def test_kazdy_glob_pilnuje_trafia_w_plik_repozytorium(monkeypatch: pytest.Monke
     assert dead == []
 
 
-def test_skrypt_mutacji_czyta_kazdy_plik_repozytorium_ladowany_przez_jego_sprawdzenia(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_skrypt_mutacji_czyta_kazdy_plik_repozytorium_ladowany_przez_jego_sprawdzenia(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     tool = _load_tool(monkeypatch)
+    # Moduły z chwili startu interpretera nie są ładowane przez sprawdzenia. W przebiegu bez mutacji zadania Change
+    # mutations ``sitecustomize`` z ``PYTHONPATH`` ładuje przy starcie ``tools/pokrycie_procesu.py``, więc test robi to
+    # samo; gdy ``PYTHONPATH`` ma już ``sitecustomize`` zadania, wygrywa tamten.
+    (tmp_path / "sitecustomize.py").write_text(
+        f"import sys\nsys.path.insert(0, {str(TOOLS)!r})\nimport pokrycie_procesu\nsys.path.remove({str(TOOLS)!r})\n", encoding="utf-8"
+    )
+    python_path = os.pathsep.join(path for path in (os.environ.get("PYTHONPATH", ""), str(tmp_path)) if path)
     loader = (
-        "import json, os, runpy, sys\n"
+        "import sys\n"
+        "started = set(sys.modules)\n"
+        "import json, os, runpy\n"
         "script = runpy.run_path(sys.argv[1], run_name='_mutacje')\n"
         "for checker in {mutation.command[0] for mutation in script['MUTATIONS']}:\n"
         "    sys.path.insert(0, os.path.dirname(os.path.abspath(checker)))  # jak `python <sprawdzenie>`\n"
         "    runpy.run_path(checker, run_name='_sprawdzenie')\n"
-        "print(json.dumps([getattr(module, '__file__', None) for module in list(sys.modules.values())]))\n"
+        "print(json.dumps([getattr(module, '__file__', None) for name, module in list(sys.modules.items()) if name not in started]))\n"
     )
     scripts = sorted((ROOT / ".agents" / "skills").glob("*/scripts/check_*_mutations.py"))
-    unread = {}
+    unread, nothing_loaded = {}, []
     for script in scripts:
         out = subprocess.run(
-            [sys.executable, "-c", loader, str(script)], cwd=ROOT, capture_output=True, text=True, encoding="utf-8", check=True
+            [sys.executable, "-c", loader, str(script)],
+            cwd=ROOT,
+            env={**os.environ, "PYTHONPATH": python_path},
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            check=True,
         ).stdout
         loaded = {Path(name).resolve() for name in json.loads(out.splitlines()[-1]) if name}
         in_repo = {path.relative_to(ROOT).as_posix() for path in loaded if path.is_relative_to(ROOT) and ".venv" not in path.parts}
         unread[script.parents[1].name] = sorted(in_repo - tool.reads(script))
+        if not in_repo:
+            nothing_loaded.append(script.name)
 
     assert scripts
+    assert nothing_loaded == []  # skrypt mutacji ładuje co najmniej ``tools/mutacje.py``, więc pusty pomiar jest zepsuty
     assert unread == {script.parents[1].name: [] for script in scripts}
 
 
