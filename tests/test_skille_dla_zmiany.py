@@ -276,6 +276,13 @@ def test_frontmatter_kazdego_skilla_jest_poprawnym_yaml() -> None:
     assert broken == {}, "harness czyta frontmatter jako YAML: wartość bez cudzysłowu nie może mieć „: ”"
 
 
+def _spelled(names: set[str]) -> set[str]:
+    """Nazwy plików tak, jak je rozróżnia system: ścieżka Windows nie rozróżnia wielkości liter, więc zbiór kandydatów
+    importu (``openpyxl/Workbook.py`` i ``openpyxl/workbook.py``) zostawia po jednej z pisowni, różnej w każdym zbiorze."""
+
+    return {name.casefold() for name in names} if sys.platform == "win32" else names
+
+
 def test_wybor_w_ci_liczy_dla_polecenia_ci_kazdego_skilla_te_same_pliki_co_skille_dla_zmiany(monkeypatch: pytest.MonkeyPatch) -> None:
     tool = _load_tool(monkeypatch)
     ci = importlib.import_module("mutacje_skilli")
@@ -287,7 +294,7 @@ def test_wybor_w_ci_liczy_dla_polecenia_ci_kazdego_skilla_te_same_pliki_co_skill
             continue
         in_ci = {name for name in ci.read_in_ci(md.parent, []) if not name.startswith("src/")}
         for_change = {path.relative_to(ROOT).as_posix() for path in tool._executed(md.parent) if path.is_relative_to(ROOT)}
-        differences[md.parent.name] = sorted((in_ci - runner) ^ (for_change - runner))
+        differences[md.parent.name] = sorted(_spelled(in_ci - runner) ^ _spelled(for_change - runner))
 
     assert len(differences) >= 2
     assert differences == dict.fromkeys(differences, [])
