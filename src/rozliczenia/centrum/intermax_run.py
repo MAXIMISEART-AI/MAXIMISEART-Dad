@@ -18,6 +18,7 @@ from fastapi import APIRouter
 from rozliczenia.centrum import contract, run_view
 from rozliczenia.centrum.configuration import InputWorkbook, open_in_excel
 from rozliczenia.centrum.runs import PreparedRun, RunHost
+from rozliczenia.intermax_file import Waiting
 from rozliczenia.intermax_ordering import OrderingSummary
 from rozliczenia.intermax_process import OrderingInputs
 from rozliczenia.process_run import Process
@@ -30,12 +31,16 @@ _NO_REGISTER: Final = "Najpierw wskaż INTERMAX."
 
 @dataclass(frozen=True)
 class IntermaxEntry:
-    """Uporządkowanie INTERMAX jako proces uruchamiany z Centrum: rdzeń, folder Kopii INTERMAX i zegar procesu."""
+    """Uporządkowanie INTERMAX jako proces uruchamiany z Centrum: rdzeń, folder Kopii INTERMAX i zegar procesu.
+
+    ``waiting``: zegar Centrum i jego przerwa dla krótkiej ponownej próby podmiany, której odmawia OneDrive.
+    """
 
     store: SettingsStore
     process: Process[OrderingInputs, OrderingSummary]
     copies_directory: Path
     now: Callable[[], datetime]
+    waiting: Waiting
 
     @property
     def key(self) -> contract.ProcessKey:
@@ -61,7 +66,7 @@ class IntermaxEntry:
         """Wejście procesu z Ustawień taty; ``contract.Refusal``, gdy Rejestr zleceń nie jest wskazany."""
 
         register = _register(self.store.load())
-        inputs = OrderingInputs(register, self.copies_directory, now=self.now)
+        inputs = OrderingInputs(register, self.copies_directory, now=self.now, waiting=self.waiting)
         return PreparedRun(key=_KEY, period=inputs.period, process=self.process, inputs=inputs, view=self.view)
 
 

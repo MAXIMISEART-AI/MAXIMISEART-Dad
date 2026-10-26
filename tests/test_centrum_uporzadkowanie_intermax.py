@@ -8,6 +8,8 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from datetime import datetime, timedelta
+import errno
+import os
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -108,6 +110,58 @@ def test_uporzadkuj_porzadkuje_intermax_z_ustawien_taty_i_pokazuje_liczby_dzien_
     assert copies(centrum) == [COPY]
     assert (centrum.copies / COPY).read_bytes() == original
     assert centrum.register.read_bytes() != original
+
+
+def _replace_refused(monkeypatch: pytest.MonkeyPatch, times: int | None) -> list[int]:
+    """OneDrive odmawia podmiany INTERMAX ``times`` razy (``None``: zawsze); zwraca listę prób podmiany."""
+
+    replace_file = os.replace
+    attempts: list[int] = []
+
+    def refused(source: str | os.PathLike[str], target: str | os.PathLike[str]) -> None:
+        if Path(target).name == REGISTER_NAME:
+            attempts.append(1)
+            assert len(attempts) < 100, "ponowna próba bez przerwy na zegarze Centrum"
+            if times is None or len(attempts) <= times:
+                raise OSError(errno.EACCES, os.strerror(errno.EACCES))
+        replace_file(source, target)
+
+    monkeypatch.setattr(os, "replace", refused)
+    return attempts
+
+
+def test_po_chwilowej_odmowie_onedrive_uporzadkuj_z_centrum_ponawia_podmiane_na_zegarze_centrum(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    centrum = ordering_centrum(tmp_path)
+    attempts = _replace_refused(monkeypatch, 2)
+    started_at = centrum.surroundings.clock.seconds
+
+    view = centrum.run_to_end()
+
+    assert (view["result"]["ending"], view["result"]["headline"]) == ("finished", "INTERMAX uporządkowany")
+    assert (len(attempts), centrum.surroundings.clock.seconds - started_at) == (3, 1.0)
+    assert copies(centrum) == [COPY]
+
+
+def test_gdy_onedrive_dalej_trzyma_intermax_centrum_mowi_tacie_o_synchronizacji_po_pieciu_sekundach_zegara(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    centrum = ordering_centrum(tmp_path)
+    original = centrum.register.read_bytes()
+    attempts = _replace_refused(monkeypatch, None)
+    started_at = centrum.surroundings.clock.seconds
+
+    view = _stopped(centrum)
+
+    result = view["result"]
+    assert (result["stop_kind"], result["stops"][0]["what"]) == (
+        "for_tata",
+        "OneDrive jeszcze synchronizuje INTERMAX. INTERMAX nie został zmieniony.",
+    )
+    assert (len(attempts), centrum.surroundings.clock.seconds - started_at) == (11, 5.0)
+    assert centrum.register.read_bytes() == original
+    assert copies(centrum) == []
 
 
 def test_okres_uruchomienia_to_okres_dnia_startu_takze_gdy_skonczy_sie_po_polnocy(tmp_path: Path) -> None:
