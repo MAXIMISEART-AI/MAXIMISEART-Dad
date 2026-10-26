@@ -158,15 +158,16 @@ _PAGES["/wydania/releases?per_page=30"] = (
 
 def _pull(merge_commit_sha: str, **fields: object) -> object:
     merged = {"number": 461, "merge_commit_sha": merge_commit_sha, "merged_at": "2026-10-25T19:26:59Z"}
-    return merged | {"base": {"ref": "main"}} | fields
+    return merged | {"base": {"ref": "main"}, "head": {"sha": BRANCH}} | fields
 
 
-# PR-y commitu (``commits/<sha>/pulls``). ``MERGED_FAR`` scalił drugi PR na liście; commit ``MERGED_BRANCH`` z gałęzi
-# wciągniętej merge'em ma PR, który nie czyni go czubkiem `main`, albo odpowiedź w innym kształcie.
+# PR-y commitu (``commits/<sha>/pulls``). ``MERGED_FAR`` scalił drugi PR na liście. Uśpiony tag z gałęzi wciągniętej
+# merge'em stoi na czubku PR (``head.sha``), który scalił inny commit; commit ``MERGED_BRANCH`` ma też PR, który nie
+# czyni go czubkiem `main`, albo odpowiedź w innym kształcie.
 _PAGES["/daleko-scalone/tags?per_page=100"] = (_tags(("v0.1.0", MERGED_FAR)), None)
 _PAGES[f"/daleko-scalone/commits/{MERGED_FAR}/pulls"] = (json.dumps([_pull(BRANCH), _pull(MERGED_FAR)]), None)
+_PAGES[f"/z-galezi/commits/{MERGED_BRANCH}/pulls"] = (json.dumps([_pull(MAIN, head={"sha": MERGED_BRANCH})]), None)
 _PULLS_NOT_MERGING = {
-    "w-scalonym-pr": [_pull(MAIN)],
     "pr-do-galezi": [_pull(MERGED_BRANCH, base={"ref": "agent"})],
     "pr-otwarty": [_pull(MERGED_BRANCH, merged_at=None)],
     "pr-bez-bazy": [_pull(MERGED_BRANCH, base=None)],
@@ -176,6 +177,12 @@ _PULLS_NOT_MERGING = {
 for _repository, _pulls in _PULLS_NOT_MERGING.items():
     _PAGES[f"/{_repository}/tags?per_page=100"] = (_tags(("v0.1.0", MERGED_BRANCH)), None)
     _PAGES[f"/{_repository}/commits/{MERGED_BRANCH}/pulls"] = (json.dumps(_pulls), None)
+# Commit scalenia PR do `main`, który nie jest przodkiem czubka `main` (po force-pushu `main` od niego odszedł albo
+# się przed niego cofnął).
+_MERGED_NOT_IN_MAIN = {"scalony-poza-main": OTHER, "scalony-przed-czubkiem": OFF_MAIN}
+for _repository, _commit in _MERGED_NOT_IN_MAIN.items():
+    _PAGES[f"/{_repository}/tags?per_page=100"] = (_tags(("v0.1.0", _commit)), None)
+    _PAGES[f"/{_repository}/commits/{_commit}/pulls"] = (json.dumps([_pull(_commit)]), None)
 
 
 # Ścieżki pytań do atrapy GitHuba, w kolejności; ``github`` czyści listę przed testem.
@@ -313,6 +320,11 @@ def test_wydanie_ze_scalenia_pr_daleko_na_linii_main_to_cztery_pytania_bez_wzgle
 
 @pytest.mark.parametrize("repository", _PULLS_NOT_MERGING)
 def test_wydanie_z_galezi_z_pr_ktory_go_nie_scalil_do_main_nie_jest_na_main(github: str, repository: str) -> None:
+    assert releases_from(f"{github}/{repository}", timeout_s=30) == GitHubReleases(None, None)
+
+
+@pytest.mark.parametrize("repository", _MERGED_NOT_IN_MAIN)
+def test_scalenie_pr_do_main_spoza_czubka_main_nie_jest_wydaniem(github: str, repository: str) -> None:
     assert releases_from(f"{github}/{repository}", timeout_s=30) == GitHubReleases(None, None)
 
 

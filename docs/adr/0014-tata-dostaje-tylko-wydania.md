@@ -86,15 +86,15 @@ zamiast każdej naprawy z osobna.
   czubek, porównanie z nim, PR-y commitu), jak daleko by `main` od niego nie
   odszedł, potem tylko lista tagów. Wydanie bez scalenia PR kosztuje około log2
   z liczby commitów `main` od Wydania pytań więcej. Samo wyszukiwanie przy 239
-  commitach `main` od `v0.1.1` (26.10) to 11 pytań w 5,4-6,1 s, ponad limit
-  3 s, więc tata po starcie Centrum widział `Nie sprawdzono`. Na prawdziwym
-  repozytorium 26.10 każdy ze 139 commitów linii pierwszych rodziców `main` od
-  `v0.1.0` był commitem scalenia PR, a żaden ze 173 sprawdzonych commitów spoza
-  linii nim nie był. Do 25.10 Aktualność sprawdzała tylko osiągalność (jedno pytanie), więc
-  przy uśpionym tagu wciągniętym do `main` merge'em pokazywała `Jest nowsza
-  wersja`, a aktualizacja odpowiadała `Masz najnowszą wersję.`. Linię
-  pierwszych rodziców przez `<czubek>~k` przyjął Maks w przeglądzie z 25.10
-  (Q21).
+  commitach `main` od `v0.1.1` (26.10) to 11 pytań w 5,38–5,55 s, ponad
+  limit 3 s, więc tata po starcie Centrum widział `Nie sprawdzono`. Na
+  prawdziwym repozytorium 26.10 każdy ze 139 commitów linii pierwszych rodziców
+  `main` od `v0.1.0` był commitem scalenia PR, a żaden ze 173 sprawdzonych
+  commitów spoza linii nim nie był. Do 25.10 Aktualność sprawdzała tylko
+  osiągalność (jedno pytanie), więc przy uśpionym tagu wciągniętym do `main`
+  merge'em pokazywała `Jest nowsza wersja`, a aktualizacja odpowiadała `Masz
+  najnowszą wersję.`. Linię pierwszych rodziców przez `<czubek>~k` przyjął Maks
+  w przeglądzie z 25.10 (Q21).
 - **Tworzenie Wydania** (osobna zmiana, #316) sprawdza, że commit leży na
   `main` i ma zielone `Required CI status`, i dopiero wtedy zakłada tag i
   Wydanie na GitHubie z notką „Co nowego”. Notkę pokazuje Powiadomienie o
