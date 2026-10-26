@@ -227,6 +227,7 @@ temporary copy of the checkout (`tools/mutacje.py`) and must end with
 - a replace without a Kopia;
 - a Kopia of other bytes than those read;
 - a Kopia left after a failed replace;
+- a Kopia left after the Zatrzymanie for OneDrive (`HeldByOneDrive`);
 - an `OSError` from `keep_newest` that escapes;
 - a temporary file left after a failed replace;
 - older Kopie sorted the wrong way round;

@@ -53,12 +53,25 @@ MUTATIONS = (
         (
             Edit(
                 ORDERING,
-                "                for copy in copies:\n                    copy.unlink()\n",
-                "                pass\n",
+                "            except WorkbookSaveError as error:\n                for copy in copies:\n                    copy.unlink()\n",
+                "            except WorkbookSaveError as error:\n                pass\n",
             ),
         ),
         EXPLORER,
         "Zatrzymanie przy INTERMAX otwartym w Excelu zostawia Kopię, choć INTERMAX się nie zmienił",
+        NEW,
+    ),
+    Mutation(
+        "Kopia zostaje po odmowie OneDrive",
+        (
+            Edit(
+                ORDERING,
+                "            except HeldByOneDrive as error:\n                for copy in copies:\n                    copy.unlink()\n",
+                "            except HeldByOneDrive as error:\n                pass\n",
+            ),
+        ),
+        EXPLORER,
+        "Zatrzymanie, bo OneDrive synchronizuje INTERMAX, zostawia Kopię, choć INTERMAX się nie zmienił",
         NEW,
     ),
     Mutation(
@@ -131,8 +144,8 @@ MUTATIONS = (
         (
             Edit(
                 ORDERING,
-                "                for copy in copies:\n                    copy.unlink()\n",
-                "                for copy in list(copies_directory.iterdir()):\n                    copy.unlink()\n",
+                "            except WorkbookSaveError as error:\n                for copy in copies:\n                    copy.unlink()\n",
+                "            except WorkbookSaveError as error:\n                for copy in list(copies_directory.iterdir()):\n                    copy.unlink()\n",
             ),
         ),
         EXPLORER,
