@@ -20,7 +20,7 @@ from . import preparation_messages as messages
 from .message import StopError
 from .period_folder import PeriodFolder
 from .preparation_plan import CollectiveRow, PeriodOrder
-from .quantity_rules import DESCRIPTION_COLUMNS, FromDescription, WithoutRule
+from .quantity_rules import FromDescription, WithoutRule
 from .template_file import TemplateFile
 from .workbook_files import RegisterRow, WorkbookError
 from .workbook_save import WorkbookSaveError
@@ -61,8 +61,8 @@ def ensure_period_files_absent(files: PeriodFiles) -> None:
 class CollectiveFilePlan:
     """Fakty Planowania o Pliku zbiorczym, z numerami jego wierszy (nie wierszy Rejestru zleceń).
 
-    ``rows_without_rule`` mają składnik ``URZĄDZENIA`` nieznany Regułom ilości, ``rows_from_description`` rozlicza
-    się z opisu technika, a kolumn ``description_columns`` Reguły ilości nie wypełniają w żadnym wierszu.
+    ``rows_without_rule`` mają składnik ``URZĄDZENIA`` nieznany Regułom ilości, a ``rows_from_description`` rozlicza
+    się z opisu technika.
     """
 
     successful_count: int
@@ -70,19 +70,12 @@ class CollectiveFilePlan:
     first_row_without_zeros: int
     rows_without_rule: tuple[int, ...]
     rows_from_description: tuple[int, ...]
-    description_columns: tuple[str, ...]
 
     @property
     def too_few_zero_rows(self) -> bool:
         """Wzorca pliku zbiorczego nie wydłużamy, więc dolne Zlecenia skuteczne trafiają do wierszy bez zer."""
 
         return self.successful_count > self.zero_row_count
-
-    @property
-    def quantities_to_complete(self) -> bool:
-        """Tata uzupełnia Ilości usług w Pliku zbiorczym przed Przebiegiem rozliczeń."""
-
-        return bool(self.rows_without_rule or self.rows_from_description or self.description_columns)
 
 
 def plan_period_files(
@@ -102,7 +95,6 @@ def plan_period_files(
         rows_from_description=tuple(
             number for number, row in numbered if isinstance(row.rule_result, FromDescription)
         ),
-        description_columns=DESCRIPTION_COLUMNS,
     )
 
 
