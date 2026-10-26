@@ -359,6 +359,21 @@ def period_orders_in_many_sheets(register_path: Path, sheets: Sequence[str], per
     )
 
 
+def raw_orders_not_ordered(register_path: Path, sheet: str, first_row: int, last_row: int) -> Message:
+    """Okres może mieć Surowe zlecenia: wklejone zlecenia na dole arkusza zleceń nie są jeszcze uporządkowane."""
+
+    rows = f"wiersz {first_row}" if first_row == last_row else f"wiersze {first_row}–{last_row}"
+    return Message(
+        code="SUROWE_ZLECENIA_W_OKRESIE",
+        what=(
+            "Wklejone zlecenia na dole Rejestru zleceń nie są jeszcze uporządkowane, "
+            "a mogą należeć do tego okresu. Nie utworzono żadnego pliku."
+        ),
+        where=f"{_register_location(register_path, sheet)}, {rows}",
+        action="Najpierw uporządkuj INTERMAX w Centrum rozliczeń, potem uruchom ponownie.",
+    )
+
+
 def periods_directory_missing(periods_directory: Path) -> Message:
     """Wybrany folder okresów nie istnieje; narzędzie go nie zakłada."""
 

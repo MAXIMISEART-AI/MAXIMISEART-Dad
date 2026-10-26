@@ -2,7 +2,7 @@ import * as React from "react"
 import { FileClockIcon, RotateCcwIcon } from "lucide-react"
 
 import { failureMessage } from "@/api/client"
-import { getRunCard, type RunCard, type ProcessRun } from "@/api/centrum"
+import { getRunCard, type RunCard, type ProcessRun, type RunRestored } from "@/api/centrum"
 import { Alert, AlertAction, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty"
@@ -17,6 +17,34 @@ type Card = { state: "loading" } | { state: "failed"; message: string } | { stat
 
 /** Przycisk wiersza Historii: karta tego Uruchomienia z jego Logów Uruchomienia w panelu z boku. */
 export function RunCardButton({ run }: { run: ProcessRun }) {
+  return (
+    <CardSheet title={run.process_label} period={run.period} dryRun={run.mode === "DRY-RUN"}>
+      <ShownCard runId={run.run_id} />
+    </CardSheet>
+  )
+}
+
+/** Karta Uruchomienia, którą serwer już przysłał (np. ostatnie Uporządkowanie INTERMAX), w tym samym panelu z boku. */
+export function RestoredCardButton({ card }: { card: RunRestored }) {
+  return (
+    <CardSheet title={card.run.title} period={card.run.period} dryRun={card.run.dry_run}>
+      <HistoryRunCard card={card} />
+    </CardSheet>
+  )
+}
+
+/** Przycisk z ikoną karty i panel z boku, który montuje treść karty tylko otwarty. */
+function CardSheet({
+  title,
+  period,
+  dryRun,
+  children,
+}: {
+  title: string
+  period: string
+  dryRun: boolean
+  children: React.ReactNode
+}) {
   const [open, setOpen] = React.useState(false)
 
   return (
@@ -40,13 +68,13 @@ export function RunCardButton({ run }: { run: ProcessRun }) {
       <Sheet open={open} onOpenChange={setOpen}>
         <SheetContent className="gap-0 sm:max-w-3xl data-[side=right]:sm:max-w-3xl">
           <SheetHeader className="pr-12">
-            <SheetTitle className="text-lg">{run.process_label}</SheetTitle>
+            <SheetTitle className="text-lg">{title}</SheetTitle>
             <SheetDescription className="flex items-center gap-2 tabular-nums">
-              Okres {run.period}
-              <ModeBadge dryRun={run.mode === "DRY-RUN"} />
+              Okres {period}
+              <ModeBadge dryRun={dryRun} />
             </SheetDescription>
           </SheetHeader>
-          <div className="overflow-y-auto px-4 pb-6">{open ? <ShownCard runId={run.run_id} /> : null}</div>
+          <div className="overflow-y-auto px-4 pb-6">{open ? children : null}</div>
         </SheetContent>
       </Sheet>
     </>

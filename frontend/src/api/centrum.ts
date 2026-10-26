@@ -5,6 +5,7 @@ import type {
   DecisionAnswer,
   FillKind,
   GetCurrentRunResponse,
+  GetIntermaxSetupResponse,
   GetNotificationsResponse,
   GetPeriodBoardResponse,
   GetQuantitiesToFillResponse,
@@ -17,6 +18,7 @@ import type {
   WorkerSettlementRequest,
   PeriodRow,
   RunEvent,
+  RunInfo,
   RunOutcome,
   RunRequest,
   SendDadNoteResponse,
@@ -35,6 +37,7 @@ import {
   zGetDadNoteRunsResponse,
   zGetConfigurationResponse,
   zGetHealthResponse,
+  zGetIntermaxSetupResponse,
   zGetMetricsResponse,
   zGetNotificationsResponse,
   zGetPeriodBoardResponse,
@@ -54,6 +57,7 @@ import {
   zReportToolUpdateResponse,
   zRunEvent,
   zSendDadNoteResponse,
+  zStartIntermaxResponse,
   zStartRunResponse,
   zStartToolUpdateResponse,
 } from "@/api/generated/zod.gen"
@@ -127,7 +131,13 @@ export type PathSetting = Settings["order_register"]
 
 export type Theme = ThemeChange["theme"]
 
-export type Process = RunRequest["process"]
+export type Process = RunInfo["process"]
+
+/** Proces, którego Uruchomienie tata wybiera z okresem; Uporządkowanie INTERMAX ma własną kartę. */
+export type PeriodProcess = RunRequest["process"]
+
+/** Karta „Uporządkuj INTERMAX” poza okresami. */
+export type IntermaxSetup = GetIntermaxSetupResponse
 
 export type OpenTarget = OpenRequest["target"]
 
@@ -264,6 +274,16 @@ export function getRunSetup() {
 /** Start Uruchomienia procesu; gdy trwa już inne, serwer odmawia z bezpiecznym komunikatem. */
 export function startRun(request: RunRequest) {
   return call(zStartRunResponse, "startRun", "/api/runs", send("POST", request))
+}
+
+/** Karta „Uporządkuj INTERMAX”: przypomnienie, czego brakuje w Ustawieniach taty, i ostatnie Uporządkowanie z Logów. */
+export function getIntermaxSetup() {
+  return call(zGetIntermaxSetupResponse, "getIntermaxSetup", "/api/intermax")
+}
+
+/** Start Uporządkowania INTERMAX z Rejestrem zleceń z Ustawień taty; gdy trwa inne Uruchomienie, serwer odmawia. */
+export function startIntermax() {
+  return call(zStartIntermaxResponse, "startIntermax", "/api/intermax/run", send("POST"))
 }
 
 /** Decyzja taty o niepełnym okresie dla Uruchomienia `runId`. */

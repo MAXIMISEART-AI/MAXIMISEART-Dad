@@ -110,7 +110,10 @@ def drive_preparation(run: Run, page: Page) -> None:
         page,
         process="preparation",
         workbook=Path(run.fixture["order_register"]),
-        warning="Rejestr zleceń jest otwarty w Excelu. Zapisz go i zamknij.",
+        warning=(
+            "Rejestr zleceń jest otwarty w Excelu. Zapisz go i zamknij. Jeśli Excel jest zamknięty, usuń z tego samego "
+            f"folderu pozostawiony plik ~${Path(run.fixture['order_register']).name}."
+        ),
         name="przygotowanie-rejestr",
         shots=("3c-przygotowanie-rejestr-otwarty-w-excelu", "3d-przygotowanie-rejestr-zamkniety"),
     )

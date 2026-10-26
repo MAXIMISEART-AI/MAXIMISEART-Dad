@@ -7,9 +7,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from rozliczenia import preparation_process, settlement_process
+from rozliczenia import intermax_process, preparation_process, settlement_process
 from rozliczenia.collective_preparation import PreparationSummary
 from rozliczenia.domain import SettlementSummary
+from rozliczenia.intermax_ordering import OrderingSummary
+from rozliczenia.intermax_process import OrderingInputs
 from rozliczenia.preparation_process import PreparationInputs
 from rozliczenia.process_run import Process
 from rozliczenia.settlement_process import SettlementInputs
@@ -17,11 +19,12 @@ from rozliczenia.settlement_process import SettlementInputs
 
 @dataclass(frozen=True)
 class Processes:
-    """Rdzenie obu procesów; pola zamiast słownika, bo wpis procesu buduje wejście konkretnego typu."""
+    """Rdzenie trzech procesów; pola zamiast słownika, bo wpis procesu buduje wejście konkretnego typu."""
 
     preparation: Process[PreparationInputs, PreparationSummary]
     settlement: Process[SettlementInputs, SettlementSummary]
+    intermax: Process[OrderingInputs, OrderingSummary]
 
     @classmethod
     def default(cls) -> Processes:
-        return cls(preparation_process.PROCESS, settlement_process.PROCESS)
+        return cls(preparation_process.PROCESS, settlement_process.PROCESS, intermax_process.PROCESS)

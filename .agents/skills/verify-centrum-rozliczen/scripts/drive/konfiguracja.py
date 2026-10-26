@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+from contextlib import contextmanager
+import os
 from pathlib import Path
+import sys
 
 from playwright.sync_api import Locator, Page, expect
 
@@ -10,6 +14,7 @@ from drive.common import Run, served_version, version_line
 
 TEMPLATE_LABELS = ("Wzorzec rozliczenia wewnętrznego", "Wzorzec pliku zbiorczego", "Wzorzec rozliczenia pracownika")
 REPORT_TO_MAINTAINER = "Przekaż ten komunikat osobie utrzymującej narzędzie."
+INACCESSIBLE_TEMPLATE = "Nie można teraz odczytać wzorca. Plik może być zajęty przez inny program."
 
 
 def _configuration_snapshot(files: dict[str, Path]) -> dict[str, tuple[bytes, int]]:
@@ -18,6 +23,46 @@ def _configuration_snapshot(files: dict[str, Path]) -> dict[str, tuple[bytes, in
     config = next(iter(files.values())).parent
     paths = [*files.values(), *config.glob("~$*")]
     return {path.name: (path.read_bytes(), path.stat().st_mtime_ns) for path in sorted(paths)}
+
+
+@contextmanager
+def _unreadable(path: Path) -> Iterator[None]:
+    """Harness: the system refuses to read ``path`` without changing its bytes, size or modification time; always undone."""
+
+    if sys.platform == "win32":
+        import msvcrt
+
+        # A byte-range lock makes every other read of the file fail, as when another program holds it.
+        print("  harness: the drive locks the Wzorzec's bytes", flush=True)
+        size = path.stat().st_size
+        with path.open("rb") as handle:
+            msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, size)
+            try:
+                yield
+            finally:
+                handle.seek(0)
+                msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, size)
+    else:
+        print("  harness: the Wzorzec has no permissions (chmod 0)", flush=True)
+        mode = path.stat().st_mode
+        path.chmod(0)
+        try:
+            yield
+        finally:
+            path.chmod(mode)
+
+
+@contextmanager
+def _changed(path: Path) -> Iterator[None]:
+    """Harness: ``path`` gets a newer modification time, as when OneDrive brings it again; the old one comes back after."""
+
+    stat = path.stat()
+    print("  harness: the Wzorzec gets a newer modification time, so Centrum checks it again", flush=True)
+    os.utime(path, ns=(stat.st_atime_ns, stat.st_mtime_ns + 1_000_000_000))
+    try:
+        yield
+    finally:
+        os.utime(path, ns=(stat.st_atime_ns, stat.st_mtime_ns))
 
 
 def _template_group(page: Page, label: str) -> Locator:
@@ -114,6 +159,30 @@ def drive_configuration(run: Run, page: Page) -> None:
     page.evaluate("window.dispatchEvent(new FocusEvent('focus'))")
     _shown_as_ready(page, "Wzorzec pliku zbiorczego")
     run.check(True, "a (simulated) return to the tab shows the Wzorzec ready once Excel has closed it")
+
+    run.step(feature, "konfiguracja-wzorzec-niedostepny")
+    internal = files["internal_template"]
+    with _changed(internal):
+        with _unreadable(internal):
+            page.reload()
+            group = _template_group(page, "Wzorzec rozliczenia wewnętrznego")
+            expect(group).to_contain_text("Nie przechodzi sprawdzenia")
+            message = page.get_by_role("alert").filter(has_text=INACCESSIBLE_TEMPLATE)
+            expect(message).to_contain_text(f"plik {internal.name}, folder config")
+            run.check("uszkodzon" not in message.inner_text(), "a Wzorzec without access is niedostępny, never uszkodzony")
+            answer = _template_answer(run, "konfiguracja-wzorzec-niedostepny", "Wzorzec rozliczenia wewnętrznego")
+            run.check(answer["problem"] == "unreadable", "the server reports the Wzorzec as not passing the Sprawdzanie")
+            run.capture(page, "12a-konfiguracja-wzorzec-niedostepny")
+        print("  harness: access to the Wzorzec is back", flush=True)
+        page.evaluate("window.dispatchEvent(new FocusEvent('focus'))")
+        _shown_as_ready(page, "Wzorzec rozliczenia wewnętrznego")
+        expect(page.get_by_role("alert")).to_have_count(0)
+        answer = _template_answer(run, "konfiguracja-wzorzec-dostepny", "Wzorzec rozliczenia wewnętrznego")
+        run.check(
+            answer["state"] == "ready",
+            "once access is back, a (simulated) return to the tab shows the Wzorzec ready without restarting Centrum",
+        )
+        run.capture(page, "12b-konfiguracja-wzorzec-dostepny")
 
     run.step(feature, "konfiguracja-brak-wzorca")
     worker_template = files["worker_template"]
