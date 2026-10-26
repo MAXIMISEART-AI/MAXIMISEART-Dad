@@ -165,7 +165,7 @@ def test_tor_bez_pracy_nie_ma_zadan_a_bez_zadnej_pracy_macierz_jest_pusta(monkey
     with_steps = _plan(czasy_ci.Czasy((), {}), [], steps=[])
     monkeypatch.setattr(plan_ci, "TORY", tuple(dataclasses.replace(lane, kroki=()) for lane in plan_ci.TORY))
     empty = _plan(czasy_ci.Czasy((), {}), [], steps=[])
-    skipped = {"plan": "success", "pytest": "skipped", "mutations": "skipped", "change-mutations": "skipped"}
+    skipped = {"plan": "success", "pytest": "skipped", "mutations": "skipped"}
 
     assert {job.tor for job in with_steps.zadania} == {"windows-3.11", "windows-3.14"}
     assert (empty.macierz("pytest"), empty.macierz("mutations"), with_steps.macierz("mutations")) == ([], [], [])
@@ -191,7 +191,7 @@ def _reported(job: plan_ci.Zadanie) -> list[str]:
 
 def test_required_czerwienieje_gdy_zaplanowana_jednostka_nie_zglosila_wyniku_w_ostatniej_probie_zadania() -> None:
     plan = _plan(_times(), [*FILES, LONG])
-    results = {"plan": "success", "pytest": "success", "change-mutations": "skipped"}
+    results = {"plan": "success", "pytest": "success"}
     complete = [_record(plan, job, _reported(job)) for job in plan.zadania]
     split = next(job for job in plan.zadania if any("#" in unit for unit in job.jednostki))
     missing = f"pytest:{LONG}"
@@ -206,7 +206,7 @@ def test_required_czerwienieje_gdy_zaplanowana_jednostka_nie_zglosila_wyniku_w_o
 
 def test_required_czerwienieje_gdy_jednostka_zadania_padla_w_ostatniej_probie_a_przechodzi_po_ponowieniu_zadania() -> None:
     plan = _plan(_times(), [*FILES, LONG])
-    results = {"plan": "success", "pytest": "success", "change-mutations": "skipped"}
+    results = {"plan": "success", "pytest": "success"}
     complete = [_record(plan, job, _reported(job)) for job in plan.zadania]
     job = next(job for job in plan.zadania if "krok:e2e" in job.jednostki)
     units = _reported(job)
@@ -383,16 +383,17 @@ SKILL_SCRIPT = ".agents/skills/verify-a/scripts/check_a_mutations.py"
 
 
 @pytest.mark.parametrize(
-    ("changed", "appended", "started", "reported"),
+    ("changed", "appended", "planned", "reported"),
     [
-        # Trafienie w pilnuje uruchamia podstawę skilla, a jego skrypt mutacji nie (ADR 0020).
-        ("src/pakiet/a.py", "\n\ndef b(x: int) -> bool:\n    return x < 3\n", True, [f"WYBRANY {SKILL_BASELINE} (zmienione: src/pakiet/a.py)", f"POMINIĘTY {SKILL_SCRIPT}: "]),
-        ("tests/test_a.py", "\n\ndef b(x: int) -> bool:\n    return x < 3\n", False, [f"POMINIĘTY {SKILL_BASELINE}: ", f"POMINIĘTY {SKILL_SCRIPT}: "]),
+        # Z trzech mutacji nowej linii ``return`` biegnie jedna, granica porównania, i cofnięcie fragmentu. Trafienie
+        # w pilnuje uruchamia podstawę skilla, a jego skrypt mutacji nie (ADR 0020).
+        ("src/pakiet/a.py", "\n\ndef b(x: int) -> bool:\n    return x < 3\n", 2, [f"WYBRANY {SKILL_BASELINE} (zmienione: src/pakiet/a.py)", f"POMINIĘTY {SKILL_SCRIPT}: "]),
+        ("tests/test_a.py", "\n\ndef b(x: int) -> bool:\n    return x < 3\n", 0, [f"POMINIĘTY {SKILL_BASELINE}: ", f"POMINIĘTY {SKILL_SCRIPT}: "]),
         # Sam komentarz nie ma mutacji, ale zadanie Change mutations zgłasza zły wyjątek jako MUTACJE ZMIANY FAIL.
         (
             "src/pakiet/a.py",
             "\n# mutacje-zmiany: bez terminu\n",
-            True,
+            1,
             [
                 f"MUTACJE ZMIANY | {MALFORMED}; Change mutations startują, żeby to zgłosić",
                 f"WYBRANY {SKILL_BASELINE} (zmienione: src/pakiet/a.py)",
@@ -403,7 +404,7 @@ SKILL_SCRIPT = ".agents/skills/verify-a/scripts/check_a_mutations.py"
     ids=["zmiana src", "zmiana testów", "sam komentarz src ze złym wyjątkiem"],
 )
 def test_plan_pull_requestu_startuje_change_mutations_i_mutation_checks_tylko_z_praca_od_zmiany(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], changed: str, appended: str, started: bool, reported: list[str]
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], changed: str, appended: str, planned: int, reported: list[str]
 ) -> None:
     def offline(*arguments: str) -> str:
         raise subprocess.CalledProcessError(1, ["gh", *arguments], stderr="gh: not logged in")
@@ -422,15 +423,15 @@ def test_plan_pull_requestu_startuje_change_mutations_i_mutation_checks_tylko_z_
 
     code = plan_ci.main(["plan", "--zdarzenie", "pull_request", "--baza", "baza", "--czasy", str(tmp_path / "czasy"), "--wyjscie", str(tmp_path / "plan.json")])
     out = capsys.readouterr().out
-    planned = plan_ci.Plan.z_json((tmp_path / "plan.json").read_text(encoding="utf-8")).mutacje_zmiany
+    in_plan = plan_ci.Plan.z_json((tmp_path / "plan.json").read_text(encoding="utf-8")).mutacje_zmiany
     output = dict(line.split("=", 1) for line in (tmp_path / "output").read_text(encoding="utf-8").splitlines())
 
     mutation_checks = [entry["nazwa"] for entry in json.loads(output["mutations"])]
 
-    assert (code, planned > 0, output["mutacje-zmiany"]) == (0, started, str(planned)), out
+    assert (code, in_plan, output["mutacje-zmiany"]) == (0, planned, str(planned)), out
     assert f"| mutacje zmiany {planned} |" in out, out
     # Zmiana spoza pilnuje i plików skilla nie daje Mutation checks żadnego zadania.
-    assert mutation_checks == (["Mutation checks (1/1)"] if started else [])
+    assert mutation_checks == (["Mutation checks (1/1)"] if planned else [])
     shown = [line for line in out.splitlines() if line.startswith(("MUTACJE ZMIANY", "WYBRANY", "POMINIĘTY"))]
     assert len(shown) == len(reported) and all(line.startswith(start) for line, start in zip(shown, reported, strict=True)), out
 
@@ -469,7 +470,7 @@ def test_zgubiony_skrypt_mutacji_albo_zly_klucz_ci_trafia_z_wyboru_do_planu_i_cz
 
     code = plan_ci.main(["plan", "--zdarzenie", "pull_request", "--baza", "baza", "--czasy", str(tmp_path / "czasy"), "--wyjscie", str(tmp_path / "plan.json")])
     plan = plan_ci.Plan.z_json((tmp_path / "plan.json").read_text(encoding="utf-8"))
-    every_job_green = {"plan": "success", "pytest": "success", "mutations": "success", "change-mutations": "success"}
+    every_job_green = {"plan": "success", "pytest": "success", "mutations": "success"}
     complete = [_record(plan, job, _reported(job)) for job in plan.zadania]
 
     assert code == 0
@@ -542,7 +543,7 @@ def test_wezel_testu_biegnie_caly_w_jednym_zadaniu_a_required_przyjmuje_go_z_zap
     node = f"{LONG}::test_struktura"
     gate = [dataclasses.replace(lane, kroki=()) for lane in plan_ci.TORY if lane.nazwa in (WINDOWS, LINUX)]
     plan = plan_ci.rozplanuj([plan_ci.wycen(lane, [*FILES[:2], node], _times()) for lane in gate], "pull_request", 0)
-    results = {"plan": "success", "pytest": "success", "change-mutations": "skipped"}
+    results = {"plan": "success", "pytest": "success"}
     without_node = [_record(plan, job, [unit for unit in _reported(job) if unit != f"pytest:{LONG}"]) for job in plan.zadania]
 
     # Cały plik LONG (1100 s testów) plan dzieli na udziały w kilku zadaniach, a jego jeden test nie.

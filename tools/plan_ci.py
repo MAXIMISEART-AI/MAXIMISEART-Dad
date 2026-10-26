@@ -26,7 +26,8 @@ run (``STALE_ZADANIA``, zadania pytest i Mutation checks, ``ZADANIA_ZMIANY``, je
 ``ZADANIA_RUNU``, cel wszystkich torów rośnie co ``KROK_CELU_S``.
 
 Change mutations startują tylko na pull request, który ma mutacje zmiany albo wyjątek ``# mutacje-zmiany:`` w złej
-postaci: plan liczy je tak samo jak ``tools/mutacje_zmiany.py``, bez testów i bez instalacji.
+postaci, i dopiero po zielonym ``Required CI status``, którego nie blokują: plan liczy je tak samo jak
+``tools/mutacje_zmiany.py`` (``selected``), bez testów i bez instalacji.
 
 Plan ma ``digest``: zadanie wykonuje tylko plan, którego treść się z nim zgadza, i zapisuje go w swoim zapisie czasów,
 a ``Required CI status`` (``werdykt``) przyjmuje tylko zapisy tego planu. Werdykt przepuszcza run, gdy każde zadanie
@@ -82,8 +83,8 @@ ZADANIA_RUNU = 19
 # Zadania ci.yml o stałej liczbie (plan, szybkie, Required) i części Change mutations.
 STALE_ZADANIA = 3
 ZADANIA_ZMIANY = 3
-# Zadania ci.yml, które startują tylko z pracą od planu.
-Z_PLANU = ("pytest", "mutations", "change-mutations")
+# Zadania bramki w ci.yml, które startują tylko z pracą od planu; Change mutations biegną po Required.
+Z_PLANU = ("pytest", "mutations")
 
 
 @dataclass(frozen=True)
@@ -400,7 +401,7 @@ def liczba_mutacji_zmiany(baza: str) -> int:
 
     fragmenty = mutacje_zmiany.changes(_git("merge-base", "HEAD", baza).strip())
     teksty = {sciezka: (ROOT / sciezka).read_text(encoding="utf-8") for sciezka in fragmenty}
-    liczba = sum(len(mutacje_zmiany.mutants(sciezka, tekst, fragmenty[sciezka])) for sciezka, tekst in teksty.items())
+    liczba = sum(len(mutacje_zmiany.selected(sciezka, tekst, fragmenty[sciezka])) for sciezka, tekst in teksty.items())
     try:
         for sciezka, tekst in teksty.items():
             mutacje_zmiany.exceptions(tekst, sciezka)
@@ -560,11 +561,11 @@ def werdykt(plan: Plan | None, wyniki_zadan: Mapping[str, str], zapisy: Sequence
 
     przyczyny = []
     if plan is None:
-        przyczyny.append(f"plan CI: {brak_planu or 'brak planu'}; zadania pytest, Mutation checks i Change mutations nie miały pracy")
+        przyczyny.append(f"plan CI: {brak_planu or 'brak planu'}; zadania pytest i Mutation checks nie miały pracy")
     uruchomione = {} if plan is None else {szablon: False for szablon in Z_PLANU}
     if plan is not None:
         tory = {tor.nazwa: tor.szablon for tor in (*TORY, MUTACJE)}
-        uruchomione |= {tory[zadanie.tor]: True for zadanie in plan.zadania} | {"change-mutations": plan.mutacje_zmiany > 0}
+        uruchomione |= {tory[zadanie.tor]: True for zadanie in plan.zadania}
     for nazwa, wynik in wyniki_zadan.items():
         if wynik != "success" and not (wynik == "skipped" and uruchomione.get(nazwa) is False):
             przyczyny.append(f"{nazwa}={wynik}")

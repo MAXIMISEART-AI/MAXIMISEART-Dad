@@ -240,13 +240,16 @@ jobs:
           include-hidden-files: true
 
   change-mutations:
-    # Each mutation of a line the pull request changes in src/ must fail a test (tools/mutacje_zmiany.py):
-    # a reviewer used to find these by hand, after CI was green. A push to main has no change to mutate,
-    # so there the job does not start and takes no runner.
+    # One mutation per line the pull request changes in src/, and each change reverted, must fail a test
+    # (tools/mutacje_zmiany.py). It starts only after a green Required and does not block it (ADR 0020): the reviewer
+    # discusses each surviving mutation in the PASS, and tools/scal_pr.py refuses to merge until it has, or while this
+    # job still runs. A push to main has no change to mutate, so there the job does not start and takes no runner.
     # Each part takes every third mutation: 90 mutations of a seven-module refactor (#382) took 25 min on one busy Mac.
     name: Change mutations (${{ matrix.part }}/3)
-    needs: plan
-    if: ${{ needs.plan.outputs.mutacje-zmiany != '0' }}
+    needs:
+      - plan
+      - required
+    if: ${{ needs.required.result == 'success' && needs.plan.outputs.mutacje-zmiany != '0' }}
     runs-on: ubuntu-latest
     timeout-minutes: 60
     strategy:
@@ -274,7 +277,19 @@ jobs:
         run: uv pip install --system --python "${{ steps.python.outputs.python-path }}" -r requirements.txt
 
       - name: Mutate the changed lines of src/
-        run: python tools/mutacje_zmiany.py --baza HEAD^1 --czesc ${{ matrix.part }}/3
+        run: python tools/mutacje_zmiany.py --baza HEAD^1 --czesc ${{ matrix.part }}/3 --zapis .ci-mutacje/czesc.json
+
+      # tools/scal_pr.py reads the surviving mutations of every part from here; a re-run replaces its part's record.
+      - name: Upload the surviving mutations
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: mutacje-zmiany-${{ matrix.part }}
+          path: .ci-mutacje/czesc.json
+          retention-days: 30
+          if-no-files-found: warn
+          include-hidden-files: true
+          overwrite: true
 
   mutations:
     # A mutation check's verdict does not depend on the Python version, so it runs once, beside pytest.
@@ -377,9 +392,9 @@ jobs:
 
   required:
     # Configure only this stable status as required in branch protection.
-    # It passes when every job succeeded, a job was skipped only because the plan gave it no work, and every pytest and
-    # Mutation checks job of the plan reported each of its units, passed in its latest attempt (no test file or skill
-    # step lost between jobs).
+    # It passes when every job of the gate (all but Change mutations, which start after it) succeeded, a job was
+    # skipped only because the plan gave it no work, and every pytest and Mutation checks job of the plan reported each
+    # of its units, passed in its latest attempt (no test file or skill step lost between jobs).
     name: Required CI status
     runs-on: ubuntu-latest
     needs:
@@ -387,7 +402,6 @@ jobs:
       - szybkie
       - pytest
       - mutations
-      - change-mutations
     # Also in a cancelled run: a skipped required check counts as success and would not block the merge.
     if: ${{ always() }}
     steps:
