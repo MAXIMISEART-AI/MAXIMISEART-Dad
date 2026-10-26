@@ -38,6 +38,8 @@ REFUSED_MIDWAY = "8888888888888888888888888888888888888888"
 FIRST_COMMIT = "9999999999999999999999999999999999999999"
 FAR_ON_LINE = "abababababababababababababababababababab"
 MERGED_LATE = "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"
+# Commit scalenia PR do `main` tak daleko na linii jak ``FAR_ON_LINE``.
+MERGED_FAR = "efefefefefefefefefefefefefefefefefefefef"
 NOT_A_COMMIT = "nie-commit"
 # Odpowiedź porównania commitu tagu z czubkiem `main` ``MAIN`` albo jego pierwszym rodzicem (``compare``); brak wpisu
 # to odmowa GitHuba. ``OLDER`` jest pierwszym rodzicem ``MAIN``.
@@ -59,6 +61,7 @@ _STATUS = {
     # Pierwszy commit repozytorium jest pierwszym rodzicem `main`, a `main` ma jeszcze dwa commity z wciągniętej
     # gałęzi (``ahead_by`` 3): ``MAIN~2`` i dalej nie istnieją (404).
     (FAR_ON_LINE, MAIN): "ahead",
+    (MERGED_FAR, MAIN): "ahead",
     # Gałąź wciągnięta merge'em, gdy `main` poszedł już dalej: jego pierwsi rodzice od niej odchodzą („diverged”).
     (MERGED_LATE, MAIN): "ahead",
     (MERGED_LATE, f"{MAIN}~1"): "diverged",
@@ -78,13 +81,13 @@ _ODD_COMPARES: dict[str, str | None] = {
     "porownanie-nie-json": "<html>GitHub ma awarię</html>",
     "porownanie-zerwane": None,
 }
-_AHEAD_BY = {FIRST_COMMIT: 3, FAR_ON_LINE: 1000, MERGED_LATE: 3}
+_AHEAD_BY = {FIRST_COMMIT: 3, FAR_ON_LINE: 1000, MERGED_LATE: 3, MERGED_FAR: 1000}
 # ``FAR_ON_LINE`` to ``MAIN~700``, a `main` ma 1000 commitów spoza niego: tydzień zmian z wciągniętymi gałęziami.
 _FAR_DEPTH = 700
 
 
 def _far_status(base: str, head: str) -> str | None:
-    if base != FAR_ON_LINE or not head.startswith(f"{MAIN}~"):
+    if base not in (FAR_ON_LINE, MERGED_FAR) or not head.startswith(f"{MAIN}~"):
         return None
     depth = int(head.removeprefix(f"{MAIN}~"))
     return "ahead" if depth < _FAR_DEPTH else "identical" if depth == _FAR_DEPTH else "behind"
@@ -151,6 +154,28 @@ _PAGES["/wydania/releases?per_page=30"] = (
     ),
     None,
 )
+
+
+def _pull(merge_commit_sha: str, **fields: object) -> object:
+    merged = {"number": 461, "merge_commit_sha": merge_commit_sha, "merged_at": "2026-10-25T19:26:59Z"}
+    return merged | {"base": {"ref": "main"}} | fields
+
+
+# PR-y commitu (``commits/<sha>/pulls``). ``MERGED_FAR`` scalił drugi PR na liście; commit ``MERGED_BRANCH`` z gałęzi
+# wciągniętej merge'em ma PR, który nie czyni go czubkiem `main`, albo odpowiedź w innym kształcie.
+_PAGES["/daleko-scalone/tags?per_page=100"] = (_tags(("v0.1.0", MERGED_FAR)), None)
+_PAGES[f"/daleko-scalone/commits/{MERGED_FAR}/pulls"] = (json.dumps([_pull(BRANCH), _pull(MERGED_FAR)]), None)
+_PULLS_NOT_MERGING = {
+    "w-scalonym-pr": [_pull(MAIN)],
+    "pr-do-galezi": [_pull(MERGED_BRANCH, base={"ref": "agent"})],
+    "pr-otwarty": [_pull(MERGED_BRANCH, merged_at=None)],
+    "pr-bez-bazy": [_pull(MERGED_BRANCH, base=None)],
+    "pr-napisem": ["#461"],
+    "pr-liczba": 5,
+}
+for _repository, _pulls in _PULLS_NOT_MERGING.items():
+    _PAGES[f"/{_repository}/tags?per_page=100"] = (_tags(("v0.1.0", MERGED_BRANCH)), None)
+    _PAGES[f"/{_repository}/commits/{MERGED_BRANCH}/pulls"] = (json.dumps(_pulls), None)
 
 
 # Ścieżki pytań do atrapy GitHuba, w kolejności; ``github`` czyści listę przed testem.
@@ -277,6 +302,18 @@ def test_aktualnosc_w_centrum_pamieta_linie_main_miedzy_sprawdzeniami(
     _ASKED.clear()
     assert GITHUB_RELEASES() == GitHubReleases(None, None)
     assert _comparisons() == 0
+
+
+def test_wydanie_ze_scalenia_pr_daleko_na_linii_main_to_cztery_pytania_bez_wzgledu_na_odleglosc(github: str) -> None:
+    known: dict[str, bool] = {}
+
+    assert releases_from(f"{github}/daleko-scalone", timeout_s=30, known=known) == GitHubReleases(MERGED_FAR, "v0.1.0")
+    assert (len(_ASKED), known) == (4, {MERGED_FAR: True})  # tagi, czubek `main`, porównanie z czubkiem, PR-y commitu
+
+
+@pytest.mark.parametrize("repository", _PULLS_NOT_MERGING)
+def test_wydanie_z_galezi_z_pr_ktory_go_nie_scalil_do_main_nie_jest_na_main(github: str, repository: str) -> None:
+    assert releases_from(f"{github}/{repository}", timeout_s=30) == GitHubReleases(None, None)
 
 
 def test_wydanie_na_pierwszym_commicie_repozytorium_jest_na_main(github: str) -> None:
