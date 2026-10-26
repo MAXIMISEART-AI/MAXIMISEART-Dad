@@ -17,6 +17,7 @@ from drive.common import (
     finished_result,
     period_choice,
     stop_banner,
+    unreadable,
 )
 
 FEATURE = "diagnoza"
@@ -28,6 +29,7 @@ NO_ORDERS = "W Rejestrze zleceń nie ma żadnego zlecenia z tego okresu."
 TEMPLATE_MISSING = "Nie znaleziono wzorca, z którego powstają pliki okresu."
 # Przygotowanie's own Komunikat; Przebieg rozliczeń says „Konfiguracja wykonawców jest niepoprawna.” about the same file.
 WORKER_CONFIG_NOT_UTF8 = "Nie można odczytać konfiguracji wykonawców. Plik nie jest zapisany w kodowaniu UTF-8."
+WORKER_CONFIG_INACCESSIBLE = "Nie można teraz odczytać konfiguracji wykonawców. Plik może być zajęty przez inny program."
 NOT_FOUND = "Nie znalazłem przyczyny na tym komputerze."
 CONFIRMS = "Diagnoza potwierdza ten komunikat."
 FILES_UNCHANGED = "Nic nie zapisano, Twoje pliki są bez zmian."
@@ -423,3 +425,35 @@ def drive_diagnosis(run: Run, page: Page) -> None:
     finally:
         worker_config.unlink()
         kept.rename(worker_config)
+
+    run.step(FEATURE, "diagnoza-konfiguracja-wykonawcow-niedostepna")
+    with unreadable(worker_config):
+        page.get_by_role("button", name="Nowe Uruchomienie procesu").click()
+        page.get_by_role("radio", name="Przygotowanie pliku zbiorczego").click()
+        page.get_by_role("combobox", name="Okres").click()
+        page.get_by_role("option", name=period_choice(PERIOD, "Brak plików okresu"), exact=True).click()
+        page.get_by_role("button", name="Podgląd bez zapisu", exact=True).click()
+        expect(stop_banner(page)).to_contain_text(WORKER_CONFIG_INACCESSIBLE)
+        expect(stop_banner(page)).to_contain_text(f"plik {worker_config.name}")
+        result = finished_result(run, "diagnoza-konfiguracja-wykonawcow-niedostepna")
+        run.check(
+            result["stop_kind"] == "for_maks",
+            "a konfiguracja wykonawców without access stops Przygotowanie „do Maksa”, like a Wzorzec without access",
+        )
+        stop_banner(page).get_by_role("button", name="Diagnoza", exact=True).click()
+        expect(diagnosis).to_contain_text(CONFIRMS)
+        expect(diagnosis.get_by_label("Wyjaśnienie Diagnozy")).to_have_count(0)
+        config_run = current_run(run, "diagnoza-konfiguracja-wykonawcow-niedostepna")["run"]
+        assert isinstance(config_run, dict)
+        answer = diagnosis_answer(run, str(config_run["id"]), "diagnoza-konfiguracja-wykonawcow-niedostepna")
+        explanation = answer["explanation"]
+        assert isinstance(explanation, dict) and isinstance(answer["checks"], list)
+        run.check(
+            explanation["what"] == WORKER_CONFIG_INACCESSIBLE
+            and explanation["where"] == f"plik {worker_config.name}"
+            and answer["confirms_stop"] is True
+            and {"label": "Konfiguracja wykonawców", "state": "failed", "detail": WORKER_CONFIG_INACCESSIBLE}
+            in answer["checks"],
+            "the Diagnoza confirms the stop and names the konfiguracja wykonawców file without access niedostępna, never niepoprawna",
+        )
+        run.capture(page, "59d-diagnoza-konfiguracja-wykonawcow-niedostepna")

@@ -5,7 +5,7 @@ zbiorczy, Konfiguracja wykonawców, Ustawienia, metryki, dziennik, Logi Uruchomi
 Zgłoszeń) powstaje raz, a każdy przypadek dostaje jego kopię z jednym uszkodzonym plikiem albo folderem.
 Ogólny Komunikat to 500 „nieoczekiwany błąd”, Uruchomienie zakończone nieoczekiwanym wyjątkiem
 albo sprawdzenie Diagnozy „nieoczekiwany błąd”. Odmowa 500 z własnym tekstem jest zamierzona.
-Plik albo folder bez dostępu jest niedostępny: żaden Komunikat nie nazywa go uszkodzonym.
+Plik albo folder bez dostępu jest niedostępny: żaden Komunikat nie nazywa go uszkodzonym ani niepoprawnym.
 Wejścia to operacje kontraktu Centrum; operacja spoza macierzy ma w ``NOT_SWEPT`` powód.
 """
 
@@ -50,9 +50,10 @@ HEALTHY_COLLECTIVE_ROWS: tuple[dict[str, CellValue], ...] = (
     {"D": "przeniesienie", "G": datetime(2026, 9, 3, 10, 0), "H": "dariusz.fikcyjny2", "N": 2},
     {"D": "prewencja", "G": datetime(2026, 9, 4, 10, 0), "N": 3},
 )
-# Słowo Komunikatu o zepsutym pliku; plik bez dostępu jest cały i tata nie ma go naprawiać w Excelu.
+# Słowa Komunikatu o zepsutym pliku; plik bez dostępu jest cały i tata nie ma go naprawiać w Excelu.
 # Spacja odróżnia je od ścieżek tmp_path, które zawierają nazwę testu.
-DAMAGED = " uszkodzon"
+DAMAGED = (" uszkodzon", " niepoprawn")
+WORKER_CONFIG_INACCESSIBLE = "Nie można teraz odczytać konfiguracji wykonawców. Plik może być zajęty przez inny program."
 GENERIC_500 = "W Centrum rozliczeń wystąpił nieoczekiwany błąd. Odśwież kartę i spróbuj ponownie."
 DIAGNOSIS_UNEXPECTED = "Nie udało się sprawdzić: nieoczekiwany błąd."
 
@@ -546,7 +547,11 @@ def test_uszkodzony_plik_nie_konczy_sie_ogolnym_komunikatem(
         if damage == "bez_odczytu":
             _readable_again(target)
     if damage == "bez_odczytu":
-        problems += [f"{where}: niedostępny nazwany uszkodzonym" for where, text in seen if DAMAGED in text]
+        problems += [
+            f"{where}: niedostępny nazwany uszkodzonym albo niepoprawnym"
+            for where, text in seen
+            if any(word in text for word in DAMAGED)
+        ]
 
     assert problems == []
 
@@ -590,6 +595,38 @@ def test_folder_okresow_bez_odczytu_nazywa_folder_w_kazdym_wejsciu(
     assert stopped["stops"][0]["what"].startswith("Nie można teraz odczytać folderu.")
     assert stopped["stops"][0]["where"].endswith(named)
     assert diagnosis["explanation"] == stopped["stops"][0]
+
+
+@pytest.mark.parametrize(
+    ("process", "period", "where"),
+    [
+        ("preparation", PERIOD, "plik worker_mapping.yaml"),
+        ("settlement", SETTLEMENT_PERIOD, "plik worker_mapping.yaml, folder config"),
+    ],
+)
+def test_konfiguracja_wykonawcow_bez_odczytu_jest_niedostepna_w_zatrzymaniu_diagnozie_i_na_karcie(
+    world_template: Path, tmp_path: Path, process: str, period: str, where: str
+) -> None:
+    world = World(tmp_path / "swiat")
+    shutil.copytree(world_template, world.root)
+    client = _remembering_choices(world)
+    config = world.path("konfiguracja_wykonawcow")
+    _inaccessible(config)
+    try:
+        card = client.get("/api/configuration").json()["workers"]
+        run_id = _run_with_diagnosis(client, process, period)
+        stop = finished_view(client)["result"]["stops"][0]
+        diagnosis = client.post(f"/api/runs/{run_id}/diagnosis").json()
+    finally:
+        _readable_again(config)
+
+    assert (stop["what"], stop["where"]) == (WORKER_CONFIG_INACCESSIBLE, where)
+    assert (diagnosis["explanation"], diagnosis["confirms_stop"]) == (stop, True)
+    assert (card["state"], card["message"]["what"], card["message"]["where"]) == (
+        "unreadable",
+        WORKER_CONFIG_INACCESSIBLE,
+        "plik worker_mapping.yaml, folder config",
+    )
 
 
 def test_folder_miesiaca_znikajacy_w_trakcie_listowania_jest_pominiety(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

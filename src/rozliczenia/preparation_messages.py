@@ -61,16 +61,32 @@ def invalid_period_token(token: str) -> Message:
 
 
 def worker_config_problem(config_path: Path, error: WorkerConfigError) -> Message:
-    """Konfiguracji wykonawców nie da się użyć; poza nieczytelnym plikiem ``error.detail`` mówi, co jest nie tak."""
+    """Konfiguracji wykonawców nie da się użyć; poza brakiem pliku ``error.detail`` mówi, co jest nie tak."""
 
+    if error.reason == "inaccessible":
+        return _worker_config_inaccessible(config_path)
     what = "Nie można odczytać konfiguracji wykonawców."
-    if error.reason != "unreadable":
+    if error.reason != "missing":
         what = f"{what} {error.detail}"
     return Message(
         code="ZLA_KONFIGURACJA_WYKONAWCOW",
         what=what,
         where=f"plik {config_path.name}",
         action="Przekaż to osobie utrzymującej narzędzie.",
+    )
+
+
+def _worker_config_inaccessible(config_path: Path) -> Message:
+    """System nie oddał konfiguracji wykonawców (np. plik zajęty przez inny program albo bez dostępu); to nie zła treść.
+
+    Konfiguracja leży w ``config`` na dysku C jak Wzorce, więc tata rzadko sam usunie przyczynę: Komunikat idzie do Maksa.
+    """
+
+    return Message(
+        code="NIEDOSTEPNA_KONFIGURACJA_WYKONAWCOW",
+        what="Nie można teraz odczytać konfiguracji wykonawców. Plik może być zajęty przez inny program.",
+        where=f"plik {config_path.name}",
+        action=REPORT_TO_MAINTAINER,
     )
 
 

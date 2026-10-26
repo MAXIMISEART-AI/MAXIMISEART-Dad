@@ -15,6 +15,7 @@ from tests.fixtures.message_samples import PREPARATION_SAMPLES, SETTLEMENT_SAMPL
 FOR_MAKS = {
     "przygotowanie-pliku-zbiorczego": {
         "ZLA_KONFIGURACJA_WYKONAWCOW",
+        "NIEDOSTEPNA_KONFIGURACJA_WYKONAWCOW",
         "BRAK_WZORCA",
         "USZKODZONY_WZORZEC",
         "NIEDOSTEPNY_WZORZEC",
@@ -25,6 +26,7 @@ FOR_MAKS = {
     },
     "przebieg-rozliczen": {
         "ZLA_KONFIGURACJA_WYKONAWCOW",
+        "NIEDOSTEPNA_KONFIGURACJA_WYKONAWCOW",
         "BLAD_PODSUMOWANIA",
         "BLAD_PLANU",
     },

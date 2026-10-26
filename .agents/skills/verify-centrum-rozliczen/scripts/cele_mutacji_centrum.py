@@ -30,6 +30,7 @@ SETTLEMENT_MESSAGES = Path("src/rozliczenia/settlement_messages.py")
 STOPS = Path("src/rozliczenia/centrum/stops.py")
 TOOL_UPDATES = Path("src/rozliczenia/centrum/tool_updates.py")
 WORKBOOK_FILES = Path("src/rozliczenia/workbook_files.py")
+WORKER_CONFIG = Path("src/rozliczenia/worker_config.py")
 RUNNER = ".agents/skills/verify-centrum-rozliczen/scripts/run_centrum_verification.py"
 AKTUALIZACJA = (RUNNER, "--feature", "aktualizacja")
 DIAGNOZA = (RUNNER, "--feature", "diagnoza")
