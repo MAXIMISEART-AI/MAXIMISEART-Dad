@@ -16,12 +16,36 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[4] / ".agents/skills/ver
 from cele_mutacji_centrum import BUILD, DAD_NOTES, UWAGA
 from mutacje import Edit, Mutation, check_all
 
+FIELDS = Edit(BUILD, "`-m-1 flex flex-col gap-5 overflow-y-auto p-1`", "`-m-1 flex min-h-0 flex-col gap-5 p-1`")
+DOTYCZY = Edit(
+    BUILD, "`has-data-[slot=radio-group]:min-h-32 has-[>p+[data-slot=radio-group]]:min-h-38`", "`min-h-0`"
+)
+PREVIEW = "`flex min-h-16 flex-col gap-1 overflow-y-auto rounded-lg bg-muted/50 p-3 text-sm`"
+
 MUTATIONS = (
     Mutation(
         "pola okna Uwagi się nie przewijają",
-        (Edit(BUILD, "`-m-1 flex flex-col gap-2 overflow-y-auto p-1 ", "`-m-1 flex flex-col gap-2 p-1 "),),
+        (FIELDS,),
         UWAGA,
-        "przy niskim oknie „Wyślij” schodzi pod krawędź okna Uwagi (#488)",
+        "przy niskim oknie przełącznik „Dotyczy” i „Maks dostanie” leżą pod stopką i nie da się do nich przewinąć (#488)",
+    ),
+    Mutation(
+        "okno Uwagi jak na main",
+        (FIELDS, DOTYCZY, Edit(BUILD, PREVIEW, PREVIEW.replace("min-h-16", "min-h-0"))),
+        UWAGA,
+        "przy niskim oknie „Dotyczy” kurczy się pod przełącznik, a pola się nie przewijają (#488)",
+    ),
+    Mutation(
+        "„Dotyczy” kurczy się pod przełącznik",
+        (DOTYCZY,),
+        UWAGA,
+        "przy niskim oknie lista Uruchomień albo przełącznik nachodzi na „Maks dostanie” (#488)",
+    ),
+    Mutation(
+        "„Maks dostanie” nie oddaje wysokości",
+        (Edit(BUILD, PREVIEW, PREVIEW.replace("min-h-16", "shrink-0")),),
+        UWAGA,
+        "przy pełnym oknie lista Uruchomień jest niższa niż na main, bo wysokość oddaje tylko ona (#498)",
     ),
     Mutation(
         "komentarz z odnośnikiem do odrzuconych Logów nie powstaje",

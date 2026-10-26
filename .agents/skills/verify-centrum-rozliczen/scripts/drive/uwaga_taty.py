@@ -49,6 +49,9 @@ LOW_NOTES = {
     ),
     "link": ("Link do pliku", ("https://onedrive.live.com/edit?id=" + "SYNTETYCZNY0123456789" * 500)[:10_000]),
 }
+# Centrum Uruchomienia the full-window list shows, as many as the dialog offers (`RECENT_RUNS`): more than four and a
+# half rows, so the list gives up height (#498).
+FULL_LIST_RUNS = 6
 # Each issue waits this long in the skrzynka, so „Wyślij” is seen sending; two issues stay under the 5 s wait.
 BOX_PACING_MS = 1500
 ABOUT_RUN = "Napisz do Maksa o tym Uruchomieniu"
@@ -82,6 +85,27 @@ WHOLLY_SHOWN = """element => new Promise(measured => requestAnimationFrame(() =>
         }
     }
     measured({shown, top: Math.round(box.top), bottom: Math.round(box.bottom)})
+})))"""
+
+
+# How much of its own height each part keeps: „Dotyczy” with the list and „Maks dostanie” with its Treść, each
+# scrolling part at most at its max-height, without padding, as flexbox shares the missing height. Measured as painted,
+# like WHOLLY_SHOWN.
+KEPT = """figure => new Promise(measured => requestAnimationFrame(() => requestAnimationFrame(() => {
+    const dialog = figure.closest("[role=dialog]")
+    const list = dialog.querySelector("[role=radiogroup]")
+    const label = [...dialog.querySelectorAll("[data-slot=field-label]")].find(element => element.textContent === "Dotyczy")
+    const given = part => Math.min(part.scrollHeight + part.offsetHeight - part.clientHeight, parseFloat(getComputedStyle(part).maxHeight)) - part.offsetHeight
+    const box = list.getBoundingClientRect()
+    const dotyczy = box.bottom - label.getBoundingClientRect().top
+    const style = getComputedStyle(figure)
+    const preview = figure.getBoundingClientRect().height - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom)
+    measured({
+        list: Math.round(box.height * 10) / 10,
+        listNatural: Math.round((box.height + given(list)) * 10) / 10,
+        dotyczy: Math.round(dotyczy / (dotyczy + given(list)) * 1000) / 1000,
+        figure: Math.round(preview / (preview + given(figure.querySelectorAll("p")[1])) * 1000) / 1000,
+    })
 })))"""
 
 
@@ -217,13 +241,15 @@ def _overlap(one: FloatRect, other: FloatRect) -> bool:
 
 
 def _send_misplaced(page: Page, dialog: Locator) -> list[str]:
-    """What keeps Dad from „Wyślij” or garbles the form in this window; empty when nothing does."""
+    """What keeps Dad from „Wyślij” or garbles the form in this window; empty when nothing does. The switch „Dotyczy” and
+    the caption „Maks dostanie” only have to reach the screen once scrolled to: in a low window the fields scroll."""
 
     viewport = page.viewport_size
     frame = dialog.bounding_box()
     send = dialog.get_by_role("button", name="Wyślij", exact=True)
     button = send.bounding_box()
-    toggle = dialog.get_by_role("group", name="Dotyczy", exact=True).bounding_box()
+    switch = dialog.get_by_role("group", name="Dotyczy", exact=True)
+    toggle = switch.bounding_box()
     caption = dialog.get_by_role("figure", name="Co dostanie Maks", exact=True).get_by_text("Maks dostanie", exact=True)
     assert viewport is not None and frame is not None and button is not None and toggle is not None
     screen = FloatRect(x=0, y=0, width=viewport["width"], height=viewport["height"])
@@ -239,6 +265,11 @@ def _send_misplaced(page: Page, dialog: Locator) -> list[str]:
         wrong.append("„Wyślij” does not take a click at its centre")
     if (label := caption.bounding_box()) is None or _overlap(toggle, label):
         wrong.append(f"the switch „Dotyczy” {toggle} overlaps the caption „Maks dostanie” {label}")
+    for name, part in (("the switch „Dotyczy”", switch), ("the caption „Maks dostanie”", caption)):
+        part.scroll_into_view_if_needed()
+        shown = part.evaluate(WHOLLY_SHOWN)
+        if not (shown["shown"] and part.evaluate(CLICKABLE)):
+            wrong.append(f"{name} scrolled into view is not wholly shown or does not take a click at its centre ({shown})")
     return wrong
 
 
@@ -278,6 +309,58 @@ def _drive_low_windows(run: Run, page: Page) -> None:
         page.set_viewport_size(screen)
     page.locator("header").get_by_role("button", name="Włącz motyw", exact=False).click()
     run.check(sorted(themes) == ["ciemny", "jasny"], "the low windows were checked in both themes")
+
+
+def _drive_full_window_list(run: Run, page: Page) -> None:
+    run.step(FEATURE, "uwaga-pelne-okno-lista")
+    registry = Path(run.fixture["settings"]).parent / "centrum-uruchomienia.jsonl"
+    before = registry.read_bytes() if registry.exists() else None
+    started = []
+    for process in ("settlement", "preparation"):
+        for line in Path(run.fixture["metrics"][process]).read_text(encoding="utf-8").splitlines():
+            try:
+                started.append((json.loads(line)["started_at"], process))
+            except (ValueError, KeyError, TypeError):
+                continue
+    newest = sorted(started, reverse=True)[:FULL_LIST_RUNS]
+    try:
+        with registry.open("a", encoding="utf-8") as log:
+            for number, (at, process) in enumerate(newest):
+                log.write(json.dumps({"process": process, "started_at": at, "run_id": f"uwaga-lista-{number}"}) + "\n")
+        dialog = _open(page)
+        _scope(dialog, "Do Uruchomienia").click()
+        choices = dialog.get_by_role("radiogroup", name="Uruchomienie", exact=True)
+        run.wait_for(
+            lambda: choices.get_by_role("radio").count() >= FULL_LIST_RUNS,
+            f"the list shows at least {FULL_LIST_RUNS} Uruchomienia from Centrum",
+        )
+        choices.get_by_role("radio").first.click()
+        _write(dialog, *LOW_NOTES["lines"])
+        send = dialog.get_by_role("button", name="Wyślij", exact=True)
+        expect(send).to_be_enabled()
+        figure = dialog.get_by_role("figure", name="Co dostanie Maks", exact=True)
+        kept = figure.evaluate(KEPT)
+        run.check(
+            kept["list"] < kept["listNatural"] - 1 and kept["dotyczy"] >= kept["figure"] - 0.01,
+            "at the full window the list gives up height and „Dotyczy” with it keeps at least the share of its height"
+            f" that „Maks dostanie” keeps, as on main ({kept})",
+        )
+        parts = {
+            "the checked row": choices.locator('label:has([role="radio"][aria-checked="true"])'),
+            "the switch „Dotyczy”": dialog.get_by_role("group", name="Dotyczy", exact=True),
+            "the caption „Maks dostanie”": figure.get_by_text("Maks dostanie", exact=True),
+            "„Wyślij”": send,
+        }
+        hidden = {name: shown for name, part in parts.items() if not (shown := part.evaluate(WHOLLY_SHOWN))["shown"]}
+        run.check(hidden == {}, f"at the full window the fields do not scroll: all of {list(parts)} are on screen ({hidden})")
+        run.capture(page, "179-uwaga-pelne-okno-lista", full_page=False)
+        page.keyboard.press("Escape")
+        expect(dialog).to_have_count(0)
+    finally:
+        if before is None:
+            registry.unlink(missing_ok=True)
+        else:
+            registry.write_bytes(before)
 
 
 def drive_dad_note(run: Run, page: Page) -> None:
@@ -354,6 +437,7 @@ def drive_dad_note(run: Run, page: Page) -> None:
     page.keyboard.press("Escape")
     expect(dialog).to_have_count(0)
     _drive_low_windows(run, page)
+    _drive_full_window_list(run, page)
     dialog = _open(page)
 
     run.step(FEATURE, "uwaga-szkic-po-bledzie")

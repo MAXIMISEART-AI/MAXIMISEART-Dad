@@ -89,10 +89,10 @@ export function DadNoteForm({ openedFrom, close }: { openedFrom: string | null; 
       <DialogHeader>
         <DialogTitle>Napisz do Maksa</DialogTitle>
       </DialogHeader>
-      {/* Nagłówek i „Wyślij” zostają w oknie, a pola między nimi się przewijają. Wysokość oddaje najpierw tylko lista
-          Uruchomień, więc stoi tu wprost, poza „Dotyczy”, które nie kurczy się pod przełącznik; odstępy jak w Field
-          (gap-2 w polu, mt-3 między polami). `-m-1 p-1` zostawia miejsce na obwódkę fokusu. */}
-      <div className="-m-1 flex flex-col gap-2 overflow-y-auto p-1 *:not-data-[slot=radio-group]:shrink-0">
+      {/* Nagłówek i „Wyślij” zostają w oknie. Między nimi wysokość oddają jak dotąd lista Uruchomień i „Maks dostanie”,
+          a pola przewijają się dopiero wtedy, gdy obie są najniższe: „Dotyczy” z przełącznikiem i jednym wierszem listy
+          (wyżej o zdanie nad listą), podgląd z podpisem i pierwszą linią. `-m-1 p-1` zostawia miejsce na obwódkę fokusu. */}
+      <div className="-m-1 flex flex-col gap-5 overflow-y-auto p-1">
         <Field>
           <FieldLabel htmlFor="uwaga-tytul">Tytuł</FieldLabel>
           <Input
@@ -105,7 +105,7 @@ export function DadNoteForm({ openedFrom, close }: { openedFrom: string | null; 
             onChange={(event) => setTitle(event.target.value)}
           />
         </Field>
-        <Field className="mt-3">
+        <Field>
           <FieldLabel htmlFor="uwaga-tresc">
             Treść <span className="font-normal text-muted-foreground">(niekonieczna)</span>
           </FieldLabel>
@@ -118,13 +118,19 @@ export function DadNoteForm({ openedFrom, close }: { openedFrom: string | null; 
             onChange={(event) => setBody(event.target.value)}
           />
         </Field>
-        <Field className="mt-3">
+        <Field className="has-data-[slot=radio-group]:min-h-32 has-[>p+[data-slot=radio-group]]:min-h-38">
           <FieldTitle>Dotyczy</FieldTitle>
           <SegmentedFilter label="Dotyczy" options={SCOPES} value={scope} onChange={setScope} />
+          {scope === "run" ? (
+            <DadNoteRuns
+              runs={runs}
+              reload={reloadRuns}
+              openedFrom={openedFrom}
+              checked={checked}
+              onCheck={setChecked}
+            />
+          ) : null}
         </Field>
-        {scope === "run" ? (
-          <DadNoteRuns runs={runs} reload={reloadRuns} openedFrom={openedFrom} checked={checked} onCheck={setChecked} />
-        ) : null}
         <Preview shown={shown} />
       </div>
       <DialogFooter>
@@ -259,7 +265,7 @@ function Preview({ shown }: { shown: Shown | null }) {
   const title = shown?.kind === "draft" ? shown.draft.title : ""
 
   return (
-    <figure aria-label="Co dostanie Maks" className="mt-3 flex flex-col gap-1 rounded-lg bg-muted/50 p-3 text-sm">
+    <figure aria-label="Co dostanie Maks" className="flex min-h-16 flex-col gap-1 overflow-y-auto rounded-lg bg-muted/50 p-3 text-sm">
       <figcaption className="text-xs text-muted-foreground">Maks dostanie</figcaption>
       <p className={cn("font-medium break-words", title === "" && "text-muted-foreground/60")}>
         {title === "" ? "Tytuł" : title}
