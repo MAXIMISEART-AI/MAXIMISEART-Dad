@@ -9,6 +9,9 @@ komputerze taty; ``state`` to wszystko, co aktualizacja mogłaby w klonie
 zmienić. ``unreachable_origin`` i ``origin_asking_for_login`` to GitHub bez
 internetu i GitHub, który prosi o logowanie, oba na tym komputerze. Żaden
 pomocnik nie łączy się z siecią.
+
+Każdy test dostaje własne trzy repozytoria, ale proces testów buduje Gitem każdą
+pierwszą wersję tylko raz i potem ją kopiuje (``built_once``).
 """
 
 from __future__ import annotations
@@ -28,6 +31,8 @@ import threading
 
 from rozliczenia.centrum.tool_freshness import GitHubReleases, PublishedRelease
 from rozliczenia.centrum.tool_update import Release, newest_on_main
+
+from tests.fixtures.git_repo import built_once
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 
@@ -210,10 +215,13 @@ def copy_centrum_runtime(destination: Path) -> Path:
 def tool_repository(directory: Path, files: Mapping[str, str] = FIRST_VERSION) -> ToolRepository:
     """Wydawca z pierwszą wersją ``files``, „origin” bez katalogu roboczego i klon taty na tym samym commicie."""
 
-    publisher = directory / "wydawca"
-    publisher.mkdir(parents=True)
-    _write(publisher, files)
-    return _published(directory, publisher)
+    def build(template: Path) -> None:
+        (template / "wydawca").mkdir()
+        _write(template / "wydawca", files)
+        _publish_first_version(template)
+
+    built_once(directory, build, *sorted(files.items()))
+    return ToolRepository(directory / "wydawca", directory / "origin.git", directory / "narzedzie")
 
 
 def centrum_tool_repository(directory: Path, files: Mapping[str, str] | None = None) -> ToolRepository:
@@ -222,23 +230,26 @@ def centrum_tool_repository(directory: Path, files: Mapping[str, str] | None = N
     ``files`` podmienia albo dodaje pliki tej pierwszej wersji.
     """
 
-    publisher = copy_centrum_runtime(directory / "wydawca")
-    _write(publisher, files or {})
-    return _published(directory, publisher)
+    def build(template: Path) -> None:
+        _write(copy_centrum_runtime(template / "wydawca"), files or {})
+        _publish_first_version(template)
+
+    built_once(directory, build, *sorted((files or {}).items()))
+    return ToolRepository(directory / "wydawca", directory / "origin.git", directory / "narzedzie")
 
 
-def _published(directory: Path, publisher: Path) -> ToolRepository:
+def _publish_first_version(directory: Path) -> None:
+    """Commit i Wydanie ``v0.1.0`` plików wydawcy w ``directory``, „origin” i klon taty obok niego."""
+
+    publisher, origin = directory / "wydawca", directory / "origin.git"
     git(publisher, "init", "--quiet", "--initial-branch", "main")
     git(publisher, "add", "--all")
     git(publisher, "commit", "--quiet", "--message", "Pierwsza wersja narzędzia")
-    origin = directory / "origin.git"
     git(directory, "clone", "--quiet", "--bare", str(publisher), str(origin))
     git(publisher, "remote", "add", "origin", str(origin))
     git(publisher, "tag", "v0.1.0")
     git(publisher, "push", "--quiet", "origin", "refs/tags/v0.1.0")
-    clone = directory / "narzedzie"
-    git(directory, "clone", "--quiet", str(origin), str(clone))
-    return ToolRepository(publisher, origin, clone)
+    git(directory, "clone", "--quiet", str(origin), str(directory / "narzedzie"))
 
 
 def _next_release(tags: list[str]) -> str:
