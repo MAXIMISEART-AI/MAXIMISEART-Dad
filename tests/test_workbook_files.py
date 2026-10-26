@@ -938,15 +938,40 @@ def test_wzorzec_rozliczenia_pracownika_z_wartoscia_w_wierszu_danych_nie_daje_pl
     assert not target.exists()
 
 
+def _worker_template_with_merge(tmp_path: Path, merged: str, *, copied: bool) -> Path:
+    template_path = tmp_path / "Wzorzec rozliczenia pracownika.xlsx"
+    write_template(template_path)
+    workbook = load_workbook(template_path)
+    try:
+        active_worksheet(workbook).merge_cells(merged)
+        workbook.save(template_path)
+    finally:
+        workbook.close()
+    return (marked_for_copy if copied else refused_by_copy)(template_path)
+
+
+@pytest.mark.parametrize("copied", [True, False], ids=["kopia", "openpyxl"])
+def test_scalenie_wzorca_rozliczenia_pracownika_pod_zapisanymi_wierszami_danych_nie_przeszkadza(
+    tmp_path: Path, copied: bool
+) -> None:
+    template_path = _worker_template_with_merge(tmp_path, "A20:B20", copied=copied)
+    target = tmp_path / "Rozliczenie - Wykonawca.xlsx"
+
+    TemplateFile.worker_settlement(template_path).create(target, [_data_row(_row(A="syntetyczne miasto"))] * 2)
+
+    assert target.exists()
+
+
+@pytest.mark.parametrize("merged", ["A19:B19", "N19:O19"], ids=["kolumny-opisu", "kolumny-ilosci"])
 @pytest.mark.parametrize("copied", [True, False], ids=["kopia", "openpyxl"])
 def test_wzorzec_rozliczenia_pracownika_ze_scaleniem_w_wierszu_danych_nie_daje_pliku_na_zadnej_drodze(
-    tmp_path: Path, copied: bool
+    tmp_path: Path, copied: bool, merged: str
 ) -> None:
     template_path = tmp_path / "Wzorzec rozliczenia pracownika.xlsx"
     write_template(template_path)
     workbook = load_workbook(template_path)
     try:
-        active_worksheet(workbook).merge_cells("A19:B19")
+        active_worksheet(workbook).merge_cells(merged)
         workbook.save(template_path)
     finally:
         workbook.close()
