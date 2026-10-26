@@ -51,7 +51,7 @@ step of this code that the checker can fail, lose or kill:
 | a box write | `KeyedBox.open_issue` and `comment`, called by `_deliver_new_issue`, `_deliver_report`, `_deliver_to_period`, `_comment_all` |
 | the delivery marker | `Outbox._send_all`: `replace_atomically(path, _queue_text(post, delivered_parts=len(post.parts)))` in `suppress(OSError)` |
 | the removal of a queue file | `Outbox._remove` (`path.unlink`, `_undeleted`) |
-| a pass of the queue | `Outbox._drain` (`_claimed`, `_send_all`, `_released`), run only after the code asked for one with `send_in_background`: in `Outbox.post`, `Outbox.resume` or `Outbox._woken` |
+| a pass of the queue | `Outbox._drain` (`_claimed`, `_send_all`, `_released`), run only when the real `Outbox.send_in_background` starts the queue thread (called by `Outbox.post`, `Outbox.resume` and `Outbox._woken`); the checker replaces only `threading.Thread` in `outbox.py`, which hands it the target |
 | the `RETRY_S` wake | `Outbox._drain`: `self._clock.after(RETRY_S, self._woken)` when `_stopped_on` is set and no wake is armed; the checker calls an armed wake when nothing else asked for a pass, and a restart drops it with its process |
 | a restart of Centrum | a new `Outbox` and `KeyedBox` on the same folder, then `Outbox.resume` |
 
@@ -102,8 +102,9 @@ The last line is the verdict:
 
 `explore_outbox.py` writes the wysyłki of a scope into a real queue folder in a
 temporary directory with `Outbox.post`, then runs passes of the real queue
-(`_drain`) in its own thread. `send_in_background` only records that the code
-asked for a pass, and the checker runs one only after such a request. Behind `KeyedBox` stands `MemoryBox`, GitHub's
+(`_drain`) in its own thread. Only the start of the queue thread is replaced:
+the real `send_in_background` decides, from `_draining`, whether a thread
+starts, and the checker runs the target of each started thread. Behind `KeyedBox` stands `MemoryBox`, GitHub's
 issues, labels, bodies and comments in memory. Before each step in the table
 the checker picks one option:
 
@@ -145,8 +146,9 @@ issue (`Gone`, `closed="reuse"`), a part posted twice (after a lost comment
 answer or a restart, accepted as at least once and not a rule here), a
 delivered file with its marker that waits for the next start, two queues on one folder (`_claimed`), a
 process killed in the middle of `replace_atomically` (it leaves a `.tmp` that
-`resume` removes), `prepare` holding a wysyłka back, the threads of
-`send_in_background`, `wait_delivered` and `on_delivered` (Sprawy taty), and
+`resume` removes), `prepare` holding a wysyłka back, a queue thread running at
+the same time as `post` or `wait_delivered` (the checker runs each thread to its
+end), `on_delivered` (Sprawy taty), and
 more wysyłki or failures than the bounds above.
 
 ## Known findings
@@ -241,7 +243,9 @@ with `MUTACJE OK`. Each of these gives `KOLEJKA: NOWE NARUSZENIE`:
 - the queue file removed before its marker is written;
 - a `RETRY_S` wake that does not ask for a pass (`_woken`);
 - a start that does not ask for a pass (`resume`);
-- a new wysyłka that does not ask for a pass (`post`).
+- a new wysyłka that does not ask for a pass (`post`);
+- a pass that does not clear `_draining`, so later requests only set `_again`;
+- `send_in_background` that never starts the queue thread.
 
 The Zgłoszenie, Uwaga, marker and removal mutations break the same rule as a
 known finding or an accepted risk, in a schedule those do not excuse. A mutation reported as `NIEAKTUALNA` no longer

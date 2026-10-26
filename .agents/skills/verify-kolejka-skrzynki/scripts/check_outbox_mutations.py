@@ -188,6 +188,32 @@ MUTATIONS = (
         "Uwaga taty czeka w kolejce do następnego startu Centrum",
         NEW,
     ),
+    Mutation(
+        "przejście nie zeruje _draining",
+        (
+            Edit(
+                VERIFIED,
+                "                    self._draining = False\n",
+                "                    pass\n",
+            ),
+        ),
+        (EXPLORER, "--scope", "znane-issue"),
+        "po pierwszym przejściu budzik i każda nowa wysyłka tylko ustawiają _again, a kolejka stoi do restartu",
+        NEW,
+    ),
+    Mutation(
+        "send_in_background nie uruchamia wątku",
+        (
+            Edit(
+                VERIFIED,
+                '        threading.Thread(target=self._drain, name="skrzynka-kolejka", daemon=True).start()\n',
+                "        pass\n",
+            ),
+        ),
+        (EXPLORER, "--scope", "nowe-issue"),
+        "nic nigdy nie trafia do Skrzynki",
+        NEW,
+    ),
 )
 
 
