@@ -1,4 +1,4 @@
-"""Praca w toku w innych checkoutach tego repozytorium i pliki, które zmienia też bieżący checkout.
+"""Scenariusz P2 tor 6. Praca w toku w innych checkoutach tego repozytorium i pliki, które zmienia też bieżący checkout.
 
 Wiele sesji pracuje naraz, każda w swoim git worktree, i nie widzą się nawzajem. Skrypt tylko
 czyta: worktree (``git worktree list``), lokalne gałęzie z commitami spoza ``origin/main``,
