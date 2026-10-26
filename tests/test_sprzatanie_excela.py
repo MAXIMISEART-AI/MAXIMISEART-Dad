@@ -246,18 +246,27 @@ def test_nieudane_zatrzymanie_excela_z_oknem_dialogowym_konczy_run_linia_verify(
     assert ("scratch_removed=true" in cleanup) is excel_ended, cleanup
 
 
-@pytest.mark.parametrize("users", [False, True], ids=["tylko-skoroszyty-runu", "skoroszyt-uzytkownika"])
+# Nowy skoroszyt, którego Maks jeszcze nie zapisał, Excel nazywa bez ścieżki.
+UNSAVED_WORKBOOK = "Zeszyt1"
+
+
+@pytest.mark.parametrize(
+    "opened",
+    [(), (MAKS_WORKBOOK,), (UNSAVED_WORKBOOK,)],
+    ids=["tylko-skoroszyty-runu", "skoroszyt-uzytkownika", "niezapisany-skoroszyt-uzytkownika"],
+)
 def test_excel_uruchomiony_przez_run_z_oknem_dialogowym_zostaje_otwarty_tylko_ze_skoroszytem_uzytkownika(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, excel: FakeExcel, users: bool
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, excel: FakeExcel, opened: tuple[str, ...]
 ) -> None:
     excel.names_workbooks_in_dialog = True
+    users = bool(opened)
 
-    code, output = _run(tmp_path, monkeypatch, excel, dialog=True, opened_by_user=(MAKS_WORKBOOK,) if users else ())
+    code, output = _run(tmp_path, monkeypatch, excel, dialog=True, opened_by_user=opened)
 
     cleanup = (_evidence(tmp_path) / "cleanup.txt").read_text(encoding="utf-8")
     assert code == 1 and _verdict(output).startswith("VERIFY FAIL"), output
     assert ("excel_dialog_left=true" in cleanup, "excel_stopped=true" in cleanup) == (users, not users), cleanup
-    assert excel.running is users and (MAKS_WORKBOOK in excel.workbooks) is users
+    assert excel.running is users and all(workbook in excel.workbooks for workbook in opened)
 
 
 def test_okno_dialogowe_na_starcie_konczy_run_przed_praca(

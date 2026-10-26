@@ -40,7 +40,10 @@ def _gh(*args: str) -> str:
 
 
 def _git(*args: str) -> str:
-    return subprocess.run(["git", *args], cwd=REPO_ROOT, capture_output=True, text=True, check=True).stdout.strip()
+    result = subprocess.run(["git", *args], cwd=REPO_ROOT, capture_output=True, text=True, check=False)
+    if result.returncode != 0:
+        raise SystemExit(f"VERIFY FAIL | git {' '.join(args)}: {' '.join(result.stderr.split())}")
+    return result.stdout.strip()
 
 
 def _dispatch(ref: str, feature: str, head: str) -> str:

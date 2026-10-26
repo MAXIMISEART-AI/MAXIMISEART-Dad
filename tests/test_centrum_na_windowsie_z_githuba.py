@@ -129,3 +129,29 @@ def test_dispatch_przyjmuje_tylko_run_lokalnego_head(tmp_path: Path) -> None:
     assert done.returncode == 0, done.stdout + done.stderr
     assert done.stdout.splitlines()[0].startswith("RUN 9 |")
     assert f"| run=9 | head={checkout.head} |" in done.stdout.splitlines()[-1]
+
+
+def test_dispatch_widzi_cudzy_push_na_galezi_i_odmawia_startu(tmp_path: Path) -> None:
+    checkout = Checkout(tmp_path)
+    other = tmp_path / "inny-klon"
+    git(tmp_path, "clone", "--quiet", "--branch", "praca", str(tmp_path / "origin.git"), str(other))
+    (other / "cudza.txt").write_text("cudza zmiana\n", encoding="utf-8")
+    pushed = commit(other, "cudza zmiana")
+    git(other, "push", "--quiet", "origin", "praca")
+
+    done = checkout.run()
+
+    assert done.returncode == 1, done.stdout + done.stderr
+    assert done.stderr.strip().splitlines()[-1].startswith(f"VERIFY FAIL | origin/praca is {pushed}, not HEAD {checkout.head}")
+    assert not any(call.startswith("workflow run") for call in checkout.calls())
+
+
+def test_dispatch_bez_dostepu_do_origin_konczy_sie_werdyktem(tmp_path: Path) -> None:
+    checkout = Checkout(tmp_path)
+    git(checkout.root, "remote", "set-url", "origin", str(tmp_path / "nie-ma.git"))
+
+    done = checkout.run()
+
+    assert done.returncode == 1, done.stdout + done.stderr
+    assert done.stderr.strip().splitlines()[-1].startswith("VERIFY FAIL | git fetch --quiet origin praca:")
+    assert not any(call.startswith("workflow run") for call in checkout.calls())

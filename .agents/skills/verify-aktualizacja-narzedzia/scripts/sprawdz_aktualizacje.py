@@ -39,6 +39,8 @@ TLA_SHA256 = "936a262061c914694dfd669a543be24573c45d5aa0ff20a8b96b23d01e050e88"
 
 PASSES, VIOLATES = "przechodzi", "narusza"
 DRIFT = "AKTUALIZACJA: ROZJAZD MODELU Z KODEM"
+# Dopobranie historii płytkiego klonu CI (ok. 33 MiB) nie czeka do limitu czasu runnera.
+FETCH_TIMEOUT_S = 300
 # Niezmienniki obietnicy, każdy z wariantem ``…PozaZnanymi`` w modelu, i ich zdanie dla czytelnika.
 PROMISES = {
     "TataMaDzialajacaWersje": "tata zostaje bez wersji, która startuje, albo bez swojego pliku w config/.",
@@ -321,7 +323,10 @@ def _drift(root: Path, skill_md: str) -> str | None:
     commit = f"{sync.group(1)}^{{commit}}"
     if _git(root, "cat-file", "-e", commit) is None:
         # Płytki klon CI ma tylko ostatnie commity; w pełnym klonie ``--unshallow`` pada i niczego nie zmienia.
-        _git(root, "fetch", "--quiet", "--unshallow", "origin")
+        fetched = _git(root, "fetch", "--quiet", "--unshallow", "origin", timeout_s=FETCH_TIMEOUT_S)
+        shallow = _git(root, "rev-parse", "--is-shallow-repository") == "true"
+        if fetched is None and shallow:
+            return f"nie udało się dopobrać historii do commitu synchronizacji {sync.group(1)} (git fetch --unshallow); sprawdź sieć."
     if _git(root, "cat-file", "-e", commit) is None or (changed := _git(root, "diff", "--name-only", sync.group(1), "--", *covered)) is None:
         return f"commitu synchronizacji {sync.group(1)} nie ma w tej historii; porównaj pokryty kod ręcznie."
     if changed:
@@ -329,10 +334,13 @@ def _drift(root: Path, skill_md: str) -> str | None:
     return None
 
 
-def _git(root: Path, *arguments: str) -> str | None:
-    """Wyjście polecenia ``git`` bez końcowych białych znaków; ``None``, gdy się nie udało."""
+def _git(root: Path, *arguments: str, timeout_s: float | None = None) -> str | None:
+    """Wyjście polecenia ``git`` bez końcowych białych znaków; ``None``, gdy się nie udało albo minęło ``timeout_s``."""
 
-    done = subprocess.run(["git", *arguments], cwd=root, capture_output=True, text=True, check=False)
+    try:
+        done = subprocess.run(["git", *arguments], cwd=root, capture_output=True, text=True, check=False, timeout=timeout_s)
+    except subprocess.TimeoutExpired:
+        return None
     return done.stdout.strip() if done.returncode == 0 else None
 
 

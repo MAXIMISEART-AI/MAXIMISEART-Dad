@@ -14,6 +14,8 @@ import subprocess
 import sys
 from types import ModuleType
 
+import pytest
+
 from tests.fixtures.git_repo import commit, git
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -81,6 +83,35 @@ def test_w_ci_brak_commitu_synchronizacji_konczy_sprawdzenie_porazka(tmp_path: P
     assert done.returncode == 1, done.stdout + done.stderr
     assert done.stdout.splitlines()[-1] == DRIFT
     assert f"commitu synchronizacji {'0' * 40} nie ma w tej historii" in done.stdout
+
+
+def test_poza_ci_rozjazd_tylko_ostrzega_i_sprawdzenie_modelu_biegnie_dalej(monkeypatch: pytest.MonkeyPatch) -> None:
+    module = _load()
+    monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
+    monkeypatch.setattr(module, "_drift", lambda root, skill_md: "pokryty kod zmienił się")
+
+    def model_check() -> str:
+        raise SystemExit("sprawdzenie modelu")
+
+    monkeypatch.setattr(module, "_java", model_check)
+
+    with pytest.raises(SystemExit, match="sprawdzenie modelu"):
+        module.main([])
+
+
+def test_plytki_klon_bez_sieci_mowi_ze_nie_dopobral_historii(tmp_path: Path) -> None:
+    origin = tmp_path / "origin"
+    origin.mkdir()
+    sync = _repo(origin)
+    (origin / "inny.txt").write_text("inny\n", encoding="utf-8")
+    commit(origin, "zmiana obok")
+    clone = tmp_path / "klon"
+    git(tmp_path, "clone", "--quiet", "--depth", "1", origin.as_uri(), str(clone))
+    git(clone, "remote", "set-url", "origin", (tmp_path / "nie-ma").as_uri())
+
+    found = _load()._drift(clone, _skill_md(sync[:8]))
+
+    assert found is not None and found.startswith("nie udało się dopobrać historii"), found
 
 
 def test_plytki_klon_dopobiera_historie_do_commitu_synchronizacji(tmp_path: Path) -> None:
