@@ -43,7 +43,10 @@ PERIOD = "08_14_09_2026"
 SOURCE = PERIOD_DIRECTORY / f"Rozliczenie {PERIOD} - zbiorcze.xlsx"
 WORKER_SETTLEMENTS = PERIOD_DIRECTORY / f"Rozliczenie pracowników {PERIOD}"
 WORKER_TEMPLATE = Path("C:/Narzedzie/config/Wzorzec rozliczenia pracownika.xlsx")
-UNREADABLE_CONFIG = WorkerConfigError("unreadable", "Nie można odczytać pliku konfiguracji.")
+MISSING_CONFIG = WorkerConfigError("missing", "Nie można odczytać pliku konfiguracji.")
+INACCESSIBLE_CONFIG = WorkerConfigError(
+    "inaccessible", "Nie można teraz odczytać pliku konfiguracji. Plik może być zajęty przez inny program."
+)
 CONFIG_NOT_UTF8 = WorkerConfigError("not_utf8", "Plik nie jest zapisany w kodowaniu UTF-8.")
 CONFIG_NOT_YAML = WorkerConfigError("not_yaml", "Plik nie jest poprawnym YAML.")
 INVALID_CONFIG = WorkerConfigError("invalid", "Nieobsługiwana wersja konfiguracji.")
@@ -58,7 +61,8 @@ PREPARATION_SAMPLES: Samples = {
     "invalid_period_token": [lambda: messages.invalid_period_token("08_14_9_2026")],
     "period_file_exists": [lambda: messages.period_file_exists(PERIOD_DIRECTORY, f"Rozliczenie wew. {PERIOD}.xlsx")],
     "worker_config_problem": [
-        lambda: messages.worker_config_problem(CONFIG, UNREADABLE_CONFIG),
+        lambda: messages.worker_config_problem(CONFIG, MISSING_CONFIG),
+        lambda: messages.worker_config_problem(CONFIG, INACCESSIBLE_CONFIG),
         lambda: messages.worker_config_problem(CONFIG, CONFIG_NOT_UTF8),
         lambda: messages.worker_config_problem(CONFIG, CONFIG_NOT_YAML),
         lambda: messages.worker_config_problem(CONFIG, INVALID_CONFIG),
@@ -156,7 +160,8 @@ SETTLEMENT_SAMPLES: Samples = {
     ],
     "worker_settlements_exist": [lambda: settlement_messages.worker_settlements_exist(WORKER_SETTLEMENTS)],
     "worker_config_problem": [
-        lambda: settlement_messages.worker_config_problem(CONFIG, UNREADABLE_CONFIG),
+        lambda: settlement_messages.worker_config_problem(CONFIG, MISSING_CONFIG),
+        lambda: settlement_messages.worker_config_problem(CONFIG, INACCESSIBLE_CONFIG),
         lambda: settlement_messages.worker_config_problem(CONFIG, CONFIG_NOT_UTF8),
         lambda: settlement_messages.worker_config_problem(CONFIG, CONFIG_NOT_YAML),
         lambda: settlement_messages.worker_config_problem(CONFIG, INVALID_CONFIG),

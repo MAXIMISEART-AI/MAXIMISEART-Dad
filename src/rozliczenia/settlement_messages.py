@@ -143,9 +143,25 @@ def worker_settlements_exist(target_directory: Path) -> Message:
 def worker_config_problem(config_path: Path, error: WorkerConfigError) -> Message:
     """Konfiguracji wykonawców nie da się użyć; ``error.detail`` nie zawiera ścieżki."""
 
+    if error.reason == "inaccessible":
+        return _worker_config_inaccessible(config_path)
     return Message(
         code="ZLA_KONFIGURACJA_WYKONAWCOW",
         what=f"Konfiguracja wykonawców jest niepoprawna. {error.detail}",
+        where=file_label(config_path),
+        action=REPORT_TO_MAINTAINER,
+    )
+
+
+def _worker_config_inaccessible(config_path: Path) -> Message:
+    """System nie oddał konfiguracji wykonawców (np. plik zajęty przez inny program albo bez dostępu); to nie zła treść.
+
+    Konfiguracja leży w ``config`` na dysku C jak Wzorce, więc tata rzadko sam usunie przyczynę: Komunikat idzie do Maksa.
+    """
+
+    return Message(
+        code="NIEDOSTEPNA_KONFIGURACJA_WYKONAWCOW",
+        what="Nie można teraz odczytać konfiguracji wykonawców. Plik może być zajęty przez inny program.",
         where=file_label(config_path),
         action=REPORT_TO_MAINTAINER,
     )

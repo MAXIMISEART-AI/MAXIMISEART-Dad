@@ -7,7 +7,9 @@ testy tych procesów.
 
 from __future__ import annotations
 
+import errno
 from pathlib import Path
+import sys
 
 import pytest
 import yaml
@@ -44,11 +46,56 @@ def test_identyfikator_wykonawcy_jest_porownywany_bez_wielkosci_liter_i_nadmiaro
     assert normalize_text(None) == ""
 
 
-def test_nieczytelny_plik_konfiguracji_wykonawcow(tmp_path: Path) -> None:
-    with pytest.raises(WorkerConfigError) as raised:
-        load_worker_mapping(tmp_path / "missing.yaml")
+@pytest.mark.parametrize(
+    "missing",
+    [Path("brak.yaml"), Path("worker_mapping.yaml"), Path("plik") / "worker_mapping.yaml"],
+    ids=["brak-pliku", "folder-zamiast-pliku", "plik-zamiast-folderu"],
+)
+def test_brak_pliku_konfiguracji_wykonawcow(tmp_path: Path, missing: Path) -> None:
+    (tmp_path / "worker_mapping.yaml").mkdir()
+    (tmp_path / "plik").write_text("", encoding="utf-8")
 
-    assert (raised.value.reason, raised.value.detail) == ("unreadable", "Nie można odczytać pliku konfiguracji.")
+    with pytest.raises(WorkerConfigError) as raised:
+        load_worker_mapping(tmp_path / missing)
+
+    assert (raised.value.reason, raised.value.detail) == ("missing", "Nie można odczytać pliku konfiguracji.")
+
+
+INACCESSIBLE = ("inaccessible", "Nie można teraz odczytać pliku konfiguracji. Plik może być zajęty przez inny program.")
+
+
+@pytest.mark.parametrize(
+    "error",
+    [PermissionError(errno.EACCES, "Plik jest używany przez inny proces"), OSError(errno.EIO, "Błąd wejścia/wyjścia")],
+    ids=["zajety", "blad-odczytu"],
+)
+def test_plik_konfiguracji_wykonawcow_bez_dostepu_jest_niedostepny(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, error: OSError
+) -> None:
+    config_path = write_config(tmp_path, "schema_version: 1\nworkers:\n  a: Wykonawca Testowy\n")
+
+    def blocked(path: Path, encoding: str) -> str:
+        raise error
+
+    monkeypatch.setattr(Path, "read_text", blocked)
+
+    with pytest.raises(WorkerConfigError) as raised:
+        load_worker_mapping(config_path)
+
+    assert (raised.value.reason, raised.value.detail) == INACCESSIBLE
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="chmod w Windows nie odbiera prawa odczytu")
+def test_plik_konfiguracji_wykonawcow_w_folderze_bez_dostepu_jest_niedostepny(tmp_path: Path) -> None:
+    config_path = write_config(tmp_path, "schema_version: 1\nworkers:\n  a: Wykonawca Testowy\n")
+    tmp_path.chmod(0)
+    try:
+        with pytest.raises(WorkerConfigError) as raised:
+            load_worker_mapping(config_path)
+    finally:
+        tmp_path.chmod(0o755)
+
+    assert (raised.value.reason, raised.value.detail) == INACCESSIBLE
 
 
 @pytest.mark.parametrize("encoding", ["cp1250", "utf-16"], ids=["ansi-notatnik", "powershell-5"])

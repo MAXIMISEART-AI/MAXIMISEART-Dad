@@ -6,15 +6,17 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 import os
 from pathlib import Path
-import sys
 
 from playwright.sync_api import Locator, Page, expect
 
-from drive.common import Run, served_version, version_line
+from drive.common import Run, served_version, unreadable, version_line
 
 TEMPLATE_LABELS = ("Wzorzec rozliczenia wewnętrznego", "Wzorzec pliku zbiorczego", "Wzorzec rozliczenia pracownika")
 REPORT_TO_MAINTAINER = "Przekaż ten komunikat osobie utrzymującej narzędzie."
 INACCESSIBLE_TEMPLATE = "Nie można teraz odczytać wzorca. Plik może być zajęty przez inny program."
+INACCESSIBLE_WORKER_CONFIG = (
+    "Nie można teraz odczytać konfiguracji wykonawców. Plik może być zajęty przez inny program."
+)
 
 
 def _configuration_snapshot(files: dict[str, Path]) -> dict[str, tuple[bytes, int]]:
@@ -23,33 +25,6 @@ def _configuration_snapshot(files: dict[str, Path]) -> dict[str, tuple[bytes, in
     config = next(iter(files.values())).parent
     paths = [*files.values(), *config.glob("~$*")]
     return {path.name: (path.read_bytes(), path.stat().st_mtime_ns) for path in sorted(paths)}
-
-
-@contextmanager
-def _unreadable(path: Path) -> Iterator[None]:
-    """Harness: the system refuses to read ``path`` without changing its bytes, size or modification time; always undone."""
-
-    if sys.platform == "win32":
-        import msvcrt
-
-        # A byte-range lock makes every other read of the file fail, as when another program holds it.
-        print("  harness: the drive locks the Wzorzec's bytes", flush=True)
-        size = path.stat().st_size
-        with path.open("rb") as handle:
-            msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, size)
-            try:
-                yield
-            finally:
-                handle.seek(0)
-                msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, size)
-    else:
-        print("  harness: the Wzorzec has no permissions (chmod 0)", flush=True)
-        mode = path.stat().st_mode
-        path.chmod(0)
-        try:
-            yield
-        finally:
-            path.chmod(mode)
 
 
 @contextmanager
@@ -163,7 +138,7 @@ def drive_configuration(run: Run, page: Page) -> None:
     run.step(feature, "konfiguracja-wzorzec-niedostepny")
     internal = files["internal_template"]
     with _changed(internal):
-        with _unreadable(internal):
+        with unreadable(internal):
             page.reload()
             group = _template_group(page, "Wzorzec rozliczenia wewnętrznego")
             expect(group).to_contain_text("Nie przechodzi sprawdzenia")
@@ -221,6 +196,23 @@ def drive_configuration(run: Run, page: Page) -> None:
     finally:
         worker_config.unlink(missing_ok=True)
         moved.rename(worker_config)
+
+    run.step(feature, "konfiguracja-niedostepna-konfiguracja-wykonawcow")
+    with unreadable(worker_config):
+        page.reload()
+        # The same message as Przebieg rozliczeń's stop on this konfiguracja wykonawców.
+        message = page.get_by_role("alert").filter(has_text=INACCESSIBLE_WORKER_CONFIG)
+        expect(message).to_contain_text(f"plik {worker_config.name}, folder config")
+        expect(message).to_contain_text(REPORT_TO_MAINTAINER)
+        run.check(
+            all(word not in message.inner_text() for word in ("uszkodzon", "niepoprawn")),
+            "a konfiguracja wykonawców without access is niedostępna, never uszkodzona or niepoprawna",
+        )
+        expect(page.get_by_role("list", name="Wykonawcy")).to_have_count(0)
+        workers = run.api("/api/configuration", "konfiguracja-niedostepna-konfiguracja-wykonawcow")["workers"]
+        assert isinstance(workers, dict)
+        run.check(workers["state"] == "unreadable", "the server reports the konfiguracja wykonawców as unreadable")
+        run.capture(page, "14a-konfiguracja-niedostepna-konfiguracja-wykonawcow")
 
     run.step(feature, "konfiguracja-bez-zmian")
     page.reload()
