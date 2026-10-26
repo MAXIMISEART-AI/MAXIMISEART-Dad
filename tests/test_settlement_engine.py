@@ -770,13 +770,14 @@ def test_wzorzec_rozliczenia_pracownika_zepsuty_po_sprawdzaniu_wstrzymuje_publik
     assert [(type(event), event.template_index) for event in failed] == [(WorkerFailed, 1)]
 
 
+@pytest.mark.parametrize("merged", ["A18:B18", "A19:B19"], ids=["pierwszy-wiersz", "drugi-wiersz"])
 def test_wzorzec_rozliczenia_pracownika_ze_scaleniem_w_wierszach_danych_zatrzymuje_zapisywanie(
-    complete_run: tuple[Path, Path, Path, Path],
+    complete_run: tuple[Path, Path, Path, Path], merged: str
 ) -> None:
     source_path, target_directory, config_path, worker_template_path = complete_run
     workbook = load_workbook(worker_template_path)
     try:
-        active_worksheet(workbook).merge_cells("A18:B18")
+        active_worksheet(workbook).merge_cells(merged)
         workbook.save(worker_template_path)
     finally:
         workbook.close()

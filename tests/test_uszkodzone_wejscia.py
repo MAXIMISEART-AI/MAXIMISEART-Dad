@@ -506,11 +506,18 @@ def test_macierz_obejmuje_kazda_operacje_kontraktu_centrum(tmp_path: Path) -> No
     assert (swept | NOT_SWEPT.keys()) - operations == set(), "ENTRIES albo NOT_SWEPT ma operację spoza kontraktu"
 
 
-def test_folder_okresow_bez_odczytu_nazywa_folder_w_kazdym_wejsciu(world_template: Path, tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    ("folder", "named"),
+    [("folder_okresow", "Załączniki"), ("folder_miesiaca", "09_Wrzesien_2026")],
+    ids=["folder-okresow", "folder-miesiaca"],
+)
+def test_folder_okresow_bez_odczytu_nazywa_folder_w_kazdym_wejsciu(
+    world_template: Path, tmp_path: Path, folder: str, named: str
+) -> None:
     world = World(tmp_path / "swiat")
     shutil.copytree(world_template, world.root)
     client = _remembering_choices(world)
-    periods = world.path("folder_okresow")
+    periods = world.path(folder)
     _inaccessible(periods)
     try:
         board = client.get("/api/periods")
@@ -523,9 +530,9 @@ def test_folder_okresow_bez_odczytu_nazywa_folder_w_kazdym_wejsciu(world_templat
         _readable_again(periods)
 
     assert board.status_code == 500
-    assert "folderu Załączniki" in board.json()["message"]
+    assert f"folderu {named}." in board.json()["message"]
     assert preview.status_code == 200
     assert stopped["stop_kind"] == "for_tata"
     assert stopped["stops"][0]["what"].startswith("Nie można teraz odczytać folderu.")
-    assert stopped["stops"][0]["where"].endswith("Załączniki")
+    assert stopped["stops"][0]["where"].endswith(named)
     assert diagnosis["explanation"] == stopped["stops"][0]
