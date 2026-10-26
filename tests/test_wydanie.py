@@ -28,6 +28,8 @@ SUMMARY = "Przygotowanie pliku zbiorczego samo wpisuje ilości usług. Centrum p
 SECRET = "TREŚĆ-SPRAWY-TATY"
 # Chwila każdego commitu w testach; sprawy taty zamyka się przed nią albo po niej.
 COMMITTED = "2026-10-10T10:00:00+00:00"
+QUARANTINE_FILE = "tests/fixtures/kwarantanna.py"
+QUARANTINED = 'KWARANTANNA: dict[str, Kwarantanna] = {"tests/test_x.py::test_niestabilny": Kwarantanna(1, date(2026, 10, 30))}\n'
 FAKE_GH = """\
 import io, json, pathlib, sys, urllib.parse, zipfile
 
@@ -285,7 +287,7 @@ def test_plan_bierze_najnowszy_commit_main_z_zielonym_ci_i_pomija_czerwone_i_nie
 @pytest.mark.parametrize(("quarantine", "state"), [("padł", "kwarantanna czerwona"), ("brak", "bez zapisu kwarantanny")])
 def test_plan_pomija_zielony_commit_na_ktorym_test_z_kwarantanny_padl_albo_nie_ma_zapisu(releasing: Releasing, quarantine: str, state: str) -> None:
     passed = releasing.merge(1, "fix: pierwsza naprawa", {"src/a.py": "a = 1\n"})
-    skipped = releasing.merge(2, "fix: druga", {"src/b.py": "b = 1\n"})
+    skipped = releasing.merge(2, "fix: druga", {"src/b.py": "b = 1\n", QUARANTINE_FILE: QUARANTINED})
     releasing.ci(skipped, "success", quarantine)
 
     planned = releasing.planned()
@@ -294,8 +296,36 @@ def test_plan_pomija_zielony_commit_na_ktorym_test_z_kwarantanny_padl_albo_nie_m
     assert planned["skipped"] == [{"commit": skipped, "ci": state}]
 
 
+@pytest.mark.parametrize(
+    "files",
+    [{}, {QUARANTINE_FILE: "KWARANTANNA: dict[str, Kwarantanna] = {}\n"}],
+    ids=["sprzed kwarantanny", "pusta kwarantanna"],
+)
+def test_commit_bez_wpisow_kwarantanny_jest_do_wydania_bez_jej_zapisu(releasing: Releasing, files: dict[str, str]) -> None:
+    merged = releasing.merge(1, "fix: naprawa", {"src/a.py": "a = 1\n", **files})
+    releasing.ci(merged, "success", "brak")
+
+    assert releasing.planned()["commit"] == merged
+
+
+@pytest.mark.parametrize(
+    "source",
+    ["KWARANTANNA: dict[str, Kwarantanna] = dict(WPISY)\n", "KWARANTANNA = {\n", "WPISY = {}\n"],
+    ids=["nie dosłowny słownik", "błąd składni", "bez słownika"],
+)
+def test_kwarantanna_nie_do_odczytania_bez_wykonania_wymaga_zapisu(releasing: Releasing, source: str) -> None:
+    passed = releasing.merge(1, "fix: pierwsza naprawa", {"src/a.py": "a = 1\n"})
+    skipped = releasing.merge(2, "fix: druga", {QUARANTINE_FILE: source})
+    releasing.ci(skipped, "success", "brak")
+
+    planned = releasing.planned()
+
+    assert planned["commit"] == passed
+    assert planned["skipped"] == [{"commit": skipped, "ci": "bez zapisu kwarantanny"}]
+
+
 def test_wydanie_odmawia_gdy_test_z_kwarantanny_padl_w_ponowionym_runie_commitu(releasing: Releasing) -> None:
-    merged = releasing.merge(1, "feat: ilości usług", {"src/a.py": "a = 1\n"})
+    merged = releasing.merge(1, "feat: ilości usług", {"src/a.py": "a = 1\n", QUARANTINE_FILE: QUARANTINED})
     releasing.planned()
     releasing.ci(merged, "success", "padł")
 

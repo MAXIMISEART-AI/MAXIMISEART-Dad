@@ -15,6 +15,7 @@ plik z atrybutu ``file``, klasy z ``classname`` za modułem tego pliku i nazwa z
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping, Sequence
+import ast
 from dataclasses import asdict, dataclass
 import json
 from pathlib import Path
@@ -23,10 +24,13 @@ from typing import Literal
 from xml.etree import ElementTree
 
 FLAKI = Path(".ci-niestabilne", "flaki.json")
+# Plik ze słownikiem ``KWARANTANNA`` (ścieżka w repozytorium, jak ją podaje ``git show <commit>:<ścieżka>``).
+PLIK_KWARANTANNY = "tests/fixtures/kwarantanna.py"
 KWARANTANNA = Path(".ci-niestabilne", "kwarantanna.json")
-# Id testu, które zgłoszenia przepisują do issue: artefakt runu z forka podaje je bez kontroli.
-ID_TESTU = re.compile(r"tests/[\w/]+\.py(::\w+)+(\[[\w.,:=/+ -]*\])?")
-DLUGOSC_ID = 300
+# Id testu, które bramka ponawia, a zgłoszenia przepisują do issue: plik pod ``tests/`` bez ``..``, nazwy i parametry
+# w jednej linii. Parametry pytest escapuje (``\u017c``), ale mogą mieć nawiasy, cudzysłowy, ``;``, ``@`` i backticki,
+# więc treść issue podaje id tylko w bloku kodu.
+ID_TESTU = re.compile(r"tests/[\w/]+\.py(?:::\w+)+(?:\[.*\])?")
 # Własność junit testu z kwarantanny (``tests/conftest.py``), z powodem kwarantanny jako wartością.
 WLASNOSC = "kwarantanna"
 
@@ -56,19 +60,31 @@ def zapisz_flaki(flaki: Sequence[Flak], plik: Path = FLAKI) -> None:
     plik.write_text(json.dumps([asdict(flak) for flak in flaki], indent=1, ensure_ascii=False), encoding="utf-8")
 
 
-def flaki_z_json(tekst: str) -> list[Flak]:
-    """Flaki z artefaktu; ``ValueError``, gdy kształt albo id testu się nie zgadza (artefakt z forka to dane obce)."""
+def zgloszalny(test: str) -> bool:
+    """Czy id testu da się zgłosić w issue; bramka ponawia tylko takie, więc każde przejście po ponowieniu ma issue."""
+
+    return test.isprintable() and ID_TESTU.fullmatch(test) is not None
+
+
+def flaki_z_json(tekst: str) -> tuple[list[Flak], list[str]]:
+    """Flaki z artefaktu i powód odrzucenia każdego wpisu, którego kształt albo id testu się nie zgadza; ``ValueError``,
+    gdy plik nie jest listą JSON. Zły wpis nie zabiera reszty artefaktu."""
 
     dane = json.loads(tekst)
     if not isinstance(dane, list):
         raise ValueError("flaki to nie lista")
-    flaki = []
+    flaki, odrzucone = [], []
     for wpis in dane:
-        flak = Flak(**wpis)
-        if not isinstance(flak.test, str) or len(flak.test) > DLUGOSC_ID or ID_TESTU.fullmatch(flak.test) is None:
-            raise ValueError(f"id testu poza wzorcem {ID_TESTU.pattern}: {str(flak.test)[:80]!r}")
+        try:
+            flak = Flak(**wpis)
+        except TypeError as blad:
+            odrzucone.append(f"wpis o złym kształcie: {blad}")
+            continue
+        if not isinstance(flak.test, str) or not zgloszalny(flak.test):
+            odrzucone.append(f"id testu poza wzorcem {ID_TESTU.pattern}: {str(flak.test)[:80]!r}")
+            continue
         flaki.append(flak)
-    return flaki
+    return flaki, odrzucone
 
 
 def zapisz_kwarantanne(zapis: ZapisKwarantanny, plik: Path = KWARANTANNA) -> None:
@@ -78,6 +94,27 @@ def zapisz_kwarantanne(zapis: ZapisKwarantanny, plik: Path = KWARANTANNA) -> Non
 
 def kwarantanna_z_json(tekst: str) -> ZapisKwarantanny:
     return ZapisKwarantanny(**json.loads(tekst))
+
+
+def ma_wpisy(zrodlo: str) -> bool:
+    """Czy ``KWARANTANNA`` w źródle ``PLIK_KWARANTANNY`` ma wpis, odczytane bez wykonania kodu. Słownik, którego nie
+    da się odczytać jako dosłownego ``{...}``, liczy się jak słownik z wpisami."""
+
+    try:
+        modul = ast.parse(zrodlo)
+    except SyntaxError:
+        return True
+    for instrukcja in modul.body:
+        cele: list[ast.expr]
+        if isinstance(instrukcja, ast.AnnAssign):
+            cele, wartosc = [instrukcja.target], instrukcja.value
+        elif isinstance(instrukcja, ast.Assign):
+            cele, wartosc = instrukcja.targets, instrukcja.value
+        else:
+            continue
+        if any(isinstance(cel, ast.Name) and cel.id == "KWARANTANNA" for cel in cele):
+            return not (isinstance(wartosc, ast.Dict) and not wartosc.keys)
+    return True
 
 
 def stan_kwarantanny(zapisy: Iterable[ZapisKwarantanny]) -> StanKwarantanny:

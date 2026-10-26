@@ -3,7 +3,8 @@
 ``plan`` pobiera `main` i tagi Wydań tak jak Aktualizacja narzędzia (``tool_update.fetch_main_line``) i zapisuje
 plan Wydania w pliku JSON: najnowszy commit z linii pierwszych rodziców `main` z zielonym ``Required CI status``
 i z testami z kwarantanny, które w jego runie przeszły (czerwone, niezakończone, bez CI i z testem z kwarantanny,
-który padł albo nie ma zapisu przejścia, pomija; ADR 0020), poprzednie Wydanie wybrane jak w Centrum, scalone PR-y od niego, sprawy
+który padł albo nie ma zapisu przejścia, pomija; ADR 0020; commit z pustą ``KWARANTANNA`` albo bez jej pliku
+zapisu nie potrzebuje), poprzednie Wydanie wybrane jak w Centrum, scalone PR-y od niego, sprawy
 taty zamknięte jako rozwiązane w Skrzynce Zgłoszeń od jego publikacji (numer i tytuł, nigdy treść) i proponowany
 numer. Niczego nie tworzy.
 
@@ -223,11 +224,12 @@ def _git(root: Path, *arguments: str) -> str:
     return subprocess.run(["git", *arguments], cwd=root, capture_output=True, text=True, encoding="utf-8", check=True).stdout
 
 
-def ci_state(commit: str) -> CiState:
+def ci_state(root: Path, commit: str) -> CiState:
     """Stan ``Required CI status`` commitu na GitHubie, a przy zielonym stan testów z kwarantanny z jego runu.
 
-    Test w kwarantannie nie czerwieni Required (ADR 0020), więc zielony commit jest do wydania dopiero wtedy, gdy
-    artefakty ``kwarantanna-*`` runu mówią, że każdy test z kwarantanny przeszedł.
+    Test w kwarantannie nie czerwieni Required (ADR 0020), więc zielony commit, którego ``KWARANTANNA`` ma wpisy, jest
+    do wydania dopiero wtedy, gdy artefakty ``kwarantanna-*`` runu mówią, że każdy test z kwarantanny przeszedł.
+    Commit bez wpisów (także sprzed kwarantanny, bez jej pliku) zapisu nie potrzebuje: jego Required pokazał każdy test.
     """
 
     check = urllib.parse.quote(REQUIRED_CI)
@@ -239,8 +241,24 @@ def ci_state(commit: str) -> CiState:
         return "w toku"
     if not all(run.conclusion == "success" for run in runs):
         return "czerwone"
+    if not _has_quarantine(root, commit):
+        return "zielone"
     ids = {found["run"] for run in runs if run.details_url and (found := _RUN.search(run.details_url))}
     return _QUARANTINE[niestabilne_testy.stan_kwarantanny(record for run_id in sorted(ids) for record in _quarantine_records(run_id))]
+
+
+def _has_quarantine(root: Path, commit: str) -> bool:
+    """Czy ``KWARANTANNA`` w drzewie commitu ma wpisy; plik czyta z Gita, bez checkoutu."""
+
+    listed = potomne.run(["git", "ls-tree", "--name-only", commit, "--", niestabilne_testy.PLIK_KWARANTANNY], cwd=root, timeout=60)
+    if listed.returncode != 0:
+        raise Refused(f"git ls-tree {commit}: {listed.stderr.strip()}")
+    if not listed.stdout.strip():
+        return False
+    shown = potomne.run(["git", "show", f"{commit}:{niestabilne_testy.PLIK_KWARANTANNY}"], cwd=root, timeout=60)
+    if shown.returncode != 0:
+        raise Refused(f"git show {commit}: {shown.stderr.strip()}")
+    return niestabilne_testy.ma_wpisy(shown.stdout)
 
 
 def _quarantine_records(run_id: str) -> list[niestabilne_testy.ZapisKwarantanny]:
@@ -273,7 +291,7 @@ def plan(root: Path) -> ReleasePlan:
     for commit in line.tips:
         if commit == newest.commit:
             raise Refused(f"Nic do wydania: od poprzedniego Wydania żaden commit main nie ma zielonego CI ({len(skipped)} pominiętych).")
-        state = ci_state(commit)
+        state = ci_state(root, commit)
         if state == "zielone":
             break
         skipped.append(SkippedCommit(commit, state))
@@ -313,7 +331,7 @@ def publish(root: Path, chosen: ReleasePlan, summary: str, override: str | None,
     line = _fetch(root)
     # Tag już na tym commicie w origin: Wydanie jest u taty, zostaje tylko dokończyć Release.
     if line.releases.get(release.tag) != chosen.commit:
-        _check_still_releasable(line, chosen.commit, release)
+        _check_still_releasable(root, line, chosen.commit, release)
         _tag_and_push(root, release, chosen.commit)
     found = _gh_found(_RELEASE, f"repos/{REPOSITORY}/releases/tags/{release.tag}")
     if found is None:
@@ -334,10 +352,10 @@ def _highest(tags: Iterable[str]) -> Release | None:
     return max((release for tag in tags if (release := Release.of_tag(tag)) is not None), default=None)
 
 
-def _check_still_releasable(line: MainLine, commit: str, release: Release) -> None:
+def _check_still_releasable(root: Path, line: MainLine, commit: str, release: Release) -> None:
     if commit not in line.tips:
         raise Refused(f"Commit {commit} nie leży na linii pierwszych rodziców main w {ORIGIN}.")
-    state = ci_state(commit)
+    state = ci_state(root, commit)
     if state != "zielone":
         raise Refused(f"CI commitu {commit} nie jest już zielone ({state}).")
     tagged = line.releases.get(release.tag)

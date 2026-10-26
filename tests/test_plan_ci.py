@@ -355,7 +355,7 @@ def test_bramka_ponawia_raz_test_ktory_padl_a_przejscie_po_ponowieniu_to_flak_a_
     assert result == code
     assert [(unit.klucz, unit.status) for unit in records] == [("pytest:tests/test_flak.py", "ok" if code == 0 else "fail")]
     found = niestabilne_testy.FLAKI
-    assert (None if not found.exists() else [(flak.test, flak.run, flak.zadanie) for flak in niestabilne_testy.flaki_z_json(found.read_text(encoding="utf-8"))]) == (
+    assert (None if not found.exists() else [(flak.test, flak.run, flak.zadanie) for flak in niestabilne_testy.flaki_z_json(found.read_text(encoding="utf-8"))[0]]) == (
         None if flaky is None else [(test, 40380584486, job.nazwa) for test in flaky]
     )
 
@@ -410,12 +410,37 @@ def test_testy_z_kwarantanny_przeszly_gdy_w_ostatniej_probie_kazdego_zadania_nie
     assert niestabilne_testy.stan_kwarantanny(zapisy) == stan
 
 
-def test_bramka_nie_ponawia_wiecej_porazek_niz_flak(mini_repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
-    monkeypatch.setattr(plan_ci, "PONOWIENIE_NAJWIECEJ", 2)
-    job = plan_ci.Zadanie("linux-3.14-1", "linux-3.14", "pytest (Python 3.14, Linux, 1/1)", ("pytest:tests/test_mini.py",), 1.0)
+def _padajace_raz(liczba: int) -> str:
+    return "import pathlib\n" + "".join(
+        f"\n\ndef test_pada_raz_{numer}() -> None:\n"
+        f"    marker = pathlib.Path('padl-raz-{numer}')\n"
+        "    if not marker.exists():\n        marker.touch()\n        raise AssertionError('pierwszy raz')\n"
+        for numer in range(liczba)
+    )
+
+
+@pytest.mark.parametrize(("padniete", "code"), [(5, 0), (6, 1)])
+def test_bramka_ponawia_najwyzej_piec_testow_bo_wiecej_porazek_to_nie_flak(
+    mini_repo: Path, capsys: pytest.CaptureFixture[str], padniete: int, code: int
+) -> None:
+    (mini_repo / "tests" / "test_flak.py").write_text(_padajace_raz(padniete), encoding="utf-8")
+    job = plan_ci.Zadanie("linux-3.14-1", "linux-3.14", "pytest (Python 3.14, Linux, 1/1)", ("pytest:tests/test_flak.py",), 1.0)
+
+    assert plan_ci.wykonaj(plan_ci.Plan("pull_request", plan_ci.CEL_S, (), 0, (job,)), job.id) == code
+    flaki = [] if code else niestabilne_testy.flaki_z_json(niestabilne_testy.FLAKI.read_text(encoding="utf-8"))[0]
+    assert [flak.test for flak in flaki] == ([] if code else [f"tests/test_flak.py::test_pada_raz_{numer}" for numer in range(5)])
+    assert ("PONOWIENIE | bez ponowienia: padło 6 testów, a flak to najwyżej 5" in capsys.readouterr().out) == bool(code)
+    assert niestabilne_testy.FLAKI.exists() == (not code)
+
+
+def test_bramka_nie_ponawia_testu_ktorego_id_nie_da_sie_zglosic_wiec_zostaje_czerwona(mini_repo: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    (mini_repo / "tests" / "z-myslnikiem").mkdir()
+    (mini_repo / "tests" / "z-myslnikiem" / "test_flak.py").write_text(_padajace_raz(1), encoding="utf-8")
+    unit = "pytest:tests/z-myslnikiem/test_flak.py"
+    job = plan_ci.Zadanie("linux-3.14-1", "linux-3.14", "pytest (Python 3.14, Linux, 1/1)", (unit,), 1.0)
 
     assert plan_ci.wykonaj(plan_ci.Plan("pull_request", plan_ci.CEL_S, (), 0, (job,)), job.id) == 1
-    assert "PONOWIENIE | bez ponowienia: padło 3 testów, a flak to najwyżej 2" in capsys.readouterr().out
+    assert "PONOWIENIE | bez ponowienia: id testu, którego nie da się zgłosić w issue: tests/z-myslnikiem/test_flak.py::test_pada_raz_0" in capsys.readouterr().out
     assert not niestabilne_testy.FLAKI.exists()
 
 

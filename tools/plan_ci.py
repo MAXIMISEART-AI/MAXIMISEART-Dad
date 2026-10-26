@@ -30,7 +30,7 @@ postaci, i dopiero po zielonym ``Required CI status``, którego nie blokują: pl
 ``tools/mutacje_zmiany.py`` (``selected``), bez testów i bez instalacji.
 
 Na pull request zadanie po porażce pytest uruchamia raz same testy, które padły (``niestabilne_testy``, najwyżej
-``PONOWIENIE_NAJWIECEJ``; więcej porażek to nie flak). Gdy wszystkie przejdą, pytest przechodzi, a każdy z nich trafia do
+``PONOWIENIE_NAJWIECEJ``; więcej porażek to nie flak), jeśli id każdego da się zgłosić w issue. Gdy wszystkie przejdą, pytest przechodzi, a każdy z nich trafia do
 zapisu flaków; druga porażka to porażka. Każde zadanie z pytest zapisuje też wynik swoich testów z kwarantanny.
 
 Plan ma ``digest``: zadanie wykonuje tylko plan, którego treść się z nim zgadza, i zapisuje go w swoim zapisie czasów,
@@ -538,6 +538,8 @@ def _krok_pytest(plan: Plan, zadanie: Zadanie, pliki: Mapping[str, list[tuple[in
     if status != "ok" and plan.zdarzenie == "pull_request" and (testy := niestabilne_testy.padniete(JUNIT)):
         if len(testy) > PONOWIENIE_NAJWIECEJ:
             print(f"PONOWIENIE | bez ponowienia: padło {len(testy)} testów, a flak to najwyżej {PONOWIENIE_NAJWIECEJ}", flush=True)
+        elif obce := [test for test in testy if not niestabilne_testy.zgloszalny(test)]:
+            print(f"PONOWIENIE | bez ponowienia: id testu, którego nie da się zgłosić w issue: {', '.join(obce)}", flush=True)
         elif _ponow(zadanie, testy):
             status = "ok"
     sha, proba = os.environ.get("GITHUB_SHA", ""), int(os.environ.get("GITHUB_RUN_ATTEMPT", "0"))
