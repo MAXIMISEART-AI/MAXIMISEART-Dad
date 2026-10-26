@@ -8,10 +8,12 @@ import tempfile
 import xml.etree.ElementTree as ET
 import zipfile
 from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Alignment, Border, Font
+from openpyxl.worksheet.views import SheetView
 from openpyxl.worksheet.worksheet import Worksheet
 
 # Resztki formatowania w Wierszach danych Wzorców taty (wiersze 18–31 i od 32 w dół): inny krój, zawijanie,
@@ -26,6 +28,49 @@ def active_worksheet(workbook: Workbook) -> Worksheet:
     sheet = workbook.active
     assert isinstance(sheet, Worksheet)
     return sheet
+
+
+@dataclass(frozen=True)
+class View:
+    """Widok arkusza po otwarciu w Excelu: górna lewa komórka, zaznaczona komórka i powiększenie w procentach."""
+
+    top_left_cell: str
+    selected_cell: str
+    zoom: int
+
+
+TEMPLATE_VIEW = View("A1", "A1", 75)
+"""Widok Wzorców taty od #465 i syntetycznych Wzorców: lewy górny róg arkusza w powiększeniu 75%."""
+
+
+def set_view(sheet: Worksheet, view: View) -> None:
+    """Ustawia widok arkusza Wzorca; blokada wierszy (``freeze_panes``) zostaje."""
+
+    sheet_view = sheet.sheet_view
+    sheet_view.topLeftCell = view.top_left_cell
+    sheet_view.zoomScale = sheet_view.zoomScaleNormal = view.zoom
+    for selection in sheet_view.selection:
+        selection.activeCell = selection.sqref = view.selected_cell
+
+
+def opening_view(path: Path) -> SheetView:
+    """Cały widok aktywnego arkusza, z którym Excel otwiera plik: górna lewa komórka, blokada, zaznaczenie i
+    powiększenie."""
+
+    workbook = load_workbook(path)
+    try:
+        return active_worksheet(workbook).sheet_view
+    finally:
+        workbook.close()
+
+
+def view_of(sheet_view: SheetView) -> View:
+    """Górna lewa komórka, zaznaczona komórka aktywnego okienka i powiększenie widoku (bez zapisanego: 100%, jak w
+    Excelu)."""
+
+    active_pane = None if sheet_view.pane is None else sheet_view.pane.activePane
+    (selection,) = [selection for selection in sheet_view.selection if selection.pane == active_pane]
+    return View(sheet_view.topLeftCell or "A1", selection.activeCell, sheet_view.zoomScale or 100)
 
 
 def leave_data_row_leftovers(path: Path, *, first_row: int, rows: int, columns: int) -> None:

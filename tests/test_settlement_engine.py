@@ -37,14 +37,20 @@ from rozliczenia.workbook_files import read_data_rows
 from tests.fixtures.benchmark import WORKER_TEMPLATE, write_synthetic_templates
 from tests.fixtures.porownanie import compare_worker_settlements
 from tests.fixtures.workbooks import (
+    TEMPLATE_VIEW,
+    View,
     active_worksheet,
     add_external_link_fixture,
     column_widths,
     cut_sheet_after_data_rows,
     hyperlinks,
+    marked_for_copy,
+    opening_view,
     refused_by_copy,
     rewrite_parts,
+    view_of,
     without_sheet,
+    written_by_copy,
 )
 from tests.fixtures.settlement import (
     NOT_A_PERIOD,
@@ -55,6 +61,7 @@ from tests.fixtures.settlement import (
     make_fixture,
     projected,
     write_source,
+    write_template,
 )
 
 
@@ -358,6 +365,36 @@ def test_kazde_rozliczenie_pracownika_takze_puste_ma_szerokosci_kolumn_wzorca_ro
             assert column_widths(active_worksheet(workbook), 47) == expected, path.name
         finally:
             workbook.close()
+
+
+# Widok Wzorca przewinięty w bok i powiększony inaczej niż Wzorce taty: Rozliczenie bierze widok ze swojego Wzorca.
+SCROLLED_VIEW = View("C1", "D30", 60)
+
+
+@pytest.mark.parametrize("view", [TEMPLATE_VIEW, SCROLLED_VIEW], ids=["lewy-gorny-rog-75", "przewiniety"])
+@pytest.mark.parametrize("copied", [True, False], ids=["kopia", "openpyxl"])
+def test_kazde_rozliczenie_pracownika_takze_puste_otwiera_sie_z_widokiem_wzorca_rozliczenia_pracownika(
+    tmp_path: Path, copied: bool, view: View
+) -> None:
+    source_path, target_directory, config_path, worker_template_path = make_complete_run_fixture(tmp_path)
+    write_template(worker_template_path, view=view)
+    marked_for_copy(worker_template_path)
+    if not copied:
+        refused_by_copy(worker_template_path)
+    expected = opening_view(worker_template_path)
+
+    summary = run_settlements(source_path, config_path, worker_template_path=worker_template_path)
+
+    assert summary.empty_count == 1
+    assert view_of(expected) == view
+    published = sorted(target_directory.glob("*.xlsx"))
+    assert len(published) == 3
+    assert {path.name: written_by_copy(path) for path in published} == dict.fromkeys(
+        (path.name for path in published), copied
+    )
+    assert {path.name: opening_view(path) for path in published} == dict.fromkeys(
+        (path.name for path in published), expected
+    )
 
 
 def with_unmapped_worker(source_path: Path) -> None:

@@ -22,7 +22,7 @@ from tests.fixtures.benchmark import (
     zip_part,
     zip_part_names,
 )
-from tests.fixtures.workbooks import active_worksheet
+from tests.fixtures.workbooks import TEMPLATE_VIEW, active_worksheet, opening_view, view_of
 
 LAST_ROW = 17 + SMALL_DATA_ROWS
 # Wzorzec taty: AU:AY w każdym Wierszu danych oraz wspólne formuły N:AP i SUBTOTAL w wierszach 13 i 15.
@@ -141,6 +141,18 @@ def test_syntetyczny_wzorzec_rozliczenia_wewnetrznego_ma_naglowki_w_wierszu_1(tm
         assert {value for row in sheet.iter_rows(min_row=2, values_only=True) for value in row} == {None}
     finally:
         workbook.close()
+
+
+def test_syntetyczne_wzorce_otwieraja_sie_w_lewym_gornym_rogu_w_75_procentach(tmp_path: Path) -> None:
+    templates = write_synthetic_templates(tmp_path / "wzorce")
+
+    views = {name: opening_view(templates / name) for name in (WORKER_TEMPLATE, COLLECTIVE_TEMPLATE, INTERNAL_TEMPLATE)}
+
+    assert {name: view_of(view) for name, view in views.items()} == dict.fromkeys(views, TEMPLATE_VIEW)
+    assert {view.zoomScaleNormal for view in views.values()} == {TEMPLATE_VIEW.zoom}
+    # Blokada nagłówka Rozliczenia wewnętrznego zostaje, a przewijana część zaczyna się tuż pod nim.
+    pane = views[INTERNAL_TEMPLATE].pane
+    assert pane is not None and (pane.state, pane.topLeftCell) == ("frozen", "A2")
 
 
 def test_syntetyczne_wzorce_maja_konfiguracje_dwudziestu_wykonawcow(tmp_path: Path) -> None:

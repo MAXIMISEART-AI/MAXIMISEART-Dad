@@ -1,5 +1,5 @@
 import * as React from "react"
-import { EyeIcon, FileSpreadsheetIcon, FolderIcon, InfoIcon, TriangleAlertIcon, UsersIcon } from "lucide-react"
+import { EyeIcon, FileSpreadsheetIcon, FolderIcon, InfoIcon, ListOrderedIcon, TriangleAlertIcon, UsersIcon } from "lucide-react"
 
 import type { PathSetting, PeriodChoice, Process, ProcessSetup } from "@/api/centrum"
 import { Alert, AlertTitle } from "@/components/ui/alert"
@@ -50,6 +50,7 @@ function PeriodLabel({ choice }: { choice: PeriodChoice }) {
 const PROCESS_ICONS: Record<Process, React.ReactNode> = {
   preparation: <FileSpreadsheetIcon aria-hidden />,
   settlement: <UsersIcon aria-hidden />,
+  intermax: <ListOrderedIcon aria-hidden />,
 }
 
 /**

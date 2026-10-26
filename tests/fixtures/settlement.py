@@ -17,7 +17,7 @@ from openpyxl.utils import get_column_letter
 
 from rozliczenia.domain import ProgressEvent, ProgressObserver
 from rozliczenia.progress import ProgressProjection
-from tests.fixtures.workbooks import active_worksheet
+from tests.fixtures.workbooks import TEMPLATE_VIEW, View, active_worksheet, set_view
 
 PERIOD = "08_14_09_2026"
 
@@ -66,10 +66,11 @@ WORKER_TEMPLATE_COLUMN_WIDTHS: dict[int, float] = {
 }
 
 
-def write_template(path: Path) -> None:
+def write_template(path: Path, *, view: View = TEMPLATE_VIEW) -> None:
     workbook = Workbook()
     sheet = active_worksheet(workbook)
     sheet.title = "Sheet1"
+    set_view(sheet, view)
     for column, width in WORKER_TEMPLATE_COLUMN_WIDTHS.items():
         sheet.column_dimensions[get_column_letter(column)].width = width
     sheet.cell(17, 8).value = "WYKONAWCA"

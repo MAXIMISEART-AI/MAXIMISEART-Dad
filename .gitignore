@@ -20,3 +20,7 @@ config/*
 !config/worker_mapping.example.yaml
 node_modules/
 .benchmark/
+
+# Kopie INTERMAX i metryki Uporządkowania INTERMAX na komputerze taty.
+Kopie INTERMAX/
+.uporzadkowanie-intermax-metrics.jsonl
