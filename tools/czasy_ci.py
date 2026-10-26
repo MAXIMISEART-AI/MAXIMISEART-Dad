@@ -10,7 +10,8 @@ Zapis zadania. Zadania ``pytest`` i ``mutations`` kończą się poleceniem ``zad
 Tor to system runnera i jego Python (``windows-3.11``, ``windows-3.14``, ``linux-3.14``). Klucz jednostki nie zależy od
 podziału na zadania, więc para tor i klucz wskazuje tę samą pracę w każdym runie:
 
-    pytest:<plik testów>     suma setup + call + teardown testów pliku (junit pytest, ``junit_family = "xunit1"`` w pyproject.toml)
+    pytest:<plik testów>     suma czasów testów pliku, każdy setup + call + teardown (junit pytest, ``junit_family = "xunit1"``
+                             w pyproject.toml); to nie ściana pliku, bo workery xdist biegną równolegle
     krok:pytest              ściana kroku pytest zadania; ``krok:mutacje`` to ściana kroku Mutation checks
     krok:e2e                 krok E2E (verify-rozliczenia --variant all)
     krok:timing              trzy kroki straży czasu razem
@@ -20,6 +21,8 @@ podziału na zadania, więc para tor i klucz wskazuje tę samą pracę w każdym
 Status jednostki to ``ok`` albo ``fail``; pominięty krok i pominięty skrypt nie są jednostką. Czasy kroków i start zadania
 podaje API zadań runu (``$GITHUB_API_URL/repos/<repo>/actions/runs/<run>/attempts/<próba>/jobs``, token z ``GH_TOKEN``,
 z dokładnością do sekundy), w którym zadanie znajduje się po nazwie swojego runnera. Narzut to sekundy od startu zadania do startu pierwszego kroku jednostki.
+Krok jednostki, który właśnie się skończył, API pokazuje przez chwilę bez wyniku (``conclusion: null``), więc zadanie
+czyta API ponownie, do 5 odczytów co sekundę; krok wciąż bez wyniku to błąd, a nie krok pominięty.
 
 Scalenie. Na pushu do main ``Required CI status`` pobiera zapisy runu i poleceniem ``scal`` tworzy ``czasy-ci.json``
 (artefakt ``czasy-ci``, 30 dni), jedyne źródło czasów CI:
@@ -47,11 +50,16 @@ import json
 import os
 from pathlib import Path
 import re
-from typing import Literal
+import time
+from typing import Any, Literal
 import urllib.request
 from xml.etree import ElementTree
 
 WERSJA = 1
+# Krok zadania, który właśnie się skończył, API pokazuje przez około sekundę bez wyniku (conclusion: null).
+ODCZYTY_API = 5
+CZEKANIE_API_S = 1.0
+LIMIT_API_S = 20.0
 Status = Literal["ok", "fail"]
 # Kroki ci.yml, których czas jest jednostką; czasy kroków jednego klucza się sumują.
 KROKI = {
@@ -108,11 +116,11 @@ def _junit(plik: Path) -> list[Jednostka]:
     sekundy: dict[str, float] = defaultdict(float)
     porazki = set()
     for test in korzen.iter("testcase"):
-        nazwa = test.get("file")
-        if nazwa is None:
-            raise ValueError(f"test {test.get('name')} bez atrybutu file (pytest bez junit_family = xunit1)")
+        nazwa, czas = test.get("file"), test.get("time")
+        if nazwa is None or czas is None:
+            raise ValueError(f"test {test.get('name')} bez atrybutu file albo time (pytest bez junit_family = xunit1)")
         nazwa = nazwa.replace("\\", "/")
-        sekundy[nazwa] += float(test.get("time", "0"))
+        sekundy[nazwa] += float(czas)
         if test.find("failure") is not None or test.find("error") is not None:
             porazki.add(nazwa)
     if not sekundy:
@@ -133,23 +141,34 @@ def _mutacje(plik: Path) -> list[Jednostka]:
 
 
 def _chwila(tekst: str) -> float:
-    return datetime.fromisoformat(tekst.replace("Z", "+00:00")).timestamp()
+    return datetime.fromisoformat(tekst).timestamp()
 
 
-def _kroki(runner: str) -> tuple[str, float | None, list[Jednostka]]:
-    """Nazwa zadania, narzut i jednostki-kroki zadania na runnerze ``runner`` z API zadań tej próby runu."""
-
+def _zadanie_z_api(runner: str) -> dict[str, Any]:
     adres = (
         f"{os.environ['GITHUB_API_URL']}/repos/{os.environ['GITHUB_REPOSITORY']}/actions/runs/{os.environ['GITHUB_RUN_ID']}"
         f"/attempts/{os.environ['GITHUB_RUN_ATTEMPT']}/jobs?per_page=100"
     )
     prosba = urllib.request.Request(adres, headers={"Authorization": f"Bearer {os.environ['GH_TOKEN']}"})
-    with urllib.request.urlopen(prosba, timeout=20) as odpowiedz:
+    with urllib.request.urlopen(prosba, timeout=LIMIT_API_S) as odpowiedz:
         dane = json.load(odpowiedz)
-    zadania = [zadanie for zadanie in dane["jobs"] if zadanie["runner_name"] == runner]
+    zadania: list[dict[str, Any]] = [zadanie for zadanie in dane["jobs"] if zadanie["runner_name"] == runner]
     if len(zadania) != 1:
         raise ValueError(f"{len(zadania)} zadań na runnerze {runner!r} zamiast jednego")
-    zadanie = zadania[0]
+    return zadania[0]
+
+
+def _kroki(runner: str) -> tuple[str, float | None, list[Jednostka]]:
+    """Nazwa zadania, narzut i jednostki-kroki zadania na runnerze ``runner`` z API zadań tej próby runu."""
+
+    for odczyt in range(ODCZYTY_API):
+        zadanie = _zadanie_z_api(runner)
+        bez_wyniku = [krok["name"] for krok in zadanie["steps"] if krok["name"] in KROKI and krok["conclusion"] is None]
+        if not bez_wyniku:
+            break
+        if odczyt == ODCZYTY_API - 1:
+            raise ValueError(f"kroki {bez_wyniku} bez wyniku w API po {ODCZYTY_API} odczytach")
+        time.sleep(CZEKANIE_API_S)
     sekundy: dict[str, float] = defaultdict(float)
     porazki = set()
     pierwszy = None
@@ -213,7 +232,7 @@ def _scal(args: argparse.Namespace) -> int:
     bledy = []
     tory: dict[str, dict[str, list[dict[str, object]]]] = defaultdict(lambda: defaultdict(list))
     runy = set()
-    pliki = sorted(args.katalog.rglob("*.json"))
+    pliki = list(args.katalog.rglob("*.json"))
     for plik in pliki:
         try:
             zapis = _wczytaj(plik)
