@@ -11,7 +11,7 @@ from typing import Any
 
 import pytest
 
-from rozliczenia.centrum.notifications import CHECK_WAIT_S
+from rozliczenia.centrum.notifications import CHECK_WAIT_S, NOTIFICATIONS_FILE
 from rozliczenia.centrum.outbox import RETRY_S
 from rozliczenia.centrum.release_notes import DadCase, ReleaseNotes, render
 from rozliczenia.centrum.dad_cases import DAD_CASES_FILE, NOTE, REPORT
@@ -21,6 +21,7 @@ from rozliczenia.centrum.tool_update import Release
 
 from tests.fixtures.centrum import TOOL_COMMIT, case_states, centrum as plain_centrum
 from tests.fixtures.centrum_processes import PreparingCentrum, preparing_centrum, stopped_for_maks
+from tests.fixtures.locked_file import lock_file
 from tests.fixtures.potomne import wait_for
 
 KEY = "github_pat_SYNTETYCZNY_KLUCZ_ZGLOSZEN"
@@ -165,6 +166,74 @@ def test_przeczytane_sa_tylko_powiadomienia_ktore_tata_zobaczyl(tmp_path: Path) 
     assert read(centrum, [item["id"] for item in seen["items"]])["unread"] == 1
 
 
+def unavailable(where: str) -> dict[str, str]:
+    """Komunikat Powiadomień o pliku stanu, którego Centrum nie może zapisać."""
+
+    return {
+        "what": "Centrum nie może teraz zapisać Powiadomień na tym komputerze, bo plik jest niedostępny.",
+        "where": f"plik {where} w folderze config",
+        "action": "Nie zamykaj Centrum: pamięta zmiany i zapisze je samo. Zamknij program, który może trzymać ten "
+        "plik, i otwórz Powiadomienia ponownie. Jeśli Komunikat zostaje, wyślij Uwagę do Maksa.",
+    }
+
+
+def test_niedostepny_plik_spraw_taty_daje_komunikat_a_po_zwolnieniu_odczyt_zapisuje_numer(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    centrum = preparing_centrum(tmp_path)
+    with_key(centrum)
+    locked = lock_file(monkeypatch, DAD_CASES_FILE)
+    assert sent_note(centrum) == {"state": "sent"}
+
+    blocked = notifications(centrum)
+    locked.release()
+    released = notifications(centrum)
+    centrum.restart()
+
+    assert blocked["message"] == unavailable(DAD_CASES_FILE)
+    assert released["message"] is None
+    assert rows(centrum) == [("uwaga", NOTE_TITLE, "wyslana", False)]
+
+
+@pytest.mark.parametrize("again", ["odczyt", "oznaczenie"])
+def test_niedostepny_plik_przeczytanych_daje_komunikat_a_po_zwolnieniu_zapisuje_je_odczyt_albo_oznaczenie(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, again: str
+) -> None:
+    centrum = preparing_centrum(tmp_path)
+    with_key(centrum)
+    sent_note(centrum)
+    centrum.surroundings.report_box.close(number_of(centrum, NOTE_TITLE))
+    ids = [item["id"] for item in notifications(centrum)["items"]]
+    locked = lock_file(monkeypatch, NOTIFICATIONS_FILE)
+
+    blocked = read(centrum, ids)
+    locked.release()
+    released = notifications(centrum) if again == "odczyt" else read(centrum, ids)
+    centrum.restart()
+
+    assert (blocked["unread"], blocked["message"]) == (0, unavailable(NOTIFICATIONS_FILE))
+    assert released["message"] is None
+    assert notifications(centrum)["unread"] == 0
+
+
+def test_oba_niedostepne_pliki_stanu_sa_w_jednym_komunikacie(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    centrum = preparing_centrum(tmp_path)
+    with_key(centrum)
+    sent_note(centrum)
+    centrum.surroundings.report_box.close(number_of(centrum, NOTE_TITLE))
+    lock_file(monkeypatch, DAD_CASES_FILE)
+    lock_file(monkeypatch, NOTIFICATIONS_FILE)
+
+    answer = read(centrum, [item["id"] for item in notifications(centrum)["items"]])
+
+    assert answer["message"] == {
+        "what": "Centrum nie może teraz zapisać Powiadomień na tym komputerze, bo pliki są niedostępne.",
+        "where": f"pliki {DAD_CASES_FILE} i {NOTIFICATIONS_FILE} w folderze config",
+        "action": "Nie zamykaj Centrum: pamięta zmiany i zapisze je samo. Zamknij program, który może trzymać te "
+        "pliki, i otwórz Powiadomienia ponownie. Jeśli Komunikat zostaje, wyślij Uwagę do Maksa.",
+    }
+
+
 def test_skrzynka_jest_pytana_przy_starcie_i_najwyzej_raz_na_10_minut(tmp_path: Path) -> None:
     centrum = preparing_centrum(tmp_path)
     with_key(centrum)
@@ -230,7 +299,7 @@ def test_bez_wyslanych_spraw_albo_klucza_skrzynka_nie_jest_pytana(tmp_path: Path
     with_key(centrum)
     box = centrum.surroundings.report_box
 
-    assert notifications(centrum) == {"unread": 0, "items": []}
+    assert notifications(centrum) == {"unread": 0, "items": [], "message": None}
     assert box.listed == []
 
     sent_report(centrum)
