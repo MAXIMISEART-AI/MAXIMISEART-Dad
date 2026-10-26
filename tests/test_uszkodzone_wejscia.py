@@ -278,10 +278,11 @@ def _build(root: Path) -> None:
         started = client.post("/api/runs", json={"process": process, "period": period, "dry_run": True})
         assert started.status_code == 200, started.json()
         assert finished_view(client)["result"]["ending"] == "finished"
-    # Wiersze Rejestru zleceń świata nie mają wyglądu INTERMAX, więc Uporządkowanie INTERMAX porządkuje je jako dzień;
-    # w kopiach świata Surowych zleceń już nie ma.
+    # Wiersze Rejestru zleceń świata to zlecenia kilku dni bez wyglądu INTERMAX, więc Uporządkowanie INTERMAX zatrzymuje
+    # się dla taty bez zapisu; jego Logi i metryki powstają jak po każdym Uruchomieniu.
     assert client.post("/api/intermax/run").status_code == 200
-    assert finished_view(client)["result"]["ending"] == "finished"
+    ordering = finished_view(client)["result"]
+    assert (ordering["ending"], ordering["stop_kind"]) == ("stop", "for_tata"), ordering["stops"]
     remembered = world.path("uruchomienia_centrum").read_text(encoding="utf-8").splitlines()
     world.path("adresy_skrzynki").write_text(
         "".join(
