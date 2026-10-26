@@ -2802,7 +2802,8 @@
             "type": "string",
             "enum": [
               "preparation",
-              "settlement"
+              "settlement",
+              "intermax"
             ],
             "title": "Process"
           },
@@ -3358,7 +3359,8 @@
             "type": "string",
             "enum": [
               "preparation",
-              "settlement"
+              "settlement",
+              "intermax"
             ],
             "title": "Process"
           },
@@ -3462,7 +3464,8 @@
             "type": "string",
             "enum": [
               "preparation",
-              "settlement"
+              "settlement",
+              "intermax"
             ],
             "title": "Process"
           },
@@ -4173,7 +4176,8 @@
             "type": "string",
             "enum": [
               "preparation",
-              "settlement"
+              "settlement",
+              "intermax"
             ],
             "title": "Process"
           },
@@ -4419,7 +4423,8 @@
             "type": "string",
             "enum": [
               "preparation",
-              "settlement"
+              "settlement",
+              "intermax"
             ],
             "title": "Process"
           },

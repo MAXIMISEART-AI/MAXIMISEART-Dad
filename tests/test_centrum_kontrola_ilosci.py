@@ -46,6 +46,8 @@ TATA_ROWS: list[dict[str, CellValue]] = [
     {"C": "pr", "D": "technicolor", "G": WED.replace(hour=15), "V": 1, "O": 1, "Z": 1, "S": 1, "AK": 1},
     # reguła nie daje AK, więc AK taty liczy się jak kolumna z opisu technika, razem z Y
     {"C": "pr", "D": "nokia", "G": WED.replace(hour=13), "V": 1, "Z": 1, "AK": 1, "Y": 1},
+    # samo nokia z „akt int” w CZYNNOŚCI: O 1 z reguły, zgodne z tatą
+    {"C": "pr", "D": "nokia", "E": "AKT INT", "G": WED.replace(hour=16), "V": 1, "Z": 1, "O": 1},
     # bez reguły: różnica tylko w V, wartość taty w O
     {"C": "u", "D": "przeniesienie", "G": MON.replace(hour=9), "T": 1, "O": 1},
     # bez reguły: słowo w AM to „nieliczbowa”, AM liczy się też jak kolumna z opisu
@@ -73,7 +75,7 @@ def expected_body(run_id: str) -> str:
         "Kontrola ilości z Centrum rozliczeń: Reguły ilości przeliczone na Pliku zbiorczym, "
         "z którego tata uruchomił Przebieg rozliczeń.\n"
         "\n"
-        "- Wiersze danych: 13 (porównane 9, rozliczane z opisu 1, bez reguły 2, bez daty i godziny w DATA 1)\n"
+        "- Wiersze danych: 14 (porównane 10, rozliczane z opisu 1, bez reguły 2, bez daty i godziny w DATA 1)\n"
         "- Różnice w kolumnach Reguł ilości: 7\n"
         "\n"
         "## Różnice\n"

@@ -6,9 +6,13 @@ Użycie (z katalogu repozytorium):
         [--config PLIK] [--worker-template PLIK] [--metrics PLIK]
     python tools/uruchom_proces.py preparation --register REJESTR --periods-directory FOLDER --period TOKEN
         [--dry-run] [--config PLIK] [--internal-template PLIK] [--collective-template PLIK] [--metrics PLIK]
+    python tools/uruchom_proces.py intermax --register REJESTR [--copies FOLDER] [--metrics PLIK]
 
 ``settlement`` to Przebieg rozliczeń, ``preparation`` Przygotowanie pliku
-zbiorczego (klucze procesu z kontraktu Centrum rozliczeń). Proces prowadzi ten
+zbiorczego, a ``intermax`` Uporządkowanie INTERMAX (klucze procesu z kontraktu
+Centrum rozliczeń). Uporządkowanie nie ma okresu ani podglądu bez zapisu: zawsze
+zapisuje, a Kopia INTERMAX trafia do ``--copies`` (bez parametru folder Kopii
+narzędzia), z nazwą z zegara komputera. Proces prowadzi ten
 sam rdzeń Uruchomienia procesu co w Centrum, więc wynik ma te same liczby,
 etykiety i Komunikaty co karta Uruchomienia. Bez parametru Konfiguracja
 wykonawców i Wzorce są te z Centrum (``ConfigurationFiles.default()``), a plik
@@ -49,10 +53,11 @@ from pydantic import BaseModel, ConfigDict
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from rozliczenia import preparation_process, settlement_process
+from rozliczenia import intermax_copies, intermax_process, preparation_process, settlement_process
 from rozliczenia.centrum import contract, run_view
 from rozliczenia.centrum.configuration import ConfigurationFiles
 from rozliczenia.decision import Decision
+from rozliczenia.intermax_process import OrderingInputs
 from rozliczenia.message import Message
 from rozliczenia.preparation_process import PreparationInputs
 from rozliczenia.process_run import Finished, Process, ProcessInputs, run_process
@@ -112,7 +117,7 @@ class _Unattended:
 
 def _conduct(
     process: Process[InputsT, SummaryT],
-    view: run_view.ProcessView[InputsT, SummaryT],
+    view: run_view.ResultView[InputsT, SummaryT],
     inputs: InputsT,
     metrics: Path,
 ) -> tuple[ProcessResult, int]:
@@ -151,6 +156,11 @@ def _prepare(args: argparse.Namespace) -> tuple[ProcessResult, int]:
         collective_template_path=args.collective_template,
     )
     return _conduct(preparation_process.PROCESS, run_view.PREPARATION, inputs, args.metrics)
+
+
+def _order(args: argparse.Namespace) -> tuple[ProcessResult, int]:
+    inputs = OrderingInputs(args.register, args.copies)
+    return _conduct(intermax_process.PROCESS, run_view.INTERMAX, inputs, args.metrics)
 
 
 class _Parser(argparse.ArgumentParser):
@@ -192,6 +202,16 @@ def _parser() -> argparse.ArgumentParser:
     )
     preparation.add_argument("--dry-run", action="store_true", help="Podgląd bez zapisu.")
     preparation.set_defaults(run=_prepare)
+
+    ordering = processes.add_parser("intermax", help=intermax_process.PROCESS.name)
+    ordering.add_argument("--register", type=Path, required=True, help="Rejestr zleceń (INTERMAX).")
+    ordering.add_argument(
+        "--copies", type=Path, default=intermax_copies.default_directory(), help="Folder Kopii INTERMAX."
+    )
+    ordering.add_argument(
+        "--metrics", type=Path, default=intermax_process.PROCESS.metrics_path(), help="Plik metryk JSONL."
+    )
+    ordering.set_defaults(run=_order)
     return parser
 
 
