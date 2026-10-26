@@ -389,11 +389,15 @@ class TemplateFile:
             header = self._header(sheet)
             target_columns = self._target_columns(sheet.title, header)
             columns = self._written_columns(target_columns)
-            if not self._rules.sheet.period_file:
+            if self._rules.sheet.period_file:
+                _ensure_unmerged(
+                    self.path, sheet.title, tuple(sheet.merged_cells.ranges), self._rules.sheet, columns, len(rows)
+                )
+            else:
                 self._check_settlement_template(sheet.title, header, self._has_input_data(sheet))
-            _ensure_unmerged(
-                self.path, sheet.title, tuple(sheet.merged_cells.ranges), self._rules.sheet, columns, len(rows)
-            )
+                _ensure_unmerged(
+                    self.path, sheet.title, tuple(sheet.merged_cells.ranges), self._rules.sheet, columns, len(rows)
+                )
             try:
                 _write_rows(sheet, self._rules.sheet, _in_columns(rows, target_columns), columns)
             except IllegalCharacterError as exc:
