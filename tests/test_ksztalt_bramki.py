@@ -1,9 +1,10 @@
-"""Kształt bramki PR (ADR 0020): plan dwóch wzorcowych PR-ów mieści się w limicie liczby zadań i prognozy ściany.
+"""Kształt bramki PR (ADR 0020): plan dwóch wzorcowych PR-ów mieści się w limicie testów, liczby zadań i prognozy ściany.
 
 L to PR z samym plikiem testu (#416), C to zmiana Centrum (#461): ``src/``, frontend i drive skilla. Ich zmienione
 ścieżki i czasy CI jednego runu ``main`` leżą zamrożone w ``tests/fixtures/ksztalt_bramki``, więc plan zmienia się
 tylko z kodem planu i wyboru testów albo z grafem zależności testów repozytorium. Liczą się zadania runu bez Mutation
-checks i Change mutations, a prognoza to najdłuższa ściana zadania z planu.
+checks i Change mutations, a prognoza to najdłuższa ściana zadania z planu. Testy to pliki i węzły ``plik::test``,
+które biegną na każdym torze: limit zadań C przepuszcza wszystkie pliki na dwóch torach, a limit testów nie.
 
 Limit to wartość z HEAD PR, który wprowadził bramkę, plus 20%. Gdy test padnie, bramka urosła: najpierw znajdź
 przyczynę (test, który zaczął zależeć od wszystkiego, wybór szerszy niż zmiana) i napraw ją w kodzie. Podniesienie
@@ -31,12 +32,13 @@ PRZYPADKI = ROOT / "tests" / "fixtures" / "ksztalt_bramki"
 
 @dataclass(frozen=True)
 class Limit:
+    testy: int
     zadania: int
     sciana_s: float
 
 
-# Na HEAD bramki: L 5 zadań i 56,9 s, C 10 zadań i 219,2 s.
-LIMITY = {"L": Limit(6, 68.3), "C": Limit(12, 263.0)}
+# Na HEAD bramki: L 27 testów, 5 zadań i 56,9 s, C 80 testów, 10 zadań i 219,2 s; wszystkie pliki to 118 testów.
+LIMITY = {"L": Limit(32, 6, 68.3), "C": Limit(96, 12, 263.0)}
 
 
 @pytest.fixture(scope="module")
@@ -51,7 +53,7 @@ def czasy(tmp_path_factory: pytest.TempPathFactory) -> czasy_ci.Czasy:
 
 
 @pytest.mark.parametrize("przypadek", sorted(LIMITY))
-def test_plan_bramki_wzorcowego_pr_miesci_sie_w_limicie_zadan_i_prognozy_sciany(przypadek: str, czasy: czasy_ci.Czasy) -> None:
+def test_plan_bramki_wzorcowego_pr_miesci_sie_w_limicie_testow_zadan_i_prognozy_sciany(przypadek: str, czasy: czasy_ci.Czasy) -> None:
     zmiana = frozenset((PRZYPADKI / f"{przypadek}.txt").read_text(encoding="utf-8").split())
     zakres = plan_ci.zakres("pull_request", zmiana)
     plan = plan_ci.rozplanuj([plan_ci.wycen(tor, zakres.pliki, czasy) for tor in zakres.tory], "pull_request", 0, czasy.runy)
@@ -59,7 +61,8 @@ def test_plan_bramki_wzorcowego_pr_miesci_sie_w_limicie_zadan_i_prognozy_sciany(
     sciana = max(zadanie.sciana_s for zadanie in plan.zadania)
     limit = LIMITY[przypadek]
 
-    assert (zadania <= limit.zadania, sciana <= limit.sciana_s) == (True, True), (
-        f"przypadek {przypadek}: {zadania} zadań runu (limit {limit.zadania}), prognoza ściany {sciana:.1f} s (limit {limit.sciana_s} s),"
+    assert (len(zakres.pliki) <= limit.testy, zadania <= limit.zadania, sciana <= limit.sciana_s) == (True, True, True), (
+        f"przypadek {przypadek}: {len(zakres.pliki)} testów na torze (limit {limit.testy}), {zadania} zadań runu (limit {limit.zadania}),"
+        f" prognoza ściany {sciana:.1f} s (limit {limit.sciana_s} s),"
         f" {zakres.zrodlo}; podniesienie limitu to decyzja Maksa"
     )

@@ -407,7 +407,7 @@ def test_plan_pull_requestu_startuje_change_mutations_i_mutation_checks_tylko_z_
     with (repo / changed).open("a", encoding="utf-8") as file:
         file.write(appended)
     commit(repo, "zmiana")
-    for module in (plan_ci, mutacje_zmiany, mutacje_skilli):
+    for module in (plan_ci, mutacje_zmiany, mutacje_skilli, szybko):
         monkeypatch.setattr(module, "ROOT", repo)
     monkeypatch.setattr(mutacje_skilli, "SKILLS", repo / ".agents" / "skills")
     monkeypatch.setattr(czasy_ci, "_gh", offline)
@@ -455,7 +455,7 @@ def test_zgubiony_skrypt_mutacji_albo_zly_klucz_ci_trafia_z_wyboru_do_planu_i_cz
         (repo / name).parent.mkdir(parents=True, exist_ok=True)
         (repo / name).write_text(text, encoding="utf-8")
     commit(repo, "zmiana")
-    for module in (plan_ci, mutacje_zmiany, mutacje_skilli):
+    for module in (plan_ci, mutacje_zmiany, mutacje_skilli, szybko):
         monkeypatch.setattr(module, "ROOT", repo)
     monkeypatch.setattr(mutacje_skilli, "SKILLS", repo / ".agents" / "skills")
     monkeypatch.setattr(czasy_ci, "_gh", offline)
@@ -507,10 +507,19 @@ def test_bramka_pr_biegnie_na_windows_311_i_linuksie_z_wyborem_szybko_a_e2e_i_st
 
     gate = plan_ci.zakres("pull_request", frozenset({changed}), repo)
 
-    structure = [node for node in szybko.STRUCTURE if node.partition("::")[0] not in (files or [])]
     assert [(lane.nazwa, lane.kroki) for lane in gate.tory] == [(WINDOWS, steps), (LINUX, ())]
     assert gate.zrodlo == source
-    assert list(gate.pliki) == (plan_ci.pliki_testow(repo) if files is None else [*files, *structure])
+    # GATE nie ma plików testów ze szybko.STRUCTURE, więc wybór biegnie z całą strukturą.
+    assert list(gate.pliki) == (plan_ci.pliki_testow(repo) if files is None else [*files, *szybko.STRUCTURE])
+
+
+def test_bramka_pr_biegnie_wybrany_plik_testow_raz_bez_jego_wezlow_ze_struktury(tmp_path: Path) -> None:
+    file = next(node.partition("::")[0] for node in szybko.STRUCTURE if "::" in node)
+    repo = repository(tmp_path / "repo", {**GATE, file: "def test_wezel() -> None:\n    pass\n"})
+
+    gate = plan_ci.zakres("pull_request", frozenset({file}), repo)
+
+    assert [unit for unit in gate.pliki if unit.startswith(file)] == [file]
 
 
 def test_push_biegnie_pelne_ci_main_na_trzech_torach_z_kazdym_plikiem_testow(tmp_path: Path) -> None:

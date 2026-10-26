@@ -391,15 +391,6 @@ def _git(*argumenty: str) -> str:
     return subprocess.run(["git", *argumenty], cwd=ROOT, capture_output=True, text=True, encoding="utf-8", check=True).stdout
 
 
-def _zmiana(baza: str) -> frozenset[str]:
-    """Ścieżki, którymi checkout (z niezacommitowanymi i nieśledzonymi plikami) różni się od ``merge-base`` HEAD z
-    ``baza``, jak w ``tools/szybko.py``."""
-
-    rozwidlenie = _git("merge-base", "HEAD", baza).strip()
-    sciezki = _git("diff", "-z", "--name-only", "--no-renames", rozwidlenie) + _git("ls-files", "-z", "--others", "--exclude-standard")
-    return frozenset(sciezka for sciezka in sciezki.split("\0") if sciezka)
-
-
 def liczba_mutacji_zmiany(baza: str) -> int:
     """Mutacje zmiany od ``merge-base`` HEAD z ``baza``, policzone jak w ``tools/mutacje_zmiany.py``, bez testów.
 
@@ -451,7 +442,7 @@ def _plan(args: argparse.Namespace) -> int:
     czasy = czasy_ci.z_mainu(katalog, odswiez_po_s=0 if args.czasy else czasy_ci.ODSWIEZ_S)
     if czasy.blad:
         print(f"CZASY CI | {czasy.blad}; plan waży pracę bez pomiaru domyślnie")
-    praca = zakres(args.zdarzenie, _zmiana(args.baza) if args.zdarzenie == "pull_request" else frozenset())
+    praca = zakres(args.zdarzenie, szybko.changed_since(args.baza) if args.zdarzenie == "pull_request" else frozenset())
     wybor = mutacje_skilli.wybor(args.baza if args.zdarzenie == "pull_request" else None)
     wyceny = [*(wycen(tor, praca.pliki, czasy) for tor in praca.tory), wycen_mutacje([krok for krok, _ in wybor.chosen], czasy)]
     mutacje = liczba_mutacji_zmiany(args.baza) if args.zdarzenie == "pull_request" else 0
@@ -625,7 +616,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     polecenia = parser.add_subparsers(dest="polecenie", required=True)
     plan = polecenia.add_parser("plan", help="Plan runu: zadania pytest, Mutation checks i Change mutations (zadanie plan albo lokalnie).")
     plan.add_argument("--zdarzenie", choices=("pull_request", "push"), default="pull_request")
-    plan.add_argument("--baza", default="origin/main", help="Od czego liczą się mutacje zmiany i wybór kroków skilli (w CI HEAD^1).")
+    plan.add_argument("--baza", default="origin/main", help="Od czego na pull request liczy się zmiana: wybór plików pytest, E2E i straży czasu, mutacje zmiany i wybór kroków skilli (w CI HEAD^1).")
     plan.add_argument("--czasy", type=Path, help="Katalog artefaktów czasy-ci, pobieranych od nowa (domyślnie .git/czasy-ci).")
     plan.add_argument("--wyjscie", type=Path)
     wykonanie = polecenia.add_parser("wykonaj", help="Jednostki jednego zadania planu (w zadaniu pytest albo Mutation checks).")
