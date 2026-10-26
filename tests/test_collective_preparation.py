@@ -49,10 +49,25 @@ from tests.fixtures.preparation import (
     make_preparation_fixture,
     register_order,
     template_column_width,
+    write_collective_template,
+    write_internal_template,
     write_register,
 )
 from tests.fixtures.benchmark import COLLECTIVE_TEMPLATE, INTERNAL_TEMPLATE, write_synthetic_templates
-from tests.fixtures.workbooks import active_worksheet, column_widths, external_link_parts, hyperlinks, rewrite_parts
+from tests.fixtures.workbooks import (
+    TEMPLATE_VIEW,
+    View,
+    active_worksheet,
+    column_widths,
+    external_link_parts,
+    hyperlinks,
+    marked_for_copy,
+    opening_view,
+    refused_by_copy,
+    rewrite_parts,
+    view_of,
+    written_by_copy,
+)
 from tests.fixtures.settlement import projected
 from tests.fixtures.preparation import (
     cell_values,
@@ -710,6 +725,33 @@ def test_column_widths_header_and_frozen_row_equal_wzorzec(tmp_path: Path, kind:
     leading = range(1, max(TEMPLATE_NARROW_COLUMN_WIDTHS) + 1)
     assert expected.widths[: len(leading)] == [template_column_width(column) for column in leading]
     assert sheet_layout(created, header_row=header_row) == expected
+
+
+# Widok Wzorca przewinięty w bok i powiększony inaczej niż Wzorce taty: plik okresu bierze widok ze swojego Wzorca.
+SCROLLED_VIEW = View("C1", "D30", 60)
+
+
+@pytest.mark.parametrize("view", [TEMPLATE_VIEW, SCROLLED_VIEW], ids=["lewy-gorny-rog-75", "przewiniety"])
+@pytest.mark.parametrize("copied", [True, False], ids=["kopia", "openpyxl"])
+def test_plik_zbiorczy_i_rozliczenie_wewnetrzne_otwieraja_sie_z_widokiem_swojego_wzorca(
+    tmp_path: Path, copied: bool, view: View
+) -> None:
+    fixture = make_preparation_fixture(tmp_path)
+    write_internal_template(fixture.internal_template_path, view=view)
+    marked_for_copy(write_collective_template(fixture.collective_template_path, view=view))
+    if not copied:
+        refused_by_copy(fixture.collective_template_path)
+
+    run_preparation(fixture)
+
+    assert written_by_copy(fixture.collective_file_path) == copied
+    for template, created in (
+        (fixture.internal_template_path, fixture.internal_settlement_path),
+        (fixture.collective_template_path, fixture.collective_file_path),
+    ):
+        expected = opening_view(template)
+        assert view_of(expected) == view
+        assert opening_view(created) == expected, created.name
 
 
 def test_plik_zbiorczy_columns_outside_a_to_l_keep_wzorzec_formatting(tmp_path: Path) -> None:
