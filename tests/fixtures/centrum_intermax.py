@@ -124,11 +124,12 @@ def ordering_centrum(
     chosen: bool = True,
     clock: Clock | None = None,
     surroundings: Surroundings | None = None,
+    periods_directory: Path | None = None,
 ) -> OrderingCentrum:
     """Centrum z syntetycznym INTERMAX (domyślnie z Surowymi zleceniami 26.10.2026) i własnymi metrykami.
 
     ``chosen``: tata wskazał INTERMAX w Ustawieniach jako Rejestr zleceń. Bez ``surroundings`` narzędzie jest
-    aktualne, a każdy plik ma kopię na tym komputerze.
+    aktualne, a każdy plik ma kopię na tym komputerze. ``periods_directory``: tata wskazał też folder okresów.
     """
 
     register = tmp_path / "OneDrive" / REGISTER_NAME
@@ -140,9 +141,12 @@ def ordering_centrum(
         intermax=tmp_path / ".uporzadkowanie-intermax-metrics.jsonl",
     )
     surroundings, engines, clock = surroundings or Surroundings(), Engines(metrics), clock or Clock()
-    client = _client(tmp_path, surroundings, engines, clock, FakePlatform(chosen_files=[register]))
+    platform = FakePlatform(chosen_files=[register], chosen_folders=[periods_directory])
+    client = _client(tmp_path, surroundings, engines, clock, platform)
     if chosen:
         assert client.post("/api/settings/register/choose").status_code == 200
+    if periods_directory is not None:
+        assert client.post("/api/settings/periods-directory/choose").status_code == 200
     return OrderingCentrum(client, register, layout, tmp_path / "Kopie INTERMAX", tmp_path, surroundings, engines, clock)
 
 

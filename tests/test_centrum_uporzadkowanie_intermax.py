@@ -6,11 +6,16 @@ okres dzisiejszej daty z zegara procesu, ustalony przy starcie (ADR 0019).
 
 from __future__ import annotations
 
-from datetime import datetime
+from collections.abc import Callable
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
-from openpyxl import load_workbook
+from openpyxl import Workbook, load_workbook
+import pytest
+
+from rozliczenia.centrum.run_logs import RunLog
 
 from tests.fixtures.centrum import phase_states, views_until
 from tests.fixtures.centrum_intermax import (
@@ -227,6 +232,49 @@ def test_diagnoza_mowi_ktorego_intermax_z_ustawien_taty_nie_ma(tmp_path: Path) -
     assert (states["Ustawienia taty"], states["INTERMAX"]) == ("failed", "not_checked")
 
 
+@pytest.mark.parametrize(
+    ("broken", "what"),
+    [
+        (lambda register: register.write_bytes(b"to nie jest skoroszyt"), "Nie można odczytać INTERMAX jako skoroszytu Excela. INTERMAX nie został zmieniony."),
+        (
+            lambda register: Workbook().save(register),
+            "W INTERMAX nie ma arkusza zleceń z nagłówkami od AKCJE do UWAGI w wierszu 1. INTERMAX nie został zmieniony.",
+        ),
+    ],
+    ids=["uszkodzony", "bez-arkusza-zlecen"],
+)
+def test_diagnoza_odczytuje_intermax_i_wskazuje_ten_ktorego_nie_da_sie_uporzadkowac(
+    tmp_path: Path, broken: Callable[[Path], None], what: str
+) -> None:
+    centrum = ordering_centrum(tmp_path)
+    centrum.engines.fail_summary = True
+    view = centrum.run_to_end()
+    broken(centrum.register)
+
+    diagnosis = centrum.client.post(f"/api/runs/{view['run']['id']}/diagnosis").json()
+
+    [intermax] = [check for check in diagnosis["checks"] if check["label"] == "INTERMAX"]
+    assert (intermax["state"], intermax["detail"]) == ("failed", what)
+    assert diagnosis["explanation"]["what"] == what
+
+
+def test_diagnoza_intermax_sprawdza_w_onedrive_tylko_intermax_a_nie_pliki_okresu(tmp_path: Path) -> None:
+    periods = tmp_path / "INEA"
+    collective = periods / PERIOD / f"Rozliczenie {PERIOD} - zbiorcze.xlsx"
+    collective.parent.mkdir(parents=True)
+    collective.write_bytes(b"tylko w chmurze")
+    centrum = ordering_centrum(tmp_path, periods_directory=periods)
+    assert centrum.surroundings.onedrive is not None
+    centrum.surroundings.onedrive.online_only.add(collective)
+    centrum.engines.fail_summary = True
+    view = centrum.run_to_end()
+
+    diagnosis = centrum.client.post(f"/api/runs/{view['run']['id']}/diagnosis").json()
+
+    checks = {check["label"]: (check["state"], check["detail"]) for check in diagnosis["checks"]}
+    assert checks["Pliki w OneDrive"] == ("passed", "Sprawdzone pliki są na tym komputerze: 1.")
+
+
 def test_historia_metryki_i_karta_maja_uporzadkowanie_intermax(tmp_path: Path) -> None:
     centrum = ordering_centrum(tmp_path)
     run_id = centrum.run_to_end()["run"]["id"]
@@ -270,11 +318,62 @@ def test_karta_pokazuje_ostatnie_uporzadkowanie_z_logow_takze_po_ponownym_starci
     assert previous == last
 
 
-def test_karta_bez_ostatniego_uporzadkowania_nie_bierze_innego_procesu(tmp_path: Path) -> None:
+def _logs_like(centrum: OrderingCentrum, like: str, later: timedelta, **changes: Any) -> Path:
+    """Logi drugiego Uruchomienia jak ``like``, rozpoczętego ``later`` po pełnej sekundzie jego startu.
+
+    Start trafia do nazwy pliku i do Logów; ``changes`` zmienia inne pola Logów.
+    """
+
+    [path] = (centrum.tmp_path / "logs" / "uruchomienia").glob(f"*-{like}.json")
+    record = RunLog.model_validate_json(path.read_text(encoding="utf-8"))
+    started_at = record.started_at.replace(microsecond=0) + later
+    times = {"started_at": started_at, "ended_at": started_at + (record.ended_at - record.started_at)}
+    other = record.model_copy(update={"run_id": uuid4().hex, **times, **changes})
+    other_path = path.with_name(other.file_name)
+    other_path.write_text(other.model_dump_json(indent=2), encoding="utf-8")
+    return other_path
+
+
+def test_karta_pokazuje_najnowsze_uporzadkowanie_a_nie_starsze_z_logow(tmp_path: Path) -> None:
     centrum = ordering_centrum(tmp_path)
-    logs = tmp_path / "logs" / "uruchomienia"
-    logs.mkdir(parents=True)
-    (logs / "20261026T080000Z-preparation-0123456789abcdef0123456789abcdef.json").write_text("{}", encoding="utf-8")
+    ordered = centrum.run_to_end()["run"]["id"]
+    _logs_like(centrum, ordered, -timedelta(days=7))
+
+    assert centrum.setup()["last"]["run"]["id"] == ordered
+
+
+def test_karta_bierze_ostatnie_uporzadkowanie_a_nie_pozniejsze_uruchomienie_innego_procesu(tmp_path: Path) -> None:
+    centrum = ordering_centrum(tmp_path)
+    ordered = centrum.run_to_end()["run"]["id"]
+    _logs_like(centrum, ordered, timedelta(hours=1), process="preparation")
+
+    assert centrum.setup()["last"]["run"]["id"] == ordered
+
+
+@pytest.mark.parametrize(
+    ("earlier", "later"), [("0" * 32, "f" * 32), ("f" * 32, "0" * 32)], ids=["pozniejszy-dalej", "pozniejszy-blizej"]
+)
+def test_z_uporzadkowan_w_tej_samej_sekundzie_karta_pokazuje_pozniejsze(tmp_path: Path, earlier: str, later: str) -> None:
+    centrum = ordering_centrum(tmp_path)
+    ordered = centrum.run_to_end()["run"]["id"]
+    _logs_like(centrum, ordered, timedelta(hours=1, milliseconds=100), run_id=earlier)
+    _logs_like(centrum, ordered, timedelta(hours=1, milliseconds=200), run_id=later)
+
+    assert centrum.setup()["last"]["run"]["id"] == later
+
+
+def test_karta_pomija_nieczytelne_logi_uporzadkowania_z_tej_samej_sekundy(tmp_path: Path) -> None:
+    centrum = ordering_centrum(tmp_path)
+    ordered = centrum.run_to_end()["run"]["id"]
+    _logs_like(centrum, ordered, timedelta(0)).write_text("{", encoding="utf-8")
+
+    assert centrum.setup()["last"]["run"]["id"] == ordered
+
+
+def test_nieczytelne_najnowsze_logi_uporzadkowania_to_karta_bez_ostatniego_a_nie_starsze(tmp_path: Path) -> None:
+    centrum = ordering_centrum(tmp_path)
+    ordered = centrum.run_to_end()["run"]["id"]
+    _logs_like(centrum, ordered, timedelta(hours=1)).write_text("{", encoding="utf-8")
 
     assert centrum.setup()["last"] is None
 
