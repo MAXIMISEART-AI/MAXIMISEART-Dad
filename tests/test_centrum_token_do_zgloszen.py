@@ -157,7 +157,8 @@ def test_odrzucona_tresc_zostaje_odrzucona_takze_gdy_potem_token_przestaje_dzial
     box.outcomes.append(Rejected())
     assert report(centrum, run_id) == REJECTED
 
-    # Naprawiony token nie wyśle odrzuconej treści, więc tata dalej słyszy, że tego Zgłoszenia nie da się wysłać.
+    # Token przestaje działać, ale odrzuconej treści i tak nie wyśle żaden token, więc tata dalej słyszy, że tego
+    # Zgłoszenia nie da się wysłać.
     (tmp_path / "config" / "zgloszenia-klucz.txt").unlink()
 
     assert current_report(centrum) == REJECTED
