@@ -244,6 +244,91 @@
         }
       }
     },
+    "/api/intermax": {
+      "get": {
+        "tags": [
+          "uruchomienia"
+        ],
+        "summary": "Setup",
+        "operationId": "getIntermaxSetup",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntermaxSetup"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/intermax/run": {
+      "post": {
+        "tags": [
+          "uruchomienia"
+        ],
+        "summary": "Start",
+        "operationId": "startIntermax",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/RunIdle"
+                    },
+                    {
+                      "$ref": "#/components/schemas/RunRunning"
+                    },
+                    {
+                      "$ref": "#/components/schemas/RunAwaitingDecision"
+                    },
+                    {
+                      "$ref": "#/components/schemas/RunFinished"
+                    }
+                  ],
+                  "title": "Response Startintermax",
+                  "discriminator": {
+                    "propertyName": "state",
+                    "mapping": {
+                      "idle": "#/components/schemas/RunIdle",
+                      "running": "#/components/schemas/RunRunning",
+                      "awaiting_decision": "#/components/schemas/RunAwaitingDecision",
+                      "finished": "#/components/schemas/RunFinished"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/metrics": {
       "get": {
         "tags": [
@@ -1692,6 +1777,8 @@
               "openWorkerSettlement",
               "getRunSetup",
               "startRun",
+              "getIntermaxSetup",
+              "startIntermax",
               "decideRun",
               "diagnoseRun",
               "reportRun",
@@ -2455,6 +2542,57 @@
         "title": "Health",
         "description": "Tożsamość działającego Centrum.\n\n``commit`` to skrócony commit narzędzia, z którego Centrum wystartowało, jak na Konfiguracji (``None`` poza\nklonem Gita); po nim launcher i opiekun ponownego startu rozpoznają wersję działającego Centrum, a karta\npokazuje go w „Zaktualizowano”. ``instance`` to losowy identyfikator tego startu Centrum: po ponownym starcie\njest inny, także gdy commit się nie zmienił."
       },
+      "IntermaxSetup": {
+        "properties": {
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "reminder": {
+            "type": "string",
+            "title": "Reminder"
+          },
+          "blocker": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Blocker"
+          },
+          "open_in_excel": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Open In Excel"
+          },
+          "last": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RunRestored"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "title",
+          "reminder",
+          "blocker",
+          "open_in_excel",
+          "last"
+        ],
+        "title": "IntermaxSetup",
+        "description": "Karta „Uporządkuj INTERMAX” poza okresami: INTERMAX to Rejestr zleceń z Ustawień taty.\n\n``reminder`` to przypomnienie przed uruchomieniem, ``blocker`` mówi, czego brakuje w Ustawieniach taty,\n``open_in_excel`` to zdanie o INTERMAX otwartym w Excelu, a ``last`` to karta ostatniego Uporządkowania\nINTERMAX z jego Logów Uruchomienia (``None``: żadnego albo jego Logów nie da się odczytać)."
+      },
       "KindTableCell": {
         "properties": {
           "source": {
@@ -2633,7 +2771,8 @@
               "run",
               "rerun",
               "open_collective_file",
-              "open_worker_settlements_folder"
+              "open_worker_settlements_folder",
+              "open_order_register"
             ],
             "title": "Next Action"
           },
@@ -3464,8 +3603,7 @@
             "type": "string",
             "enum": [
               "preparation",
-              "settlement",
-              "intermax"
+              "settlement"
             ],
             "title": "Process"
           },
@@ -4273,7 +4411,8 @@
               "run",
               "rerun",
               "open_collective_file",
-              "open_worker_settlements_folder"
+              "open_worker_settlements_folder",
+              "open_order_register"
             ],
             "title": "Next Action"
           },
@@ -4423,8 +4562,7 @@
             "type": "string",
             "enum": [
               "preparation",
-              "settlement",
-              "intermax"
+              "settlement"
             ],
             "title": "Process"
           },
@@ -4569,6 +4707,17 @@
               }
             ],
             "title": "Worker Settlements"
+          },
+          "intermax_copy": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Intermax Copy"
           }
         },
         "additionalProperties": false,

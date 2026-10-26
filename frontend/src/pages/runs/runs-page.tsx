@@ -1,4 +1,5 @@
 import * as React from "react"
+import { cn } from "cn"
 import { HistoryIcon, PlayIcon } from "lucide-react"
 
 import { getMetrics, getRunSetup, type ProcessSetup, type RunView } from "@/api/centrum"
@@ -14,6 +15,7 @@ import { useResource } from "@/lib/use-resource"
 import { RunHistoryCard } from "@/pages/metrics/run-history-card"
 import { PastRunCard, RunCard } from "@/pages/runs/run-card"
 import { DecisionDialog } from "@/pages/runs/run-dialogs"
+import { IntermaxCard } from "@/pages/runs/intermax-card"
 import { RunSetupCard } from "@/pages/runs/run-setup-card"
 
 /**
@@ -110,7 +112,8 @@ function RunsContent() {
 }
 
 /**
- * Karta nowego Uruchomienia procesu, podgląd na żywo albo ostatnie Uruchomienie sprzed startu Centrum. Zamiana
+ * Karta nowego Uruchomienia procesu z kartą „Uporządkuj INTERMAX” pod nią, podgląd na żywo albo ostatnie
+ * Uruchomienie sprzed startu Centrum. Zamiana
  * jednej na drugą na oczach taty (start, „Nowe Uruchomienie procesu”) wchodzi `wejscie`; karta zastana po
  * wejściu na stronę nie.
  */
@@ -134,8 +137,9 @@ function RunOrSetup({
 
   if (setupInstead) {
     return (
-      <div key="nowe" className={shown}>
+      <div key="nowe" className={cn(shown, "flex flex-col gap-6")}>
         <RunSetupCard processes={processes} />
+        <IntermaxCard />
       </div>
     )
   }
