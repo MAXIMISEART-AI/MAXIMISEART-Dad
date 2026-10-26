@@ -18,10 +18,13 @@ import time
 
 import pytest
 
+from rozliczenia.centrum import tool_freshness
 from rozliczenia.centrum.tool_freshness import GitHubReleases, PublishedRelease, published_from, releases_from
 from rozliczenia.centrum.tool_update import Release
 from rozliczenia.centrum.version import tool_commit
 
+# Prawdziwe ``github_releases`` z chwili importu: autouse ``bez_githuba`` (``tests/conftest.py``) podmienia je w module.
+GITHUB_RELEASES = tool_freshness.github_releases
 MAIN = "9a8b7c6d5e4f3a2b1c0d9e8f7a6b5c4d3e2f1a0b"
 BRANCH = "3c1d0a9e5b7f4c2d8e6a1b0f9c8d7e6a5b4c3d2e"
 OLDER = "1111111111111111111111111111111111111111"
@@ -29,8 +32,63 @@ NEWEST = "2222222222222222222222222222222222222222"
 OTHER = "3333333333333333333333333333333333333333"
 OFF_MAIN = "4444444444444444444444444444444444444444"
 NOT_COMPARED = "5555555555555555555555555555555555555555"
-# Odpowiedź porównania z `main` (``compare``) dla commitu tagu; brak wpisu to odmowa GitHuba.
-_STATUS = {OLDER: "ahead", NEWEST: "identical", OTHER: "diverged", OFF_MAIN: "behind"}
+UNCOUNTED = "6666666666666666666666666666666666666666"
+MERGED_BRANCH = "7777777777777777777777777777777777777777"
+REFUSED_MIDWAY = "8888888888888888888888888888888888888888"
+FIRST_COMMIT = "9999999999999999999999999999999999999999"
+FAR_ON_LINE = "abababababababababababababababababababab"
+MERGED_LATE = "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"
+NOT_A_COMMIT = "nie-commit"
+# Odpowiedź porównania commitu tagu z czubkiem `main` ``MAIN`` albo jego pierwszym rodzicem (``compare``); brak wpisu
+# to odmowa GitHuba. ``OLDER`` jest pierwszym rodzicem ``MAIN``.
+_STATUS = {
+    (OLDER, MAIN): "ahead",
+    (OLDER, f"{MAIN}~1"): "identical",
+    (NEWEST, MAIN): "identical",
+    (OTHER, MAIN): "diverged",
+    (OFF_MAIN, MAIN): "behind",
+    # Commit gałęzi wciągniętej merge'em: przodek `main`, ale nie jego pierwszego rodzica. Przy ``REFUSED_MIDWAY``
+    # GitHub odmawia dopiero porównania z pierwszym rodzicem, czyli w połowie wyszukiwania.
+    (MERGED_BRANCH, MAIN): "ahead",
+    (MERGED_BRANCH, f"{MAIN}~1"): "behind",
+    (REFUSED_MIDWAY, MAIN): "ahead",
+    # Porównanie bez liczby commitów i porównanie z czubkiem `main`, który nie jest commitem: GitHub, który by je
+    # dał, nie daje pełnej odpowiedzi.
+    (UNCOUNTED, MAIN): "identical",
+    (NEWEST, NOT_A_COMMIT): "identical",
+    # Pierwszy commit repozytorium jest pierwszym rodzicem `main`, a `main` ma jeszcze dwa commity z wciągniętej
+    # gałęzi (``ahead_by`` 3): ``MAIN~2`` i dalej nie istnieją (404).
+    (FAR_ON_LINE, MAIN): "ahead",
+    # Gałąź wciągnięta merge'em, gdy `main` poszedł już dalej: jego pierwsi rodzice od niej odchodzą („diverged”).
+    (MERGED_LATE, MAIN): "ahead",
+    (MERGED_LATE, f"{MAIN}~1"): "diverged",
+    (MERGED_LATE, f"{MAIN}~2"): "diverged",
+    (FIRST_COMMIT, MAIN): "ahead",
+    (FIRST_COMMIT, f"{MAIN}~1"): "identical",
+}
+# Odpowiedzi GitHuba w innym kształcie niż w API: czubek `main` i porównanie (``None``: zerwane połączenie).
+_ODD_REFS = {
+    "czubek-lista": json.dumps([]),
+    "czubek-nie-obiektem": json.dumps({"object": "main"}),
+    "czubek-bez-napisu": json.dumps({"object": {"sha": 5}}),
+}
+_ODD_COMPARES: dict[str, str | None] = {
+    "porownanie-nie-obiektem": json.dumps([]),
+    "porownanie-bez-napisu": json.dumps({"status": 5, "ahead_by": 1}),
+    "porownanie-nie-json": "<html>GitHub ma awarię</html>",
+    "porownanie-zerwane": None,
+}
+_AHEAD_BY = {FIRST_COMMIT: 3, FAR_ON_LINE: 1000, MERGED_LATE: 3}
+# ``FAR_ON_LINE`` to ``MAIN~700``, a `main` ma 1000 commitów spoza niego: tydzień zmian z wciągniętymi gałęziami.
+_FAR_DEPTH = 700
+
+
+def _far_status(base: str, head: str) -> str | None:
+    if base != FAR_ON_LINE or not head.startswith(f"{MAIN}~"):
+        return None
+    depth = int(head.removeprefix(f"{MAIN}~"))
+    return "ahead" if depth < _FAR_DEPTH else "identical" if depth == _FAR_DEPTH else "behind"
+_NOT_FOUND = {(FIRST_COMMIT, f"{MAIN}~2"), (FIRST_COMMIT, f"{MAIN}~3")}
 
 
 def _tags(*named: tuple[str, str]) -> str:
@@ -51,6 +109,21 @@ _PAGES = {
     "/bez-wydan/tags?per_page=100": (_tags(("proba", OTHER)), None),
     "/bez-konca/tags?per_page=100": (_tags(("v0.1.0", OLDER)), "/bez-konca/tags?per_page=100"),
     "/bez-porownania/tags?per_page=100": (_tags(("v0.1.0", NOT_COMPARED)), None),
+    "/bez-czubka/tags?per_page=100": (_tags(("v0.1.0", NEWEST)), None),
+    "/bez-czubka/git/ref/heads/main": (json.dumps({"object": {"sha": NOT_A_COMMIT}}), None),
+    "/bez-liczby/tags?per_page=100": (_tags(("v0.1.0", UNCOUNTED)), None),
+    "/z-galezi/tags?per_page=100": (_tags(("v0.1.0", MERGED_BRANCH)), None),
+    "/odmowa-w-wyszukiwaniu/tags?per_page=100": (_tags(("v0.1.0", REFUSED_MIDWAY)), None),
+    "/od-pierwszego-commitu/tags?per_page=100": (_tags(("v0.1.0", FIRST_COMMIT)), None),
+    "/daleko/tags?per_page=100": (_tags(("v0.1.0", FAR_ON_LINE)), None),
+    "/z-galezi-pozniej/tags?per_page=100": (_tags(("v0.1.0", MERGED_LATE)), None),
+    "/czubek-lista/tags?per_page=100": (_tags(("v0.1.0", NEWEST)), None),
+    "/czubek-nie-obiektem/tags?per_page=100": (_tags(("v0.1.0", NEWEST)), None),
+    "/czubek-bez-napisu/tags?per_page=100": (_tags(("v0.1.0", NEWEST)), None),
+    "/porownanie-nie-obiektem/tags?per_page=100": (_tags(("v0.1.0", NEWEST)), None),
+    "/porownanie-bez-napisu/tags?per_page=100": (_tags(("v0.1.0", NEWEST)), None),
+    "/porownanie-nie-json/tags?per_page=100": (_tags(("v0.1.0", NEWEST)), None),
+    "/porownanie-zerwane/tags?per_page=100": (_tags(("v0.1.0", NEWEST)), None),
 }
 
 NOTES = "Plik zbiorczy ma kolumnę z kilometrami.\n\n## Rozwiązane sprawy taty\n\n- Uwaga taty #12: Kilometry\n"
@@ -80,8 +153,17 @@ _PAGES["/wydania/releases?per_page=30"] = (
 )
 
 
+# Ścieżki pytań do atrapy GitHuba, w kolejności; ``github`` czyści listę przed testem.
+_ASKED: list[str] = []
+
+
+def _comparisons() -> int:
+    return sum("/compare/" in path for path in _ASKED)
+
+
 class _GitHub(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
+        _ASKED.append(self.path)
         repository, _, rest = self.path[1:].partition("/")
         if self.path in _PAGES:
             body, following = _PAGES[self.path]
@@ -91,12 +173,27 @@ class _GitHub(BaseHTTPRequestHandler):
                 self.send_header("Link", f'<http://{host}{following}>; rel="next", <http://{host}/tagi>; rel="last"')
             self.end_headers()
             self.wfile.write(body.encode("ascii"))
-        elif rest.startswith("compare/") and rest.endswith("...main?per_page=1&page=2"):
-            status = _STATUS.get(rest.removeprefix("compare/").partition("...")[0])
-            if status is None:
+        elif rest == "git/ref/heads/main" and repository in _ODD_REFS:
+            self._answer(200, _ODD_REFS[repository])
+        elif rest.startswith("compare/") and repository in _ODD_COMPARES:
+            answer = _ODD_COMPARES[repository]
+            if answer is None:  # połączenie zerwane w trakcie odpowiedzi
+                self.close_connection = True
+                self.connection.shutdown(socket.SHUT_RDWR)
+            else:
+                self._answer(200, answer)
+        elif rest == "git/ref/heads/main" and repository != "limit":
+            self._answer(200, json.dumps({"ref": "refs/heads/main", "object": {"sha": MAIN, "type": "commit"}}))
+        elif rest.startswith("compare/") and rest.endswith("?per_page=1&page=2"):
+            base, _, head = rest.removeprefix("compare/").removesuffix("?per_page=1&page=2").partition("...")
+            status = _STATUS.get((base, head)) or _far_status(base, head)
+            if (base, head) in _NOT_FOUND:
+                self._answer(404, '{"message": "Not Found"}')
+            elif status is None:
                 self._answer(403, '{"message": "API rate limit exceeded"}')
             else:
-                self._answer(200, json.dumps({"status": status, "ahead_by": 1, "commits": [], "files": []}))
+                counted = {} if base == UNCOUNTED else {"ahead_by": _AHEAD_BY.get(base, 1)}
+                self._answer(200, json.dumps({"status": status, **counted, "commits": [], "files": []}))
         elif repository == "limit":
             self._answer(403, '{"message": "API rate limit exceeded"}')
         else:
@@ -113,6 +210,7 @@ class _GitHub(BaseHTTPRequestHandler):
 
 @pytest.fixture
 def github() -> Iterator[str]:
+    _ASKED.clear()
     server = ThreadingHTTPServer(("127.0.0.1", 0), _GitHub)
     thread = threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True)
     thread.start()
@@ -140,11 +238,70 @@ def test_bez_wydania_na_main_github_odpowiada_ze_nie_ma_wydania(github: str, rep
 
 @pytest.mark.parametrize(
     "repository",
-    ["limit", "strona", "bez-konca", "bez-porownania"],
-    ids=["odmowa", "nie-lista", "bez-konca", "odmowa-porownania"],
+    ["limit", "strona", "bez-konca", "bez-porownania", "bez-czubka", "bez-liczby"],
+    ids=["odmowa", "nie-lista", "bez-konca", "odmowa-porownania", "czubek-main-nie-commitem", "porownanie-bez-liczby"],
 )
 def test_odmowa_odpowiedz_nie_z_api_albo_niepelna_lista_to_nie_wiadomo(github: str, repository: str) -> None:
     assert releases_from(f"{github}/{repository}", timeout_s=2) is None
+
+
+def test_wydanie_z_galezi_wciagnietej_mergem_nie_jest_na_main_i_ta_odpowiedz_zostaje_w_pamieci(github: str) -> None:
+    known: dict[str, bool] = {}
+
+    assert releases_from(f"{github}/z-galezi", timeout_s=2, known=known) == GitHubReleases(None, None)
+    assert known == {MERGED_BRANCH: False}
+    _ASKED.clear()
+    assert releases_from(f"{github}/z-galezi", timeout_s=2, known=known) == GitHubReleases(None, None)
+    assert _comparisons() == 0
+
+
+def test_wydanie_z_galezi_wciagnietej_po_dalszych_zmianach_main_nie_jest_na_main(github: str) -> None:
+    known: dict[str, bool] = {}
+
+    assert releases_from(f"{github}/z-galezi-pozniej", timeout_s=2, known=known) == GitHubReleases(None, None)
+    assert known == {MERGED_LATE: False}
+
+
+def test_wydanie_daleko_na_linii_main_kosztuje_tylko_logarytm_porownan(github: str) -> None:
+    assert releases_from(f"{github}/daleko", timeout_s=2) == GitHubReleases(FAR_ON_LINE, "v0.1.0")
+    assert _comparisons() <= 12  # log2(1001) + 2
+
+
+def test_aktualnosc_w_centrum_pamieta_linie_main_miedzy_sprawdzeniami(
+    github: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(tool_freshness, "REPOSITORY_API", f"{github}/z-galezi")
+    monkeypatch.setattr(tool_freshness, "_GITHUB_LINE", {})
+
+    assert GITHUB_RELEASES() == GitHubReleases(None, None)
+    _ASKED.clear()
+    assert GITHUB_RELEASES() == GitHubReleases(None, None)
+    assert _comparisons() == 0
+
+
+def test_wydanie_na_pierwszym_commicie_repozytorium_jest_na_main(github: str) -> None:
+    assert releases_from(f"{github}/od-pierwszego-commitu", timeout_s=2) == GitHubReleases(FIRST_COMMIT, "v0.1.0")
+
+
+def test_odmowa_githuba_w_polowie_wyszukiwania_to_nie_wiadomo_i_nic_nie_zostaje_w_pamieci(github: str) -> None:
+    known: dict[str, bool] = {}
+
+    assert releases_from(f"{github}/odmowa-w-wyszukiwaniu", timeout_s=2, known=known) is None
+    assert known == {}
+
+
+# Wyjątek w wątku pytania też kończy się ``None`` (``deadline.within``), ale jako ślad wywołań na stderr Centrum:
+# odpowiedź w innym kształcie ma być „nie wiadomo” bez wyjątku.
+@pytest.mark.filterwarnings("error::pytest.PytestUnhandledThreadExceptionWarning")
+@pytest.mark.parametrize("repository", [*_ODD_REFS, *_ODD_COMPARES])
+def test_czubek_main_albo_porownanie_w_innym_ksztalcie_to_nie_wiadomo(github: str, repository: str) -> None:
+    assert releases_from(f"{github}/{repository}", timeout_s=2) is None
+
+
+def test_jedno_sprawdzenie_pyta_o_czubek_main_raz_dla_wszystkich_kandydatow(github: str) -> None:
+    assert releases_from(f"{github}/spoza-main", timeout_s=2) == GitHubReleases(OLDER, "v0.2.0")
+    assert _comparisons() >= 3
+    assert sum(path.endswith("/git/ref/heads/main") for path in _ASKED) == 1
 
 
 def test_milczacy_serwer_nie_wydluza_diagnozy_ponad_limit_czasu() -> None:

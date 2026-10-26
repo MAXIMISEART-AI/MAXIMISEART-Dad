@@ -16,7 +16,8 @@ nagłówki w wierszu 17, ~10 tys. sformatowanych Wierszy danych (18..10093), ~50
 (``xl/externalLinks/*``), scalenia, pasy stylów i 483 wiersze zer w N:V i X. Nie wszystkie
 wiersze mają komórki w A i B, jak u taty. Wzorzec rozliczenia pracownika ma, jak u taty,
 komentarz komórki, więc relacje arkusza (``rId1`` rysunek VML, ``rId2`` komentarze). openpyxl nie zapisuje wspólnych formuł ani
-``calcChain``, więc generator pisze XML części zip sam.
+``calcChain``, więc generator pisze XML części zip sam. Wszystkie trzy Wzorce otwierają się, jak
+Wzorce taty od #465, w lewym górnym rogu arkusza (górna lewa komórka i zaznaczenie A1) w powiększeniu 75%.
 
 Etykiety A:K, AQ:AY i opisy wierszy 13–16 są takie jak u taty; usługi N:AP, stawki, formuły
 i odwołanie zewnętrzne są syntetyczne. Generator jest deterministyczny: te same argumenty dają
@@ -469,8 +470,8 @@ class _TemplateSheet:
             'xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" mc:Ignorable="x14ac" '
             'xmlns:x14ac="http://schemas.microsoft.com/office/spreadsheetml/2009/9/ac">'
             f'<dimension ref="A1:BA{last + _TRAILING_ROW_OFFSET}"/>'
-            '<sheetViews><sheetView tabSelected="1" zoomScale="70" zoomScaleNormal="70" workbookViewId="0">'
-            '<selection activeCell="A18" sqref="A18"/></sheetView></sheetViews>'
+            '<sheetViews><sheetView tabSelected="1" topLeftCell="A1" zoomScale="75" zoomScaleNormal="75" '
+            'workbookViewId="0"><selection activeCell="A1" sqref="A1"/></sheetView></sheetViews>'
             '<sheetFormatPr defaultRowHeight="15" x14ac:dyDescent="0.25"/>'
             f"<cols>{columns}</cols><sheetData>{''.join(rows)}</sheetData>"
             '<sheetProtection selectLockedCells="1" selectUnlockedCells="1"/>'
@@ -689,8 +690,9 @@ def write_internal_template(path: Path) -> None:
     )
     sheet_xml = (
         f'{_XML}<worksheet xmlns="{_MAIN_NS}" xmlns:r="{_REL_NS}"><dimension ref="A1:M{last}"/>'
-        '<sheetViews><sheetView tabSelected="1" workbookViewId="0"><pane ySplit="1" topLeftCell="A2" '
-        'activePane="bottomLeft" state="frozen"/><selection pane="bottomLeft" activeCell="A2" sqref="A2"/>'
+        '<sheetViews><sheetView tabSelected="1" topLeftCell="A1" zoomScale="75" zoomScaleNormal="75" workbookViewId="0">'
+        '<pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/>'
+        '<selection pane="bottomLeft" activeCell="A1" sqref="A1"/>'
         '</sheetView></sheetViews><sheetFormatPr defaultRowHeight="15"/>'
         f"<cols>{columns}</cols><sheetData>{''.join(rows)}</sheetData>"
         f'<autoFilter ref="A1:M{last}"/>'

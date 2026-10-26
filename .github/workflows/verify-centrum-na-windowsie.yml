@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       feature:
-        description: 'all or one feature of features/README.md'
+        description: 'all or one feature with its file in features/'
         required: false
         default: all
   pull_request:
