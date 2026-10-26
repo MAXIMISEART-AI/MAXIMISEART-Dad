@@ -173,6 +173,7 @@ def drive_intermax_ordering(run: Run, page: Page) -> None:
     rows = page.get_by_role("table", name="Historia Uruchomień procesu").get_by_role("row")
     expect(rows.filter(has_text="Uporządkowanie INTERMAX")).to_have_count(len(logs))
     metrics = run.api("/api/metrics", "intermax-metryki")["runs"]
+    assert isinstance(metrics, list)
     ordering = [entry for entry in metrics if entry["process"] == "intermax"]
     run.check(
         len(ordering) == len(logs) and all(entry["origin"] == "centrum" for entry in ordering),
@@ -202,7 +203,7 @@ def _order_by_touch(run: Run, page: Page, register: Path, original: bytes, fixtu
         context.new_cdp_session(touch).send("Emulation.setCPUThrottlingRate", {"rate": DAD_CPU})
         _to_card(run, touch)
         _button(touch).tap()
-        result = finished_result(run, "intermax-wynik")
+        result: Json = finished_result(run, "intermax-wynik")
         live = touch.get_by_role("region", name="Podgląd na żywo")
         expect(live.get_by_label("Wynik")).to_contain_text(DONE)
         copy = result["summary"]["intermax_copy"]
