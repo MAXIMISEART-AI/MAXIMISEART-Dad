@@ -121,7 +121,7 @@ def test_odmowa_nazywa_ksztalt_i_poprawke(command: str, shape: str) -> None:
         pytest.param("V=/srv/far; for w in a b; do rm -f $V/$x-y; done", id="zmienna-spoza-petli"),
         pytest.param('echo a; rm -f "$(echo /srv/far/x)"', id="rm-bez-r-z-podstawienia"),
         pytest.param("echo a && S=env; $S sh -c 'echo A'; echo rm", id="sh-c-bez-rm"),
-        pytest.param("echo $((1 + (2))); rm -f /srv/far/x", id="arytmetyka-z-nawiasem"),
+        pytest.param("echo $((1 | (2))); rm -f /srv/far/x", id="arytmetyka-z-nawiasem"),
         pytest.param('cd /srv/far && git commit -m "rm -f logi/* przed testem"', id="rm-w-opisie-commitu"),
         pytest.param("cd /srv/far && cat > skrypt.sh <<'EOF'\nrm -f logi/*\nEOF\nsh skrypt.sh", id="rm-w-heredocu"),
         pytest.param("cd /srv/far && cat <<-EOF > s.sh\n\trm -f logi/*\n\tEOF\necho ok", id="rm-w-heredocu-z-tabulatorem"),
@@ -170,8 +170,9 @@ def test_limit_hooka_w_ustawieniach_opoznia_polecenie_najwyzej_o_10_s() -> None:
         "".join(f"for v{index} in a; do rm -f $V/x{index}; done; " for index in range(5000)),
         "for w in a; do :; done; rm " + " ".join(f"$A/$b{index}" for index in range(40000)),
         "rm x; " + "(" * 80000,
+        "rm x; " + "${" * 80000,
     ],
-    ids=["petle-bez-done", "ogon-flag", "nawiasy-ze-zmienna", "petle-z-rm", "cele-ze-zmiennymi", "nawiasy"],
+    ids=["petle-bez-done", "ogon-flag", "nawiasy-ze-zmienna", "petle-z-rm", "cele-ze-zmiennymi", "nawiasy", "zmienne-bez-}"],
 )
 def test_hook_ocenia_wejscie_bez_konca_przed_limitem_z_ustawien(command: str) -> None:
     hooked = subprocess.run(

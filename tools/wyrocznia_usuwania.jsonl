@@ -72,3 +72,6 @@
 {"nazwa": "andand-c5-pipe-andand-rm-var-cmd-sh-c", "polecenie": "ls @FAR@ | grep -i x && rm -r @FAR@/t; S=env\n$S sh -c 'echo A'", "pyta_o_zgode": true}
 {"nazwa": "andand-c6-pipe-andand-rm-sh-c", "polecenie": "ls @FAR@ | grep -i x && rm -r @FAR@/t; sh -c 'echo A'", "pyta_o_zgode": false}
 {"nazwa": "var-loop-guarded", "polecenie": "V=@FAR@; for w in a b; do rm -f ${V:?}/${w:?}-x; done", "pyta_o_zgode": false}
+{"nazwa": "var-loop-guarded-quoted", "polecenie": "V=@FAR@; for w in a b; do rm -f \"${V:?}/${w:?}-x\"; done", "pyta_o_zgode": false}
+{"nazwa": "arith-pipe-paren", "polecenie": "echo $((1 | (2))); rm -f @FAR@/x", "pyta_o_zgode": false}
+{"nazwa": "var-loop-braces", "polecenie": "V=@FAR@; for w in a b; do rm -f ${V}/${w}-x; done", "pyta_o_zgode": true}

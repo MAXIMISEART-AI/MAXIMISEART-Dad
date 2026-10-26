@@ -122,6 +122,12 @@ def _segments(command: str) -> list[str]:
         elif char == "\\" and index + 1 < len(command):
             current.append(command[index : index + 2])
             index += 1
+        elif command.startswith("${", index):
+            # ``${V}`` i ``${V:?}`` to część słowa, a nie grupa ``{ …; }``.
+            close = command.find("}", index)
+            end = len(command) if close < 0 else close + 1
+            current.append(command[index:end])
+            index = end - 1
         elif command.startswith("$(", index):
             current.append("$(")
             segments.append("".join(current))
