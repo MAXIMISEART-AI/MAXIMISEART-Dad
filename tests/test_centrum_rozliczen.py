@@ -21,8 +21,9 @@ from rozliczenia.centrum.app import STATIC_DIRECTORY
 from rozliczenia.centrum.dad_cases import DAD_CASES_FILE, OLD_NOTES_FILE, OLD_REPORTS_FILE
 from rozliczenia.centrum.launcher import LOG_PATH
 from rozliczenia.centrum.notifications import NOTIFICATIONS_FILE
-from rozliczenia.centrum.outbox import ADDRESSES_FILE
-from rozliczenia.centrum.reports import REPORT_KEY_FILE, UNSENT_DIRECTORY
+from rozliczenia.centrum.outbox import ADDRESSES_FILE, QUEUE_DIRECTORY
+from rozliczenia.centrum.keyed_box import REPORT_KEY_FILE
+from rozliczenia.centrum.reports import UNSENT_DIRECTORY
 from rozliczenia.centrum.run_origins import CENTRUM_RUNS_FILE
 from rozliczenia.settings import default_settings_path
 from tests.fixtures.centrum import CENTRUM, TOOL_COMMIT, Centrum, ROOT, centrum
@@ -71,20 +72,35 @@ def test_po_aktualizacji_narzedzia_przegladarka_dostaje_nowy_pakiet_pod_ta_sama_
     assert (updated.status_code, updated.content) == (200, b"console.log('po aktualizacji')\n")
 
 
-def test_kontrakt_ma_trasy_i_schematy_po_kolei_wiec_dwie_nowe_trasy_nie_zmieniaja_tego_samego_miejsca(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def _exported_contract(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
+    """Kontrakt OpenAPI, który eksportuje ``tools/export_openapi.py`` z bieżącego kodu serwera."""
+
     spec = importlib.util.spec_from_file_location("export_openapi", ROOT / "tools" / "export_openapi.py")
     assert spec is not None and spec.loader is not None
     export = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(export)
     monkeypatch.setattr(export, "OUTPUT", tmp_path / "openapi.json")
-
     assert export.main() == 0
-    contract = json.loads((tmp_path / "openapi.json").read_text(encoding="utf-8"))
+    return dict(json.loads((tmp_path / "openapi.json").read_text(encoding="utf-8")))
+
+
+def test_kontrakt_ma_trasy_i_schematy_po_kolei_wiec_dwie_nowe_trasy_nie_zmieniaja_tego_samego_miejsca(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    contract = _exported_contract(tmp_path, monkeypatch)
     schemas = contract["components"]["schemas"]
 
     assert (list(contract["paths"]), list(schemas)) == (sorted(contract["paths"]), sorted(schemas))
+
+
+def test_frontend_parsuje_odpowiedzi_kontraktem_ktory_serwer_naprawde_eksportuje(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Frontend parsuje każdą odpowiedź serwera schematami wygenerowanymi z ``frontend/src/api/openapi.json``."""
+
+    committed = json.loads((ROOT / "frontend" / "src" / "api" / "openapi.json").read_text(encoding="utf-8"))
+
+    assert _exported_contract(tmp_path, monkeypatch) == committed
 
 
 def test_zadanie_z_obcym_naglowkiem_host_jest_odrzucone(tmp_path: Path) -> None:
@@ -183,7 +199,7 @@ def test_nieistniejacy_zapamietany_folder_okresow_jest_wyraznie_oznaczony(tmp_pa
         default_settings_path().parent / REPORT_KEY_FILE,
         default_settings_path().parent / DAD_CASES_FILE,
         default_settings_path().parent / OLD_REPORTS_FILE,
-        default_settings_path().parent / UNSENT_DIRECTORY / "Zgłoszenie BLAD_PLANU 08_14_09_2026.md",
+        default_settings_path().parent / UNSENT_DIRECTORY / QUEUE_DIRECTORY / "20261024T101500000000Z-0001-zgloszenie-3f2a9c1b.json",
         default_settings_path().parent / OLD_NOTES_FILE,
         default_settings_path().parent / NOTIFICATIONS_FILE,
         default_settings_path().parent / ADDRESSES_FILE,
@@ -196,7 +212,7 @@ def test_nieistniejacy_zapamietany_folder_okresow_jest_wyraznie_oznaczony(tmp_pa
         "klucz-do-zgloszen",
         "sprawy-taty",
         "wyslane-zgloszenia",
-        "niewyslane-zgloszenie",
+        "zgloszenie-w-kolejce",
         "uwagi-taty",
         "przeczytane-powiadomienia",
         "adresy-w-skrzynce",
@@ -532,8 +548,11 @@ def test_odczyt_tablicy_okresow_nie_sprawdza_osobno_kazdego_rozliczenia_pracowni
     checked: list[object] = []
     stat = os.stat
 
+    # Tylko ścieżki pod folderem okresów: wątek w tle poprzedniego testu w tym workerze (np. wpis dziennika
+    # Centrum) też woła os.stat.
     def counted_stat(path: str | os.PathLike[str], *args: Any, **kwargs: Any) -> os.stat_result:
-        checked.append(path)
+        if isinstance(path, str | os.PathLike) and Path(path).is_relative_to(periods):
+            checked.append(path)
         return stat(path, *args, **kwargs)
 
     monkeypatch.setattr(os, "stat", counted_stat)
