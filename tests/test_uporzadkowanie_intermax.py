@@ -79,8 +79,12 @@ def _register(tmp_path: Path, intermax: Intermax | None = None) -> tuple[Path, L
     return path, (intermax or Intermax()).write(path)
 
 
-def _expected(order: Order) -> tuple[object, ...]:
-    values = order.values()
+def _expected(order: Order, entry: tuple[str, str] | None = None) -> tuple[object, ...]:
+    """Wartości B:AK zlecenia ``order`` w uporządkowanym dniu; ``entry``: Wpis (``URZĄDZENIA``, ``CZYNNOŚCI``)."""
+
+    values: dict[int, object] = dict(order.values())
+    if entry is not None:
+        values[DEVICES], values[ACTIVITIES] = entry
     return tuple(values.get(column) for column in range(1, APP_LAST + 1))
 
 
@@ -275,7 +279,10 @@ def _colored(activities: str | None, contract_number: str | None, devices: str |
         ("Netia", "Instalacja Hurt", _colored(_DARK_BLUE, _LIGHT_BLUE, None)),
         ("P4", "Instalacja Hurt", _colored(_LIGHT_BLUE, _LIGHT_BLUE, None)),
         ("VECTRA", "Instalacja Hurt", _colored(_LIGHT_BLUE, _LIGHT_BLUE, None)),
+        ("Netia S.A.", "Instalacja Hurt", _colored(_DARK_BLUE, _LIGHT_BLUE, None)),
         ("INEA", "Instalacja Hurt", _colored(None, None, None)),
+        ("INEA S.A.", "Instalacja", _colored(None, None, None)),
+        ("OXYLION", "Instalacja", _colored(_LIGHT_BLUE, _LIGHT_BLUE, None)),
         (None, "Instalacja", _colored(None, None, None)),
         ("TMOBILE", "Usterka", _colored(None, None, _PINK)),
         ("TMOBILE", "Usterka Hurt", _colored(None, None, _PINK)),
@@ -290,7 +297,10 @@ def _colored(activities: str | None, contract_number: str | None, devices: str |
         "netia",
         "p4",
         "vectra",
+        "netia s.a.",
         "inea",
+        "inea s.a.",
+        "inny operator",
         "puste czynnosci",
         "usterka przy tmobile",
         "usterka hurt przy tmobile",
@@ -311,9 +321,124 @@ def test_kolor_operatora_w_czynnosciach_numerze_umowy_i_urzadzeniach_a_inne_komo
 
     assert layout.yellow is not None
     sheet = load_workbook(path).worksheets[1]
-    assert order_rows(path, layout.yellow + 2, layout.yellow + 3) == [_expected(raw[1]), _expected(raw[0])]
+    assert [sheet.cell(row, NUMBER).value for row in (layout.yellow + 2, layout.yellow + 3)] == ["ZL-102", "ZL-101"]
     assert _fills(sheet, layout.yellow + 2) == expected, "zlecenie na miejscu"
     assert _fills(sheet, layout.yellow + 3) == expected, "przesunięty pierwszy wiersz"
+
+
+@pytest.mark.parametrize(
+    ("operator", "kind", "entry"),
+    [
+        ("Netia", "Instalacja Hurt", ("nokia", "Netia - akt pętli")),
+        ("P4", "Instalacja Hurt", ("nokia", "P4 - akt pętli")),
+        ("Plus", "Instalacja Hurt", ("nokia", "Plus - akt pętli")),
+        ("VECTRA", "Instalacja Hurt", ("nokia", "VECTRA - akt pętli")),
+        ("SYSTEMIA", "Instalacja Hurt", ("nokia", "SYSTEMIA - akt pętli")),
+        ("ORANGE", "Instalacja Hurt", ("gniazdo", "ORANGE - akt pętli LLU")),
+        ("TMOBILE", "Instalacja Hurt", ("nokia getewayHomeBox", "TMOBILE - akt int")),
+        ("NETIA", "instalacja hurt", ("nokia", "NETIA - akt pętli")),
+        (" p4 ", " INSTALACJA  HURT ", ("nokia", "p4 - akt pętli")),
+        ("Netia S.A.", "Instalacja Hurt", ("nokia", "Netia S.A. - akt pętli")),
+        ("NETIA s.a", "Instalacja Hurt", ("nokia", "NETIA s.a - akt pętli")),
+        ("Netia-SA", "Instalacja Hurt", ("nokia", "Netia-SA - akt pętli")),
+        ("P4 <&>", "Instalacja Hurt", ("nokia", "P4 <&> - akt pętli")),
+        ("T-Mobile", "Instalacja Hurt", ("nokia getewayHomeBox", "T-Mobile - akt int")),
+    ],
+    ids=[
+        "netia",
+        "p4",
+        "plus",
+        "vectra",
+        "systemia",
+        "orange",
+        "tmobile",
+        "wielkie litery operatora i male rodzaju",
+        "spacje w operatorze i rodzaju",
+        "netia s.a.",
+        "netia s.a bez kropki malymi literami",
+        "netia-sa z myslnikiem",
+        "znaki xml w nazwie operatora",
+        "t-mobile",
+    ],
+)
+def test_instalacja_hurt_operatora_z_reguly_taty_dostaje_wpis_urzadzenia_i_czynnosci_intermax(
+    tmp_path: Path, operator: str, kind: str, entry: tuple[str, str]
+) -> None:
+    raw = (
+        Order(datetime(2026, 10, 26, 14), "jan.nowak", 101, operator, kind),
+        Order(datetime(2026, 10, 26, 8), "jan.nowak", 102, operator, kind),
+    )
+    path, layout = _register(tmp_path, Intermax(raw=raw))
+
+    _ordered(_run(tmp_path))
+
+    assert layout.yellow is not None
+    assert order_rows(path, layout.yellow + 2, layout.yellow + 3) == [_expected(raw[1], entry), _expected(raw[0], entry)]
+
+
+@pytest.mark.parametrize(
+    ("operator", "kind"),
+    [
+        ("P4", "Usterka"),
+        ("TMOBILE", "Usterka Hurt"),
+        ("ORANGE", "Usterka pomontażowa"),
+        ("Netia", "Pomiar"),
+        ("VECTRA", "Niedostępność usług"),
+        ("P4", "Instalacja"),
+        ("INEA", "Instalacja Hurt"),
+        ("OXYLION", "Instalacja Hurt"),
+        ("Fiberhost", "Instalacja Hurt"),
+        (None, "Instalacja Hurt"),
+    ],
+    ids=[
+        "usterka",
+        "usterka hurt",
+        "usterka pomontazowa",
+        "pomiar",
+        "niedostepnosc uslug",
+        "instalacja reczna",
+        "inea",
+        "oxylion",
+        "fiberhost",
+        "puste czynnosci",
+    ],
+)
+def test_zlecenie_poza_regula_taty_zostaje_bez_wpisu_z_wartosciami_z_aplikacji(
+    tmp_path: Path, operator: str | None, kind: str
+) -> None:
+    raw = (
+        Order(datetime(2026, 10, 26, 14), "jan.nowak", 101, operator, kind),
+        Order(datetime(2026, 10, 26, 8), "jan.nowak", 102, operator, kind),
+    )
+    path, layout = _register(tmp_path, Intermax(raw=raw))
+
+    _ordered(_run(tmp_path))
+
+    assert layout.yellow is not None
+    assert order_rows(path, layout.yellow + 2, layout.yellow + 3) == [_expected(raw[1]), _expected(raw[0])]
+
+
+def test_komorki_wpisu_maja_wyglad_reszty_dnia_i_kolor_operatora(tmp_path: Path) -> None:
+    raw = (
+        Order(datetime(2026, 10, 26, 14), "jan.nowak", 101, "ORANGE", "Instalacja Hurt"),
+        Order(datetime(2026, 10, 26, 8), "jan.nowak", 102, "ORANGE", "Instalacja Hurt"),
+    )
+    path, layout = _register(tmp_path, Intermax(raw=raw))
+
+    _ordered(_run(tmp_path))
+
+    assert layout.yellow is not None
+    sheet = load_workbook(path).worksheets[1]
+    for row in (layout.yellow + 2, layout.yellow + 3):
+        for column, fill in ((DEVICES, None), (ACTIVITIES, _ORANGE)):
+            cell = sheet.cell(row, column)
+            assert (cell.data_type, cell.number_format) == ("s", "General"), cell.coordinate
+            assert (cell.font.name, cell.font.sz, cell.font.b, cell.font.color.rgb) == ("Calibri", 8, False, "FF000000")
+            assert _fills(sheet, row)[column] == fill, cell.coordinate
+            assert {side.style for side in (cell.border.left, cell.border.right, cell.border.top, cell.border.bottom)} == {
+                "thin"
+            }
+            assert (cell.alignment.horizontal, cell.alignment.vertical) == ("left", "center")
 
 
 def test_pusta_komorka_numeru_umowy_dostaje_kolor_operatora(tmp_path: Path) -> None:
@@ -586,8 +711,10 @@ def test_bez_zamrozonego_naglowka_widok_bez_panelu_otwiera_sie_na_dzisiejszym_dn
     assert load_workbook(path)[ORDER_SHEET].sheet_view.pane is None
 
 
-def test_kopia_intermax_ma_nazwe_z_zegara_procesu_i_bajty_sprzed_uporzadkowania(tmp_path: Path) -> None:
-    path, _ = _register(tmp_path)
+@pytest.mark.parametrize("kind", ["Instalacja", "Instalacja Hurt"], ids=["bez wpisow", "z wpisami"])
+def test_kopia_intermax_ma_nazwe_z_zegara_procesu_i_bajty_sprzed_uporzadkowania(tmp_path: Path, kind: str) -> None:
+    raw = [replace(order, operator="TMOBILE", kind=kind) for order in Intermax().raw]
+    path, _ = _register(tmp_path, Intermax(raw=raw))
     original = path.read_bytes()
 
     _run(tmp_path)
@@ -719,19 +846,50 @@ CORRUPTIONS: dict[str, Callable[[bytes, Layout], bytes]] = {
 }
 
 
+def _written_corrupted(monkeypatch: pytest.MonkeyPatch, path: Path, change: Callable[[bytes], bytes]) -> None:
+    """Plik tymczasowy obok INTERMAX ``path`` dostaje bajty zmienione przez ``change``, zanim zapis go sprawdzi."""
+
+    write_bytes = Path.write_bytes
+
+    def corrupted(target: Path, data: bytes) -> int:
+        if target.parent == path.parent and target.name.startswith(f".{path.stem}."):
+            data = change(bytes(data))
+        return write_bytes(target, data)
+
+    monkeypatch.setattr(Path, "write_bytes", corrupted)
+
+
 @pytest.mark.parametrize("corruption", CORRUPTIONS)
 def test_niezgodnosc_w_sprawdzeniu_zapisu_to_zatrzymanie_do_maksa_bez_zmiany_intermax_i_kopii(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, corruption: str
 ) -> None:
     path, layout = _register(tmp_path)
-    write_bytes = Path.write_bytes
+    _written_corrupted(monkeypatch, path, lambda data: CORRUPTIONS[corruption](data, layout))
 
-    def corrupted(target: Path, data: bytes) -> int:
-        if target.parent == path.parent and target.name.startswith(f".{path.stem}."):
-            data = CORRUPTIONS[corruption](bytes(data), layout)
-        return write_bytes(target, data)
+    with _nothing_written(tmp_path, path):
+        stop = _stop(_run(tmp_path))
 
-    monkeypatch.setattr(Path, "write_bytes", corrupted)
+    assert (stop.message.code, stop.stop_kind) == ("ZAPIS_INTERMAX_NIEZGODNY", "for_maks")
+
+
+@pytest.mark.parametrize(
+    ("column", "app_value"), [(DEVICES, "Instalacja Hurt"), (ACTIVITIES, "TMOBILE")], ids=["urzadzenia", "czynnosci"]
+)
+def test_wartosc_z_aplikacji_zamiast_wpisu_w_sprawdzeniu_zapisu_to_zatrzymanie_do_maksa_bez_zmiany_intermax(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, column: int, app_value: str
+) -> None:
+    raw = (
+        Order(datetime(2026, 10, 26, 14), "jan.nowak", 101, "TMOBILE", "Instalacja Hurt"),
+        Order(datetime(2026, 10, 26, 8), "jan.nowak", 102, "TMOBILE", "Instalacja Hurt"),
+    )
+    path, layout = _register(tmp_path, Intermax(raw=raw))
+    assert layout.yellow is not None
+    reference = b"%s%d" % (get_column_letter(column).encode("ascii"), layout.yellow + 2)
+    app_cell = b'<c r="%s" t="inlineStr"><is><t>%s</t></is></c>' % (reference, app_value.encode("utf-8"))
+    cell = re.compile(rb'<c r="%s"[^>]*?(?:/>|>.*?</c>)' % reference, re.S)
+    _written_corrupted(
+        monkeypatch, path, lambda data: _part_changed(data, _SHEET, lambda xml: cell.sub(app_cell, xml, count=1))
+    )
 
     with _nothing_written(tmp_path, path):
         stop = _stop(_run(tmp_path))

@@ -60,8 +60,24 @@ od 2021 roku: około 42 tys. wierszy, cztery arkusze, około 6,5 MB, w OneDrive.
 - **Przed podmianą narzędzie sprawdza swój zapis.** Plik tymczasowy obok
   INTERMAX zostaje odczytany jeszcze raz i porównany z oryginałem: poza
   zmianami z poprzedniego punktu wszystko musi się zgadzać, a zlecenia bloku
-  mają te same wartości co Surowe zlecenia po przesunięciu. Inaczej
+  mają te same wartości co Surowe zlecenia po przesunięciu, poza Wpisem
+  urządzenia i czynności INTERMAX z następnego punktu. Inaczej
   Zatrzymanie „do Maksa”, a INTERMAX zostaje nietknięty.
+- **Zapis zmienia też wartości: Wpis urządzenia i czynności INTERMAX**
+  (2026-10-27, reguła taty). Surowe zlecenie z rodzajem `Instalacja Hurt` u
+  operatora z listy taty (Netia, P4, Plus, VECTRA, SYSTEMIA, ORANGE, TMOBILE)
+  dostaje nowe `URZĄDZENIA` i czynność dopisaną za nazwą operatora w
+  `CZYNNOŚCI`; kontrola z poprzedniego punktu porównuje te dwie komórki z
+  oczekiwanym Wpisem. Kolor operatora i Wpis rozpoznają operatora tak samo,
+  bez wielkości liter, spacji, myślników i dopisku `S.A.`, a Kolor liczy się
+  z nazwy sprzed Wpisu. ORANGE dostaje zawsze wariant LLU (`gniazdo`), bo BSA
+  nie widać w danych z aplikacji; zlecenia BSA tata poprawia ręcznie, choć
+  do tej poprawki Reguły ilości liczą im ilości `gniazdo`. Karta wyniku się
+  nie zmienia; Wpisy widać tylko w Logach Uruchomienia: liczba Wpisów na
+  operatora, wiersze Rejestru z Wpisem i operatorem oraz instalacje hurt bez
+  Wpisu (operator spoza listy) z wierszem i nazwą operatora. Nazwa operatora
+  i numer wiersza nie wskazują klienta, więc mieszczą się w regule Logów z
+  [ADR 0015](0015-logi-uruchomienia-uwagi-taty-i-powiadomienia.md).
 - **Przed każdą podmianą powstaje Kopia INTERMAX** w folderze narzędzia na
   `C:`, poza OneDrive, żeby nie synchronizować 6,5 MB codziennie: `INTERMAX
   przed uporządkowaniem RRRR-MM-DD GG-MM-SS.xlsx`. Zostaje 10 ostatnich Kopii.

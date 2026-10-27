@@ -5,7 +5,8 @@ z tych samych faktów co karta Uruchomienia (``EndedRun``): wynik, Komunikaty z 
 wywołań Zatrzymania, a z ostatniego snapshotu projekcji postępu (``EndedRun.snapshot``) Przetworzenia Szablonów
 pracownika i liczba problemów. Środowisko to system, Python i pliki procesu z Diagnozy z rozmiarem i atrybutem OneDrive.
 Z podsumowania silnika Przebiegu rozliczeń jest też liczba wyczyszczonych Ilości tylko dla INEA, której karta nie
-pokazuje (ADR 0018).
+pokazuje (ADR 0018), a z podsumowania Uporządkowania INTERMAX jego Wpisy urządzenia i czynności INTERMAX (ADR 0019):
+wiersze i operatorzy, bez innej treści wierszy.
 Logi nie mają treści komórek: żadne pole nie niesie Wiersza danych, a pliki mają tylko nazwę, nigdy pełną ścieżkę.
 Skrypt dla maszyn nie ma działań po wyniku, więc Logów nie tworzy.
 
@@ -51,6 +52,7 @@ from rozliczenia.centrum.tool_freshness import CommitSource
 from rozliczenia.centrum.tool_update import Release
 from rozliczenia.centrum.version import short_commit
 from rozliczenia.domain import SettlementSummary, WorkerStatus
+from rozliczenia.intermax_ordering import OrderingSummary
 from rozliczenia.message import Message
 from rozliczenia.period_folder import PeriodFolderInaccessible
 
@@ -168,6 +170,28 @@ class LoggedDiagnosis(_Record):
         return result(self) == result(other)
 
 
+class LoggedWholesale(_Record):
+    """Instalacja hurt bez Wpisu: wiersz INTERMAX i nazwa operatora z aplikacji (``None``: puste ``CZYNNOŚCI``)."""
+
+    row: int
+    operator: str | None
+
+
+class LoggedEntries(_Record):
+    """Wpisy urządzenia i czynności INTERMAX Uporządkowania: operator z reguły taty → wiersze INTERMAX z Wpisem
+    oraz instalacje hurt bez Wpisu (operator spoza reguły)."""
+
+    rows: dict[str, list[int]]
+    without_entry: list[LoggedWholesale]
+
+    @classmethod
+    def of(cls, summary: OrderingSummary) -> LoggedEntries:
+        return cls(
+            rows={operator: list(rows) for operator, rows in summary.entries.items()},
+            without_entry=[LoggedWholesale(row=row, operator=operator) for row, operator in summary.without_entry],
+        )
+
+
 class Tool(_Record):
     wydanie: str | None
     """Numer Wydania (ADR 0014), którego tag w klonie wskazuje ``commit`` (``0.10.0``); ``None``, gdy nie da się go
@@ -203,6 +227,9 @@ class RunLog(_Record):
     inea_only_cleared: dict[str, int] | None = None
     """Ilości tylko dla INEA (ADR 0018): litera kolumny → liczba komórek z wartością, które Przebieg rozliczeń zostawił
     (w podglądzie: zostawiłby) puste w Rozliczeniach pracownika. ``None``: Przygotowanie, Przebieg bez podsumowania
+    i pliki sprzed tego pola."""
+    intermax_entries: LoggedEntries | None = None
+    """Wpisy urządzenia i czynności INTERMAX (ADR 0019). ``None``: inne procesy, Uporządkowanie bez podsumowania
     i pliki sprzed tego pola."""
     environment: Environment
     trace: CallTrace | None
@@ -246,6 +273,7 @@ class RunLog(_Record):
             inea_only_cleared={column.value: count for column, count in engine_summary.inea_only_cleared.items()}
             if isinstance(engine_summary, SettlementSummary)
             else None,
+            intermax_entries=LoggedEntries.of(engine_summary) if isinstance(engine_summary, OrderingSummary) else None,
             environment=environment,
             trace=None if stopped is None else stopped.stop.trace,
             diagnosis=None,
