@@ -29,8 +29,8 @@ jeszcze nie uporządkowało. Jedno wklejenie to zwykle zlecenia jednego dnia. Ma
 wygląd z aplikacji. Pierwszy wiersz wklejenia przychodzi przesunięty o dwie
 kolumny w lewo, ale zlecenia są Surowe także wtedy, gdy ktoś przesunął go już
 ręcznie. W `CZYNNOŚCI` mają tylko nazwę operatora, a w `URZĄDZENIA` rodzaj
-zlecenia (instalacja, usterka); resztę dopisują ręcznie tata i pracownicy po
-Uporządkowaniu INTERMAX.
+zlecenia (instalacja, usterka); poza Wpisem urządzenia i czynności INTERMAX
+resztę dopisują ręcznie tata i pracownicy po Uporządkowaniu INTERMAX.
 _Avoid_: eksport, nowe dane
 
 ## Uporządkowanie INTERMAX
@@ -39,8 +39,8 @@ Proces, który tata uruchamia w Centrum rozliczeń po wklejeniu Surowych
 zleceń dnia. Przesuwa pierwszy wiersz na miejsce, gdy przyszedł przesunięty,
 dzieli zlecenia na segmenty Wykonawców w kolejności alfabetycznej, oddzielone
 jednym pustym wierszem, w segmencie układa je od najwcześniejszej godziny do
-najpóźniejszej i nadaje im wygląd reszty Rejestru zleceń bez pogrubienia oraz
-Kolory operatora. Dzień stawia jeden pusty wiersz pod żółtym wierszem, którym
+najpóźniejszej i nadaje im wygląd reszty Rejestru zleceń bez pogrubienia,
+Kolory operatora i Wpisy urządzenia i czynności INTERMAX. Dzień stawia jeden pusty wiersz pod żółtym wierszem, którym
 tata oddziela dni, a bez niego 10 pustych wierszy pod ostatnim uporządkowanym
 zleceniem. Po nim Rejestr otwiera się na dzisiejszym dniu z kalendarza, a gdy
 dziś nie ma zleceń, na ostatnim wcześniejszym dniu ze zleceniami. Zmienia tylko
@@ -64,10 +64,25 @@ Wypełnienie, które Uporządkowanie INTERMAX nadaje zleceniu po nazwie operator
 w `CZYNNOŚCI`, a przy usterce po rodzaju zlecenia. `CZYNNOŚCI` i `NUMER UMOWY`
 dostają: T-Mobile zielony, Orange pomarańczowy, każdy inny operator jasny
 niebieski, a Netia ciemniejszy niebieski w `CZYNNOŚCI` i jasny niebieski w
-`NUMER UMOWY`. INEA i zlecenie bez operatora zostają bez wypełnienia. Usterka
+`NUMER UMOWY`. INEA i zlecenie bez operatora zostają bez wypełnienia. Nazwa
+operatora nie zależy od wielkości liter, spacji, myślników ani dopisku `S.A.`:
+`T-Mobile` to TMOBILE, a `Netia S.A.` to Netia. Usterka
 i usterka hurt mają zamiast tego różowe `URZĄDZENIA`. W Rejestrze zleceń jest
 Wyróżnieniem jak każde inne; inne kolory w Rejestrze to ręczne zaznaczenia
 taty i jego pracowników.
+
+## Wpis urządzenia i czynności INTERMAX
+
+Wartości `URZĄDZENIA` i `CZYNNOŚCI`, które Uporządkowanie INTERMAX wpisuje
+Surowemu zleceniu z rodzajem `Instalacja Hurt` po nazwie operatora w
+`CZYNNOŚCI`, tej samej co przy Kolorze operatora: `URZĄDZENIA` zastępuje, a
+do nazwy operatora w `CZYNNOŚCI`, takiej jak z aplikacji, dopisuje czynność. Netia, P4, Plus, VECTRA i SYSTEMIA dostają `nokia` i
+` - akt pętli`, ORANGE `gniazdo` i ` - akt pętli LLU`, a TMOBILE `nokia
+getewayHomeBox` i ` - akt int`. Usterki, instalacje ręczne, inne rodzaje
+zleceń i inni operatorzy, także INEA i OXYLION, zostają bez wpisu. Zlecenie
+ORANGE, które okazało się BSA, tata i pracownicy poprawiają ręcznie na `nokia`
+i ` - akt pętli BSA`, tak jak dopisują `stb2`, `tv` czy `akt int` po wizycie.
+_Avoid_: szablon, autouzupełnianie
 
 ## Zlecenie skuteczne
 
