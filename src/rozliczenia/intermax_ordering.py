@@ -31,6 +31,7 @@ from .raw_orders import (
     DayOrdered,
     DayPlan,
     Obstacle,
+    OrderKind,
     RawBlock,
     SeveralDays,
     Undated,
@@ -44,12 +45,19 @@ __all__ = ["OrderingSummary", "order_register"]
 
 @dataclass
 class OrderingSummary:
-    """Podsumowanie Uporządkowania INTERMAX bez danych klientów: dzień, liczba zleceń i Wykonawców, nazwa Kopii."""
+    """Podsumowanie Uporządkowania INTERMAX bez danych klientów: dzień, liczby zleceń i Wykonawców, Kopia i Wpisy.
+
+    ``entries``: operator z reguły taty → wiersze INTERMAX zleceń z Wpisem urządzenia i czynności INTERMAX.
+    ``without_entry``: wiersz INTERMAX i nazwa operatora z aplikacji (``None``: puste ``CZYNNOŚCI``) każdej
+    instalacji hurt bez Wpisu.
+    """
 
     day: date
     order_count: int
     worker_count: int
     copy_name: str
+    entries: Mapping[str, tuple[int, ...]]
+    without_entry: tuple[tuple[int, str | None], ...]
     warnings: list[Message] = field(default_factory=list)
     phase_durations_ms: Mapping[ProgressPhase, int] = field(default_factory=lambda: MappingProxyType({}))
 
@@ -149,7 +157,19 @@ def order_register(
             warnings.append(messages.old_copies_kept(copies_directory))
 
     phases.save(save)
-    summary = OrderingSummary(day.day, len(day.placements), day.worker_count, copies[0].name, warnings)
+    entries: dict[str, list[int]] = {}
+    for placement in day.placements:
+        if placement.entry is not None:
+            entries.setdefault(placement.entry.operator, []).append(placement.row)
+    without_entry = tuple(
+        (placement.row, placement.order.operator)
+        for placement in day.placements
+        if placement.entry is None and placement.order.kind is OrderKind.WHOLESALE_INSTALLATION
+    )
+    frozen = MappingProxyType({operator: tuple(rows) for operator, rows in entries.items()})
+    summary = OrderingSummary(
+        day.day, len(day.placements), day.worker_count, copies[0].name, frozen, without_entry, warnings
+    )
     return replace(summary, phase_durations_ms=phases.durations_ms())
 
 

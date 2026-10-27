@@ -41,7 +41,7 @@ AnyCentrum = PreparingCentrum | SettlingCentrum
 KEYS = {
     "schema_version", "run_id", "process", "mode", "period", "started_at", "ended_at", "duration_ms", "tool",
     "result", "ending", "stop_kind", "issue_count", "messages", "technical_notes", "summary", "phases", "templates",
-    "inea_only_cleared", "environment", "trace", "diagnosis",
+    "inea_only_cleared", "intermax_entries", "environment", "trace", "diagnosis",
 }
 
 
@@ -332,6 +332,7 @@ def test_logi_maja_etapy_i_przetworzenia_szablonow_pracownika_z_wynikiem_wiersza
     [record] = records(centrum)
     assert record.keys() == KEYS
     assert (record["schema_version"], record["diagnosis"], record["trace"]) == (1, None, None)
+    assert record["intermax_entries"] is None, "Wpisy INTERMAX ma tylko Uporządkowanie INTERMAX"
     assert record["tool"] == {"wydanie": None, "commit": TOOL_COMMIT}
     assert record["phases"] == view["progress"]["phases"]
     assert [phase["state"] for phase in record["phases"]] == ["completed"] * 4

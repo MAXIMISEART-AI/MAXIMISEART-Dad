@@ -9,6 +9,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from datetime import datetime, timedelta
 import errno
+import json
 import os
 from pathlib import Path
 from typing import Any
@@ -30,7 +31,7 @@ from tests.fixtures.centrum_intermax import (
     open_in_excel,
     ordering_centrum,
 )
-from tests.fixtures.intermax import ORDER_SHEET, Intermax
+from tests.fixtures.intermax import ACTIVITIES, DEVICES, ORDER_SHEET, Intermax, Order
 
 COPY = "INTERMAX przed uporządkowaniem 2026-10-26 14-05-07.xlsx"
 SUMMARY: dict[str, Any] = {
@@ -485,6 +486,59 @@ def test_nieczytelne_najnowsze_logi_to_karta_bez_ostatniego_takze_gdy_starsze_sa
     _logs_like(centrum, ordered, timedelta(hours=1, seconds=30 - second)).write_text("{", encoding="utf-8")
 
     assert centrum.setup()["last"] is None
+
+
+def test_logi_uporzadkowania_maja_wiersze_wpisow_na_operatora_i_instalacje_hurt_bez_wpisu_a_karta_sie_nie_zmienia(
+    tmp_path: Path,
+) -> None:
+    raw = (
+        Order(datetime(2026, 10, 26, 8), "jan.nowak", 201, "P4", "Instalacja Hurt"),
+        Order(datetime(2026, 10, 26, 9), "jan.nowak", 202, "T-Mobile", "Instalacja Hurt"),
+        Order(datetime(2026, 10, 26, 10), "jan.nowak", 203, "P4", "Instalacja Hurt"),
+        Order(datetime(2026, 10, 26, 11), "jan.nowak", 204, "INEA S.A.", "Instalacja Hurt"),
+        Order(datetime(2026, 10, 26, 12), "jan.nowak", 205, None, "Instalacja Hurt"),
+        Order(datetime(2026, 10, 26, 13), "jan.nowak", 206, "P4", "Usterka"),
+    )
+    centrum = ordering_centrum(tmp_path, Intermax(raw=raw))
+    day = centrum.layout.yellow
+    assert day is not None
+
+    view = centrum.run_to_end()
+
+    result = view["result"]
+    assert (result["headline"], result["stops"], result["warnings"]) == ("INTERMAX uporządkowany", [], [])
+    assert result["summary"] == SUMMARY | {
+        "figures": [
+            {"label": "Zlecenia", "value": 6, "unit": "count"},
+            {"label": "Wykonawcy", "value": 1, "unit": "count"},
+        ],
+    }
+    [logs] = centrum.run_logs()
+    assert logs["intermax_entries"] == {
+        "rows": {"P4": [day + 2, day + 4], "TMOBILE": [day + 3]},
+        "without_entry": [{"row": day + 5, "operator": "INEA S.A."}, {"row": day + 6, "operator": None}],
+    }
+    [path] = (tmp_path / "logs" / "uruchomienia").glob("*.json")
+    text = path.read_text(encoding="utf-8")
+    for order in raw:
+        for column, value in order.values().items():
+            if isinstance(value, str) and column not in (DEVICES, ACTIVITIES) and value not in ("Miasto", "Umowa"):
+                assert value not in text, value
+    assert "akt pętli" not in text and "nokia" not in text, "bez wartości Wpisu"
+
+
+def test_karta_wraca_z_logow_uporzadkowania_sprzed_wpisow_intermax(tmp_path: Path) -> None:
+    centrum = ordering_centrum(tmp_path)
+    ordered = centrum.run_to_end()["run"]["id"]
+    [path] = (tmp_path / "logs" / "uruchomienia").glob(f"*-{ordered}.json")
+    record = json.loads(path.read_text(encoding="utf-8"))
+    del record["intermax_entries"]
+    path.write_text(json.dumps(record, ensure_ascii=False), encoding="utf-8")
+
+    centrum.restart()
+
+    last = centrum.setup()["last"]
+    assert (last["run"]["id"], last["result"]["summary"]) == (ordered, SUMMARY)
 
 
 def test_start_z_okresem_nie_przyjmuje_uporzadkowania_intermax(tmp_path: Path) -> None:
