@@ -24,11 +24,13 @@ wiersza wcześniejszego dnia: zlecenie na jutro wpisane w dzisiejszym dniu nie c
 Plan dnia (``plan_day``) z bloku wyznacza docelowe wiersze zleceń: jeden pusty wiersz pod żółtym wierszem albo
 10 pustych pod ostatnim uporządkowanym zleceniem, segmenty Wykonawców w kolejności alfabetycznej z jednym
 pustym wierszem między nimi, w segmencie od najwcześniejszej godziny, a przy tej samej godzinie w kolejności z
-aplikacji. Każde zlecenie dostaje Kolor operatora z tabeli ``_OPERATOR_COLORS`` po nazwie operatora w
-``CZYNNOŚCI`` bez względu na wielkość liter, spacje i myślniki, a usterka (``URZĄDZENIA``) różowe ``URZĄDZENIA``.
+aplikacji. Operatora rozpoznaje jedno rozpoznanie nazwy w ``CZYNNOŚCI`` (``_operator``): bez wielkości liter,
+spacji, myślników i dopisku ``S.A.``. Każde zlecenie dostaje Kolor operatora z tabeli ``_OPERATOR_COLORS``, a
+usterka (``URZĄDZENIA``) różowe ``URZĄDZENIA``. Instalacja hurt operatora z tabeli ``_ENTRY_RULES`` dostaje Wpis
+urządzenia i czynności INTERMAX: ``URZĄDZENIA`` z tabeli i dopisek za nazwą operatora z aplikacji w ``CZYNNOŚCI``.
 Plan wyznacza też wiersz widoku po otwarciu: pierwsze zlecenie dzisiejszego dnia, a bez zleceń dziś pierwsze
 zlecenie ostatniego wcześniejszego dnia ze zleceniami, szukane od dołu tak jak przegląd nad blokiem. Fakty nie
-zawierają treści wierszy poza datą i Wykonawcą potrzebnymi do kolejności oraz nazwą operatora i usterką.
+zawierają treści wierszy poza datą i Wykonawcą potrzebnymi do kolejności oraz nazwą operatora i rodzajem zlecenia.
 """
 
 from __future__ import annotations
@@ -37,6 +39,7 @@ import re
 from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass
 from datetime import date, datetime
+from enum import Enum
 from itertools import chain, groupby
 from types import MappingProxyType
 from typing import Final
@@ -49,6 +52,8 @@ _ORDERED_FACE: Final = ("Calibri", 8.0)
 _BLANK_ROWS_WITHOUT_YELLOW: Final = 10
 _EARLIER_ROWS: Final = 10
 """Tyle kolejnych uporządkowanych wierszy z wcześniejszym dniem kończy przegląd nad blokiem."""
+_COMPANY_SUFFIX: Final = re.compile(r"[\s-]+S\.?\s*A\.?\s*$", re.IGNORECASE)
+"""Dopisek ``S.A.`` za nazwą operatora (także ``SA``, ``S.A``), oddzielony spacją albo myślnikiem."""
 
 
 @dataclass(frozen=True)
@@ -86,11 +91,51 @@ _OPERATOR_COLORS: Final[Mapping[str | None, OperatorColor]] = MappingProxyType(
         None: OperatorColor(),
     }
 )
-"""Operator z ``CZYNNOŚCI`` (``_name``; ``None``: puste) → Kolor operatora; każdy inny to ``_OTHER_OPERATOR``."""
+"""Operator z ``CZYNNOŚCI`` (``_operator``; ``None``: puste) → Kolor operatora; każdy inny to ``_OTHER_OPERATOR``."""
 _OTHER_OPERATOR: Final = OperatorColor("00FFFF", "00FFFF")
-_FAULTS: Final = frozenset({"usterka", "usterkahurt"})
-"""Rodzaje zleceń w ``URZĄDZENIA`` (``_name``), które dostają ``_FAULT`` zamiast koloru operatora."""
 _FAULT: Final = OperatorColor(devices="E89CA7")
+"""Kolor zamiast Koloru operatora przy usterce (``OrderKind.FAULT``)."""
+
+
+class OrderKind(Enum):
+    """Rodzaj Surowego zlecenia z ``URZĄDZENIA``: usterka (także hurt), instalacja hurt albo inny."""
+
+    FAULT = "usterka"
+    WHOLESALE_INSTALLATION = "instalacja hurt"
+    OTHER = "inny"
+
+
+_KINDS: Final[Mapping[str, OrderKind]] = MappingProxyType(
+    {
+        "usterka": OrderKind.FAULT,
+        "usterkahurt": OrderKind.FAULT,
+        "instalacjahurt": OrderKind.WHOLESALE_INSTALLATION,
+    }
+)
+"""``URZĄDZENIA`` (``_name``) → rodzaj zlecenia; każda inna wartość to ``OrderKind.OTHER``."""
+
+
+@dataclass(frozen=True)
+class _EntryRule:
+    """Reguła taty dla instalacji hurt operatora: jego nazwa w regule, ``URZĄDZENIA`` i dopisek w ``CZYNNOŚCI``."""
+
+    operator: str
+    devices: str
+    suffix: str
+
+
+_ENTRY_RULES: Final[Mapping[str, _EntryRule]] = MappingProxyType(
+    {
+        "netia": _EntryRule("Netia", "nokia", " - akt pętli"),
+        "p4": _EntryRule("P4", "nokia", " - akt pętli"),
+        "plus": _EntryRule("Plus", "nokia", " - akt pętli"),
+        "vectra": _EntryRule("VECTRA", "nokia", " - akt pętli"),
+        "systemia": _EntryRule("SYSTEMIA", "nokia", " - akt pętli"),
+        "orange": _EntryRule("ORANGE", "gniazdo", " - akt pętli LLU"),
+        "tmobile": _EntryRule("TMOBILE", "nokia getewayHomeBox", " - akt int"),
+    }
+)
+"""Operator z ``CZYNNOŚCI`` (``_operator``) → reguła taty dla Wpisu urządzenia i czynności INTERMAX."""
 
 
 @dataclass(frozen=True)
@@ -121,10 +166,10 @@ class RowFacts:
 
 @dataclass(frozen=True)
 class RawOrder:
-    """Surowe zlecenie: wiersz arkusza, przesunięcie pierwszego wiersza, data z godziną, Wykonawca, operator i usterka.
+    """Surowe zlecenie: wiersz arkusza, przesunięcie pierwszego wiersza, data z godziną, Wykonawca, operator i rodzaj.
 
-    ``operator`` to nazwa z ``CZYNNOŚCI`` bez wielkości liter, spacji i myślników (``None``: puste), a ``fault``
-    mówi, czy ``URZĄDZENIA`` to usterka albo usterka hurt.
+    ``operator`` to nazwa operatora z ``CZYNNOŚCI`` taka, jak z aplikacji, bez spacji na brzegach (``None``: puste),
+    a ``kind`` rodzaj zlecenia z ``URZĄDZENIA``.
     """
 
     row: int
@@ -132,7 +177,7 @@ class RawOrder:
     when: datetime
     worker: str
     operator: str | None
-    fault: bool
+    kind: OrderKind
 
 
 @dataclass(frozen=True)
@@ -198,12 +243,22 @@ Obstacle = AboveOrdered | Undated | WithoutWorker | SeveralDays | DayOrdered
 
 
 @dataclass(frozen=True)
+class IntermaxEntry:
+    """Wpis urządzenia i czynności INTERMAX: operator z reguły taty, ``URZĄDZENIA`` i ``CZYNNOŚCI`` po Wpisie."""
+
+    operator: str
+    devices: str
+    activities: str
+
+
+@dataclass(frozen=True)
 class Placement:
-    """Surowe zlecenie na docelowym wierszu dnia z Kolorem operatora."""
+    """Surowe zlecenie na docelowym wierszu dnia z Kolorem operatora i Wpisem (``None``: bez Wpisu)."""
 
     order: RawOrder
     row: int
     color: OperatorColor
+    entry: IntermaxEntry | None
 
 
 @dataclass(frozen=True)
@@ -302,14 +357,23 @@ def plan_day(block: RawBlock, rows_from_bottom: Iterable[RowFacts], columns: Ord
             row += 1
         segments += 1
         for order in segment:
-            placements.append(Placement(order, row, _operator_color(order)))
+            placements.append(Placement(order, row, _operator_color(order), _entry(order)))
             row += 1
     view_row = _view_row(placements, rows_from_bottom, columns, block.anchor, today)
     return DayPlan(min(order.when for order in block.orders).date(), tuple(placements), segments, view_row)
 
 
 def _operator_color(order: RawOrder) -> OperatorColor:
-    return _FAULT if order.fault else _OPERATOR_COLORS.get(order.operator, _OTHER_OPERATOR)
+    if order.kind is OrderKind.FAULT:
+        return _FAULT
+    return _OPERATOR_COLORS.get(None if order.operator is None else _operator(order.operator), _OTHER_OPERATOR)
+
+
+def _entry(order: RawOrder) -> IntermaxEntry | None:
+    if order.kind is not OrderKind.WHOLESALE_INSTALLATION or order.operator is None:
+        return None
+    rule = _ENTRY_RULES.get(_operator(order.operator))
+    return None if rule is None else IntermaxEntry(rule.operator, rule.devices, order.operator + rule.suffix)
 
 
 def _view_row(
@@ -357,14 +421,20 @@ def _order(row: RowFacts, columns: OrderColumns, shifted: bool) -> RawOrder | Un
     if worker is None:
         return WithoutWorker(row.number, columns.worker - offset)
     operator = row.value(columns.activities - offset)
-    fault = _name(row.value(columns.devices - offset)) in _FAULTS
-    return RawOrder(row.number, shifted, when, str(worker), None if operator is None else _name(operator), fault)
+    kind = _KINDS.get(_name(row.value(columns.devices - offset)), OrderKind.OTHER)
+    return RawOrder(row.number, shifted, when, str(worker), None if operator is None else str(operator).strip(), kind)
 
 
 def _name(value: object) -> str:
     """Nazwa bez wielkości liter, spacji i myślników: ``T-Mobile`` i ``TMOBILE`` to ``tmobile``."""
 
     return re.sub(r"[\W_]+", "", str(value).casefold())
+
+
+def _operator(text: str) -> str:
+    """Nazwa operatora z ``CZYNNOŚCI`` jak ``_name``, a do tego bez dopisku ``S.A.``: ``Netia S.A.`` to ``netia``."""
+
+    return _name(_COMPANY_SUFFIX.sub("", text))
 
 
 def _above(

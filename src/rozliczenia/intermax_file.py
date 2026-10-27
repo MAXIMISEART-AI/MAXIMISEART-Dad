@@ -10,9 +10,10 @@ bez openpyxl: ~42 tys. wierszy taty to dziesiątki MB XML, a rozpoznanie potrzeb
 - w XML arkusza zleceń wiersze pod wierszem, pod którym staje dzień (``RawBlock.anchor``): wiersz zlecenia
   dostaje komórki Surowego zlecenia (w przesuniętym pierwszym wierszu o dwie kolumny w prawo), w kolumnach od
   ``AKCJE`` do ``UWAGI`` z wyglądem reszty INTERMAX i Kolorem operatora z planu dnia, a za ``UWAGI`` takie, jak
-  przyszły; pusty wiersz między segmentami ma puste komórki od ``AKCJE`` do ``UWAGI`` z tym samym wyglądem; inny
-  pusty wiersz, który był pusty, zostaje bajt w bajt, a wiersz, z którego zlecenie odeszło, i wiersz, którego nie
-  było, są pustym wierszem taty; wygląd ``<row>`` (styl wiersza, wysokość) daje ``_RowLooks``;
+  przyszły; zlecenie z Wpisem urządzenia i czynności INTERMAX ma w ``URZĄDZENIA`` i ``CZYNNOŚCI`` tekst Wpisu
+  zamiast wartości z aplikacji; pusty wiersz między segmentami ma puste komórki od ``AKCJE`` do ``UWAGI`` z tym
+  samym wyglądem; inny pusty wiersz, który był pusty, zostaje bajt w bajt, a wiersz, z którego zlecenie odeszło, i
+  wiersz, którego nie było, są pustym wierszem taty; wygląd ``<row>`` (styl wiersza, wysokość) daje ``_RowLooks``;
 - ``ref`` Hiperłączy z tych wierszy, które idą razem ze swoją komórką, i ``<dimension>``, gdy dzień sięga dalej;
 - widok arkusza zleceń (``<sheetViews>``): karta zaznaczona, a górny wiersz widoku pod zamrożonym nagłówkiem i
   zaznaczenie na wierszu widoku z planu dnia (``DayPlan.view_row``);
@@ -23,7 +24,8 @@ bez openpyxl: ~42 tys. wierszy taty to dziesiątki MB XML, a rozpoznanie potrzeb
 Każda inna część pliku i każdy bajt nad tymi wierszami zostają. Arkusz, w którego zmienianych wierszach jest
 formuła albo zakres (scalenie, formatowanie warunkowe, sprawdzanie poprawności, autofiltr, Hiperłącze na kilka
 komórek), to ``UnsupportedShape``. Wynik trafia do pliku tymczasowego obok INTERMAX, zostaje odczytany jeszcze
-raz i porównany z oryginałem; różnica to ``WriteMismatch``, a INTERMAX zostaje nietknięty. Dopiero po zgodnym
+raz i porównany z oryginałem, a komórki Wpisu z Wpisem z planu dnia; różnica to ``WriteMismatch``, a INTERMAX
+zostaje nietknięty. Dopiero po zgodnym
 sprawdzeniu ``before_replace`` (Kopia INTERMAX) i atomowa podmiana. Podmianę, której system odmawia, gdy Excel nie
 trzyma INTERMAX (OneDrive go synchronizuje), ``save`` ponawia przez ``_RETRY_S`` sekund zegara procesu (``Waiting``),
 a potem zgłasza ``HeldByOneDrive``. Przed każdą ponowną próbą czyta INTERMAX jeszcze raz: gdy OneDrive wgrał w
@@ -59,7 +61,7 @@ from openpyxl.workbook.properties import WorkbookProperties
 
 from . import workbook_files
 from .preparation_register import ACTIVITIES, COLUMNS, DATE, DEVICES, WORKER
-from .raw_orders import SHIFT, CellFacts, DayPlan, OperatorColor, OrderColumns, RawBlock, RowFacts
+from .raw_orders import SHIFT, CellFacts, DayPlan, IntermaxEntry, OperatorColor, OrderColumns, RawBlock, RowFacts
 from .row_look import BORDER
 from .workbook_files import WorkbookError, header_columns, is_blank
 from .workbook_parts import MAIN, OFFICE_REL, IrregularSheetData, SheetData, SheetRow, office_document, relationships
@@ -574,12 +576,19 @@ def _ordered_sheet(sheet: _SheetXml, columns: OrderColumns, block: RawBlock, pla
             source = by_number[placement.order.row]
             offset = SHIFT if placement.order.shifted else 0
             row_xml, right = _order_row(
-                xml[source.start : source.end], number, offset, columns, looks, row_looks.order, placement.color
+                xml[source.start : source.end],
+                number,
+                offset,
+                columns,
+                looks,
+                row_looks.order,
+                placement.color,
+                _entry_cells(placement.entry, columns),
             )
             rows.append(row_xml)
             widest = max(widest, right)
         elif number in separators:
-            rows.append(_order_row(b"", number, 0, columns, looks, row_looks.order, OperatorColor())[0])
+            rows.append(_order_row(b"", number, 0, columns, looks, row_looks.order, OperatorColor(), {})[0])
         elif number in by_number and number not in raw:
             rows.append(xml[by_number[number].start : by_number[number].end])
         else:
@@ -589,17 +598,25 @@ def _ordered_sheet(sheet: _SheetXml, columns: OrderColumns, block: RawBlock, pla
 
 
 def _order_row(
-    row_xml: bytes, number: int, offset: int, columns: OrderColumns, looks: _Looks, row_look: bytes, color: OperatorColor
+    row_xml: bytes,
+    number: int,
+    offset: int,
+    columns: OrderColumns,
+    looks: _Looks,
+    row_look: bytes,
+    color: OperatorColor,
+    entry: Mapping[int, _Cell],
 ) -> tuple[bytes, int]:
-    """Wiersz zlecenia ``number`` z komórek Surowego zlecenia, Kolorem operatora ``color`` i wyglądem ``row_look``
-    oraz najdalsza kolumna z komórką."""
+    """Wiersz zlecenia ``number`` z komórek Surowego zlecenia, w kolumnach ``entry`` z komórkami Wpisu, z Kolorem
+    operatora ``color`` i wyglądem ``row_look`` oraz najdalsza kolumna z komórką."""
 
     fills = {columns.activities: color.activities, columns.contract_number: color.contract_number, columns.devices: color.devices}
     written: dict[int, bytes] = {}
-    for cell in _cells(row_xml):
-        column = cell.column + offset
+    for source in _cells(row_xml):
+        column = source.column + offset
+        cell = entry.get(column, source)
         if columns.first <= column <= columns.last:
-            style = looks.style(column, looks.number_format(cell.style), fills.get(column))
+            style = looks.style(column, looks.number_format(source.style), fills.get(column))
             attributes = _STYLE.sub(b"", cell.attributes) + b' s="%d"' % style
             written[column] = cell.xml(column, number, attributes)
         else:
@@ -610,6 +627,18 @@ def _order_row(
             written[column] = _Cell(column, b"", None).xml(column, number, b' s="%d"' % style)
     cells = b"".join(written[column] for column in sorted(written))
     return b'<row r="%d"%s>' % (number, row_look) + cells + b"</row>", max(written)
+
+
+def _entry_cells(entry: IntermaxEntry | None, columns: OrderColumns) -> dict[int, _Cell]:
+    """Komórki Wpisu urządzenia i czynności INTERMAX po kolumnie: tekst w ``URZĄDZENIA`` i ``CZYNNOŚCI``; bez Wpisu
+    żadnych."""
+
+    if entry is None:
+        return {}
+    return {
+        column: _Cell(column, b' t="inlineStr"', b"<is><t>%s</t></is>" % html.escape(text, quote=False).encode("utf-8"))
+        for column, text in ((columns.devices, entry.devices), (columns.activities, entry.activities))
+    }
 
 
 def _with_dimension(head: bytes, last_row: int, last_column: int) -> bytes:
@@ -699,6 +728,7 @@ def _check_sheet(original: _SheetXml, written: bytes, columns: OrderColumns, blo
         source = sources[placement.order.row]
         offset = SHIFT if placement.order.shifted else 0
         expected = {cell.column + offset: cell for cell in _cells(xml[source.start : source.end])}
+        expected.update(_entry_cells(placement.entry, columns))
         if {column for column, cell in expected.items() if _has_value(cell)} != set(valued):
             raise WriteMismatch(f"wiersz {number}")
         found = {cell.column: cell for cell in cells}
