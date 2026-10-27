@@ -339,6 +339,9 @@ def test_kolor_operatora_w_czynnosciach_numerze_umowy_i_urzadzeniach_a_inne_komo
         ("NETIA", "instalacja hurt", ("nokia", "NETIA - akt pętli")),
         (" p4 ", " INSTALACJA  HURT ", ("nokia", "p4 - akt pętli")),
         ("Netia S.A.", "Instalacja Hurt", ("nokia", "Netia S.A. - akt pętli")),
+        ("NETIA s.a", "Instalacja Hurt", ("nokia", "NETIA s.a - akt pętli")),
+        ("Netia-SA", "Instalacja Hurt", ("nokia", "Netia-SA - akt pętli")),
+        ("P4 <&>", "Instalacja Hurt", ("nokia", "P4 <&> - akt pętli")),
         ("T-Mobile", "Instalacja Hurt", ("nokia getewayHomeBox", "T-Mobile - akt int")),
     ],
     ids=[
@@ -352,6 +355,9 @@ def test_kolor_operatora_w_czynnosciach_numerze_umowy_i_urzadzeniach_a_inne_komo
         "wielkie litery operatora i male rodzaju",
         "spacje w operatorze i rodzaju",
         "netia s.a.",
+        "netia s.a bez kropki malymi literami",
+        "netia-sa z myslnikiem",
+        "znaki xml w nazwie operatora",
         "t-mobile",
     ],
 )
