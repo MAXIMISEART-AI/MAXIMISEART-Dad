@@ -60,9 +60,20 @@ od 2021 roku: około 42 tys. wierszy, cztery arkusze, około 6,5 MB, w OneDrive.
 - **Przed podmianą narzędzie sprawdza swój zapis.** Plik tymczasowy obok
   INTERMAX zostaje odczytany jeszcze raz i porównany z oryginałem: poza
   zmianami z poprzedniego punktu wszystko musi się zgadzać, a zlecenia bloku
-  mają te same wartości co Surowe zlecenia po przesunięciu, poza Wpisem
-  urządzenia i czynności INTERMAX z następnego punktu. Inaczej
+  mają od kolumny A do `UWAGI` te same wartości co Surowe zlecenia po
+  przesunięciu, poza Wpisem urządzenia i czynności INTERMAX z następnego
+  punktu, i żadnej komórki za `UWAGI`. Inaczej
   Zatrzymanie „do Maksa”, a INTERMAX zostaje nietknięty.
+- **Wygląd dnia jak w dniach uporządkowanych ręcznie** (2026-10-28, Uwaga
+  taty). Wiersz zlecenia i pusty wiersz między segmentami mają komórki od
+  kolumny A do `UWAGI`, wszystkie z cienką ramką, także pustą kolumnę A przed
+  `AKCJE`. `WYKONAWCA` jest pogrubiony (Calibri 9), reszta nie. Kolumny z
+  aplikacji za `UWAGI` (u taty P:AK po przesunięciu) znikają razem z
+  komórkami, tak jak w dniach, które tata porządkował ręcznie. To zastępuje
+  historyjki 12 („nic nie pogrubione”) i 22 („kolumny za `UWAGI` zostają”)
+  specu #462. Hiperłącze z aplikacji, które stoi za `UWAGI`, nie ma już
+  komórki, więc daje Zatrzymanie „do Maksa”; na kopii INTERMAX taty
+  Hiperłącza są tylko w `NUMER ZL.`.
 - **Zapis zmienia też wartości: Wpis urządzenia i czynności INTERMAX**
   (2026-10-27, reguła taty). Surowe zlecenie z rodzajem `Instalacja Hurt` u
   operatora z listy taty (Netia, P4, Plus, VECTRA, SYSTEMIA, ORANGE, TMOBILE)
