@@ -1461,6 +1461,20 @@ def test_hiperlacze_za_uwagi_w_surowym_zleceniu_to_zatrzymanie_do_maksa_bez_zapi
     assert (stop.message.code, stop.stop_kind) == ("NIEOBSLUGIWANY_UKLAD_INTERMAX", "for_maks")
 
 
+def test_hiperlacze_w_uwagach_surowego_zlecenia_idzie_ze_zleceniem(tmp_path: Path) -> None:
+    path, layout = _register(tmp_path)
+    raw_link = rb'(<hyperlink [^>]*?ref=")I%d(")' % (layout.first_raw + 1)
+    in_notes = rb"\g<1>%s%d\g<2>" % (get_column_letter(LAST).encode("ascii"), layout.first_raw + 1)
+    rewrite_parts(path, lambda name, data: re.sub(raw_link, in_notes, data, count=1) if name == _SHEET else data)
+
+    _ordered(_run(tmp_path))
+
+    assert layout.yellow is not None
+    sheet = load_workbook(path).worksheets[1]
+    notes = [row for row in range(layout.yellow, sheet.max_row + 1) if sheet.cell(row, LAST).hyperlink is not None]
+    assert len(notes) == 1
+
+
 def test_arkusz_bez_dimension_dostaje_dzien_bez_dimension(tmp_path: Path) -> None:
     path, layout = _register(tmp_path)
     rewrite_parts(path, lambda name, data: re.sub(rb"<dimension [^>]*>", b"", data) if name == _SHEET else data)
