@@ -40,8 +40,8 @@ od 2021 roku: około 42 tys. wierszy, cztery arkusze, około 6,5 MB, w OneDrive.
   dnia co przegląd nad wklejeniem, a bez takiego dnia uporządkowany dzień.
 - **Zapis dotyka w arkuszu zleceń jeszcze dwóch miejsc** (sprawdzone na kopii
   INTERMAX taty z doklejonym wklejeniem z aplikacji, #467): `<dimension ref>`
-  rośnie, gdy dzień sięga dalej niż ostatni wiersz albo przesunięty pierwszy
-  wiersz dalej niż ostatnia kolumna, a `ref` Hiperłączy `NUMER ZL.` Surowych
+  rośnie, gdy dzień sięga dalej niż ostatni wiersz albo `UWAGI` dalej niż
+  ostatnia kolumna, a `ref` Hiperłączy `NUMER ZL.` Surowych
   zleceń idzie razem z ich komórką; relacje arkusza zostają. Zmieniane wiersze
   to wszystkie pod żółtym wierszem albo pod ostatnim uporządkowanym zleceniem,
   także puste między nimi a wklejeniem: pusty wiersz, który zostaje pusty, ma
