@@ -498,16 +498,19 @@ SKILL_SCRIPT = ".agents/skills/verify-a/scripts/check_a_mutations.py"
 
 
 @pytest.mark.parametrize(
-    ("changed", "reported"),
+    ("event", "changed", "reported"),
     [
-        # Trafienie w pilnuje uruchamia podstawę skilla, a jego skrypt mutacji nie (ADR 0020).
-        ("src/pakiet/a.py", [f"WYBRANY {SKILL_BASELINE} (zmienione: src/pakiet/a.py)", f"POMINIĘTY {SKILL_SCRIPT}: "]),
-        ("tests/test_a.py", [f"POMINIĘTY {SKILL_BASELINE}: ", f"POMINIĘTY {SKILL_SCRIPT}: "]),
+        ("pull_request", "src/pakiet/a.py", [f"WYBRANY {SKILL_BASELINE} (zmienione: src/pakiet/a.py)", f"POMINIĘTY {SKILL_SCRIPT}: skrypt mutacji biegnie nocą"]),
+        ("pull_request", "tests/test_a.py", [f"POMINIĘTY {SKILL_BASELINE}: ", f"POMINIĘTY {SKILL_SCRIPT}: skrypt mutacji biegnie nocą"]),
+        # Na PR skrypt mutacji nie biegnie także przy zmianie folderu skilla, tylko nocą na main (ADR 0021).
+        ("pull_request", ".agents/skills/verify-a/scripts/sprawdz_a.py", [f"WYBRANY {SKILL_BASELINE} (zmienione: ", f"POMINIĘTY {SKILL_SCRIPT}: skrypt mutacji biegnie nocą"]),
+        ("noc", "src/pakiet/a.py", [f"POMINIĘTY {SKILL_BASELINE}: podstawa biegnie na pull request", f"POMINIĘTY {SKILL_SCRIPT}: zmiany nie dotykają folderu skilla"]),
+        ("noc", ".agents/skills/verify-a/scripts/sprawdz_a.py", [f"WYBRANY {SKILL_SCRIPT} (zmienione: ", f"POMINIĘTY {SKILL_BASELINE}: podstawa biegnie na pull request"]),
     ],
-    ids=["zmiana src", "zmiana testów"],
+    ids=["zmiana src", "zmiana testów", "zmiana folderu skilla", "noc bez zmiany skilla", "noc ze zmianą folderu skilla"],
 )
-def test_plan_pull_requestu_startuje_mutation_checks_tylko_z_praca_od_zmiany(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], changed: str, reported: list[str]
+def test_plan_pull_requestu_i_nocy_startuje_mutation_checks_tylko_z_praca_od_zmiany(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], event: str, changed: str, reported: list[str]
 ) -> None:
     def offline(*arguments: str) -> str:
         raise subprocess.CalledProcessError(1, ["gh", *arguments], stderr="gh: not logged in")
@@ -524,15 +527,16 @@ def test_plan_pull_requestu_startuje_mutation_checks_tylko_z_praca_od_zmiany(
     monkeypatch.setattr(czasy_ci, "_gh", offline)
     monkeypatch.setenv("GITHUB_OUTPUT", str(tmp_path / "output"))
 
-    code = plan_ci.main(["plan", "--zdarzenie", "pull_request", "--baza", "baza", "--czasy", str(tmp_path / "czasy"), "--wyjscie", str(tmp_path / "plan.json")])
+    code = plan_ci.main(["plan", "--zdarzenie", event, "--baza", "baza", "--czasy", str(tmp_path / "czasy"), "--wyjscie", str(tmp_path / "plan.json")])
     out = capsys.readouterr().out
     output = dict(line.split("=", 1) for line in (tmp_path / "output").read_text(encoding="utf-8").splitlines())
 
     mutation_checks = [entry["nazwa"] for entry in json.loads(output["mutations"])]
 
     assert code == 0, out
-    # Zmiana spoza pilnuje i plików skilla nie daje Mutation checks żadnego zadania.
-    assert mutation_checks == (["Mutation checks (1/1)"] if changed.startswith("src/") else [])
+    # Zmiana spoza pilnuje i plików skilla nie daje Mutation checks żadnego zadania, a noc nie ma pytest.
+    assert mutation_checks == (["Mutation checks (1/1)"] if any(line.startswith("WYBRANY") for line in reported) else [])
+    assert (output["pytest"] == "[]") == (event == "noc")
     shown = [line for line in out.splitlines() if line.startswith(("WYBRANY", "POMINIĘTY"))]
     assert len(shown) == len(reported) and all(line.startswith(start) for line, start in zip(shown, reported, strict=True)), out
 

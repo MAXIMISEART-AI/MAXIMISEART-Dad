@@ -8,8 +8,9 @@ na każdym pliki z wyboru ``tools/szybko.py`` dla zmiany od bazy, bez jego budż
 ``.github/workflows/`` wybiera wszystkie pliki. Na Windows 3.11 E2E biegnie przy zmianie pod ``src/``, a straż czasu
 przy zmianie w domknięciu jej skryptów (``STRAZ``); przy wyborze wszystkich plików oba.
 Praca Mutation checks to tor ``MUTACJE`` (Windows 3.14): kroki skilli z wyboru ``tools/mutacje_skilli.py`` (na pull
-request tylko te, których werdykt mogą zmienić zmiany od bazy, na pushu wszystkie), każda podstawa ``ci:`` i każdy skrypt
-mutacji osobno. Koszt jednostki to ściana, którą dodaje do zadania: plik waży sumę czasów swoich testów przez
+request podstawy ``ci:``, których werdykt mogą zmienić zmiany od bazy, na pushu wszystkie kroki), każda podstawa ``ci:`` i
+każdy skrypt mutacji osobno. Zdarzenie ``noc`` (workflow ``mutacje-nocne.yml``, ADR 0021) nie ma pytest, a jego Mutation
+checks to skrypty mutacji skilli, których werdykt mogły zmienić zmiany ``main`` od bazy nocy. Koszt jednostki to ściana, którą dodaje do zadania: plik waży sumę czasów swoich testów przez
 ``WORKERY`` workerów xdist, krok swój czas. Czasy to mediany z ostatnich runów main (``tools/czasy_ci.py``). Plik albo
 krok skilla bez pomiaru waży medianę zmierzonych jednostek tego rodzaju na torze, a bez żadnych pomiarów wagę z
 ``DOMYSLNIE``: plan to wypisuje i biegnie dalej, bo brak czasów psuje tylko równowagę zadań, nie zbiór pracy.
@@ -23,7 +24,8 @@ poleceń swoich mutacji. Podstawy ``ci:`` plan nie dzieli, więc drukuje najdłu
 poniżej niej ściana zadania nie zejdzie.
 Zadanie Mutation checks instaluje Chromium tylko wtedy, gdy ma krok skilla, którego skrypty importują Playwright. Gdy
 run (``STALE_ZADANIA``, zadania pytest i Mutation checks) przekroczyłby ``ZADANIA_RUNU``, cel wszystkich torów rośnie
-co ``KROK_CELU_S``. Mutacje zmienionych linii nie biegną na pull request, tylko nocą na ``main`` (ADR 0021).
+co ``KROK_CELU_S``. Mutacje zmienionych linii i skrypty mutacji skilli nie biegną na pull request, tylko nocą na
+``main`` (ADR 0021).
 
 Na pull request zadanie po porażce pytest uruchamia raz same testy, które padły (``niestabilne_testy``, najwyżej
 ``PONOWIENIE_NAJWIECEJ``; więcej porażek to nie flak), jeśli id każdego da się zgłosić w issue. Gdy wszystkie
@@ -37,6 +39,7 @@ próbie każdą swoją jednostkę (plik testów, krok CI, krok skilla) bez pora�
 który wybór skilli zgubił albo zły klucz ``ci:`` (``bledy`` planu), są czerwonym werdyktem z przyczyną.
 
     python3 tools/plan_ci.py plan --zdarzenie pull_request --baza HEAD^1 --czasy .ci-plan/czasy --wyjscie .ci-plan/plan.json
+    python3 tools/plan_ci.py plan --zdarzenie noc --baza <baza nocy> --czasy .ci-plan/czasy --wyjscie .ci-plan/plan.json
     python tools/plan_ci.py wykonaj --plan .ci-plan/plan.json --zadanie windows-3.14-2       # albo mutacje-1
     python3 tools/plan_ci.py werdykt --plan .ci-plan/plan.json --zapisy .ci-czasy/zapisy      # NEEDS: toJSON(needs)
 
@@ -90,6 +93,8 @@ ZADANIA_RUNU = 19
 STALE_ZADANIA = 3
 # Zadania bramki w ci.yml, które startują tylko z pracą od planu.
 Z_PLANU = ("pytest", "mutations")
+# Zdarzenie planu skryptów mutacji skilli w mutacje-nocne.yml.
+NOC = "noc"
 
 
 @dataclass(frozen=True)
@@ -271,8 +276,10 @@ class Zakres:
 
 
 def zakres(zdarzenie: str, zmiana: frozenset[str], root: Path = ROOT) -> Zakres:
-    """Na pushu pełne CI ``main``, na pull request bramka PR dla ``zmiana`` (ścieżki od bazy)."""
+    """Na pushu pełne CI ``main``, na pull request bramka PR dla ``zmiana`` (ścieżki od bazy), nocą bez pytest."""
 
+    if zdarzenie == NOC:
+        return Zakres((), (), "bez pytest")
     if zdarzenie == "push":
         return Zakres(TORY, tuple(pliki_testow(root)), "wszystkie pliki")
     windows, linux = (tor for tor in TORY if tor.nazwa in ("windows-3.11", "linux-3.14"))
@@ -428,9 +435,9 @@ def _plan(args: argparse.Namespace) -> int:
     czasy = czasy_ci.z_mainu(katalog, odswiez_po_s=0 if args.czasy else czasy_ci.ODSWIEZ_S)
     if czasy.blad:
         print(f"CZASY CI | {czasy.blad}; plan waży pracę bez pomiaru domyślnie")
-    zmiana = szybko.changed_since(args.baza) if args.zdarzenie == "pull_request" else None
+    zmiana = None if args.zdarzenie == "push" else szybko.changed_since(args.baza)
     praca = zakres(args.zdarzenie, zmiana or frozenset())
-    wybor = mutacje_skilli.wybor(zmiana)
+    wybor = mutacje_skilli.wybor(zmiana, night=args.zdarzenie == NOC)
     wyceny = [*(wycen(tor, praca.pliki, czasy) for tor in praca.tory), wycen_mutacje([krok for krok, _ in wybor.chosen], czasy)]
     bledy = tuple(f"{nazwa}: {powod}" for nazwa, powod in sorted(wybor.failed.items()))
     plan = rozplanuj(wyceny, args.zdarzenie, czasy.runy, bledy)
@@ -629,8 +636,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     polecenia = parser.add_subparsers(dest="polecenie", required=True)
     plan = polecenia.add_parser("plan", help="Plan runu: zadania pytest i Mutation checks (zadanie plan albo lokalnie).")
-    plan.add_argument("--zdarzenie", choices=("pull_request", "push"), default="pull_request")
-    plan.add_argument("--baza", default="origin/main", help="Od czego na pull request liczy się zmiana: wybór plików pytest, E2E i straży czasu i wybór kroków skilli (w CI HEAD^1).")
+    plan.add_argument("--zdarzenie", choices=("pull_request", "push", NOC), default="pull_request")
+    plan.add_argument(
+        "--baza",
+        default="origin/main",
+        help="Od czego na pull request i nocą liczy się zmiana: wybór plików pytest, E2E i straży czasu i wybór kroków skilli (w CI HEAD^1, nocą baza nocy).",
+    )
     plan.add_argument("--czasy", type=Path, help="Katalog artefaktów czasy-ci, pobieranych od nowa (domyślnie .git/czasy-ci).")
     plan.add_argument("--wyjscie", type=Path)
     wykonanie = polecenia.add_parser("wykonaj", help="Jednostki jednego zadania planu (w zadaniu pytest albo Mutation checks).")

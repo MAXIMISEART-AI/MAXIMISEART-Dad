@@ -263,8 +263,9 @@ jobs:
 
   mutations:
     # A mutation check's verdict does not depend on the Python version, so it runs once, beside pytest.
-    # Besides a skill's mutations it runs the skill's own check on unchanged code (the ci: key of its SKILL.md), so
-    # agents need not run it on the Mac: Centrum --feature all and the TLA+ model of Aktualizacja narzędzia run only here.
+    # It runs the skill's own check on unchanged code (the ci: key of its SKILL.md), so agents need not run it on the
+    # Mac: Centrum --feature all and the TLA+ model of Aktualizacja narzędzia run only here. A skill's mutation scripts
+    # run here only on a push to main; for a pull request they run at night (mutacje-nocne.yml, ADR 0021).
     # The plan takes the steps whose verdict the pull request can alter (all on a push to main), packs them into jobs by
     # their CI time and splits a long mutation script into parts; each job runs its steps one by one, because side by
     # side on one runner they exceed their time limits.

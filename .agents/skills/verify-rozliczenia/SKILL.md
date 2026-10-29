@@ -51,8 +51,9 @@ the real Wzorce from `config/`.
 ## What CI runs and what stays local
 
 CI runs `run_verification.py --variant all` in the E2E step of pytest on Windows, and
-`quantity_rules_conformance.py` (the `ci:` key) and `check_quantity_rules_mutations.py` in Mutation
-checks. Run them locally only to reproduce a red CI step, or the one variant you work on. What stays
+`quantity_rules_conformance.py` (the `ci:` key) in Mutation checks, and
+`check_quantity_rules_mutations.py` in full CI on `main` and nightly on `main` (`mutacje-nocne.yml`). Run
+them locally only to reproduce a red CI step or the night's issue, or the one variant you work on. What stays
 with you on the Mac, as background commands: `preparation-real-templates` and `chain-real-templates`
 on the real Wzorce in `config/` after changes to formatting or template handling, because CI has no
 real Wzorce.
@@ -244,9 +245,9 @@ and it appears nowhere else in the result.
 ## Reguły ilości
 
 After a change to `src/rozliczenia/quantity_rules.py` or to its conformance
-test `tests/test_ilosci_uslug.py`, CI proves in Mutation checks that the test
+test `tests/test_ilosci_uslug.py`, the night on `main` proves that the test
 still catches a single broken rule. Run it locally only to reproduce a red
-Mutation checks step or after you rewrite a mutation:
+Mutation checks step or the night's issue, or after you rewrite a mutation:
 
 ```powershell
 py -3 .agents\skills\verify-rozliczenia\scripts\check_quantity_rules_mutations.py

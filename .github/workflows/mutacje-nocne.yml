@@ -1,8 +1,10 @@
 name: Mutacje nocne
 
 # Once a day, one mutation per line of src/ and tools/ that changed on main since the last successful night, as
-# tools/mutacje_zmiany.py mutates it. Each surviving mutation goes to the issue "Przeżyte mutacje z #N" of the PR that
-# last changed its line (tools/mutacje_nocne.py, ADR 0021). Pull requests neither run nor wait for it.
+# tools/mutacje_zmiany.py mutates it, and the mutation scripts of the skills whose folder changed since then. Each
+# surviving mutation goes to the issue "Przeżyte mutacje z #N" of the PR that last changed its line, and each failed
+# mutation script to "Przeżyte mutacje skilli z #N" of the PR that last changed its skill (tools/mutacje_nocne.py,
+# ADR 0021). Pull requests neither run nor wait for it.
 on:
   schedule:
     - cron: '30 1 * * *'
@@ -34,6 +36,7 @@ jobs:
       baza: ${{ steps.plan.outputs.baza }}
       czesci: ${{ steps.plan.outputs.czesci }}
       liczba: ${{ steps.plan.outputs.liczba }}
+      skille: ${{ steps.skille.outputs.mutations }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -46,6 +49,23 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           OD: ${{ inputs.od }}
         run: python3 tools/mutacje_nocne.py plan --od "$OD"
+
+      # The same planner as Mutation checks in ci.yml: the scripts whose verdict the changes since the base can alter,
+      # packed into jobs by their times on main.
+      - name: Plan the mutation scripts of the skills changed since the base
+        id: skille
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BAZA: ${{ steps.plan.outputs.baza }}
+        run: python3 tools/plan_ci.py plan --zdarzenie noc --baza "$BAZA" --czasy .ci-plan/czasy --wyjscie .ci-plan/plan.json
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: plan-skilli
+          path: .ci-plan/plan.json
+          retention-days: 30
+          include-hidden-files: true
+          overwrite: true
 
   change-mutations:
     name: Change mutations (${{ matrix.czesc }}/${{ needs.plan.outputs.liczba }})
@@ -98,13 +118,84 @@ jobs:
           include-hidden-files: true
           overwrite: true
 
+  skill-mutations:
+    # The steps up to the plan download are those of the Mutation checks job in ci.yml.
+    name: ${{ matrix.nazwa }}
+    needs: plan
+    if: ${{ needs.plan.outputs.skille != '[]' }}
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+    # tools/mutacje_skilli.py limits each script to 30 min; this catches a hang in the runner itself.
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.plan.outputs.skille) }}
+    env:
+      PYTHONUTF8: '1'
+    steps:
+      - uses: actions/checkout@v7
+
+      - id: python
+        uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python }}
+
+      - uses: astral-sh/setup-uv@v10.3.2
+        with:
+          enable-cache: false
+
+      - name: Install dependencies
+        run: uv pip install --system --python "${{ steps.python.outputs.python-path }}" -r requirements.txt
+
+      - name: Install Playwright
+        id: playwright
+        if: ${{ matrix.przegladarka }}
+        run: |
+          uv pip install --system --python "${{ steps.python.outputs.python-path }}" -e ".[dev]"
+          python -c "from importlib.metadata import version; print('version=' + version('playwright'))" >> $env:GITHUB_OUTPUT
+
+      - name: Cache Chromium
+        if: ${{ matrix.przegladarka }}
+        uses: actions/cache@v6
+        with:
+          path: ~\AppData\Local\ms-playwright
+          key: chromium-${{ runner.os }}-playwright-${{ steps.playwright.outputs.version }}
+
+      - name: Install Chromium
+        if: ${{ matrix.przegladarka }}
+        run: python -m playwright install chromium
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: plan-skilli
+          path: .ci-plan
+
+      # A failed script is a result to file, not a broken job: the last job reads the record of each job's units.
+      - name: Run the planned mutation scripts
+        continue-on-error: true
+        run: python tools/plan_ci.py wykonaj --plan .ci-plan/plan.json --zadanie ${{ matrix.id }}
+
+      - name: Upload the record of the units
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: mutacje-skilli-${{ matrix.id }}
+          path: .ci-czasy/wykonanie.json
+          retention-days: 30
+          if-no-files-found: warn
+          include-hidden-files: true
+          overwrite: true
+
   zgloszenie:
     name: Zgłoszenie przeżytych mutacji
     needs:
       - plan
       - change-mutations
+      - skill-mutations
     # Also after a failed part: the mutations that survived in the other parts still get their issues.
-    if: ${{ !cancelled() && needs.plan.result == 'success' && needs.plan.outputs.czesci != '[]' }}
+    if: ${{ !cancelled() && needs.plan.result == 'success' && (needs.plan.outputs.czesci != '[]' || needs.plan.outputs.skille != '[]') }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -126,10 +217,21 @@ jobs:
           pattern: mutacje-nocne-*
           path: .ci-mutacje/zapisy
 
+      - uses: actions/download-artifact@v8
+        continue-on-error: true
+        with:
+          pattern: mutacje-skilli-*
+          path: .ci-mutacje/zapisy
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: plan-skilli
+          path: .ci-plan
+
       - name: File each surviving mutation in the issue of the PR that last changed its line
         env:
           GH_TOKEN: ${{ github.token }}
           BAZA: ${{ needs.plan.outputs.baza }}
           LICZBA: ${{ needs.plan.outputs.liczba }}
           RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        run: python3 tools/mutacje_nocne.py zglos --baza "$BAZA" --zapisy .ci-mutacje/zapisy --czesci "$LICZBA" --run "$RUN"
+        run: python3 tools/mutacje_nocne.py zglos --baza "$BAZA" --zapisy .ci-mutacje/zapisy --czesci "$LICZBA" --run "$RUN" --plan-skilli .ci-plan/plan.json

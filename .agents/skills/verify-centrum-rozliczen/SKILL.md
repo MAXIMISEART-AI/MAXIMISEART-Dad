@@ -18,10 +18,11 @@ server's answer and the files on disk.
 
 ## What CI runs and what stays local
 
-CI runs `run_centrum_verification.py --feature all` (the `ci:` key) and the `check_centrum_<feature>_mutations.py` scripts
-in Mutation checks on Windows whenever a change touches this skill; a red run leaves its evidence in
-the `evidence-<job id>-<attempt>` artifact (e.g. `evidence-mutacje-2-1`). Run `all` and the mutations locally only to reproduce
-a red Mutation checks step. What stays with you: drive the feature you change, as a background
+CI runs `run_centrum_verification.py --feature all` (the `ci:` key) in Mutation checks on Windows whenever a change
+touches this skill; a red run leaves its evidence in the `evidence-<job id>-<attempt>` artifact (e.g. `evidence-mutacje-2-1`).
+The `check_centrum_<feature>_mutations.py` scripts run in full CI on `main` and nightly on `main` (`mutacje-nocne.yml`)
+after a change of this skill's folder. Run `all` and the mutations locally only to reproduce a red Mutation checks step
+or the night's issue. What stays with you: drive the feature you change, as a background
 command, and look at its screenshots after a UI change, because a passing run does not judge visual
 quality. `wydajnosc` is never part of `all` and runs only locally (`features/wydajnosc.md`).
 
@@ -212,8 +213,8 @@ Then confirm the evidence directory still exists.
   scratch directory) and evidence hygiene check.
 - `scripts/check_centrum_<feature>_mutations.py`, one script per feature: shows the drive of
   that feature fails on broken variants of Centrum, each mutation on its own copy of the checkout;
-  each ends with `MUTACJE OK`, and CI runs them through `tools/mutacje_skilli.py`, so run one
-  locally only to reproduce a red Mutation checks step:
+  each ends with `MUTACJE OK`, and CI runs them through `tools/mutacje_skilli.py` (full CI on `main` and
+  the night), so run one locally only to reproduce a red Mutation checks step or the night's issue:
   `scripts/check_centrum_aktualizacja_mutations.py`,
   `scripts/check_centrum_diagnoza_mutations.py`,
   `scripts/check_centrum_karta_z_logow_mutations.py`,

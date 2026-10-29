@@ -282,10 +282,10 @@ def _ran(result: subprocess.CompletedProcess[str], skill: str) -> bool:
     [
         ("docs/opis.md", False),
         ("src/pakiet/obcy.py", False),
-        # Trafienie w pilnuje uruchamia podstawę skilla, a skrypt mutacji nie (ADR 0020).
+        # Trafienie w pilnuje uruchamia podstawę skilla na PR, a skrypt mutacji nie (ADR 0020).
         ("src/pakiet/routing.py", False),
         (".agents/skills/verify-b/SKILL.md", False),
-        # Plik, który mutacje zmieniają, i importy sprawdzenia: pytest bramki i pełne CI main, nie skrypt mutacji na PR.
+        # Plik, który mutacje zmieniają, i importy sprawdzenia: pytest bramki i pełne CI main, nie skrypt mutacji nocą.
         (CHECKED, False),
         (ANCHORS, False),
         ("src/pakiet/pomocnik.py", False),
@@ -297,12 +297,12 @@ def _ran(result: subprocess.CompletedProcess[str], skill: str) -> bool:
         ("tools/mutacje.py", True),
     ],
 )
-def test_ze_zmianami_od_bazy_skrypt_mutacji_biegnie_przy_zmianie_folderu_skilla_albo_runnera(tmp_path: Path, changed: str, runs: bool) -> None:
+def test_noca_skrypt_mutacji_biegnie_przy_zmianie_folderu_skilla_albo_runnera(tmp_path: Path, changed: str, runs: bool) -> None:
     base = _selection_repo(tmp_path)
     _append(tmp_path, changed)
     commit(tmp_path, "zmiana")
 
-    result = _run(tmp_path, "--zmiany-od", base)
+    result = _run(tmp_path, "--zmiany-od", base, "--noc")
 
     assert result.returncode == 0, result.stdout + result.stderr
     assert result.stdout.splitlines()[-1] == "MUTACJE SKILLI OK"
@@ -321,7 +321,7 @@ def test_sprawdzenie_spoza_folderu_skilla_uruchamia_skrypt_ktorego_mutacje_je_ur
     _append(tmp_path, checker)
     commit(tmp_path, "zmiana sprawdzenia")
 
-    result = _run(tmp_path, "--zmiany-od", base)
+    result = _run(tmp_path, "--zmiany-od", base, "--noc")
 
     assert (_ran(result, "verify-a"), _ran(result, "verify-b")) == (False, True)
 
@@ -330,13 +330,13 @@ def test_niezacommitowana_zmiana_uruchamia_skrypt(tmp_path: Path) -> None:
     base = _selection_repo(tmp_path)
     (tmp_path / ".agents/skills/verify-a/scripts/sprawdz_a.py").write_text("X = 2\n", encoding="utf-8")
 
-    assert _ran(_run(tmp_path, "--zmiany-od", base), "verify-a")
+    assert _ran(_run(tmp_path, "--zmiany-od", base, "--noc"), "verify-a")
 
 
-def test_bez_zmian_od_bazy_pomija_tylko_skill_z_pilnuje_i_tabela(tmp_path: Path) -> None:
+def test_bez_zmian_od_bazy_noc_pomija_tylko_skill_z_pilnuje_i_tabela(tmp_path: Path) -> None:
     base = _selection_repo(tmp_path)
 
-    selected, everything = _run(tmp_path, "--zmiany-od", base), _run(tmp_path)
+    selected, everything = _run(tmp_path, "--zmiany-od", base, "--noc"), _run(tmp_path)
 
     assert [_ran(selected, skill) for skill in ("verify-a", "verify-b", "verify-c")] == [False, True, True]
     assert [_ran(everything, skill) for skill in ("verify-a", "verify-b", "verify-c")] == [True, True, True]
@@ -347,7 +347,36 @@ def test_pilnuje_nie_bedace_lista_globow_uruchamia_skrypt(tmp_path: Path) -> Non
     (tmp_path / ".agents/skills/verify-a/SKILL.md").write_text("---\npilnuje: src/pakiet/routing.py\n---\n", encoding="utf-8")
     base = commit(tmp_path, "pilnuje jako tekst")
 
-    assert _ran(_run(tmp_path, "--zmiany-od", base), "verify-a")
+    assert _ran(_run(tmp_path, "--zmiany-od", base, "--noc"), "verify-a")
+
+
+@pytest.mark.parametrize(
+    ("night", "baseline", "script"),
+    [(False, "OK   PODSTAWA verify-a", "POMINIĘTY .agents/skills/verify-a/scripts/check_a_mutations.py: skrypt mutacji biegnie nocą"),
+     (True, "POMINIĘTY PODSTAWA verify-a: podstawa biegnie na pull request", "OK   .agents/skills/verify-a/scripts/check_a_mutations.py")],
+    ids=["pull-request", "noc"],
+)
+def test_na_pull_request_biegna_same_podstawy_a_noca_same_skrypty_mutacji(tmp_path: Path, night: bool, baseline: str, script: str) -> None:
+    _selection_repo(tmp_path)
+    command = ".agents/skills/verify-a/scripts/sprawdz_a.py"
+    (tmp_path / ".agents/skills/verify-a/SKILL.md").write_text(_with_ci("verify-a", command), encoding="utf-8")
+    (tmp_path / command).write_text(CHECKED_IN_CI.format(code=0), encoding="utf-8")
+    base = commit(tmp_path, "skill z podstawa")
+    _append(tmp_path, command)
+    commit(tmp_path, "zmiana folderu skilla")
+
+    result = _run(tmp_path, "--zmiany-od", base, *(["--noc"] * night))
+
+    assert result.stdout.splitlines()[-1] == "MUTACJE SKILLI OK", result.stdout + result.stderr
+    assert any(line.startswith(baseline) for line in result.stdout.splitlines()), result.stdout
+    assert any(line.startswith(script) for line in result.stdout.splitlines()), result.stdout
+
+
+def test_noc_bez_zmian_od_bazy_to_blad_wywolania(tmp_path: Path) -> None:
+    result = _run(tmp_path, "--noc")
+
+    assert result.returncode == 2
+    assert "--noc wybiera kroki zmiany, więc wymaga --zmiany-od" in result.stderr
 
 
 def _load_tool(monkeypatch: pytest.MonkeyPatch) -> ModuleType:
@@ -491,9 +520,9 @@ def test_klucz_ci_bez_skryptu_z_repozytorium_daje_fail(tmp_path: Path, command: 
     [
         ("", None, False, True),
         (" --pelny", None, True, True),
-        # Na PR trafienie w pilnuje bez zmiany folderu skilla uruchamia samą podstawę, choć skrypt mutacji ją powtarza.
+        # Na PR biegnie sama podstawa, także przy zmianie folderu skilla, bo skrypt mutacji biegnie nocą.
         ("", "src/pakiet/routing.py", True, False),
-        ("", ".agents/skills/verify-a/scripts/sprawdz_a.py", False, True),
+        ("", ".agents/skills/verify-a/scripts/sprawdz_a.py", True, False),
     ],
 )
 def test_podstawa_ci_ktora_uruchamia_wybrany_skrypt_mutacji_nie_biegnie_drugi_raz(

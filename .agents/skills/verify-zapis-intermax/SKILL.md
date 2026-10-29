@@ -14,9 +14,10 @@ ci: .agents/skills/verify-zapis-intermax/scripts/explore_intermax.py
 
 ## What CI runs and what stays local
 
-CI runs `explore_intermax.py` (the `ci:` key) and `check_intermax_mutations.py` in Mutation checks
-whenever a change touches this skill. Run them locally only to reproduce a red Mutation checks step, or
-while you work on the checker. What stays with you on every change to the covered code is „Does the
+CI runs `explore_intermax.py` (the `ci:` key) in Mutation checks whenever a change touches this skill,
+and `check_intermax_mutations.py` in full CI on `main` and nightly on `main` (`mutacje-nocne.yml`). Run
+them locally only to reproduce a red Mutation checks step or the night's issue, or while you work on the
+checker. What stays with you on every change to the covered code is „Does the
 change touch it?”: a new step between the read and the replace, a third writer of INTERMAX or of the
 Kopie folder (beside Uporządkowanie and Przywracanie Kopii INTERMAX, #472) or a new file next to INTERMAX
 passes the check without being checked until the checker has a point for it. Sorting a red run as „When the
@@ -238,9 +239,9 @@ Never shrink a bound or a rule to make a real counterexample go away.
 
 ## After changing the checker or an intended change to the save
 
-CI proves the check can still fail. Mutation checks runs
+CI proves the check can still fail. The night on `main` runs
 `.agents/skills/verify-zapis-intermax/scripts/check_intermax_mutations.py`
-whenever a change touches this skill. It applies each broken variant to a
+after a change of this skill's folder. It applies each broken variant to a
 temporary copy of the checkout (`tools/mutacje.py`) and must end with
 `MUTACJE OK`. Each of these gives `INTERMAX: NOWE NARUSZENIE`:
 

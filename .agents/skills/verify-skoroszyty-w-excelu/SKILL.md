@@ -37,8 +37,8 @@ Przebieg rozliczeń wrote, not as Excel shows them or opens them on a click.
 
 ## What CI runs and what stays local
 
-CI runs only `check_excel_cleanup_mutations.py` (the mutations of the sweep and the quit) in
-Mutation checks. Everything else needs Excel on the Mac: drive it yourself whenever
+CI runs only `check_excel_cleanup_mutations.py` (the mutations of the sweep and the quit), in full
+CI on `main` and nightly on `main` (`mutacje-nocne.yml`). Everything else needs Excel on the Mac: drive it yourself whenever
 `tools/skille_dla_zmiany.py` lists this skill.
 
 ## Launch
@@ -246,9 +246,9 @@ rm -rf ~/Library/Containers/com.microsoft.Excel/Data/maximiseart-weryfikacja/<ru
 .venv/bin/python .agents/skills/verify-rozliczenia/scripts/cleanup.py --root <run dir>/runs/<run>
 ```
 
-The sweep and the quit are guarded by mutations that CI runs in Mutation checks;
-run them locally only to reproduce a red Mutation checks step (a few seconds, it
-ends with `MUTACJE OK`):
+The sweep and the quit are guarded by mutations that CI runs on `main` and at night;
+run them locally only to reproduce a red Mutation checks step or the night's issue
+(a few seconds, it ends with `MUTACJE OK`):
 
 ```bash
 .venv/bin/python .agents/skills/verify-skoroszyty-w-excelu/scripts/check_excel_cleanup_mutations.py

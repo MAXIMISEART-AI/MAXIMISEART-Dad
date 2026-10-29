@@ -197,11 +197,17 @@ AGREEING = {
 }
 
 
-def _in_mutation_checks(root: Path, base: str) -> list[str]:
-    """Polecenia kroków, które uruchomił ``tools/mutacje_skilli.py --zmiany-od``, w postaci linii ``LICZY CI``."""
+def _in_mutation_checks(root: Path, base: str, *, night: bool = False) -> list[str]:
+    """Polecenia kroków, które uruchomił ``tools/mutacje_skilli.py --zmiany-od`` (z ``night``: ``--noc``), w postaci linii
+    ``LICZY CI`` albo ``LICZY NOC``."""
 
     out = subprocess.run(
-        [sys.executable, str(root / "tools" / "mutacje_skilli.py"), "--zmiany-od", base], cwd=root, capture_output=True, text=True, encoding="utf-8", check=True
+        [sys.executable, str(root / "tools" / "mutacje_skilli.py"), "--zmiany-od", base, *(["--noc"] * night)],
+        cwd=root,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        check=True,
     ).stdout
     found = []
     for line in out.splitlines():
@@ -212,14 +218,13 @@ def _in_mutation_checks(root: Path, base: str) -> list[str]:
 
 
 @pytest.mark.parametrize(
-    ("changed", "in_ci"),
-    [
-        ("src/a/b/gleboki.py", ["sprawdz_a.py --wszystko"]),
-        (".agents/skills/verify-a/SKILL.md", ["sprawdz_a.py --wszystko", "check_a_mutations.py"]),
-    ],
+    ("changed", "at_night"),
+    [("src/a/b/gleboki.py", []), (".agents/skills/verify-a/SKILL.md", ["check_a_mutations.py"])],
     ids=["pilnuje", "folder skilla"],
 )
-def test_liczy_ci_wymienia_dokladnie_kroki_skilla_ktore_uruchamia_wybor_planu_pull_requestu(tmp_path: Path, changed: str, in_ci: list[str]) -> None:
+def test_liczy_ci_i_liczy_noc_wymieniaja_dokladnie_kroki_skilla_ktore_uruchamia_plan_pull_requestu_i_nocy(
+    tmp_path: Path, changed: str, at_night: list[str]
+) -> None:
     base = _repo(tmp_path, AGREEING)
     _append(tmp_path, changed)
     commit(tmp_path, "zmiana")
@@ -227,18 +232,22 @@ def test_liczy_ci_wymienia_dokladnie_kroki_skilla_ktore_uruchamia_wybor_planu_pu
     result = _run(tmp_path, base)
 
     assert _skills(result) == ["verify-a"]
-    assert result.stdout.splitlines()[-2] == f"LICZY CI: verify-a ({', '.join(in_ci)})"
-    assert _in_mutation_checks(tmp_path, base) == in_ci
+    lines = result.stdout.splitlines()
+    assert [line for line in lines if line.startswith(("LICZY CI", "LICZY NOC"))] == [
+        "LICZY CI: verify-a (sprawdz_a.py --wszystko)",
+        *([f"LICZY NOC: verify-a ({', '.join(at_night)})"] * bool(at_night)),
+    ]
+    assert (_in_mutation_checks(tmp_path, base), _in_mutation_checks(tmp_path, base, night=True)) == (["sprawdz_a.py --wszystko"], at_night)
 
 
-def test_zmiana_runnera_mutacji_nie_wskazuje_skilla_choc_ci_uruchamia_jego_skrypt_mutacji(tmp_path: Path) -> None:
+def test_zmiana_runnera_mutacji_nie_wskazuje_skilla_choc_noc_uruchamia_jego_skrypt_mutacji(tmp_path: Path) -> None:
     base = _repo(tmp_path, AGREEING)
     with (tmp_path / "tools" / "mutacje.py").open("a", encoding="utf-8") as file:
         file.write("# zmiana\n")
     commit(tmp_path, "zmiana runnera")
 
     assert _skills(_run(tmp_path, base)) == []
-    assert _in_mutation_checks(tmp_path, base) == ["check_a_mutations.py"]
+    assert (_in_mutation_checks(tmp_path, base), _in_mutation_checks(tmp_path, base, night=True)) == ([], ["check_a_mutations.py"])
 
 
 @pytest.mark.parametrize(
