@@ -72,8 +72,10 @@ class SettlementEntry:
                 _choice(
                     row,
                     previewed=row.token in previewed,
-                    open_files=open_in_excel([InputWorkbook("Plik zbiorczy", collective_files[row.token], "data_file")])
-                    + open_templates,
+                    open_collective=open_in_excel(
+                        [InputWorkbook("Plik zbiorczy", collective_files[row.token], "data_file")]
+                    ),
+                    open_templates=open_templates,
                 )
                 for row in rows
             ],
@@ -111,7 +113,9 @@ def _collective_files(periods_directory: Path, rows: list[contract.PeriodRow]) -
     return {row.token: observed_period_folder(folders, SettlementPeriod(row.tuesday)).collective_file for row in rows}
 
 
-def _choice(row: contract.PeriodRow, *, previewed: bool, open_files: list[str]) -> contract.PeriodChoice:
+def _choice(
+    row: contract.PeriodRow, *, previewed: bool, open_collective: list[str], open_templates: list[str]
+) -> contract.PeriodChoice:
     return contract.PeriodChoice(
         token=row.token,
         tuesday=row.tuesday,
@@ -120,7 +124,8 @@ def _choice(row: contract.PeriodRow, *, previewed: bool, open_files: list[str]) 
         last_complete=row.last_complete,
         previewed=previewed,
         collective_file=collective_file_name(SettlementPeriod(row.tuesday)),
-        open_in_excel=open_files,
+        open_in_excel=open_collective + open_templates,
+        reminder=_VIEW.start_reminder(data_file_open=bool(open_collective), template_open=bool(open_templates)),
     )
 
 

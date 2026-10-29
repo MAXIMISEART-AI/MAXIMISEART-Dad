@@ -114,6 +114,7 @@ def drive_preparation(run: Run, page: Page) -> None:
             "Rejestr zleceń jest otwarty w Excelu. Zapisz go i zamknij. Jeśli Excel jest zamknięty, usuń z tego samego "
             f"folderu pozostawiony plik ~${Path(run.fixture['order_register']).name}."
         ),
+        reminder="Zapisz i zamknij Rejestr zleceń w Excelu",
         name="przygotowanie-rejestr",
         shots=("3c-przygotowanie-rejestr-otwarty-w-excelu", "3d-przygotowanie-rejestr-zamkniety"),
     )

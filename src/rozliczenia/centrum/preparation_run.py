@@ -54,7 +54,8 @@ class PreparationEntry:
         previewed = previewed_periods(MetricsStore(self.process.metrics_path(), self.process.counter_names))
         folders = scan_period_folders(settings.periods_directory) if settings.periods_directory is not None else None
         register = [] if settings.register is None else [InputWorkbook("Rejestr zleceń", settings.register, "data_file")]
-        open_files = open_in_excel([*register, *self.configuration.template_inputs(self.key)])
+        open_register = open_in_excel(register)
+        open_templates = open_in_excel(self.configuration.template_inputs(self.key))
         return contract.ProcessSetup(
             process=self.key,
             title=self.process.name,
@@ -68,7 +69,8 @@ class PreparationEntry:
                     period,
                     last_complete=period == last_complete,
                     previewed=period.token in previewed,
-                    open_files=open_files,
+                    open_files=open_register + open_templates,
+                    reminder=_VIEW.start_reminder(data_file_open=bool(open_register), template_open=bool(open_templates)),
                 )
                 for period in periods
             ],
@@ -117,6 +119,7 @@ def _choice(
     last_complete: bool,
     previewed: bool,
     open_files: list[str],
+    reminder: str | None,
 ) -> contract.PeriodChoice:
     status = observed_period_folder(folders, period).observe().status if folders is not None else "no_period_files"
     return contract.PeriodChoice(
@@ -128,5 +131,6 @@ def _choice(
         previewed=previewed,
         collective_file=None,
         open_in_excel=open_files,
+        reminder=reminder,
     )
 
