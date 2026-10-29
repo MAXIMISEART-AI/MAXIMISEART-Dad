@@ -1,0 +1,284 @@
+# Przebieg rozliczeń: karta Uruchomienia każdego scenariusza z tools/rownowaznosc.py, bez czasów, chwil i folderów.
+# Plik zapisuje tests/test_uruchomienia_expect.py.
+
+=== przebieg ===
+Wynik: OK
+Etapy:
+  Sprawdzanie: completed
+  Odczyt danych: completed
+  Planowanie: completed
+  Zapisywanie: completed
+Szablony pracowników: 3 z 3
+Liczby postępu:
+  Wiersze danych: 3
+  Zapisane szablony: 2
+  Puste szablony: 1
+  Problemy: 0
+Podsumowanie:
+  Zapisane szablony: 2
+  Puste szablony: 1
+Rozliczenie pracownika: Adrian Testowy | Rozliczenie 08_14_09_2026 - Adrian Testowy.xlsx | zlecenia 2
+Rozliczenie pracownika: Darek Fikcyjny | Rozliczenie 08_14_09_2026 - Darek Fikcyjny.xlsx | zlecenia 1
+Rozliczenie pracownika: Kamil Syntetyczny | Rozliczenie 08_14_09_2026 - Kamil Syntetyczny.xlsx | zlecenia 0, pusty
+Ostrzeżenia: brak
+Zatrzymanie: brak
+Pliki wynikowe:
+  nowy: 08_14_09_2026/Rozliczenie pracowników 08_14_09_2026/Rozliczenie 08_14_09_2026 - Adrian Testowy.xlsx
+  nowy: 08_14_09_2026/Rozliczenie pracowników 08_14_09_2026/Rozliczenie 08_14_09_2026 - Darek Fikcyjny.xlsx
+  nowy: 08_14_09_2026/Rozliczenie pracowników 08_14_09_2026/Rozliczenie 08_14_09_2026 - Kamil Syntetyczny.xlsx
+
+=== przebieg-podglad ===
+Wynik: OK
+Etapy:
+  Sprawdzanie: completed
+  Odczyt danych: completed
+  Planowanie: completed
+  Zapisywanie: completed
+Szablony pracowników: 3 z 3
+Liczby postępu:
+  Wiersze danych: 3
+  Planowane szablony: 2
+  Puste szablony: 1
+  Problemy: 0
+Podsumowanie:
+  Wiersze danych: 3
+  Planowane szablony: 2
+  Puste szablony: 1
+Rozliczenie pracownika: Adrian Testowy | Rozliczenie 08_14_09_2026 - Adrian Testowy.xlsx | zlecenia 2
+Rozliczenie pracownika: Darek Fikcyjny | Rozliczenie 08_14_09_2026 - Darek Fikcyjny.xlsx | zlecenia 1
+Rozliczenie pracownika: Kamil Syntetyczny | Rozliczenie 08_14_09_2026 - Kamil Syntetyczny.xlsx | zlecenia 0, pusty
+Ostrzeżenia: brak
+Zatrzymanie: brak
+Pliki wynikowe: brak
+
+=== przebieg-ilosci ===
+Wynik: OK
+Etapy:
+  Sprawdzanie: completed
+  Odczyt danych: completed
+  Planowanie: completed
+  Zapisywanie: completed
+Szablony pracowników: 3 z 3
+Liczby postępu:
+  Wiersze danych: 3
+  Zapisane szablony: 2
+  Puste szablony: 1
+  Problemy: 0
+Podsumowanie:
+  Zapisane szablony: 2
+  Puste szablony: 1
+Rozliczenie pracownika: Adrian Testowy | Rozliczenie 08_14_09_2026 - Adrian Testowy.xlsx | zlecenia 2
+Rozliczenie pracownika: Darek Fikcyjny | Rozliczenie 08_14_09_2026 - Darek Fikcyjny.xlsx | zlecenia 1
+Rozliczenie pracownika: Kamil Syntetyczny | Rozliczenie 08_14_09_2026 - Kamil Syntetyczny.xlsx | zlecenia 0, pusty
+Ostrzeżenia: brak
+Zatrzymanie: brak
+Pliki wynikowe:
+  nowy: 08_14_09_2026/Rozliczenie pracowników 08_14_09_2026/Rozliczenie 08_14_09_2026 - Adrian Testowy.xlsx
+  nowy: 08_14_09_2026/Rozliczenie pracowników 08_14_09_2026/Rozliczenie 08_14_09_2026 - Darek Fikcyjny.xlsx
+  nowy: 08_14_09_2026/Rozliczenie pracowników 08_14_09_2026/Rozliczenie 08_14_09_2026 - Kamil Syntetyczny.xlsx
+
+=== przebieg-wzorzec-syntetyczny ===
+Wynik: OK
+Etapy:
+  Sprawdzanie: completed
+  Odczyt danych: completed
+  Planowanie: completed
+  Zapisywanie: completed
+Szablony pracowników: 3 z 3
+Liczby postępu:
+  Wiersze danych: 3
+  Zapisane szablony: 2
+  Puste szablony: 1
+  Problemy: 0
+Podsumowanie:
+  Zapisane szablony: 2
+  Puste szablony: 1
+Rozliczenie pracownika: Adrian Testowy | Rozliczenie 08_14_09_2026 - Adrian Testowy.xlsx | zlecenia 2
+Rozliczenie pracownika: Darek Fikcyjny | Rozliczenie 08_14_09_2026 - Darek Fikcyjny.xlsx | zlecenia 1
+Rozliczenie pracownika: Kamil Syntetyczny | Rozliczenie 08_14_09_2026 - Kamil Syntetyczny.xlsx | zlecenia 0, pusty
+Ostrzeżenia: brak
+Zatrzymanie: brak
+Pliki wynikowe:
+  nowy: 08_14_09_2026/Rozliczenie pracowników 08_14_09_2026/Rozliczenie 08_14_09_2026 - Adrian Testowy.xlsx
+  nowy: 08_14_09_2026/Rozliczenie pracowników 08_14_09_2026/Rozliczenie 08_14_09_2026 - Darek Fikcyjny.xlsx
+  nowy: 08_14_09_2026/Rozliczenie pracowników 08_14_09_2026/Rozliczenie 08_14_09_2026 - Kamil Syntetyczny.xlsx
+
+=== przebieg-podglad-nieznany-wykonawca ===
+Wynik: WYMAGA_SPRAWDZENIA
+Etapy:
+  Sprawdzanie: completed
+  Odczyt danych: completed
+  Planowanie: completed
+  Zapisywanie: completed
+Szablony pracowników: 3 z 3
+Liczby postępu:
+  Wiersze danych: 3
+  Planowane szablony: 2
+  Puste szablony: 1
+  Problemy: 1
+Podsumowanie:
+  Wiersze danych: 3
+  Planowane szablony: 2
+  Puste szablony: 1
+Rozliczenie pracownika: Adrian Testowy | Rozliczenie 08_14_09_2026 - Adrian Testowy.xlsx | zlecenia 2
+Rozliczenie pracownika: Darek Fikcyjny | Rozliczenie 08_14_09_2026 - Darek Fikcyjny.xlsx | zlecenia 1
+Rozliczenie pracownika: Kamil Syntetyczny | Rozliczenie 08_14_09_2026 - Kamil Syntetyczny.xlsx | zlecenia 0, pusty
+Ostrzeżenia:
+  BRAK_MAPOWANIA
+    Co się stało: Nieznany identyfikator WYKONAWCA: andrzej.nieznany2. Nie ma go w konfiguracji wykonawców.
+    Gdzie: plik Rozliczenie 08_14_09_2026 - zbiorcze.xlsx, folder 08_14_09_2026
+    Co zrobić: Popraw WYKONAWCĘ w kolumnie H albo poproś osobę utrzymującą narzędzie o dopisanie Wykonawcy do konfiguracji wykonawców. Potem zapisz i zamknij Plik zbiorczy w Excelu i uruchom ponownie.
+Zatrzymanie: brak
+Pliki wynikowe: brak
+
+=== przebieg-nieznany-wykonawca ===
+Wynik: BLAD_KRYTYCZNY
+Etapy:
+  Sprawdzanie: completed
+  Odczyt danych: completed
+  Planowanie: failed
+  Zapisywanie: pending
+Liczby postępu:
+  Wiersze danych: 0
+  Zapisane szablony: 0
+  Puste szablony: 0
+  Problemy: 0
+Podsumowanie: brak
+Ostrzeżenia: brak
+Zatrzymanie (stop): NIEZNANY_WYKONAWCA
+  Co się stało: W Pliku zbiorczym jest WYKONAWCA spoza konfiguracji wykonawców: andrzej.nieznany2. Nie utworzono żadnego pliku pracownika.
+  Gdzie: plik Rozliczenie 08_14_09_2026 - zbiorcze.xlsx, folder 08_14_09_2026, kolumna H
+  Co zrobić: Popraw WYKONAWCĘ w kolumnie H albo poproś osobę utrzymującą narzędzie o dopisanie Wykonawcy do konfiguracji wykonawców. Potem zapisz i zamknij Plik zbiorczy w Excelu i uruchom ponownie.
+Pliki wynikowe: brak
+
+=== przebieg-folder-rozliczen-istnieje ===
+Wynik: BLAD_KRYTYCZNY
+Etapy:
+  Sprawdzanie: failed
+  Odczyt danych: pending
+  Planowanie: pending
+  Zapisywanie: pending
+Liczby postępu:
+  Wiersze danych: 0
+  Zapisane szablony: 0
+  Puste szablony: 0
+  Problemy: 0
+Podsumowanie: brak
+Ostrzeżenia: brak
+Zatrzymanie (stop): FOLDER_ROZLICZEN_ISTNIEJE
+  Co się stało: Folder rozliczeń pracowników tego okresu już istnieje, więc nie został nadpisany. Nie utworzono żadnego pliku pracownika.
+  Gdzie: folder 08_14_09_2026\Rozliczenie pracowników 08_14_09_2026
+  Co zrobić: Sprawdź, czy wybrano właściwy okres. Rozliczenia pracowników tego okresu już są w Folderze okresu. Jeśli trzeba je utworzyć od nowa, najpierw przenieś Folder rozliczeń pracowników poza Folder okresu i uruchom ponownie.
+Pliki wynikowe: brak
+
+=== przebieg-plik-zbiorczy-nie-skoroszyt ===
+Wynik: BLAD_KRYTYCZNY
+Etapy:
+  Sprawdzanie: completed
+  Odczyt danych: failed
+  Planowanie: pending
+  Zapisywanie: pending
+Liczby postępu:
+  Wiersze danych: 0
+  Zapisane szablony: 0
+  Puste szablony: 0
+  Problemy: 0
+Podsumowanie: brak
+Ostrzeżenia: brak
+Zatrzymanie (stop): ZLY_PLIK_ZBIORCZY
+  Co się stało: Plik zbiorczy nie nadaje się do Przebiegu rozliczeń. Nie można odczytać Pliku zbiorczego Rozliczenie 08_14_09_2026 - zbiorcze.xlsx. Sprawdź, czy plik otwiera się w Excelu i nie jest uszkodzony.
+  Gdzie: plik Rozliczenie 08_14_09_2026 - zbiorcze.xlsx, folder 08_14_09_2026
+  Co zrobić: Popraw Plik zbiorczy w Excelu. Potem zapisz i zamknij Plik zbiorczy w Excelu i uruchom ponownie. Jeśli błąd wraca, przekaż ten komunikat osobie utrzymującej narzędzie.
+Pliki wynikowe: brak
+
+=== przebieg-plik-zbiorczy-uciety ===
+Wynik: BLAD_KRYTYCZNY
+Etapy:
+  Sprawdzanie: completed
+  Odczyt danych: failed
+  Planowanie: pending
+  Zapisywanie: pending
+Liczby postępu:
+  Wiersze danych: 0
+  Zapisane szablony: 0
+  Puste szablony: 0
+  Problemy: 0
+Podsumowanie: brak
+Ostrzeżenia: brak
+Zatrzymanie (stop): ZLY_PLIK_ZBIORCZY
+  Co się stało: Plik zbiorczy nie nadaje się do Przebiegu rozliczeń. Nie można odczytać Pliku zbiorczego Rozliczenie 08_14_09_2026 - zbiorcze.xlsx. Sprawdź, czy plik otwiera się w Excelu i nie jest uszkodzony.
+  Gdzie: plik Rozliczenie 08_14_09_2026 - zbiorcze.xlsx, folder 08_14_09_2026
+  Co zrobić: Popraw Plik zbiorczy w Excelu. Potem zapisz i zamknij Plik zbiorczy w Excelu i uruchom ponownie. Jeśli błąd wraca, przekaż ten komunikat osobie utrzymującej narzędzie.
+Pliki wynikowe: brak
+
+=== przebieg-format-bez-definicji-L18 ===
+Wynik: BLAD_KRYTYCZNY
+Etapy:
+  Sprawdzanie: completed
+  Odczyt danych: failed
+  Planowanie: pending
+  Zapisywanie: pending
+Liczby postępu:
+  Wiersze danych: 0
+  Zapisane szablony: 0
+  Puste szablony: 0
+  Problemy: 0
+Podsumowanie: brak
+Ostrzeżenia: brak
+Zatrzymanie (stop): ZLY_PLIK_ZBIORCZY
+  Co się stało: Plik zbiorczy nie nadaje się do Przebiegu rozliczeń. Nie można odczytać Pliku zbiorczego Rozliczenie 08_14_09_2026 - zbiorcze.xlsx. Sprawdź, czy plik otwiera się w Excelu i nie jest uszkodzony.
+  Gdzie: plik Rozliczenie 08_14_09_2026 - zbiorcze.xlsx, folder 08_14_09_2026
+  Co zrobić: Popraw Plik zbiorczy w Excelu. Potem zapisz i zamknij Plik zbiorczy w Excelu i uruchom ponownie. Jeśli błąd wraca, przekaż ten komunikat osobie utrzymującej narzędzie.
+Pliki wynikowe: brak
+
+=== przebieg-format-bez-definicji-M18 ===
+Wynik: OK
+Etapy:
+  Sprawdzanie: completed
+  Odczyt danych: completed
+  Planowanie: completed
+  Zapisywanie: completed
+Szablony pracowników: 3 z 3
+Liczby postępu:
+  Wiersze danych: 3
+  Zapisane szablony: 2
+  Puste szablony: 1
+  Problemy: 0
+Podsumowanie:
+  Zapisane szablony: 2
+  Puste szablony: 1
+Rozliczenie pracownika: Adrian Testowy | Rozliczenie 08_14_09_2026 - Adrian Testowy.xlsx | zlecenia 2
+Rozliczenie pracownika: Darek Fikcyjny | Rozliczenie 08_14_09_2026 - Darek Fikcyjny.xlsx | zlecenia 1
+Rozliczenie pracownika: Kamil Syntetyczny | Rozliczenie 08_14_09_2026 - Kamil Syntetyczny.xlsx | zlecenia 0, pusty
+Ostrzeżenia: brak
+Zatrzymanie: brak
+Pliki wynikowe:
+  nowy: 08_14_09_2026/Rozliczenie pracowników 08_14_09_2026/Rozliczenie 08_14_09_2026 - Adrian Testowy.xlsx
+  nowy: 08_14_09_2026/Rozliczenie pracowników 08_14_09_2026/Rozliczenie 08_14_09_2026 - Darek Fikcyjny.xlsx
+  nowy: 08_14_09_2026/Rozliczenie pracowników 08_14_09_2026/Rozliczenie 08_14_09_2026 - Kamil Syntetyczny.xlsx
+
+=== przebieg-format-bez-definicji-AT18 ===
+Wynik: OK
+Etapy:
+  Sprawdzanie: completed
+  Odczyt danych: completed
+  Planowanie: completed
+  Zapisywanie: completed
+Szablony pracowników: 3 z 3
+Liczby postępu:
+  Wiersze danych: 3
+  Zapisane szablony: 2
+  Puste szablony: 1
+  Problemy: 0
+Podsumowanie:
+  Zapisane szablony: 2
+  Puste szablony: 1
+Rozliczenie pracownika: Adrian Testowy | Rozliczenie 08_14_09_2026 - Adrian Testowy.xlsx | zlecenia 2
+Rozliczenie pracownika: Darek Fikcyjny | Rozliczenie 08_14_09_2026 - Darek Fikcyjny.xlsx | zlecenia 1
+Rozliczenie pracownika: Kamil Syntetyczny | Rozliczenie 08_14_09_2026 - Kamil Syntetyczny.xlsx | zlecenia 0, pusty
+Ostrzeżenia: brak
+Zatrzymanie: brak
+Pliki wynikowe:
+  nowy: 08_14_09_2026/Rozliczenie pracowników 08_14_09_2026/Rozliczenie 08_14_09_2026 - Adrian Testowy.xlsx
+  nowy: 08_14_09_2026/Rozliczenie pracowników 08_14_09_2026/Rozliczenie 08_14_09_2026 - Darek Fikcyjny.xlsx
+  nowy: 08_14_09_2026/Rozliczenie pracowników 08_14_09_2026/Rozliczenie 08_14_09_2026 - Kamil Syntetyczny.xlsx
