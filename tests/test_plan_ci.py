@@ -14,7 +14,6 @@ import re
 import shutil
 import subprocess
 import sys
-import zlib
 
 import pytest
 
@@ -381,17 +380,37 @@ def _junit_tests() -> set[str]:
     return set(re.findall(r'name="(test_\d+)"', plan_ci.JUNIT.read_text(encoding="utf-8")))
 
 
-def test_udzialy_pliku_dziela_go_miedzy_zadania_bez_luk_i_powtorzen_niezaleznie_od_pythonhashseed(mini_repo: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    jobs = tuple(plan_ci.Zadanie(f"linux-3.14-{share}", "linux-3.14", f"pytest (Python 3.14, Linux, {share}/3)", (f"pytest:tests/test_mini.py#{share}/3",), 1.0) for share in (1, 2, 3))
+# Cztery testy pliku w czterech udziałach: crc32 id modulo 4 dałby je udziałom 2, 2, 4, 4, a udziały 1 i 3 bez testów
+# to „jednostki bez wyniku” w Required (run 40910405317: 7 testów test_kopia_wzorca.py w 3 udziałach).
+@pytest.mark.parametrize(("tests", "shares"), [(30, 3), (4, 4)], ids=["więcej testów niż udziałów", "tyle testów, ile udziałów"])
+def test_udzialy_pliku_dziela_go_miedzy_zadania_bez_luk_i_powtorzen_a_kazdy_ma_test_niezaleznie_od_pythonhashseed(
+    mini_repo: Path, monkeypatch: pytest.MonkeyPatch, tests: int, shares: int
+) -> None:
+    (mini_repo / "tests" / "test_mini.py").write_text("\n".join(f"def test_{index:02}() -> None:\n    pass\n" for index in range(tests)), encoding="utf-8")
+    (mini_repo / "tests" / "test_inny.py").write_text("def test_inny_a() -> None:\n    pass\n\n\ndef test_inny_b() -> None:\n    pass\n", encoding="utf-8")
+    # Jak hak testów @pytest.mark.dlugi w tests/conftest.py: conftest ustawia testy zależnie od składu zadania, zanim
+    # zobaczy je plugin udziałów, a pierwsze zadanie ma przed udziałem inny plik, jak zadania prawdziwego planu (jego id
+    # sortują się przed id udziału).
+    (mini_repo / "tests" / "conftest.py").write_text("def pytest_collection_modifyitems(items):\n    if len({item.path for item in items}) > 1:\n        items.reverse()\n", encoding="utf-8")
+    jobs = tuple(
+        plan_ci.Zadanie(
+            f"linux-3.14-{share}",
+            "linux-3.14",
+            f"pytest (Python 3.14, Linux, {share}/{shares})",
+            ("pytest:tests/test_inny.py",) * (share == 1) + (f"pytest:tests/test_mini.py#{share}/{shares}",),
+            1.0,
+        )
+        for share in range(1, shares + 1)
+    )
     plan = plan_ci.Plan("push", plan_ci.CEL_S, (), jobs)
     ran = []
-    for share, seed in zip((1, 2, 3), ("0", "1", "random"), strict=True):
-        monkeypatch.setenv("PYTHONHASHSEED", seed)
+    for share in range(1, shares + 1):
+        monkeypatch.setenv("PYTHONHASHSEED", ("0", "1", "random")[share % 3])
         plan_ci.wykonaj(plan, f"linux-3.14-{share}")
         ran.append(_junit_tests())
 
-    assert Counter(test for tests in ran for test in tests) == Counter(f"test_{index:02}" for index in range(30))
-    assert all(ran) and ran == [{f"test_{i:02}" for i in range(30) if zlib.crc32(f"tests/test_mini.py::test_{i:02}".encode()) % 3 == share} for share in range(3)]
+    assert Counter(name for names in ran for name in names) == Counter(f"test_{index:02}" for index in range(tests))
+    assert all(ran), ran
 
 
 def test_zadanie_wykonuje_kroki_po_czerwonym_pytest_przerywa_krok_po_limicie_i_zapisuje_wynik_z_planem(

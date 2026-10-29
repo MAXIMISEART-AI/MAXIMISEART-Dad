@@ -1,7 +1,12 @@
 __pycache__/
 *.egg-info/
+# mypy wpisuje własny .gitignore do cache dopiero na końcu przebiegu, więc przerwany przebieg zostawia cache dla git add -A.
 .pytest_cache/
-.venv/
+.mypy_cache/
+.ruff_cache/
+.hypothesis/
+# Bez ukośnika: agent dowiązuje .venv z innego worktree, a wzorzec katalogu nie łapie dowiązania.
+.venv
 *.pyc
 *.xlsx
 *.xlsm

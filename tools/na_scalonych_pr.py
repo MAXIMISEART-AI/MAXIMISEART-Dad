@@ -65,6 +65,16 @@ def merged(numbers: list[int], last: int) -> list[Merged]:
     return [Merged(f"#{number}", commit) for number, commit in sorted(found.items())]
 
 
+def commit_of(revision: str) -> str:
+    """Pełny SHA rewizji znanej lokalnie (``origin/main``, ``HEAD^1``), a nieznany commit bez zmian, do pobrania.
+
+    Etykieta i nazwa pliku wyniku biorą skrót SHA, bo skrót nazwy (``origin/m``) byłby ścieżką z ukośnikiem.
+    """
+
+    known = subprocess.run(["git", "rev-parse", "--verify", "--quiet", f"{revision}^{{commit}}"], cwd=ROOT, capture_output=True, text=True, encoding="utf-8", check=False)
+    return known.stdout.strip() if known.returncode == 0 else revision
+
+
 def tools_snapshot(revision: str | None) -> dict[str, bytes]:
     """Treść plików ``tools/`` z chwili startu: z checkoutu (śledzonych i nowych nieignorowanych) albo z ``revision``.
 
@@ -122,7 +132,7 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     folder = args.wyniki or ROOT / _git("rev-parse", "--git-path", "na-scalonych-pr").strip()
     folder.mkdir(parents=True, exist_ok=True)
-    prs += [Merged(commit[:8], commit) for commit in args.commit]
+    prs += [Merged(commit[:8], commit) for commit in map(commit_of, args.commit)]
     failed = []
     tools = tools_snapshot(args.narzedzia)
     for pr in prs:

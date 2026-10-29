@@ -5,7 +5,7 @@ wewnętrznego, Pliku zbiorczego, Folderu rozliczeń pracowników i Rozliczenia
 pracownika. ``PeriodFolder`` powstaje tylko z folderu okresów i sprawdzonego
 ``SettlementPeriod`` albo ze ścieżki Pliku zbiorczego, którą moduł sam
 sprawdza, więc niesprawdzony token nie trafia do nazw. ``PeriodFolderError``
-ma bezpieczny komunikat, a każdy proces tłumaczy go na swoje zatrzymanie.
+mówi, co jest nie tak ze ścieżką, a Komunikat pisze z tego katalog procesu.
 Moduł sprawdza też, czy nazwa Wykonawcy może być nazwą pliku
 (``check_worker_name``), bo zna format nazwy Rozliczenia pracownika.
 
@@ -62,15 +62,33 @@ _MAX_FILE_NAME_CODE_UNITS = 255  # Windows liczy nazwę pliku w jednostkach UTF-
 _ANY_TOKEN = "00_00_00_0000"  # każdy token okresu ma tę długość
 
 
+@dataclass(frozen=True)
+class NotPeriodToken:
+    """Token ``token`` z nazwy Pliku zbiorczego nie jest okresem od wtorku do poniedziałku."""
+
+    token: str
+
+
+@dataclass(frozen=True)
+class FolderNotNamedAfterPeriod:
+    """Folder pliku nie nazywa się jak okres ``token`` z nazwy pliku."""
+
+    token: str
+
+
+CollectiveFileProblem = (
+    Literal["internal_settlement", "not_collective_file_name"] | NotPeriodToken | FolderNotNamedAfterPeriod
+)
+"""Wybrane Rozliczenie wew. (``internal_settlement``), nazwa inna niż nazwa Pliku zbiorczego
+(``not_collective_file_name``, jej wzór daje ``collective_file_name_with``), token, który nie jest okresem
+(``NotPeriodToken``), albo folder nazwany inaczej niż okres (``FolderNotNamedAfterPeriod``)."""
+
+
 class PeriodFolderError(Exception):
-    """Ścieżka nie jest Plikiem zbiorczym w swoim Folderze okresu.
+    """Ścieżka nie jest Plikiem zbiorczym w swoim Folderze okresu; ``problem`` mówi dlaczego, bez zdania dla taty."""
 
-    ``message`` to bezpieczny komunikat dla taty (bez ścieżki i tekstu wyjątku).
-    """
-
-    def __init__(self, message: str) -> None:
-        super().__init__(message)
-        self.message = message
+    def __init__(self, problem: CollectiveFileProblem) -> None:
+        self.problem: CollectiveFileProblem = problem
 
 
 class PeriodFolderLookupError(Exception):
@@ -120,21 +138,17 @@ class PeriodFolder:
         """
 
         if _INTERNAL_SETTLEMENT_MARK in path.name:
-            raise PeriodFolderError("Plik Rozliczenie wew. jest poza zakresem tego procesu.")
+            raise PeriodFolderError("internal_settlement")
         match = _COLLECTIVE_FILE_NAME.fullmatch(path.name)
         if match is None:
-            example = _COLLECTIVE_FILE.format(token="{dd}_{dd}_{mm}_{rrrr}")
-            raise PeriodFolderError(f"Wybierz plik nazwany dokładnie: {example}.")
+            raise PeriodFolderError("not_collective_file_name")
         token = match.group("token")
         try:
             period = parse_period_token(token)
         except ValueError:
-            raise PeriodFolderError(
-                f"Okres {token} w nazwie pliku nie jest okresem od wtorku do poniedziałku "
-                "(przykład okresu: 08_14_09_2026)."
-            ) from None
+            raise PeriodFolderError(NotPeriodToken(token)) from None
         if path.parent.name != token:
-            raise PeriodFolderError(f"Folder pliku musi nazywać się tak samo jak okres: {token}.")
+            raise PeriodFolderError(FolderNotNamedAfterPeriod(token))
         return cls(path.parent.parent, period)
 
     @property
@@ -221,7 +235,13 @@ def _exists(listed: Mapping[str, os.DirEntry[str]], path: Path, *, directory: bo
 def collective_file_name(period: SettlementPeriod) -> str:
     """Nazwa Pliku zbiorczego okresu; nie zależy od folderu okresów."""
 
-    return _COLLECTIVE_FILE.format(token=period.token)
+    return collective_file_name_with(period.token)
+
+
+def collective_file_name_with(token: str) -> str:
+    """Nazwa Pliku zbiorczego z ``token`` w miejscu tokenu okresu, np. ze wzorem tokenu w Komunikacie."""
+
+    return _COLLECTIVE_FILE.format(token=token)
 
 
 @dataclass(frozen=True)

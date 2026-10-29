@@ -7,18 +7,23 @@ co tata zobaczy inaczej, obok zmiany kodu.
 Katalog to moduł fabryk Komunikatów: ma wpis w ``CATALOGS``, a każda jego publiczna funkcja ma próbkę.
 Moduł ``src/``, który tworzy Komunikat poza katalogiem, ma w ``OUTSIDE_CATALOGS`` próbkę każdej funkcji i stałej,
 która go tworzy (co liczy się jako utworzenie, mówi ``_creating``), więc i jego tekst trafia do pliku.
+Błąd, który fabryka tłumaczy na Komunikat, niesie fakty, a nie zdanie dla taty, więc i jego tekst pisze katalog.
 """
 
 from __future__ import annotations
 
 import ast
-from collections.abc import Callable, Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence, Set
+import importlib
 import inspect
 from pathlib import Path
+import pkgutil
 from types import ModuleType
+import typing
 
 import pytest
 
+import rozliczenia
 from rozliczenia import intermax_messages, settlement_messages
 from rozliczenia import preparation_messages as messages
 from rozliczenia.centrum import (
@@ -32,7 +37,10 @@ from rozliczenia.centrum import (
     start_problems,
     update_messages,
 )
-from rozliczenia.message import Message
+from rozliczenia.message import Message, StopError
+from rozliczenia.period_folder import PeriodFolderError, PeriodFolderInaccessible, PeriodFolderLookupError
+from rozliczenia.workbook_files import WorkbookError
+from rozliczenia.worker_config import WorkerConfigError
 
 from tests.fixtures import message_samples
 from tests.fixtures.expect import assert_expected
@@ -96,8 +104,14 @@ def _places(statements: list[ast.stmt], prefix: str = "") -> Iterator[tuple[str,
                 yield f"{prefix}wiersz {statement.lineno}", statement
 
 
-def _copies(call: ast.Call) -> bool:
-    """``Message(what=message.what, where=message.where, …)``: każde pole z tego samego pola jednego obiektu."""
+_PARTS = frozenset({"what", "where", "action"})
+
+
+def _copies(call: ast.Call, module_names: Set[str]) -> bool:
+    """``Message(what=message.what, where=message.where, …)``: każde pole z tego samego pola jednego obiektu funkcji.
+
+    Obiekt to parametr albo zmienna funkcji; nazwa modułu (stała, import) ma własny tekst, więc kopią nie jest.
+    """
 
     owners = [
         keyword.value.value.id
@@ -106,15 +120,41 @@ def _copies(call: ast.Call) -> bool:
         and isinstance(keyword.value.value, ast.Name)
         and keyword.value.attr == keyword.arg
     ]
-    return not call.args and len(owners) == len(call.keywords) and len(set(owners)) == 1
+    return (
+        not call.args
+        and len(owners) == len(call.keywords)
+        and len(set(owners)) == 1
+        and owners[0] not in module_names
+    )
+
+
+def _rewrites(call: ast.Call) -> bool:
+    """``komunikat.model_copy(update={"action": …})`` albo ``replace(komunikat, action=…)``: nowy tekst w kopii."""
+
+    match call.func:
+        case ast.Attribute(attr="model_copy"):
+            return any(
+                keyword.arg == "update"
+                and isinstance(keyword.value, ast.Dict)
+                and any(isinstance(key, ast.Constant) and key.value in _PARTS for key in keyword.value.keys)
+                for keyword in call.keywords
+            )
+        case ast.Name(id="replace") | ast.Attribute(attr="replace"):
+            return any(keyword.arg in _PARTS for keyword in call.keywords)
+        case _:
+            return False
 
 
 def _creating(path: Path) -> set[str]:
     """Miejsca modułu (``_places``), które tworzą Komunikat.
 
     Tworzy go wywołanie, którego nazwa po rozwiązaniu importów (``Message as M``) albo atrybut (``message.Message``,
-    ``contract.Message``) kończy się na ``Message``. Wywołanie, które tylko przepisuje pola innego Komunikatu
-    (``_copies``), nowego tekstu nie tworzy.
+    ``contract.Message``) kończy się na ``Message``, i kopia z nowym tekstem części (``_rewrites``). Wywołanie, które
+    tylko przepisuje pola innego Komunikatu (``_copies``), nowego tekstu nie tworzy.
+
+    Granica: ``model_copy`` ze słownikiem ``update`` spoza literału (``update=zmiany``, ``update=dict(...)``) i
+    przepisanie pól obiektu z tekstem, który powstał w funkcji (``t = SimpleNamespace(what="…")``), łapie tylko
+    przegląd.
     """
 
     tree = ast.parse(path.read_text(encoding="utf-8"))
@@ -124,10 +164,19 @@ def _creating(path: Path) -> set[str]:
         if isinstance(node, ast.Import | ast.ImportFrom)
         for alias in node.names
     }
+    module_names = set(imported) | {
+        node.id
+        for statement in tree.body
+        if isinstance(statement, ast.Assign | ast.AnnAssign)
+        for node in ast.walk(statement)
+        if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store)
+    }
 
     def creates(node: ast.AST) -> bool:
-        if not isinstance(node, ast.Call) or _copies(node):
+        if not isinstance(node, ast.Call) or _copies(node, module_names):
             return False
+        if _rewrites(node):
+            return True
         match node.func:
             case ast.Name(id=name):
                 return imported.get(name, name).endswith("Message")
@@ -183,6 +232,86 @@ def test_kazdy_katalog_probek_trafia_do_pliku_expect() -> None:
     sample_sets = {name for name, value in vars(message_samples).items() if name.endswith("_SAMPLES")}
 
     assert {id(getattr(message_samples, name)) for name in sample_sets} == {id(samples) for _, samples in CATALOGS.values()}
+
+
+def _engine_modules() -> list[ModuleType]:
+    return [importlib.import_module(info.name) for info in pkgutil.walk_packages(rozliczenia.__path__, "rozliczenia.")]
+
+
+def _factories(modules: Sequence[ModuleType]) -> list[Callable[..., object]]:
+    """Funkcje modułów z adnotacją ``-> Message``: fabryki katalogów i ich funkcje prywatne."""
+
+    return [
+        function
+        for module in modules
+        for _, function in inspect.getmembers(module, inspect.isfunction)
+        if function.__module__ == module.__name__ and function.__annotations__.get("return") in ("Message", Message)
+    ]
+
+
+def _resolved(module: ModuleType, node: ast.expr) -> object:
+    """Obiekt nazwy (``StopError``) albo atrybutu (``settlement_messages.collective_file_invalid``) w module."""
+
+    match node:
+        case ast.Name(id=name):
+            return vars(module).get(name)
+        case ast.Attribute(value=value, attr=attr):
+            return getattr(_resolved(module, value), attr, None)
+        case _:
+            return None
+
+
+def _caught_for_message(module: ModuleType, makers: Sequence[object]) -> Iterator[object]:
+    """Typy z ``except`` modułu, którego obsługa woła fabrykę Komunikatu albo tworzy ``StopError``."""
+
+    tree = ast.parse(Path(str(module.__file__)).read_text(encoding="utf-8"))
+    for handler in ast.walk(tree):
+        if not isinstance(handler, ast.ExceptHandler) or handler.type is None:
+            continue
+        calls = [node.func for node in ast.walk(handler) if isinstance(node, ast.Call)]
+        if any(_resolved(module, call) is maker for call in calls for maker in makers):
+            kinds = handler.type.elts if isinstance(handler.type, ast.Tuple) else [handler.type]
+            yield from (_resolved(module, kind) for kind in kinds)
+
+
+def _variants(hint: object) -> tuple[object, ...]:
+    return typing.get_args(hint) or (hint,)
+
+
+def test_blad_ktory_proces_tlumaczy_na_komunikat_niesie_fakty_a_nie_tekst() -> None:
+    """Wyjątek, z którego powstaje Komunikat, nie przyjmuje ``str``: zdanie dla taty pisze katalog, nie kod błędu.
+
+    Taki wyjątek stoi w sygnaturze fabryki Komunikatu albo w ``except``, którego obsługa woła fabrykę albo tworzy
+    ``StopError``. Sprawdzenie widzi parametry ``__init__`` z adnotacją ``str`` (także w unii) w klasach
+    ``src/rozliczenia``, a błąd bez własnego ``__init__`` przyjmuje każdy tekst w ``args``, więc nie stoi w sygnaturze
+    fabryki. Granica: pole ustawione bez parametru, parametr bez adnotacji, ``except`` na zmiennej (``except errors``),
+    tekst w dataclass faktu (``SameWorkerFile`` niesie nazwy z konfiguracji) i błąd bez własnego ``__init__`` tylko
+    w ``except``, którego obsługa przekaże fabryce jego tekst (``str(error)``); dziś obsługa ``WorkbookSaveError``
+    (rzucany ze zdaniem) i ``HeldByOneDrive`` woła fabrykę bez błędu.
+    """
+
+    modules = _engine_modules()
+    factories = _factories(modules)
+    in_signatures = {
+        kind for factory in factories for hint in typing.get_type_hints(factory).values() for kind in _variants(hint)
+    }
+    caught = {kind for module in modules for kind in _caught_for_message(module, [*factories, StopError])}
+    errors = {
+        kind
+        for kind in in_signatures | caught
+        if inspect.isclass(kind) and issubclass(kind, BaseException) and kind.__module__.startswith("rozliczenia.")
+    }
+    with_text = {
+        f"{error.__name__}.{parameter}"
+        for error in errors
+        if inspect.isfunction(error.__init__)
+        for parameter, hint in typing.get_type_hints(error.__init__).items()
+        if str in _variants(hint)
+    } | {f"{error.__name__}.args" for error in errors & in_signatures if not inspect.isfunction(error.__init__)}
+
+    assert with_text == set()
+    assert {WorkbookError, WorkerConfigError, PeriodFolderError, PeriodFolderLookupError} <= in_signatures
+    assert PeriodFolderInaccessible in caught
 
 
 def test_komunikaty_ktore_widzi_tata_odpowiadaja_plikowi_expect() -> None:

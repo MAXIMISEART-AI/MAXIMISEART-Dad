@@ -24,11 +24,16 @@ from rozliczenia.centrum import (
 )
 from rozliczenia.centrum.tool_update import LIBRARIES_FAILED, NEW_VERSION_FAILED, ROLLBACK_FAILED, UNEXPECTED
 from rozliczenia.message import Message
-from rozliczenia.period_folder import PeriodFolderLookupError
+from rozliczenia.period_folder import (
+    FolderNotNamedAfterPeriod,
+    NotPeriodToken,
+    PeriodFolderError,
+    PeriodFolderLookupError,
+)
 from rozliczenia.quantity_rules import DESCRIPTION_COLUMNS
 from rozliczenia.settlement_period import parse_period_token
 from rozliczenia.workbook_files import MergedCells, MissingHeader, Problem, WorkbookError
-from rozliczenia.worker_config import WorkerConfigError
+from rozliczenia.worker_config import SameWorkerFile, WorkerConfigError
 
 REGISTER = Path("C:/Dane/ZLECENIA INTERMAX OD 08_11_2021.xlsx")
 PERIODS = Path("C:/Dane/INEA")
@@ -44,11 +49,22 @@ PERIOD = "08_14_09_2026"
 SOURCE = PERIOD_DIRECTORY / f"Rozliczenie {PERIOD} - zbiorcze.xlsx"
 WORKER_SETTLEMENTS = PERIOD_DIRECTORY / f"Rozliczenie pracowników {PERIOD}"
 WORKER_TEMPLATE = Path("C:/Narzedzie/config/Wzorzec rozliczenia pracownika.xlsx")
-MISSING_CONFIG = WorkerConfigError("missing", "Nie można odczytać pliku konfiguracji.")
-INACCESSIBLE_CONFIG = WorkerConfigError("inaccessible", "Nie można odczytać pliku konfiguracji.")
-CONFIG_NOT_UTF8 = WorkerConfigError("not_utf8", "Plik nie jest zapisany w kodowaniu UTF-8.")
-CONFIG_NOT_YAML = WorkerConfigError("not_yaml", "Plik nie jest poprawnym YAML.")
-INVALID_CONFIG = WorkerConfigError("invalid", "Nieobsługiwana wersja konfiguracji.")
+MISSING_CONFIG = WorkerConfigError("missing")
+INACCESSIBLE_CONFIG = WorkerConfigError("inaccessible")
+CONFIG_NOT_UTF8 = WorkerConfigError("not_utf8")
+CONFIG_NOT_YAML = WorkerConfigError("not_yaml")
+INVALID_CONFIG = WorkerConfigError("unsupported_version")
+# Pozostałe złamane reguły konfiguracji; każda ma swoje zdanie w obu katalogach.
+BROKEN_CONFIG_RULES = [
+    WorkerConfigError("not_mapping"),
+    WorkerConfigError("no_workers"),
+    WorkerConfigError("not_text_entry"),
+    WorkerConfigError("empty_entry"),
+    WorkerConfigError("repeated_id"),
+    WorkerConfigError("invalid_worker_name"),
+    WorkerConfigError("too_long_worker_name"),
+    WorkerConfigError(SameWorkerFile("Jan Testowy", "jan testowy")),
+]
 # Foldery nad folderem config z próbek; żaden Komunikat ich nie pokazuje.
 ABOVE_CONFIG = frozenset({"Wspolne", "Narzedzie"})
 
@@ -65,6 +81,7 @@ PREPARATION_SAMPLES: Samples = {
         lambda: messages.worker_config_problem(CONFIG, CONFIG_NOT_UTF8),
         lambda: messages.worker_config_problem(CONFIG, CONFIG_NOT_YAML),
         lambda: messages.worker_config_problem(CONFIG, INVALID_CONFIG),
+        *(partial(messages.worker_config_problem, CONFIG, error) for error in BROKEN_CONFIG_RULES),
     ],
     "template_unusable": [
         *(partial(messages.template_unusable, WorkbookError(TEMPLATE, problem)) for problem in Problem),
@@ -150,9 +167,12 @@ PREPARATION_SAMPLES: Samples = {
 SETTLEMENT_SAMPLES: Samples = {
     "collective_file_missing": [lambda: settlement_messages.collective_file_missing(SOURCE)],
     "collective_file_invalid": [
+        lambda: settlement_messages.collective_file_invalid(SOURCE, PeriodFolderError("internal_settlement")),
+        lambda: settlement_messages.collective_file_invalid(SOURCE, PeriodFolderError("not_collective_file_name")),
+        lambda: settlement_messages.collective_file_invalid(SOURCE, PeriodFolderError(NotPeriodToken("09_15_09_2026"))),
         lambda: settlement_messages.collective_file_invalid(
-            SOURCE, "Plik Rozliczenie wew. jest poza zakresem tego procesu."
-        )
+            SOURCE, PeriodFolderError(FolderNotNamedAfterPeriod(PERIOD))
+        ),
     ],
     "collective_file_unusable": [
         partial(settlement_messages.collective_file_unusable, WorkbookError(SOURCE, problem)) for problem in Problem
@@ -164,6 +184,7 @@ SETTLEMENT_SAMPLES: Samples = {
         lambda: settlement_messages.worker_config_problem(CONFIG, CONFIG_NOT_UTF8),
         lambda: settlement_messages.worker_config_problem(CONFIG, CONFIG_NOT_YAML),
         lambda: settlement_messages.worker_config_problem(CONFIG, INVALID_CONFIG),
+        *(partial(settlement_messages.worker_config_problem, CONFIG, error) for error in BROKEN_CONFIG_RULES),
     ],
     "worker_template_unusable": [
         partial(settlement_messages.worker_template_unusable, WorkbookError(WORKER_TEMPLATE, problem))

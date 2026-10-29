@@ -32,7 +32,6 @@ from typing import Final, Literal
 
 from rozliczenia import input_checks, intermax_messages, intermax_ordering, preparation_messages, settlement_messages, workbook_files
 from rozliczenia.centrum import contract, diagnosis_messages, run_view
-from rozliczenia.centrum.diagnosis_messages import NEWER_TOOL_VERSION
 from rozliczenia.centrum.cloud_files import CloudFiles
 from rozliczenia.centrum.configuration import ConfigurationFiles, Template, workers_problem
 from rozliczenia.centrum.keyed_box import KeyJudgement
@@ -59,12 +58,16 @@ _UNEXPECTED_EVENT: Final = "nieoczekiwany-wyjatek"
 
 @dataclass(frozen=True)
 class CheckResult:
-    """Wynik jednego sprawdzenia; ``message`` tylko przy ``failed`` przyczyny, ``detail`` to krótki bezpieczny fakt."""
+    """Wynik jednego sprawdzenia; ``message`` tylko przy ``failed`` przyczyny, ``detail`` to krótki bezpieczny fakt.
+
+    ``fixed_by_update``: przyczynę usuwa Aktualizacja narzędzia, bo na GitHubie jest nowsza wersja.
+    """
 
     label: str
     state: CheckState
     detail: str
     message: Message | None = None
+    fixed_by_update: bool = False
 
     @classmethod
     def passed(cls, label: str, detail: str) -> CheckResult:
@@ -84,6 +87,11 @@ class CheckResult:
 
         return cls(label, "failed", detail)
 
+    @classmethod
+    def newer_tool_version(cls, label: str) -> CheckResult:
+        message = diagnosis_messages.newer_tool_version()
+        return cls(label, "failed", message.what, message, fixed_by_update=True)
+
 
 @dataclass(frozen=True)
 class Diagnosis:
@@ -93,8 +101,15 @@ class Diagnosis:
     log_entries: tuple[str, ...]
 
     @property
+    def _explaining(self) -> CheckResult | None:
+        """Sprawdzenie, którego Komunikat jest wyjaśnieniem: pierwsze z przyczyną."""
+
+        return next((check for check in self.checks if check.message is not None), None)
+
+    @property
     def cause(self) -> Message | None:
-        return next((check.message for check in self.checks if check.message is not None), None)
+        explaining = self._explaining
+        return None if explaining is None else explaining.message
 
     @property
     def explanation(self) -> Message:
@@ -104,17 +119,19 @@ class Diagnosis:
     def proposes_update(self) -> bool:
         """Jest nowsza wersja narzędzia, ale wyjaśnieniem jest inna przyczyna."""
 
-        newer = any(check.message is not None and check.message.code == NEWER_TOOL_VERSION for check in self.checks)
-        return newer and self.explanation.code != NEWER_TOOL_VERSION
+        explaining = self._explaining
+        newer = any(check.fixed_by_update for check in self.checks)
+        return newer and explaining is not None and not explaining.fixed_by_update
 
     @property
     def next_action(self) -> contract.DiagnosisNextAction:
         """Co tata robi po wyjaśnieniu: aktualizuje narzędzie, sam usuwa przyczynę i uruchamia ponownie albo wysyła do Maksa."""
 
+        explaining = self._explaining
+        if explaining is not None and explaining.fixed_by_update:
+            return "update"
         cause = self.cause
-        if cause is None or cause.reports_to_maintainer:
-            return "report"
-        return "update" if cause.code == NEWER_TOOL_VERSION else "rerun"
+        return "report" if cause is None or cause.reports_to_maintainer else "rerun"
 
     def view(self, stop: Message, report: contract.ReportDraft) -> contract.Diagnosis:
         explanation = self.explanation
@@ -264,7 +281,7 @@ def _tool_freshness(computer: _Computer, label: str) -> list[CheckResult]:
     freshness = computer.surroundings.tool_freshness
     judgement = freshness.judge()
     if offers_update(judgement):
-        return [CheckResult.failed(label, diagnosis_messages.newer_tool_version())]
+        return [CheckResult.newer_tool_version(label)]
     if judgement == "current":
         return [CheckResult.passed(label, f"Najnowsza wersja z GitHuba, commit {short_commit(freshness.local() or '')}.")]
     return [CheckResult.not_checked(label, _NOT_CHECKED_FRESHNESS[judgement])]
