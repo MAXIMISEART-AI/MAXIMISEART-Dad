@@ -36,8 +36,20 @@ from rozliczenia.centrum.log import CentrumLog
 from rozliczenia.centrum.report_box import GitHubReportBox, HttpRequest, HttpResponse
 from rozliczenia.centrum.shutdown import Shutdown
 
-from tests.fixtures.centrum import CENTRUM, FakeGitHub, FakeOneDrive, FakePlatform, MetricsPaths, finished_view
+from tests.fixtures.centrum import (
+    CENTRUM,
+    QUEUE_THREAD,
+    FakeGitHub,
+    FakeOneDrive,
+    FakePlatform,
+    MetricsPaths,
+    finished_view,
+    join_threads_since,
+    new_line,
+    threads_since,
+)
 from tests.fixtures.centrum_processes import Engines
+from tests.fixtures.clock import ManualClock
 from tests.fixtures.preparation import PERIOD, write_collective_template, write_internal_template, write_register
 from tests.fixtures.settlement import CellValue, write_quantity_source, write_template
 
@@ -56,6 +68,8 @@ DAMAGED = (" uszkodzon", " niepoprawn")
 WORKER_CONFIG_INACCESSIBLE = "Nie można teraz odczytać konfiguracji wykonawców. Plik może być zajęty przez inny program."
 GENERIC_500 = "W Centrum rozliczeń wystąpił nieoczekiwany błąd. Odśwież kartę i spróbuj ponownie."
 DIAGNOSIS_UNEXPECTED = "Nie udało się sprawdzić: nieoczekiwany błąd."
+# Wątek budzika ``SYSTEM_CLOCK.after``, którym kolejka Skrzynki bez sieci nastawia ponowienie.
+ALARM_THREAD = "budzik"
 
 TEXT, LINES, XLSX, FOLDER = "tekst", "wiersze", "xlsx", "folder"
 # Kopia INTERMAX, którą Konfiguracja wymienia i przywraca: Rejestr zleceń świata sprzed dnia świata.
@@ -212,6 +226,8 @@ class World:
         platform = FakePlatform(
             chosen_files=[self.path("rejestr")] * 2, chosen_folders=[self.path("folder_okresow")] * 2
         )
+        # Zegar stoi, więc kolejka Skrzynki bez sieci nie nastawia prawdziwego budzika, który przeżyłby test.
+        clock = ManualClock()
         return create_app(
             settings_path=self.path("ustawienia"),
             platform=platform,
@@ -228,6 +244,8 @@ class World:
             tool_freshness=FakeGitHub().freshness(),
             cloud_files=FakeOneDrive().cloud_files(),
             report_box=GitHubReportBox(transport=_offline_like_urllib),
+            clock=clock,
+            pause=clock.pause,
             intermax_copies=self.root / "Kopie INTERMAX",
             now=lambda: NOW,
         )
@@ -554,6 +572,26 @@ def test_uszkodzony_plik_nie_konczy_sie_ogolnym_komunikatem(
         ]
 
     assert problems == []
+
+
+def test_centrum_swiata_bez_sieci_nie_zostawia_po_tescie_wysylki_ani_budzika_skrzynki(
+    world_template: Path, tmp_path: Path
+) -> None:
+    """Uwaga taty czeka w kolejce Skrzynki na internet, a po teście nie żyje żaden wątek Skrzynki tego Centrum.
+
+    Wątki Centrum to wątki z linii, które wątek testu zaczął od ``since``: budzik Centrum innego testu w tym samym
+    workerze do nich nie należy, nawet gdy dzwoni w trakcie tego testu.
+    """
+
+    since = new_line()
+    world = World(tmp_path / "swiat")
+    shutil.copytree(world_template, world.root)
+
+    sent = _remembering_choices(world).post("/api/dad-notes", json=DAD_NOTE).json()
+    join_threads_since(since, named=QUEUE_THREAD)
+
+    assert sent == {"state": "waiting", "waits_for": "internet"}
+    assert [thread.name for thread in threads_since(since) if thread.name in (ALARM_THREAD, QUEUE_THREAD)] == []
 
 
 def test_macierz_obejmuje_kazda_operacje_kontraktu_centrum(tmp_path: Path) -> None:

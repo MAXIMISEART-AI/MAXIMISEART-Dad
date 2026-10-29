@@ -4,7 +4,7 @@
 FAIL PR #624 (parser regex nie odtwarzał, co GitHub renderuje jako kod, znacznik spoza listy wierszowych kończył
 linię, a akapit w nagłówku, ``<summary>`` albo tabeli zamykał) i przypadki brzegowe. ``PRAWDZIWE`` to scalone PR-y z bazą ``main``, których issues z „Naprawia” zostawały
 otwarte przed #624, z numerami, które narzędzie ma zamknąć. ``SCALENIE`` to opisy testów przepływu
-``tools/scal_pr.py``. Numery to prawdziwe issues i PR-y tego repo, bo renderer odróżnia je po ich stanie na GitHubie
+``tools/scal_pr.py``, z nagłówkami wzoru skilla ``pr`` (``wzor``). Numery to prawdziwe issues i PR-y tego repo, bo renderer odróżnia je po ich stanie na GitHubie
 (``data-hovercard-type``).
 
 ``opisy_pr.json`` trzyma opisy ``PRAWDZIWE`` i HTML każdego opisu z ``gh api markdown`` (``mode=gfm``, ``context``
@@ -170,12 +170,20 @@ PRAWDZIWE = {
     534: (490, 491),
     535: (533,),
 }
+
+
+def wzor(why: str) -> str:
+    """Opis z nagłówkami wzoru skilla ``pr``, bez których ``tools/scal_pr.py`` nie scala, z ``why`` w ``## Why``."""
+
+    return f"## Why\n\n{why}\n\n## Summary\n\nSzkic.\n\n## Evidence\n\n- **Before:** FAIL\n  **After:** OK\n\n## Merge Danger\n\n**Door:** two-way\n"
+
+
 SCALENIE = {
-    "zamyka": "Naprawia #3, #4\nNaprawia #5\nNaprawia #1\nCloses #7\nNaprawia #7\nNaprawia inny/repo#8, #6\n",
-    "jedno": "Naprawia #3",
-    "dwa": "Naprawia #3, #4",
-    "porazki": "Naprawia #14, #3, #10, #11, #12, #13",
-    "bez-commitu-merge": "Naprawia #3, #5, #15",
+    "zamyka": wzor("Naprawia #3, #4\nNaprawia #5\nNaprawia #1\nCloses #7\nNaprawia #7\nNaprawia inny/repo#8, #6"),
+    "jedno": wzor("Naprawia #3"),
+    "dwa": wzor("Naprawia #3, #4"),
+    "porazki": wzor("Naprawia #14, #3, #10, #11, #12, #13"),
+    "bez-commitu-merge": wzor("Naprawia #3, #5, #15"),
 }
 
 

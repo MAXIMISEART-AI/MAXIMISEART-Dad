@@ -57,10 +57,11 @@ WHITESPACE = re.compile(r"\s")
 # W napisie bez spacji (`perl -e 'select(undef,…)'`, wzorzec `rg '(while|until)'`) słowo pętli nie stoi na pozycji
 # polecenia, a nawias nie otwiera ani nie zamyka grupy.
 QUOTED_SEPARATOR = re.compile(r"[;&|(){}!`]")
-# Słowo pętli liczy się na pozycji polecenia, więc „done” w `grep -q done` nie zamyka pętli. Za początkiem wiersza
+# Słowo pętli liczy się na pozycji polecenia, więc „done” w `grep -q done` nie zamyka pętli, a za `do` też nie, bo
+# `do done` z pustym ciałem to błąd składni, a w `do echo do done` „done” jest argumentem. Za początkiem wiersza
 # odstęp bez nowej linii: inaczej od każdego z tysięcy pustych wierszy wzorzec czytałby wszystkie następne.
 _STARTS = r"(?:^[^\S\n]*|(?:(?<=[;&|({!`])|(?<=\bdo)|(?<=\bthen)|(?<=\belse))\s*)"
-_ENDS = r"(?:(?<=\n)[^\S\n]*|(?:(?<=[;&])|(?<=\bdo))\s*)"
+_ENDS = r"(?:(?<=\n)[^\S\n]*|(?<=[;&])\s*)"
 LOOP_WORD = re.compile(rf"{_STARTS}(until|while|for)\b|{_ENDS}(done)\b", re.MULTILINE)
 # `for` i `while read` z `sleep` to zwykle partia zapytań z limitem API (`for id in …; do sleep 2; gh run view $id`),
 # a czekaniem są dopiero z wyjściem z pętli albo licznikiem prób od 0 albo 1 (`$(seq 247 264)` to numery PR).
@@ -82,13 +83,18 @@ HEREDOC = re.compile(r"(?<!<)<<-?\s*(['\"]?)(\w+)\1")
 # powłoki, `su`, `runuser`, `flock` albo `script`: `grep -c '…'` liczy wiersze, a `python3 -c '…'` to Python. Słowa
 # między nimi mogą być dowolne (`-euo pipefail`, `--rcfile x`, `-s /bin/sh root`), więc `bash skrypt.sh -c '…'` też
 # dostaje odmowę. Polecenie proste kończą `;`, `&`, `|` i nowa linia, a `(` i lewy `` ` `` zaczynają polecenie, po
-# którym `)` i prawy `` ` `` wracają do zewnętrznego (`bash $(echo -l) -c`). `fish` i `csh` mają inną składnię pętli,
-# ale pętla bez `done` sięga do końca polecenia.
+# którym `)` i prawy `` ` `` wracają do zewnętrznego (`bash $(echo -l) -c`). `${…}` to część słowa, więc `;`, `&`,
+# `|`, `(` i `)` w nim niczego nie kończą ani nie otwierają (`bash ${x:-)} -c`), ale `$(` i `` ` `` w nim zaczynają
+# polecenie, bo bash wykonuje podstawienie w wartości domyślnej (`${x:-$(bash -c '…')}`). Nowa linia zamyka
+# niedomknięte `${`, więc `${` w komentarzu nie sięga dalej niż jego linia. Ukośnik przed literą nic nie zmienia
+# (`\bash`).
+# `fish` i `csh` mają inną składnię pętli, ale pętla bez `done` sięga do końca polecenia.
 _SHELLS = r"(?:ba|da|k|z|mk|a|fi|c|tc)?sh|su|runuser|flock|script|\$\{?(?:SHELL|BASH)\}?"
 SHELL_NAME = re.compile(rf"(?:{_SHELLS})")
 COMMAND_PART = re.compile(
-    r"\\[\s\S]|(?P<end>[;\n]|(?<![<>])&(?!>)|(?<!>)\|)|(?P<open>\()|(?P<close>\))|(?P<tick>`)"
-    rf"|(?P<shell>(?<![^\s/;&|(`])(?:{_SHELLS})(?![^\s;&|()`]))"
+    rf"(?P<shell>(?<![^\s/;&|(`])(?:\\(?=[a-z]))?(?:{_SHELLS})(?![^\s;&|()`]))"
+    r"|\\[\s\S]|(?P<parameter>\$\{)|(?P<brace>\})|(?P<substitution>\$\()"
+    r"|(?P<end>[;\n]|(?<![<>])&(?!>)|(?<!>)\|)|(?P<open>\()|(?P<close>\))|(?P<tick>`)"
 )
 SCRIPT_OPTION = re.compile(r"-[a-zA-Z]+")
 
@@ -207,22 +213,35 @@ class _ShellScripts:
     def __init__(self, command: str, start: int) -> None:
         self.command, self.read_to = command, start
         self.shell = False
-        self.outer: list[tuple[str, bool]] = []
+        # Otwarte ``${`` polecenia, w którym stoi skaner; ``$(``, ``(`` i lewy `` ` `` odkładają je razem ze słowem
+        # powłoki do ``outer``, a ich zamknięcie je przywraca.
+        self.parameters = 0
+        self.outer: list[tuple[str, bool, int]] = []
 
     def is_script(self, quote: int, end: int) -> bool:
         """Czy napis od ``quote`` do ``end`` stoi za ``-c`` w poleceniu prostym ze słowem powłoki."""
 
         for part in COMMAND_PART.finditer(self.command, self.read_to, quote):
             kind = part.lastgroup
+            if part.group() == "\n":
+                self.parameters = 0
             if kind == "shell":
                 self.shell = True
+            elif kind == "parameter":
+                self.parameters += 1
+            elif kind == "brace":
+                self.parameters = max(self.parameters - 1, 0)
+            elif self.parameters and kind in ("end", "open", "close"):
+                continue
             elif kind == "end":
                 self.shell = False
-            elif kind == "open" or (kind == "tick" and not (self.outer and self.outer[-1][0] == "`")):
-                self.outer.append((part.group(), self.shell))
-                self.shell = False
-            elif kind is not None:
-                self.shell = self.outer.pop()[1] if self.outer else False
+            elif kind in ("open", "substitution") or (
+                kind == "tick" and not (self.outer and self.outer[-1][0] == "`")
+            ):
+                self.outer.append((part.group(), self.shell, self.parameters))
+                self.shell, self.parameters = False, 0
+            elif kind in ("close", "tick"):
+                self.shell, self.parameters = self.outer.pop()[1:] if self.outer else (False, 0)
         words = self.command[self.read_to : quote].split()
         option = words[-1] if words else ""
         script = self.shell and "c" in option and SCRIPT_OPTION.fullmatch(option) is not None

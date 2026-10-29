@@ -529,7 +529,9 @@ one guard or step whose code it names, on a copy of the checkout
   comment that removes the file instead of `_rejected` (`odmowa-tresci`, which
   excuses only JednoIssue after `odmowa_po_zalozeniu`) and an unreadable file
   removed instead of skipped by `_skip_unreadable` (`odczyt`, which excuses
-  only Zbieganie after `odczyt`).
+  only Zbieganie after `odczyt`); a `post` that returns True although
+  `os.replace` raised OSError (`okres`) or although `resume` of the new
+  Centrum removed its `.json.tmp` (`dwa-procesy`).
 - CzesciWKolejnosci: comments posted from the last part.
 - Zbieganie: a network failure that skips the file to the next start; a pass
   that stops without `_stopped_on`; no `RETRY_S` wake; a wake that does not
