@@ -8,10 +8,10 @@ bez openpyxl: ~42 tys. wierszy taty to dziesiątki MB XML, a rozpoznanie potrzeb
 ``save`` zapisuje plan dnia (ADR 0019, wzorem kopii Wzorca z ADR 0008). Zmieniają się tylko:
 
 - w XML arkusza zleceń wiersze pod wierszem, pod którym staje dzień (``RawBlock.anchor``): wiersz zlecenia
-  dostaje komórki Surowego zlecenia (w przesuniętym pierwszym wierszu o dwie kolumny w prawo) w kolumnach od A
-  do ``UWAGI`` z wyglądem reszty INTERMAX i Kolorem operatora z planu dnia, a kolumny z aplikacji za ``UWAGI``
-  znikają; zlecenie z Wpisem urządzenia i czynności INTERMAX ma w ``URZĄDZENIA`` i ``CZYNNOŚCI`` tekst Wpisu
-  zamiast wartości z aplikacji; pusty wiersz między segmentami ma puste komórki od A do ``UWAGI`` z tym
+  dostaje komórki Surowego zlecenia (w przesuniętym pierwszym wierszu o dwie kolumny w prawo), w kolumnach od
+  ``AKCJE`` do ``UWAGI`` z wyglądem reszty INTERMAX i Kolorem operatora z planu dnia, a za ``UWAGI`` takie, jak
+  przyszły; zlecenie z Wpisem urządzenia i czynności INTERMAX ma w ``URZĄDZENIA`` i ``CZYNNOŚCI`` tekst Wpisu
+  zamiast wartości z aplikacji; pusty wiersz między segmentami ma puste komórki od ``AKCJE`` do ``UWAGI`` z tym
   samym wyglądem; inny pusty wiersz, który był pusty, zostaje bajt w bajt, a wiersz, z którego zlecenie odeszło, i
   wiersz, którego nie było, są pustym wierszem taty; wygląd ``<row>`` (styl wiersza, wysokość) daje ``_RowLooks``;
 - ``ref`` Hiperłączy z tych wierszy, które idą razem ze swoją komórką, i ``<dimension>``, gdy dzień sięga dalej;
@@ -23,9 +23,9 @@ bez openpyxl: ~42 tys. wierszy taty to dziesiątki MB XML, a rozpoznanie potrzeb
 
 Każda inna część pliku i każdy bajt nad tymi wierszami zostają. Arkusz, w którego zmienianych wierszach jest
 formuła albo zakres (scalenie, formatowanie warunkowe, sprawdzanie poprawności, autofiltr, Hiperłącze na kilka
-komórek albo za ``UWAGI``), to ``UnsupportedShape``. Wynik trafia do pliku tymczasowego obok INTERMAX, zostaje
-odczytany jeszcze raz i porównany z oryginałem, a komórki Wpisu z Wpisem z planu dnia; różnica to
-``WriteMismatch``, a INTERMAX zostaje nietknięty. Dopiero po zgodnym
+komórek), to ``UnsupportedShape``. Wynik trafia do pliku tymczasowego obok INTERMAX, zostaje odczytany jeszcze
+raz i porównany z oryginałem, a komórki Wpisu z Wpisem z planu dnia; różnica to ``WriteMismatch``, a INTERMAX
+zostaje nietknięty. Dopiero po zgodnym
 sprawdzeniu ``before_replace`` (Kopia INTERMAX) i atomowa podmiana. Podmianę, której system odmawia, gdy Excel nie
 trzyma INTERMAX (OneDrive go synchronizuje), ``save`` ponawia przez ``_RETRY_S`` sekund zegara procesu (``Waiting``),
 a potem zgłasza ``HeldByOneDrive``. Przed każdą ponowną próbą czyta INTERMAX jeszcze raz: gdy OneDrive wgrał w
@@ -459,22 +459,20 @@ class _Looks:
         self._fills: list[Fill] = []
         self._borders: list[Border] = []
         self._xfs: list[bytes] = []
-        self._style_ids: dict[tuple[bool, int, str | None], int] = {}
+        self._style_ids: dict[tuple[int, int, str | None], int] = {}
 
     def style(self, column: int, number_format: int, fill: str | None) -> int:
-        """Styl komórki kolumny zlecenia ``column``: Calibri 8 (WYKONAWCA pogrubiony Calibri 9), czarna, cienka ramka,
-        do lewej i środka.
+        """Styl komórki kolumny zlecenia ``column``: Calibri 8 (WYKONAWCA 9), czarna, cienka ramka, do lewej i środka.
 
         ``fill``: wypełnienie RGB z Koloru operatora, jak to, które nadaje Excel; ``None``: bez wypełnienia.
         """
 
         if column == self._columns.date:
             number_format = _DATE_FORMAT
-        worker = column == self._columns.worker
-        key = (worker, number_format, fill)
+        size = _WORKER_SIZE if column == self._columns.worker else _SIZE
+        key = (size, number_format, fill)
         if key not in self._style_ids:
-            size, bold = (_WORKER_SIZE, True) if worker else (_SIZE, None)
-            font = _index(self._styles.fonts, self._fonts, Font(name=_FACE, sz=size, b=bold, color=_BLACK, family=2))
+            font = _index(self._styles.fonts, self._fonts, Font(name=_FACE, sz=size, color=_BLACK, family=2))
             fill_id = 0 if fill is None else _index(self._styles.fills, self._fills, _solid(fill))
             border = _index(self._styles.borders, self._borders, BORDER)
             xf = (
@@ -571,31 +569,32 @@ def _ordered_sheet(sheet: _SheetXml, columns: OrderColumns, block: RawBlock, pla
     separators = set(range(plan.placements[0].row, plan.placements[-1].row)) - set(placed)
     last = max([*placed, *(row.number for row in region)])
     rows: list[bytes] = []
+    widest = 0
     for number in range(block.anchor + 1, last + 1):
         placement = placed.get(number)
         if placement is not None:
             source = by_number[placement.order.row]
             offset = SHIFT if placement.order.shifted else 0
-            rows.append(
-                _order_row(
-                    xml[source.start : source.end],
-                    number,
-                    offset,
-                    columns,
-                    looks,
-                    row_looks.order,
-                    placement.color,
-                    _entry_cells(placement.entry, columns),
-                )
+            row_xml, right = _order_row(
+                xml[source.start : source.end],
+                number,
+                offset,
+                columns,
+                looks,
+                row_looks.order,
+                placement.color,
+                _entry_cells(placement.entry, columns),
             )
+            rows.append(row_xml)
+            widest = max(widest, right)
         elif number in separators:
-            rows.append(_order_row(b"", number, 0, columns, looks, row_looks.order, OperatorColor(), {}))
+            rows.append(_order_row(b"", number, 0, columns, looks, row_looks.order, OperatorColor(), {})[0])
         elif number in by_number and number not in raw:
             rows.append(xml[by_number[number].start : by_number[number].end])
         else:
             rows.append(b'<row r="%d"%s/>' % (number, row_looks.blank))
-    head = _with_view(_with_dimension(xml[: region[0].start], last, columns.last), plan.view_row, columns.first)
-    return head + b"".join(rows) + xml[data.rows[-1].end : tail_at] + _moved_hyperlinks(xml[tail_at:], columns, block, plan)
+    head = _with_view(_with_dimension(xml[: region[0].start], last, widest), plan.view_row, columns.first)
+    return head + b"".join(rows) + xml[data.rows[-1].end : tail_at] + _moved_hyperlinks(xml[tail_at:], block, plan)
 
 
 def _order_row(
@@ -607,25 +606,27 @@ def _order_row(
     row_look: bytes,
     color: OperatorColor,
     entry: Mapping[int, _Cell],
-) -> bytes:
-    """Wiersz zlecenia ``number`` z komórek Surowego zlecenia od A do ``UWAGI``, w kolumnach ``entry`` z komórkami
-    Wpisu, z Kolorem operatora ``color`` i wyglądem ``row_look``."""
+) -> tuple[bytes, int]:
+    """Wiersz zlecenia ``number`` z komórek Surowego zlecenia, w kolumnach ``entry`` z komórkami Wpisu, z Kolorem
+    operatora ``color`` i wyglądem ``row_look`` oraz najdalsza kolumna z komórką."""
 
     fills = {columns.activities: color.activities, columns.contract_number: color.contract_number, columns.devices: color.devices}
     written: dict[int, bytes] = {}
     for source in _cells(row_xml):
         column = source.column + offset
-        if column > columns.last:
-            continue
         cell = entry.get(column, source)
-        style = looks.style(column, looks.number_format(source.style), fills.get(column))
-        written[column] = cell.xml(column, number, _STYLE.sub(b"", cell.attributes) + b' s="%d"' % style)
-    for column in range(1, columns.last + 1):
+        if columns.first <= column <= columns.last:
+            style = looks.style(column, looks.number_format(source.style), fills.get(column))
+            attributes = _STYLE.sub(b"", cell.attributes) + b' s="%d"' % style
+            written[column] = cell.xml(column, number, attributes)
+        else:
+            written[column] = cell.xml(column, number)
+    for column in range(columns.first, columns.last + 1):
         if column not in written:
             style = looks.style(column, 0, fills.get(column))
             written[column] = _Cell(column, b"", None).xml(column, number, b' s="%d"' % style)
     cells = b"".join(written[column] for column in sorted(written))
-    return b'<row r="%d"%s>' % (number, row_look) + cells + b"</row>"
+    return b'<row r="%d"%s>' % (number, row_look) + cells + b"</row>", max(written)
 
 
 def _entry_cells(entry: IntermaxEntry | None, columns: OrderColumns) -> dict[int, _Cell]:
@@ -668,7 +669,7 @@ def _moves(block: RawBlock, plan: DayPlan) -> dict[int, tuple[int, int]]:
     return {placement.order.row: (SHIFT if placement.order.shifted else 0, placement.row) for placement in plan.placements}
 
 
-def _moved_hyperlinks(tail: bytes, columns: OrderColumns, block: RawBlock, plan: DayPlan) -> bytes:
+def _moved_hyperlinks(tail: bytes, block: RawBlock, plan: DayPlan) -> bytes:
     moves = _moves(block, plan)
 
     def moved(found: re.Match[bytes]) -> bytes:
@@ -680,10 +681,8 @@ def _moved_hyperlinks(tail: bytes, columns: OrderColumns, block: RawBlock, plan:
         if reference != first or number not in moves:
             raise UnsupportedShape("Hiperłącze")
         offset, row = moves[number]
-        moved_column = column_index_from_string(column) + offset
-        if moved_column > columns.last:
-            raise UnsupportedShape("Hiperłącze")
-        return found.group(1) + f"{get_column_letter(moved_column)}{row}".encode("ascii") + found.group(3)
+        target = f"{get_column_letter(column_index_from_string(column) + offset)}{row}"
+        return found.group(1) + target.encode("ascii") + found.group(3)
 
     return _HYPERLINK_REF.sub(moved, tail)
 
@@ -711,7 +710,7 @@ def _check_sheet(original: _SheetXml, written: bytes, columns: OrderColumns, blo
     if _without_view(xml[:start]) != _without_view(written[:new_start]):
         raise WriteMismatch("wiersze nad dniem")
     tail, new_tail = xml[before.end :], written[data.end :]
-    if _moved_hyperlinks(tail, columns, block, plan) != new_tail:
+    if _moved_hyperlinks(tail, block, plan) != new_tail:
         raise WriteMismatch("ogon arkusza")
     rows = {row.number: row for row in data.rows[data.row_index(new_start) :]}
     sources = {row.number: row for row in before.rows}
@@ -728,17 +727,16 @@ def _check_sheet(original: _SheetXml, written: bytes, columns: OrderColumns, blo
             continue
         source = sources[placement.order.row]
         offset = SHIFT if placement.order.shifted else 0
-        moved = ((cell.column + offset, cell) for cell in _cells(xml[source.start : source.end]))
-        expected = {column: cell for column, cell in moved if column <= columns.last}
+        expected = {cell.column + offset: cell for cell in _cells(xml[source.start : source.end])}
         expected.update(_entry_cells(placement.entry, columns))
         if {column for column, cell in expected.items() if _has_value(cell)} != set(valued):
             raise WriteMismatch(f"wiersz {number}")
         found = {cell.column: cell for cell in cells}
-        if any(column > columns.last for column in found):
-            raise WriteMismatch(f"wiersz {number}")
         for column, cell in expected.items():
             new = found.get(column)
             if new is None or new.content != cell.content or new.kind != cell.kind:
+                raise WriteMismatch(f"wiersz {number}")
+            if not columns.first <= column <= columns.last and new.attributes != cell.attributes:
                 raise WriteMismatch(f"wiersz {number}")
     if set(placed) - set(rows):
         raise WriteMismatch("brak zlecenia")
