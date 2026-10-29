@@ -60,7 +60,7 @@ from .workbook_files import (
     workbook_content,
 )
 from .workbook_parts import package_parts, sheet_part
-from .workbook_save import WorkbookSaveError, save_from_template, write_atomically
+from .workbook_save import SaveProblem, WorkbookSaveError, save_from_template, write_atomically
 from .worker_config import normalize_text
 
 
@@ -368,7 +368,7 @@ class TemplateFile:
             try:
                 package = copy.with_rows(_in_columns(rows, target_columns))
             except InvalidValue as exc:
-                raise WorkbookSaveError(f"Nie można zapisać skoroszytu: {target.name}") from exc
+                raise WorkbookSaveError(target, SaveProblem.INVALID_VALUE) from exc
             except UnsupportedShape:
                 pass
             else:
@@ -421,10 +421,10 @@ class TemplateFile:
             try:
                 _write_rows(sheet, self._rules.sheet, _in_columns(rows, target_columns), columns)
             except IllegalCharacterError as exc:
-                raise WorkbookSaveError(f"Nie można zapisać skoroszytu: {target.name}") from exc
+                raise WorkbookSaveError(target, SaveProblem.INVALID_VALUE) from exc
             if self._rules.copy:
                 _request_full_recalculation(workbook)
-            save_from_template(workbook, target, self._loaded(), self.path.name)
+            save_from_template(workbook, target, self._loaded())
 
     def _header(self, sheet: Worksheet) -> list[object]:
         """Wartości wiersza nagłówka od kolumny A."""
@@ -553,7 +553,7 @@ def _package_writer(package: Package, target: Path) -> Callable[[Path], None]:
             with path.open("wb") as out:
                 package.write(out)
         except OSError as exc:
-            raise WorkbookSaveError(f"Nie można zapisać skoroszytu: {target.name}") from exc
+            raise WorkbookSaveError(target, SaveProblem.CONTENT) from exc
 
     return write
 

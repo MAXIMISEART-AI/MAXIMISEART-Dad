@@ -12,6 +12,7 @@ import os
 import tempfile
 import zipfile
 from collections.abc import Callable
+from enum import Enum
 from io import BytesIO
 from pathlib import Path
 from typing import IO
@@ -24,8 +25,32 @@ _ExternalLinkParts = dict[str, tuple[zipfile.ZipInfo, bytes]]
 _WORKBOOK_FILE_ERRORS = (OSError, InvalidFileException, ValueError, zipfile.BadZipFile)
 
 
+class SaveProblem(Enum):
+    """Krok zapisu skoroszytu, który się nie udał."""
+
+    TEMPORARY_FILE = "plik tymczasowy"
+    """Obok celu nie da się utworzyć pliku tymczasowego, np. folder celu nie istnieje."""
+    INVALID_VALUE = "wartość niedozwolona w XML"
+    """Wpisywana wartość ma znak, którego skoroszyt nie przyjmuje."""
+    CONTENT = "zapis treści"
+    """Treści skoroszytu nie da się zapisać do pliku tymczasowego."""
+    REPLACE = "podmiana"
+    """System odmówił podmiany celu plikiem tymczasowym."""
+    OPEN_IN_EXCEL = "otwarty w Excelu"
+    """Ponowna próba podmiany INTERMAX zastała jego plik blokady Excela; pierwsza odmowa podmiany to ``REPLACE``."""
+    EXTERNAL_LINKS_UNREADABLE = "nieczytelne odwołania zewnętrzne"
+    """Nie da się odczytać ``xl/externalLinks/*`` skoroszytu, z którego są kopiowane (celu albo Wzorca)."""
+    EXTERNAL_LINKS_NOT_RESTORED = "nieprzywrócone odwołania zewnętrzne"
+    """Nie da się przywrócić ``xl/externalLinks/*`` w pliku tymczasowym."""
+
+
 class WorkbookSaveError(Exception):
-    """Skoroszyt nie został zapisany; plik docelowy pozostał bez zmian."""
+    """Skoroszyt ``target`` nie został zapisany i pozostał bez zmian; ``problem`` mówi dlaczego, bez zdania dla taty."""
+
+    def __init__(self, target: Path, problem: SaveProblem) -> None:
+        super().__init__(f"{problem.value}: {target.name}")
+        self.target = target
+        self.problem = problem
 
 
 class ExternalLinksError(WorkbookSaveError):
@@ -49,14 +74,14 @@ def write_atomically(
         )
         os.close(file_descriptor)
     except OSError as exc:
-        raise WorkbookSaveError(f"Nie można zapisać skoroszytu: {target.name}") from exc
+        raise WorkbookSaveError(target, SaveProblem.TEMPORARY_FILE) from exc
     temporary_path = Path(temporary_name)
     try:
         write(temporary_path)
         try:
             (os.replace if replace is None else replace)(temporary_path, target)
         except OSError as exc:
-            raise WorkbookSaveError(f"Nie można zapisać skoroszytu: {target.name}") from exc
+            raise WorkbookSaveError(target, SaveProblem.REPLACE) from exc
     finally:
         temporary_path.unlink(missing_ok=True)
 
@@ -68,20 +93,20 @@ def save_workbook(workbook: Workbook, target: Path) -> None:
     ``target``. ``target`` zmienia się dopiero po udanym zapisie całości.
     """
 
-    _save_atomically(workbook, target, _read_external_link_parts(target, target.name))
+    _save_atomically(workbook, target, _read_external_link_parts(target, target))
 
 
-def save_from_template(workbook: Workbook, target: Path, template: bytes, template_name: str) -> None:
+def save_from_template(workbook: Workbook, target: Path, template: bytes) -> None:
     """Atomowo zapisuje pod ``target`` skoroszyt wczytany z bajtów Wzorca ``template`` z jego ``xl/externalLinks/*``."""
 
-    _save_atomically(workbook, target, _read_external_link_parts(BytesIO(template), template_name))
+    _save_atomically(workbook, target, _read_external_link_parts(BytesIO(template), target))
 
 
-def _read_external_link_parts(source: Path | IO[bytes], name: str) -> _ExternalLinkParts:
+def _read_external_link_parts(source: Path | IO[bytes], target: Path) -> _ExternalLinkParts:
     try:
         return _external_link_parts(source)
     except _WORKBOOK_FILE_ERRORS as exc:
-        raise ExternalLinksError(f"Nie można odczytać odwołań zewnętrznych: {name}") from exc
+        raise ExternalLinksError(target, SaveProblem.EXTERNAL_LINKS_UNREADABLE) from exc
 
 
 def _save_atomically(workbook: Workbook, target: Path, parts: _ExternalLinkParts) -> None:
@@ -91,11 +116,11 @@ def _save_atomically(workbook: Workbook, target: Path, parts: _ExternalLinkParts
         try:
             workbook.save(path)
         except _WORKBOOK_FILE_ERRORS as exc:
-            raise WorkbookSaveError(f"Nie można zapisać skoroszytu: {target.name}") from exc
+            raise WorkbookSaveError(target, SaveProblem.CONTENT) from exc
         try:
             _restore_external_link_parts(path, parts)
         except _WORKBOOK_FILE_ERRORS as exc:
-            raise ExternalLinksError(f"Nie można przywrócić odwołań zewnętrznych: {target.name}") from exc
+            raise ExternalLinksError(target, SaveProblem.EXTERNAL_LINKS_NOT_RESTORED) from exc
 
     write_atomically(target, write)
 

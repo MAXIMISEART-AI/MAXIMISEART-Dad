@@ -92,8 +92,8 @@ MUTATIONS = (
         (
             Edit(
                 SAVE,
-                '            raise WorkbookSaveError(f"Nie można zapisać skoroszytu: {target.name}") from exc\n    finally:\n        temporary_path.unlink(missing_ok=True)\n',
-                '            raise WorkbookSaveError(f"Nie można zapisać skoroszytu: {target.name}") from exc\n    finally:\n        pass\n',
+                '            raise WorkbookSaveError(target, SaveProblem.REPLACE) from exc\n    finally:\n        temporary_path.unlink(missing_ok=True)\n',
+                '            raise WorkbookSaveError(target, SaveProblem.REPLACE) from exc\n    finally:\n        pass\n',
             ),
         ),
         EXPLORER,
