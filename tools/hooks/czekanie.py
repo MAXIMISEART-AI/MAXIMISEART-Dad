@@ -189,40 +189,35 @@ def _quoted(command: str, start: int) -> tuple[str, int]:
 
 
 class _Matches:
-    """Dopasowania wzorca w poleceniu, posortowane, z końcami rosnącymi razem z początkami.
+    """Początki dopasowań wzorca w poleceniu, rosnąco.
 
-    Pytanie, czy jedno z nich leży całe w pętli, kosztuje bisekcję, a nie przeszukanie ciała pętli: ciała pętli
-    zagnieżdżonych albo niezamkniętych razem rosną z kwadratem długości polecenia.
+    Pytanie, czy jedno z nich zaczyna się w pętli, kosztuje bisekcję, a nie przeszukanie ciała pętli: ciała pętli
+    zagnieżdżonych albo niezamkniętych razem rosną z kwadratem długości polecenia. Koniec dopasowania się nie liczy,
+    bo ``done`` stoi za ``;``, ``&``, nową linią albo ``do``, a przez nie przechodzi tylko ``gh api … do done adres``.
     """
 
-    def __init__(self, spans: Iterable[tuple[int, int]]) -> None:
-        self.starts: list[int] = []
-        self.ends: list[int] = []
-        for start, end in spans:
-            self.starts.append(start)
-            self.ends.append(end)
+    def __init__(self, starts: Iterable[int]) -> None:
+        self.starts = list(starts)
 
     def inside(self, start: int, end: int) -> bool:
         index = bisect_left(self.starts, start)
-        return index < len(self.starts) and self.ends[index] <= end
+        return index < len(self.starts) and self.starts[index] < end
 
 
 def _found(pattern: re.Pattern[str], command: str) -> _Matches:
-    return _Matches(match.span() for match in pattern.finditer(command))
+    return _Matches(match.start() for match in pattern.finditer(command))
 
 
 def _in_one_command(command: str, head: re.Pattern[str], tail: re.Pattern[str]) -> _Matches:
-    """Od ``head`` do pierwszego za nim ``tail``, gdy oba stoją w jednym poleceniu prostym."""
+    """Każde ``head``, za którym w tym samym poleceniu prostym stoi ``tail``."""
 
-    tails = [match.span() for match in tail.finditer(command)]
-    tail_starts = [start for start, _ in tails]
+    tail_starts = [match.start() for match in tail.finditer(command)]
     command_ends = [match.start() for match in SIMPLE_COMMAND_END.finditer(command)]
-    spans: list[tuple[int, int]] = []
-    for match in head.finditer(command):
-        index = bisect_left(tail_starts, match.end())
-        if index < len(tails) and tails[index][0] < _first_from(command_ends, match.end(), len(command)):
-            spans.append((match.start(), tails[index][1]))
-    return _Matches(spans)
+    return _Matches(
+        match.start()
+        for match in head.finditer(command)
+        if _first_from(tail_starts, match.end(), len(command)) < _first_from(command_ends, match.end(), len(command))
+    )
 
 
 def _loop_bodies(command: str) -> Iterator[tuple[int, int]]:

@@ -70,6 +70,8 @@ CI_LOOPS = (
     "bash -lc 'until ! gh pr checks 1 | grep -q pending; do sleep 30; done'",
     "bash -o pipefail -c 'until ! gh pr checks 1 | grep -q pending; do sleep 30; done'",
     "su -c 'until ! gh pr checks 1 | grep -q pending; do sleep 30; done'",
+    "runuser -l x -c 'until ! gh pr checks 1 | grep -q pending; do sleep 30; done'",
+    "/bin/bash --noprofile --norc -o pipefail -c 'until ! gh pr checks 1 | grep -q pending; do sleep 30; done'",
     "bash -ce 'until ! gh pr checks 1 | grep -q pending; do sleep 30; done'",
     "fish -c 'while true; sleep 30; gh pr checks 1; end'",
     "for i in $(seq 20); do gh pr checks 1 | grep -c pending; sleep 30; done",
@@ -198,6 +200,8 @@ PASSING = (
     'grep -E "^(until)$" tools/hooks/czekanie.py; sleep 1; gh pr checks 446',
     # ``-c`` innego polecenia niż powłoka to nie skrypt: ``grep -c`` liczy wiersze z tym tekstem.
     "grep -c 'until ! gh pr checks 1 | grep -q pending; do sleep 30; done' ~/.t3/notes/czekanie.log",
+    # ``-c`` za nazwą skryptu to jego argument.
+    "bash skrypt.sh -c 'until ! gh pr checks 1 | grep -q pending; do sleep 30; done'",
 )
 
 

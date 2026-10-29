@@ -318,6 +318,7 @@ def _quoted_argument(text: str, quote: str) -> str:
 @example(text="while|until", program="rg -n", quote="'", after="sleep 1; gh pr checks 446")
 @example(text="(while)", program="rg -n", quote="'", after="sleep 1; gh pr checks 446")
 @example(text="x=$(until ! gh pr checks 1; do sleep 30; done)", program="echo", quote="'", after="")
+@example(text="until ! gh pr checks 1; do sleep 30; done", program="bash skrypt.sh -c", quote="'", after="")
 @given(
     text=st.one_of(_compound().map(lambda case: case.text), _pattern()),
     program=st.sampled_from(PROGRAMS),
@@ -437,7 +438,17 @@ def test_przekierowanie_za_petla_to_nie_tlo_a_pętla_puszczona_ampersandem_przec
         frozenset({"pgrep"}),
     )
 )
+# ``$(…)`` w ``"…"`` to polecenie, a pętla bez ``sleep`` nie kończy oceny następnych.
+@example(case=Case('echo "$( until ! gh pr checks 1; do sleep 30; done )"', frozenset({"ci"})))
+@example(case=Case("until gh pr view 1; do gh auth refresh; done; until ! gh pr checks 1; do sleep 30; done", frozenset({"ci"})))
 # Opcje powłoki przed ``-c`` (runda 2 #636): ``bash -l -c`` i ``su -c`` przechodziły.
+@example(
+    case=Case(
+        "/bin/bash --noprofile --norc -o pipefail -c 'until ! gh pr checks 1 | grep -q pending; do sleep 30; done'",
+        frozenset({"ci"}),
+    )
+)
+@example(case=Case("runuser -l x -c 'until ! gh pr checks 1 | grep -q pending; do sleep 30; done'", frozenset({"ci"})))
 @example(case=Case("bash -l -c 'until ! gh pr checks 1 | grep -q pending; do sleep 30; done'", frozenset({"ci"})))
 @example(case=Case("su - x -c 'until ! gh pr checks 1 | grep -q pending; do sleep 30; done'", frozenset({"ci"})))
 @example(case=Case("cd x\n  until ! gh pr checks 1 | grep -q pending; do sleep 30; done", frozenset({"ci"})))
