@@ -164,6 +164,11 @@ def _waits(draw: st.DrawFn) -> Template:
                 (f"{condition}\ndo\n  {sleep}\ndone", (*condition_arguments, *sleep_arguments)),
                 # Wcięcie przed słowem pętli i przed ``done`` (pętla w skrypcie wklejonym z edytora).
                 (f"cd .\n  {condition}\n  do\n    {sleep}\n  done", (*condition_arguments, *sleep_arguments)),
+                # ``done`` jako argument za ``do`` nie kończy pętli (runda 3 #636).
+                (
+                    f"{condition}; do echo {draw(st.sampled_from(('do done', 'dodone', 'to do done')))}; {sleep}; done",
+                    (*condition_arguments, *sleep_arguments),
+                ),
             )
         )
     )
@@ -258,6 +263,7 @@ SCRIPT_RUNNERS = (
     "sudo -u x bash",
     "xargs -I{} sh",
     "su",
+    "\\bash",
     "runuser",
     "flock /tmp/blokada",
     "script -q",
@@ -284,6 +290,8 @@ WORDS = st.one_of(
     st.sampled_from(("'a;b'", '"x|y"', "'(c'")),
     # Przekierowanie między słowami nie kończy polecenia.
     st.sampled_from(("2>/dev/null", ">&2", "&>/dev/null", ">|plik", "<&0")),
+    # Znaki w ``${…}`` nie kończą polecenia ani nie otwierają nowego, a ``}`` poza nim nie zamyka ``$(`` (runda 3 #636).
+    st.sampled_from(("${x:-)}", "${x:-(}", "${x:-a;b}", "${x:-a|b}", "$(echo {a,b})")),
 )
 SCRIPT_OPTIONS = st.builds(
     lambda before, after: f"-{before}c{after}",
@@ -498,6 +506,8 @@ def test_przekierowanie_za_petla_to_nie_tlo_a_pętla_puszczona_ampersandem_przec
 @example(case=Case("bash -l -c 'until ! gh pr checks 1 | grep -q pending; do sleep 30; done'", frozenset({"ci"})))
 @example(case=Case("su - x -c 'until ! gh pr checks 1 | grep -q pending; do sleep 30; done'", frozenset({"ci"})))
 @example(case=Case("cd x\n  until ! gh pr checks 1 | grep -q pending; do sleep 30; done", frozenset({"ci"})))
+# ``done`` jako argument za ``do`` nie kończy pętli, więc jej ``sleep`` zostaje w ciele (runda 3 #636).
+@example(case=Case("while gh pr checks 1 | grep -q pending; do echo do done; sleep 30; done", frozenset({"ci"})))
 @example(case=Case("until gh pr view 1; do gh auth refresh; done; sleep 1", frozenset()))
 @example(case=Case("for id in 1 2; do sleep 1; gh run view $id; done; gh pr checks 1 || exit 1", frozenset()))
 @example(case=Case("until gh api pulls/1 | grep -q true; do sleep 2; tail -1 actions/runs.log; done", frozenset()))
@@ -537,9 +547,41 @@ LOOP = Template("until ! gh pr checks {} | grep -q pending; do sleep 30; done", 
 @example(prefix="bash $(echo -l) -c", wait=LOOP)
 @example(prefix="bash `echo -l` --norc -c", wait=LOOP)
 @example(prefix="bash 'a;b' --norc -c", wait=LOOP)
+# Runda 3 #636: ukośnik przed nazwą powłoki i ``)`` w ``${…}``.
+@example(prefix="\\bash -c", wait=LOOP)
+@example(prefix="bash ${x:-)} -c", wait=LOOP)
 @given(prefix=_script_prefix(), wait=_waits())
 def test_skrypt_c_powloki_z_dowolnymi_slowami_przed_c_to_polecenie(prefix: str, wait: Template) -> None:
     command = f"{prefix} {_single_quoted(wait.text())}"
+
+    assert _judged(command) == wait.refusals, command
+
+
+# Separator, ``(``, ``$(`` i lewy `` ` `` bez odstępu przed słowem powłoki zaczynają jej polecenie (runda 3 #636).
+GLUED = (
+    ("(", ")"),
+    ("x=$(", ")"),
+    ("echo `", "`"),
+    ("true|", ""),
+    ("cd x&&", ""),
+    ("false||", ""),
+    ("cd x;", ""),
+    ("sleep 1&", ""),
+)
+
+
+@PROPERTY
+@example(glued=("x=$(", ")"), prefix="bash -c", wait=LOOP)
+@example(glued=("echo `", "`"), prefix="bash -c", wait=LOOP)
+@example(glued=("true|", ""), prefix="bash -c", wait=LOOP)
+@example(glued=("cd x&&", ""), prefix="bash -c", wait=LOOP)
+@example(glued=("sleep 1&", ""), prefix="bash -c", wait=LOOP)
+@given(glued=st.sampled_from(GLUED), prefix=_script_prefix(), wait=_waits())
+def test_slowo_powloki_przyklejone_do_separatora_zaczyna_skrypt_c(
+    glued: tuple[str, str], prefix: str, wait: Template
+) -> None:
+    opening, closing = glued
+    command = f"{opening}{prefix} {_single_quoted(wait.text())}{closing}"
 
     assert _judged(command) == wait.refusals, command
 

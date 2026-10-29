@@ -25,10 +25,10 @@ def _repo(tmp_path: Path) -> tuple[Path, str]:
     return repo, first
 
 
-def _run(repo: Path, *arguments: str, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
+def _run(repo: Path, *arguments: str, env: dict[str, str] | None = None, cwd: Path | None = None) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         [sys.executable, str(repo / "tools" / "na_scalonych_pr.py"), "--wyniki", str(repo.parent / "wyniki"), *arguments],
-        cwd=repo,
+        cwd=repo if cwd is None else cwd,
         env=env,
         capture_output=True,
         text=True,
@@ -58,6 +58,31 @@ def test_commit_podany_nazwa_rewizji_ma_etykiete_i_plik_wyniku_ze_skrotu_sha(tmp
     git(repo, "update-ref", "refs/remotes/origin/main", first)
 
     done = _run(repo, "--commit", revision, "--", "tools/wypisz.py")
+
+    assert done.returncode == 0, done.stdout + done.stderr
+    assert done.stdout.startswith(f"{first[:8]} | {first[:8]} | ")
+    assert (repo.parent / "wyniki" / f"{first[:8]}.txt").read_text(encoding="utf-8").strip() == "stare dane stare narzędzie"
+
+
+def test_commit_podany_tagiem_z_adnotacja_ma_etykiete_ze_skrotu_sha_commitu_a_nie_obiektu_tagu(tmp_path: Path) -> None:
+    repo, first = _repo(tmp_path)
+    git(repo, "tag", "--annotate", "v0.1.0", "--message", "Wydanie", first)
+    assert git(repo, "rev-parse", "v0.1.0") != first
+
+    done = _run(repo, "--commit", "v0.1.0", "--", "tools/wypisz.py")
+
+    assert done.returncode == 0, done.stdout + done.stderr
+    assert done.stdout.startswith(f"{first[:8]} | {first[:8]} | ")
+    assert (repo.parent / "wyniki" / f"{first[:8]}.txt").read_text(encoding="utf-8").strip() == "stare dane stare narzędzie"
+
+
+def test_narzedzie_uruchomione_spoza_repozytorium_czyta_rewizje_z_repozytorium_narzedzia(tmp_path: Path) -> None:
+    repo, first = _repo(tmp_path)
+    git(repo, "update-ref", "refs/remotes/origin/main", first)
+    outside = tmp_path / "poza"
+    outside.mkdir()
+
+    done = _run(repo, "--commit", "origin/main", "--", "tools/wypisz.py", cwd=outside)
 
     assert done.returncode == 0, done.stdout + done.stderr
     assert done.stdout.startswith(f"{first[:8]} | {first[:8]} | ")

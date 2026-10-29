@@ -223,6 +223,27 @@ MUTATIONS = (
         NEW,
     ),
     Mutation(
+        "post zwraca True mimo OSError z os.replace (post: except OSError: return False)",
+        (Edit(MODEL, "                /\\ UNCHANGED zakolejkowane\n"
+              "                /\\ krok' = \"post: os.replace rzuca OSError, post zwraca False\"",
+              "                /\\ zakolejkowane' = zakolejkowane \\cup {w}\n"
+              "                /\\ krok' = \"post: os.replace rzuca OSError, post zwraca False\""),),
+        _check("okres"),
+        "Kontrola ilości, której pliku kolejki nie dało się zapisać, uchodzi za przyjętą i nie dociera do Skrzynki",
+        NEW,
+    ),
+    Mutation(
+        "post zwraca True, choć pliku .json.tmp już nie ma (post: except OSError: return False)",
+        (Edit(MODEL, "                /\\ UNCHANGED <<zakolejkowane, bledyPliku>>\n"
+              "                /\\ krok' = \"post: pliku .json.tmp",
+              "                /\\ zakolejkowane' = zakolejkowane \\cup {w}\n"
+              "                /\\ UNCHANGED bledyPliku\n"
+              "                /\\ krok' = \"post: pliku .json.tmp"),),
+        _check("dwa-procesy"),
+        "Kontrola ilości, której plik .json.tmp usunął resume nowego Centrum, uchodzi za przyjętą i nie dociera do Skrzynki",
+        NEW,
+    ),
+    Mutation(
         "naprawa w modelu: przejęte Zgłoszenie dostaje resztę części",
         (
             Edit(
