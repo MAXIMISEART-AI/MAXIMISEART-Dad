@@ -37,14 +37,34 @@ StopKind = Literal["for_tata", "for_maks"]
 
 
 @dataclass(frozen=True)
-class WorkerResult:
-    """Bezpieczny wynik dla jednego szablonu; ``route`` to droga zapisu Rozliczenia pracownika, w planie żadna."""
+class PlannedWorkerResult:
+    """Bezpieczny wynik dla jednego szablonu w Podglądzie bez zapisu: nic nie powstało, więc bez drogi zapisu."""
 
     worker_name: str
     output_file: Path
     rows: int
-    status: WorkerStatus
-    route: Route | None = None
+
+    @property
+    def status(self) -> Literal["PLAN", "PUSTY_SZABLON"]:
+        return "PLAN" if self.rows else "PUSTY_SZABLON"
+
+
+@dataclass(frozen=True)
+class SavedWorkerResult:
+    """Bezpieczny wynik dla jednego zapisanego szablonu; ``route`` to droga zapisu Rozliczenia pracownika."""
+
+    worker_name: str
+    output_file: Path
+    rows: int
+    route: Route
+
+    @property
+    def status(self) -> Literal["ZAPISANO", "PUSTY_SZABLON"]:
+        return "ZAPISANO" if self.rows else "PUSTY_SZABLON"
+
+
+WorkerResult = PlannedWorkerResult | SavedWorkerResult
+"""Wynik Przetworzenia Szablonu pracownika; tylko zapisany ma drogę zapisu, a ``status`` wynika z liczby wierszy."""
 
 
 @dataclass(frozen=True)
@@ -172,7 +192,11 @@ class SettlementSummary:
 
     @property
     def routes(self) -> RouteCounts:
-        return Counter((TemplateKind.WORKER_SETTLEMENT, result.route) for result in self.results if result.route is not None)
+        return Counter(
+            (TemplateKind.WORKER_SETTLEMENT, result.route)
+            for result in self.results
+            if isinstance(result, SavedWorkerResult)
+        )
 
     @property
     def ok(self) -> bool:

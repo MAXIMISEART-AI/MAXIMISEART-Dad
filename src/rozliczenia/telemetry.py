@@ -9,7 +9,7 @@ from pathlib import Path
 import re
 from collections.abc import Mapping
 from types import MappingProxyType
-from typing import Any, TypedDict, get_args
+from typing import Any, Literal, TypedDict, get_args
 
 from .domain import PHASES, ProgressPhase, StopKind
 from .settlement_period import PERIOD_TOKEN_PATTERN
@@ -57,6 +57,10 @@ class RecordedStop(TypedDict):
     code: str
 
 
+CompletedResult = Literal["OK", "WYMAGA_SPRAWDZENIA"]
+"""Wynik zakończonego Uruchomienia procesu; przerwane ma zamiast niego ``RecordedStop`` i wynik ``BLAD_KRYTYCZNY``."""
+
+
 def metric_record(
     *,
     mode: str,
@@ -64,21 +68,21 @@ def metric_record(
     started_at: str,
     total_duration_ms: int,
     phase_durations_ms: Mapping[ProgressPhase, int],
-    result: str,
+    ending: CompletedResult | RecordedStop,
     counters: Mapping[str, int],
-    stop: RecordedStop | None,
     routes: RouteCounts = MappingProxyType({}),
 ) -> dict[str, Any]:
     """Rekord jednego Uruchomienia procesu w schemacie sprawdzanym przez ``MetricsStore``.
 
-    Rekord z wynikiem ``BLAD_KRYTYCZNY`` jest niezakończony i ma ``stop``; każdy
-    inny ma ``stop`` równe ``None``. Okres spoza wzorca okresu trafia jako
+    ``ending``: wynik zakończonego Uruchomienia albo Zatrzymanie przerwanego, które w rekordzie ma wynik
+    ``BLAD_KRYTYCZNY`` i ``stop``; zakończone ma ``stop`` równe ``None``. Okres spoza wzorca okresu trafia jako
     ``nieznany``, a etap bez zmierzonego czasu ma ``0`` ms. ``routes`` ma dla
     każdego rodzaju pliku z Wzorca liczbę zapisanych plików każdej drogi zapisu, a droga bez plików ``0``;
     domyślnie nie ma żadnego pliku. Rozliczenie wewnętrzne powstaje zawsze drogą openpyxl, więc dopiero
     rodzaj pliku mówi, czy kopia nie przyjęła Wzorca, który przyjmuje.
     """
 
+    result, stop = (ending, None) if isinstance(ending, str) else ("BLAD_KRYTYCZNY", ending)
     return {
         "schema_version": METRICS_SCHEMA_VERSION,
         "started_at": started_at,
