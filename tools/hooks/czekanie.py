@@ -233,7 +233,10 @@ def _first_from(positions: list[int], start: int, default: int) -> int:
 def judge(command: str, in_background: bool) -> Optional[Refusal]:
     if in_background:
         return None
-    shell, _ = _code(_without_heredocs(command))
+    try:
+        shell, _ = _code(_without_heredocs(command))
+    except RecursionError:  # setki zagnieżdżonych "$(…)": polecenia nie da się odczytać, więc przechodzi
+        return None
     if RUN_WATCH.search(shell) or _in_one_command(shell, CHECKS, WATCH_OPTION).starts:
         return WATCHING
     sleeps, stops, pgreps = _found(SLEEP, shell), _found(STOPS, shell), _found(PGREP, shell)
@@ -256,7 +259,7 @@ def main() -> int:
         tool_input = json.load(sys.stdin)["tool_input"]
         command = tool_input["command"]
         in_background = tool_input.get("run_in_background") is True
-    except (ValueError, KeyError, TypeError, AttributeError):
+    except (ValueError, KeyError, TypeError, AttributeError, RecursionError):
         return 0
     if not isinstance(command, str):
         return 0

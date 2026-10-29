@@ -310,7 +310,11 @@ def test_hook_trzyma_w_pamieci_jedno_cialo_petli_naraz(monkeypatch: pytest.Monke
         '{"tool_input": null}',
         '{"tool_input": {"command": 5}}',
         '{"tool_name": "Bash"}',
+        # Zagnieżdżenie głębsze niż stos Pythona: w JSON-ie i w poleceniu (``"$(`` w ``"$(`` …).
+        "[" * 100000,
+        json.dumps({"tool_input": {"command": '"$(' * 1000 + "until ! gh pr checks 1; do sleep 30; done"}}),
     ],
+    ids=["pusto", "nie-json", "lista", "null", "liczba", "bez-polecenia", "gleboki-json", "gleboki-cudzyslow"],
 )
 def test_nieczytelne_wejscie_hooka_przechodzi(stdin: str) -> None:
     hooked = _hook(stdin)
