@@ -1,6 +1,7 @@
 # Przegląd PR
 
 Ten plik czyta niezależny recenzent, zanim napisze werdykt, i autor, zanim zleci przegląd.
+`PASS` mówi też, że skille `verify-*` z linii `SKILLE VERIFY` przeszły na tym SHA (gotowość w [`AGENTS.md`](../../AGENTS.md)).
 Postać werdyktu, którą przyjmuje `tools/scal_pr.py`, podaje jego `--help`.
 
 ## Co jest porażką
@@ -12,12 +13,12 @@ W tym repo Ważne były zwykle:
 - test, który przestał sprawdzać to, co sprawdzał (pokrycie zgubione przy refaktorze, asercja na tekst zamiast na zachowanie);
 - zachowanie widoczne tylko na Windows albo na Pythonie 3.11 (brak `tzdata`, krok zegara `time.monotonic()`, import, który pada tylko pod 3.11);
 - stan, który jedna część przebiegu zakłada po innej (część podstawy skilla startująca od środka porządku);
-- workflow, który nie biegnie na PR, więc pokaże błąd dopiero na `main` albo nocą: czytaj go linia po linii jak runner;
 - przypisanie albo zakres liczony od złej linii lub złego commitu (np. `git blame` pierwszej linii wielowierszowej instrukcji).
 
 Drobne znalezisko to luka bez defektu: przeżyta mutacja, której nic nie łapie, nieaktualne zdanie w dokumencie, kosztowna, ale poprawna droga.
 Drobnych podaj najwyżej 3, najważniejsze.
-Znalezisko w kodzie, którego PR nie zmienia, oznacz jako Istniejące wcześniej i nie licz go do werdyktu.
+Defekt, który zmiana PR wywołuje albo ujawnia, liczy się do werdyktu także wtedy, gdy siedzi w pliku, którego PR nie zmienia (np. nowa konfiguracja uruchamia niezmieniony kod w nowym stanie).
+Istniejące wcześniej to tylko defekt, który powtarzasz na merge-base bez tej zmiany, i do werdyktu się nie liczy.
 Styl, nazwy i formatowanie zostawiasz ruffowi, mypy i lintom frontendu.
 
 ## Dowody
