@@ -99,15 +99,17 @@ def _zmien(repo: Path, linia: int, tekst: str) -> None:
 
 
 def _historia(tmp_path: Path) -> tuple[Path, str]:
-    """``main``, na którym linię 1 zmienił merge PR #11, linię 2 squash PR #12, a linie 3 i 4 commity bez numeru PR w
-    temacie; zwraca repozytorium i bazę nocy sprzed tych zmian."""
+    """``main``, na którym linie 1 i 5 zmieniły dwa commity scalonego merge'em PR #11, linię 2 squash PR #12, a linie
+    3 i 4 commity bez numeru PR w temacie; zwraca repozytorium i bazę nocy sprzed tych zmian."""
 
-    repo = repository(tmp_path / "repo", {"src/a.py": "a = 1\nb = 2\nc = 3\nd = 4\n"})
+    repo = repository(tmp_path / "repo", {"src/a.py": "a = 1\nb = 2\nc = 3\nd = 4\ne = 5\n"})
     git(repo, "checkout", "--quiet", "-b", "main")
     baza = commit(repo, "baza nocy")
     git(repo, "checkout", "--quiet", "-b", "feat/a")
     _zmien(repo, 1, "a = 10")
     commit(repo, "zmień a")
+    _zmien(repo, 5, "e = 50")
+    commit(repo, "zmień e")
     _scal(repo, "feat/a", "Merge pull request #11 from org/feat/a")
     _zmien(repo, 2, "b = 20")
     commit(repo, "Zmień b (#12)")
@@ -150,7 +152,7 @@ def test_przezyta_mutacja_trafia_do_issue_pr_ktory_ostatni_zmienil_jej_linie_a_d
     )
     # Strona po jednym issue i komentarzu: istniejące issue leżą na różnych stronach, jak przy ponad 100 issue.
     monkeypatch.setattr(mutacje_nocne, "STRONA", 1)
-    przezyte = ["src/a.py:1 zmiana linii 1 cofnięta do bazy", "src/a.py:1 `10` zamienione na `0`", "src/a.py:2 stała", "src/a.py:2 `20` → `0`"]
+    przezyte = ["src/a.py:1 zmiana linii 1 cofnięta do bazy", "src/a.py:1 `10` zamienione na `0`", "src/a.py:2 stała", "src/a.py:2 `20` → `0`", "src/a.py:5 stała"]
     zapisy = _zapisy(tmp_path / "zapisy", {1: (PRZEZYLO, przezyte), 2: (OK, []), 3: (PRZEZYLO, ["src/a.py:3 stała", "src/a.py:3 inna", "src/a.py:4 stała"])})
 
     pierwszy = mutacje_nocne.zglos(github, repo, baza, zapisy, 3, RUN)
@@ -163,7 +165,8 @@ def test_przezyta_mutacja_trafia_do_issue_pr_ktory_ostatni_zmienil_jej_linie_a_d
     assert sorted(nowe) == ["Przeżyte mutacje z #11", f"Przeżyte mutacje z commitu {d[:9]}"]
     assert all(issue["labels"] == ["ready-for-agent", "przezyte-mutacje"] for issue in nowe.values())
     tresc_11 = nowe["Przeżyte mutacje z #11"]["body"]
-    assert "MUTACJA src/a.py:1 zmiana linii 1 cofnięta do bazy\nMUTACJA src/a.py:1 `10` zamienione na `0`\n" in tresc_11
+    # Dwa commity PR #11 dają jedno issue.
+    assert "MUTACJA src/a.py:1 zmiana linii 1 cofnięta do bazy\nMUTACJA src/a.py:1 `10` zamienione na `0`\nMUTACJA src/a.py:5 stała\n" in tresc_11
     assert RUN in tresc_11 and "nie warto, bo" in tresc_11
     assert "MUTACJA src/a.py:4 stała" in nowe[f"Przeżyte mutacje z commitu {d[:9]}"]["body"]
     # Issue #12 ma już linię „stała”, a #14 zamknięte z powodem dla niej: dostają tylko nowe linie.
@@ -175,7 +178,7 @@ def test_przezyta_mutacja_trafia_do_issue_pr_ktory_ostatni_zmienil_jej_linie_a_d
     ]
     assert (github.issues[1]["state"], github.issues[1]["labels"]) == ("open", ["ready-for-agent"])
     assert github.wyslane == wyslane
-    assert pierwsze_wyjscie.splitlines()[-1] == "MUTACJE NOCNE OK | części 3 | przeżyło 7"
+    assert pierwsze_wyjscie.splitlines()[-1] == "MUTACJE NOCNE OK | części 3 | przeżyło 8"
 
 
 def test_czesc_bez_zapisu_albo_z_porazka_bez_przezytych_czerwieni_przebieg_po_zgloszeniu_reszty(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:

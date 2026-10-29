@@ -136,14 +136,14 @@ def zapisy(katalog: Path, liczba: int) -> tuple[list[str], list[str]]:
 
 @dataclass(frozen=True)
 class Autor:
-    """PR (``numer``) albo, bez PR, commit, który ostatni zmienił linię mutacji."""
+    """PR (``numer``) albo, bez PR, commit, który ostatni zmienił linię mutacji: commity jednego PR to jeden autor."""
 
     numer: int | None
-    commit: str
+    commit: str | None = None
 
     @property
     def tytul(self) -> str:
-        return f"Przeżyte mutacje z #{self.numer}" if self.numer else f"Przeżyte mutacje z commitu {self.commit[:9]}"
+        return f"Przeżyte mutacje z #{self.numer}" if self.numer else f"Przeżyte mutacje z commitu {str(self.commit)[:9]}"
 
     @property
     def nazwa(self) -> str:
@@ -162,9 +162,9 @@ def autor(github: GitHub, root: Path, od: str, commit: str) -> Autor:
     potomkowie = {commit, *_git(root, "rev-list", "--ancestry-path", f"{commit}..HEAD").split()}
     scalenie = next((kandydat for kandydat in linia_main if kandydat in potomkowie), None)
     if scalenie is not None and (numer := _pr_z_tematu(_git(root, "log", "-1", "--format=%s", scalenie))):
-        return Autor(numer, commit)
+        return Autor(numer)
     scalone = [pr for pr in github.json(f"{REPO}/commits/{commit}/pulls") if pr.get("merged_at")]
-    return Autor(int(scalone[0]["number"]) if scalone else None, commit)
+    return Autor(int(scalone[0]["number"])) if scalone else Autor(None, commit)
 
 
 def przypisz(github: GitHub, root: Path, od: str, przezyte: Sequence[str]) -> dict[Autor, list[str]]:
