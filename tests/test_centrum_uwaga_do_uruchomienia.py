@@ -160,7 +160,7 @@ def test_uwaga_do_uruchomienia_z_logami_w_kolejce_czeka_i_wychodzi_po_logach_z_o
     draft = centrum.client.post("/api/dad-notes/draft", json=note(run_id)).json()
     sent = centrum.client.post("/api/dad-notes", json=note(run_id))
 
-    assert sent.json() == {"state": "waiting"}
+    assert sent.json() == {"state": "waiting", "waits_for": "key"}
     waiting = f"{run_line(centrum, 'podgląd', 'OK')}\nLogi Uruchomienia: w drodze (Uruchomienie {run_id})"
     assert draft["body"] == f"{BODY}\n\n{waiting}"
     assert box(centrum).issues == []
@@ -246,7 +246,7 @@ def test_dwie_uwagi_przypiete_do_roznych_uruchomien_dostaja_odnosniki_do_swoich_
     assert wait_for(lambda: len(queued(centrum, "logi-uruchomienia")) == 2)
     for run_id in (first, second):
         sent = centrum.client.post("/api/dad-notes", json={"title": run_id, "run_id": run_id})
-        assert sent.json() == {"state": "waiting"}
+        assert sent.json() == {"state": "waiting", "waits_for": "key"}
 
     write_key(centrum)
     centrum.restart()
@@ -325,7 +325,7 @@ def test_komentarz_do_usunietego_issue_uwagi_kolejka_porzuca_raz_i_wiecej_o_nie_
     assert centrum.client.post("/api/dad-notes", json={"title": "Inna Uwaga"}).json() == {"state": "sent"}
     (centrum.tmp_path / "config" / "zgloszenia-klucz.txt").unlink()
     behind = centrum.client.post("/api/dad-notes", json={"title": "Uwaga za komentarzem"})
-    assert behind.json() == {"state": "waiting"}
+    assert behind.json() == {"state": "waiting", "waits_for": "key"}
     box(centrum).issues.remove(issue)
     write_key(centrum)
 
