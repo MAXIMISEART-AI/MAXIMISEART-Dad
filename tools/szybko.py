@@ -204,9 +204,10 @@ class Dependencies:
                 tree = ast.parse((root / path).read_bytes())
             except (OSError, SyntaxError, ValueError):
                 continue
-            for name in _imports(tree, path):
+            nodes = list(ast.walk(tree))
+            for name in _imports(nodes, path):
                 depends_on[path] |= _resolve(name, path, modules, files)
-            texts, globs = references(tree)
+            texts, globs = references(nodes)
             test = path.startswith("tests/")
             if not test:
                 # Poza testami sama nazwa pliku albo modułu to zwykle nazwa procesu albo pliku w cudzym katalogu.
@@ -295,10 +296,10 @@ def _modules(files: frozenset[str]) -> dict[str, set[str]]:
     return modules
 
 
-def _imports(tree: ast.AST, path: str) -> set[str]:
+def _imports(nodes: Iterable[ast.AST], path: str) -> set[str]:
     package = PurePosixPath(path).parent.parts
     names: set[str] = set()
-    for node in ast.walk(tree):
+    for node in nodes:
         if isinstance(node, ast.Import):
             names.update(alias.name for alias in node.names)
         elif isinstance(node, ast.ImportFrom):
