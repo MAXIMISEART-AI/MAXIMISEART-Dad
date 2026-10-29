@@ -16,8 +16,8 @@ type ToolUpdateContextValue = {
   /** Start wysłany albo aktualizacja trwa: każdy przycisk aktualizacji jest wtedy wyłączony. */
   busy: boolean
   /**
-   * Tę stronę przeładowała sama karta po ponownym starcie Centrum, a tata od tego czasu nie kliknął aktualizacji.
-   * Komunikat porażki z ponownego startu jest wtedy pod tytułem każdej strony, nie przy przycisku.
+   * Aktualizacja zawiodła przy ponownym starcie Centrum, a tata od wejścia na stronę nie kliknął aktualizacji.
+   * Komunikat porażki jest wtedy pod tytułem każdej strony, nie przy przycisku, także po starcie ze skrótu.
    */
   restarted: boolean
   start: () => void
@@ -36,27 +36,28 @@ const ToolUpdateContext = React.createContext<ToolUpdateContextValue | null>(nul
 export function ToolUpdateProvider({ children }: { children: React.ReactNode }) {
   const [update, setUpdate] = React.useState<ToolUpdate | null>(null)
   const [starting, setStarting] = React.useState(false)
-  const [restarted, setRestarted] = React.useState(() => sessionStorage.getItem(RELOADED_AFTER_UPDATE) !== null)
+  const [clicked, setClicked] = React.useState(false)
   // Tata klika dwa razy z przyzwyczajenia: drugie kliknięcie przed odpowiedzią serwera nic nie wysyła.
   const sent = React.useRef(false)
   // Identyfikator startu Centrum sprzed kliknięcia (`health`); inny znaczy, że działa już nowe Centrum.
   const instance = React.useRef<string | null>(null)
   const running = update?.state === "running"
+  const restarted = update?.state === "failed" && update.after_restart && !clicked
 
   const read = React.useCallback(() => {
     getToolUpdate().then(setUpdate, () => undefined)
   }, [])
 
+  // Porażkę ponownego startu widać na każdej stronie, także na tej, na którą tata trafia ze skrótu, więc stan
+  // aktualizacji karta czyta przy każdym wejściu.
   React.useEffect(() => {
-    if (sessionStorage.getItem(RELOADED_AFTER_UPDATE) === null) {
-      return
-    }
+    const reloaded = sessionStorage.getItem(RELOADED_AFTER_UPDATE) !== null
 
     sessionStorage.removeItem(RELOADED_AFTER_UPDATE)
-    Promise.all([getToolUpdate(), getHealth()]).then(([result, health]) => {
+    Promise.all([getToolUpdate(), reloaded ? getHealth() : null]).then(([result, health]) => {
       setUpdate(result)
 
-      if (result.state === "updated") {
+      if (health !== null && result.state === "updated") {
         const version = health.commit === null ? "nowej wersji" : `wersji ${health.commit}`
         toast.add({ title: "Zaktualizowano", description: `Centrum działa w ${version}.` })
       }
@@ -97,7 +98,7 @@ export function ToolUpdateProvider({ children }: { children: React.ReactNode }) 
 
     sent.current = true
     setStarting(true)
-    setRestarted(false)
+    setClicked(true)
     getHealth()
       .then((health) => {
         instance.current = health.instance

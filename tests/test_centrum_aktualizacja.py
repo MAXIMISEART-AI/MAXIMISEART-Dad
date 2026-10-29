@@ -502,6 +502,7 @@ def test_nieprzewidziana_porazka_daje_komunikat_a_klon_zostaje_bez_zmian(tmp_pat
         },
         "next_action": "retry",
         "report": {"state": "ready"},
+        "after_restart": False,
     }
     assert repository.read("src/narzedzie.py") == "WERSJA = 1\n"
     # Commit przed aktualizacją to ten, z którego działa Centrum, choć Git go już nie poda.
@@ -571,6 +572,7 @@ def test_porazka_aktualizacji_karta_dostaje_jako_komunikat_w_trzech_czesciach_a_
         },
         "next_action": "retry",
         "report": {"state": "ready"},
+        "after_restart": False,
     }
     assert view["draft"]["title"] == f"BRAK_POLACZENIA: {what}"
     assert repository.head() == before
@@ -794,6 +796,7 @@ def test_stara_wersja_po_cofnieciu_pokazuje_komunikat_bez_czekania_na_skrzynke_z
         "message": {"what": "Nowa wersja narzędzia nie wystartowała.", "where": "narzędzie na tym komputerze", "action": TO_MAKS},
         "next_action": "report",
         "report": {"state": "ready"},
+        "after_restart": True,
     }
     assert first["draft"]["title"] == "NOWA_WERSJA_NIE_WYSTARTOWALA: Nowa wersja narzędzia nie wystartowała."
     assert (while_box_silent["state"], while_box_silent["report"]) == ("failed", {"state": "waiting"})
@@ -858,6 +861,7 @@ def test_wynik_ok_przy_dzialajacej_poprzedniej_wersji_to_porazka_nieoczekiwana_z
         },
         "next_action": "retry",
         "report": view.get("report"),
+        "after_restart": True,
     }
     assert view["draft"]["title"] == "NIEOCZEKIWANY_BLAD: Nie udało się zaktualizować narzędzia z nieoczekiwanego powodu."
     assert log_entries(centrum, "aktualizacja-koniec") == [
@@ -1185,10 +1189,11 @@ def test_gdy_opiekun_nie_wystartuje_klon_wraca_do_poprzedniej_wersji_a_karta_dos
 
     view = update_until_result(centrum)
 
-    assert (view["state"], view["message"]["what"], view["next_action"]) == (
+    assert (view["state"], view["message"]["what"], view["next_action"], view["after_restart"]) == (
         "failed",
         "Nie udało się zaktualizować narzędzia z nieoczekiwanego powodu.",
         "retry",
+        False,
     )
     assert repository.head() == before
     assert repository.read("src/narzedzie.py") == "WERSJA = 1\n"
@@ -1220,6 +1225,7 @@ def test_gdy_cofniecie_sie_nie_uda_karta_nie_mowi_ze_narzedzie_dziala_w_poprzedn
         },
         "next_action": "retry",
         "report": {"state": "ready"},
+        "after_restart": False,
     }
     assert log_entries(centrum, "aktualizacja-koniec") == [
         f"wynik=COFNIECIE_NIEUDANE przed={before} po={newest} biblioteki=nie"

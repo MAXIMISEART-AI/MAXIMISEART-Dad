@@ -1128,7 +1128,8 @@ export const zThemeChange = z.object({
  *
  * ``next_action`` ``retry``: tata klika „Zaktualizuj narzędzie” jeszcze raz (np. gdy wróci internet);
  * ``report``: sprawę przejmuje Maks. ``draft`` to Zgłoszenie z faktami dziennika tej aktualizacji, które
- * wyśle „Wyślij do Maksa”, a ``report`` jego stan.
+ * wyśle „Wyślij do Maksa”, a ``report`` jego stan. ``after_restart``: porażkę zastało to Centrum przy starcie, od
+ * opiekuna ponownego startu (np. nowa wersja nie wystartowała), a nie z kliknięcia w tym Centrum.
  */
 export const zToolUpdateFailed = z.object({
     state: z.literal('failed'),
@@ -1142,7 +1143,8 @@ export const zToolUpdateFailed = z.object({
         zReportRejected,
         zReportNotQueued
     ]),
-    draft: zReportDraft
+    draft: zReportDraft,
+    after_restart: z.boolean()
 });
 
 /**
