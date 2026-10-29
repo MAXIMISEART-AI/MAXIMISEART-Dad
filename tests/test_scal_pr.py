@@ -26,7 +26,7 @@ pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="Atrapa gh to sk
 
 TOOLS = Path(__file__).resolve().parents[1] / "tools"
 TEMPLATE = Path(__file__).resolve().parents[1] / ".agents" / "skills" / "pr" / "SKILL.md"
-BODY = "## Why\n\nCel.\n\n## Summary\n\nSzkic.\n\n## Evidence\n\n- **Before:** FAIL\n  **After:** OK\n\n## Merge Danger\n\n**Door:** two-way\n"
+BODY = opisy_pr.wzor("Cel.")
 SUM = "def suma(a: int, b: int) -> int:\n    return a + b\n"
 PYPROJECT = '[tool.ruff]\ninclude = ["kod/**/*.py"]\n\n[tool.mypy]\nstrict = true\nfiles = ["kod"]\n'
 CLEANUP = 'import pathlib\n\npathlib.Path("posprzatane").write_text("tak")\nprint("SPRZĄTANIE OK | 0 usuniętych")\n'
@@ -166,7 +166,6 @@ class FakeGitHub:
             "reviews": [],
             "mergeCommit": None,
             "url": f"https://github.com/{opisy_pr.REPO}/pull/{number}",
-            "body": "",
             "closingIssuesReferences": [],
         }
         self._save()
@@ -647,7 +646,7 @@ def test_merge_do_galezi_innej_niz_domyslna_niczego_nie_zamyka_ani_nie_renderuje
     assert github.renders() == []
 
 
-@pytest.mark.parametrize("body", ["Closes #3", "Ten PR\nnaprawia #3"], ids=["closes", "naprawia-mala-litera"])
+@pytest.mark.parametrize("body", [opisy_pr.wzor("Closes #3"), opisy_pr.wzor("Ten PR\nnaprawia #3")], ids=["closes", "naprawia-mala-litera"])
 def test_pr_bez_slowa_naprawia_nie_pyta_o_domyslna_galaz_ani_nie_renderuje_opisu(tmp_path: Path, body: str) -> None:
     github = FakeGitHub(tmp_path, {"kod/__init__.py": SUM})
     github.repo_view = _repo_view("trunk")
