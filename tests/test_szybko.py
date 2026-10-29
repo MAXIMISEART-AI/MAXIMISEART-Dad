@@ -26,6 +26,10 @@ BY_CHANGE_ONLY = {
     "tests/test_git_w_testach.py": (
         "sprawdza gita sesji testów, a nie całe repozytorium"
     ),
+    "tests/test_komunikaty_expect.py": (
+        "porównuje próbki katalogów Komunikatów z plikiem expect, a nie całe repozytorium; graf wybiera go przy zmianie "
+        "katalogu (import message_samples) i pliku tests/expected/komunikaty.txt (literał)"
+    ),
     "tests/test_mutacje.py": "sprawdza silnik mutacji na repozytoriach testu, a nie całe repozytorium",
     "tests/test_mutacje_nocne.py": (
         "sprawdza narzędzie na repozytoriach testu i atrapie GitHuba; mutacje-nocne.yml czyta ścieżką, którą graf widzi"

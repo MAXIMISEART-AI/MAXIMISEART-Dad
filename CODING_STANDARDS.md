@@ -74,6 +74,8 @@ A rule that a check enforces sits in its section's table, one line per rule, bes
 - Before real files are used, run a preview without saving (`Podgląd bez zapisu`).
 - Name a file that a test reads or runs with a literal path (`ROOT / "docs" / "adr"`), not a path built from a variable.
   `tools/szybko.py` selects tests from imports and such literals, so a path built at run time hides the dependency.
+- Use an expect test (`assert_expected` in `tests/fixtures/expect.py`) for behaviour a human reads, such as Komunikaty and traces: it compares the text with a file in `tests/expected/`, named by a literal path.
+  Write the new file with `ZAPISZ_EXPECT=1 .venv/bin/python -m pytest <test>`, which the failing test prints, and commit it with the change; CI never writes it.
 - Expect the error a test is about, not any error of its class: `pytest.raises` of a broad exception (`ValueError`, `OSError`) takes `match=` on its message, and the block holds the one statement that raises (ruff PT011, PT012).
 - Prove that a new test or check fails on the broken code it guards with `tools/mutacje.py`, the repository's one mutation engine: use it rather than writing another; to check every commit of a branch use `tools/ci_lokalnie.py --kazdy-commit`, not `git rebase --exec`.
   Run it once for each test or check added or changed in a round of work.
@@ -89,6 +91,7 @@ A rule that a check enforces sits in its section's table, one line per rule, bes
 | Rule | Guard |
 |---|---|
 | Every changed line of `src/` and `tools/` has a test that fails when the line is broken, or its issue `Przeżyte mutacje z #N` says in a `MUTACJA` line why the test is not worth it („nie warto, bo …”), and the PR body promises only what the mutations confirm. | `tools/mutacje_zmiany.py` and `tools/mutacje_nocne.py` (nightly workflow `mutacje-nocne.yml`), `tests/test_mutacje_nocne.py` |
+| A change to a Komunikat's text changes `tests/expected/komunikaty.txt` in the same PR. | `tests/test_komunikaty_expect.py` |
 | A test module imports helpers only from `tests/fixtures`. | `tests/test_struktura_testow.py` |
 | A test waits for a state of Centrum rozliczeń or measures time with the test's clock, and checks the time of the code under test by equality on the fake clock `ManualClock` (`tests/fixtures/clock.py`), never by a fixed number of milliseconds. | `tests/test_struktura_testow.py` |
 | Git in tests has one configuration, the same on every computer: a test builds `env=` from `os.environ` and leaves `GIT_CONFIG_GLOBAL`/`GIT_CONFIG_NOSYSTEM` alone, sets a computer configuration with something more through `computer_git_config` (`tests/fixtures/git_config.py`), and a process of the tool's code (`src/`) has an empty `user.name` and `user.email`, so its `git commit` fails as it does at Dad's. | fixture `git_bez_konfiguracji_komputera` in `tests/conftest.py`, `tests/test_git_w_testach.py` |

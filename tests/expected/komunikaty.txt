@@ -1,0 +1,688 @@
+# Komunikaty, które widzi tata: próbka każdej fabryki każdego katalogu.
+# Plik zapisuje tests/test_komunikaty_expect.py; ścieżki w próbkach są syntetyczne.
+
+=== Przygotowanie pliku zbiorczego (src/rozliczenia/preparation_messages.py) ===
+
+invalid_period_token [ZLY_TOKEN_OKRESU]
+  Co się stało: Okres nie ma postaci dd_dd_mm_rrrr od wtorku do poniedziałku.
+  Gdzie: okres '08_14_9_2026'
+  Co zrobić: Wpisz okres jak w nazwie folderu, np. 08_14_09_2026 (wtorek 8, poniedziałek 14 września 2026). Na przełomie miesięcy miesiąc i rok są z poniedziałku, np. 27_02_11_2026 (wtorek 27 października – poniedziałek 2 listopada 2026).
+
+period_file_exists [PLIK_OKRESU_ISTNIEJE]
+  Co się stało: Plik tego okresu już istnieje, więc nie został nadpisany. Nie utworzono żadnego pliku.
+  Gdzie: folder INEA\08_14_09_2026, plik Rozliczenie wew. 08_14_09_2026.xlsx
+  Co zrobić: Sprawdź, czy wybrano właściwy okres. Jeśli plik ma powstać od nowa, przenieś albo usuń istniejący plik i uruchom ponownie.
+
+worker_config_problem #1 [ZLA_KONFIGURACJA_WYKONAWCOW]
+  Co się stało: Nie można odczytać konfiguracji wykonawców.
+  Gdzie: plik worker_mapping.yaml
+  Co zrobić: Przekaż to osobie utrzymującej narzędzie.
+
+worker_config_problem #2 [NIEDOSTEPNA_KONFIGURACJA_WYKONAWCOW]
+  Co się stało: Nie można teraz odczytać konfiguracji wykonawców. Plik może być zajęty przez inny program.
+  Gdzie: plik worker_mapping.yaml
+  Co zrobić: Przekaż ten komunikat osobie utrzymującej narzędzie.
+
+worker_config_problem #3 [ZLA_KONFIGURACJA_WYKONAWCOW]
+  Co się stało: Nie można odczytać konfiguracji wykonawców. Plik nie jest zapisany w kodowaniu UTF-8.
+  Gdzie: plik worker_mapping.yaml
+  Co zrobić: Przekaż to osobie utrzymującej narzędzie.
+
+worker_config_problem #4 [ZLA_KONFIGURACJA_WYKONAWCOW]
+  Co się stało: Nie można odczytać konfiguracji wykonawców. Plik nie jest poprawnym YAML.
+  Gdzie: plik worker_mapping.yaml
+  Co zrobić: Przekaż to osobie utrzymującej narzędzie.
+
+worker_config_problem #5 [ZLA_KONFIGURACJA_WYKONAWCOW]
+  Co się stało: Nie można odczytać konfiguracji wykonawców. Nieobsługiwana wersja konfiguracji.
+  Gdzie: plik worker_mapping.yaml
+  Co zrobić: Przekaż to osobie utrzymującej narzędzie.
+
+template_unusable #1 [BRAK_WZORCA]
+  Co się stało: Nie znaleziono wzorca, z którego powstają pliki okresu. Nie utworzono żadnego pliku.
+  Gdzie: plik Wzorzec pliku zbiorczego.xlsx, folder config
+  Co zrobić: Przekaż ten komunikat osobie utrzymującej narzędzie.
+
+template_unusable #2 [WZORZEC_OTWARTY]
+  Co się stało: Wzorzec jest otwarty w Excelu. Nie utworzono żadnego pliku.
+  Gdzie: plik Wzorzec pliku zbiorczego.xlsx, folder config
+  Co zrobić: Zamknij wzorzec w Excelu bez zapisywania zmian i uruchom ponownie. Jeśli Excel jest zamknięty, a komunikat wraca, usuń z tego samego folderu pozostawiony plik ~$Wzorzec pliku zbiorczego.xlsx i uruchom ponownie.
+
+template_unusable #3 [NIEDOSTEPNY_WZORZEC]
+  Co się stało: Nie można teraz odczytać wzorca. Plik może być zajęty przez inny program. Nie utworzono żadnego pliku.
+  Gdzie: plik Wzorzec pliku zbiorczego.xlsx, folder config
+  Co zrobić: Przekaż ten komunikat osobie utrzymującej narzędzie.
+
+template_unusable #4 [USZKODZONY_WZORZEC]
+  Co się stało: Nie można odczytać wzorca. Plik jest uszkodzony albo nie jest skoroszytem .xlsx. Nie utworzono żadnego pliku.
+  Gdzie: plik Wzorzec pliku zbiorczego.xlsx, folder config
+  Co zrobić: Przekaż ten komunikat osobie utrzymującej narzędzie.
+
+template_unusable #5 [USZKODZONY_WZORZEC]
+  Co się stało: Nie można odczytać wzorca. Plik jest uszkodzony albo nie jest skoroszytem .xlsx. Nie utworzono żadnego pliku.
+  Gdzie: plik Wzorzec pliku zbiorczego.xlsx, folder config
+  Co zrobić: Przekaż ten komunikat osobie utrzymującej narzędzie.
+
+template_unusable #6 [USZKODZONY_WZORZEC]
+  Co się stało: Nie można odczytać wzorca. Plik jest uszkodzony albo nie jest skoroszytem .xlsx. Nie utworzono żadnego pliku.
+  Gdzie: plik Wzorzec pliku zbiorczego.xlsx, folder config
+  Co zrobić: Przekaż ten komunikat osobie utrzymującej narzędzie.
+
+template_unusable #7 [ZLY_WZORZEC]
+  Co się stało: We wzorcu brakuje nagłówka WYKONAWCA, więc nie wiadomo, gdzie wpisać zlecenia. Nie utworzono żadnego pliku.
+  Gdzie: plik Wzorzec pliku zbiorczego.xlsx, arkusz Sheet1, wiersz 17
+  Co zrobić: Przekaż ten komunikat osobie utrzymującej narzędzie.
+
+template_unusable #8 [WYKONAWCA_POZA_H]
+  Co się stało: Wzorzec pliku zbiorczego ma nagłówek WYKONAWCA w kolumnie G zamiast w H (wiersz 17). Nie utworzono żadnego pliku.
+  Gdzie: plik Wzorzec pliku zbiorczego.xlsx, arkusz Sheet1, wiersz 17
+  Co zrobić: Przenieś WYKONAWCA do kolumny H we wzorcu i uruchom ponownie.
+
+template_unusable #9 [SCALONE_KOMORKI_WZORCA]
+  Co się stało: We wzorcu są scalone komórki tam, gdzie trafiają zlecenia, więc nie można ich wpisać. Nie utworzono żadnego pliku.
+  Gdzie: plik Wzorzec pliku zbiorczego.xlsx, arkusz Sheet1, komórki B19:C20
+  Co zrobić: Przekaż ten komunikat osobie utrzymującej narzędzie.
+
+register_missing [BRAK_REJESTRU]
+  Co się stało: Nie znaleziono Rejestru zleceń. Nie utworzono żadnego pliku.
+  Gdzie: plik ZLECENIA INTERMAX OD 08_11_2021.xlsx, folder Dane
+  Co zrobić: Wybierz właściwy plik Rejestru zleceń i uruchom ponownie.
+
+register_unusable #1 [BRAK_REJESTRU]
+  Co się stało: Nie znaleziono Rejestru zleceń. Nie utworzono żadnego pliku.
+  Gdzie: plik ZLECENIA INTERMAX OD 08_11_2021.xlsx, folder Dane
+  Co zrobić: Wybierz właściwy plik Rejestru zleceń i uruchom ponownie.
+
+register_unusable #2 [REJESTR_OTWARTY]
+  Co się stało: Rejestr zleceń jest otwarty w Excelu. Nie utworzono żadnego pliku.
+  Gdzie: plik ZLECENIA INTERMAX OD 08_11_2021.xlsx, folder Dane
+  Co zrobić: Zapisz i zamknij Rejestr zleceń w Excelu, potem uruchom ponownie. Jeśli Excel jest zamknięty, a komunikat wraca, usuń z tego samego folderu pozostawiony plik ~$ZLECENIA INTERMAX OD 08_11_2021.xlsx i uruchom ponownie.
+
+register_unusable #3 [NIEDOSTEPNY_REJESTR]
+  Co się stało: Nie można teraz odczytać Rejestru zleceń. Plik może być zajęty przez inny program albo czekać na pobranie z OneDrive. Nie utworzono żadnego pliku.
+  Gdzie: plik ZLECENIA INTERMAX OD 08_11_2021.xlsx, folder Dane
+  Co zrobić: Poczekaj, aż OneDrive skończy synchronizację, i sprawdź, czy Rejestr zleceń otwiera się w Excelu. Zamknij go i uruchom ponownie. Jeśli błąd wraca, przekaż ten komunikat osobie utrzymującej narzędzie.
+
+register_unusable #4 [USZKODZONY_REJESTR]
+  Co się stało: Nie można odczytać Rejestru zleceń. Plik jest uszkodzony albo nie jest skoroszytem .xlsx. Nie utworzono żadnego pliku.
+  Gdzie: plik ZLECENIA INTERMAX OD 08_11_2021.xlsx, folder Dane
+  Co zrobić: Sprawdź, czy Rejestr zleceń otwiera się w Excelu i jest zapisany jako .xlsx, zamknij go i uruchom ponownie. Jeśli błąd wraca, przekaż to osobie utrzymującej narzędzie.
+
+register_unusable #5 [USZKODZONY_REJESTR]
+  Co się stało: Nie można odczytać Rejestru zleceń. Plik jest uszkodzony albo nie jest skoroszytem .xlsx. Nie utworzono żadnego pliku.
+  Gdzie: plik ZLECENIA INTERMAX OD 08_11_2021.xlsx, folder Dane
+  Co zrobić: Sprawdź, czy Rejestr zleceń otwiera się w Excelu i jest zapisany jako .xlsx, zamknij go i uruchom ponownie. Jeśli błąd wraca, przekaż to osobie utrzymującej narzędzie.
+
+register_unusable #6 [USZKODZONY_REJESTR]
+  Co się stało: Nie można odczytać Rejestru zleceń. Plik jest uszkodzony albo nie jest skoroszytem .xlsx. Nie utworzono żadnego pliku.
+  Gdzie: plik ZLECENIA INTERMAX OD 08_11_2021.xlsx, folder Dane
+  Co zrobić: Sprawdź, czy Rejestr zleceń otwiera się w Excelu i jest zapisany jako .xlsx, zamknij go i uruchom ponownie. Jeśli błąd wraca, przekaż to osobie utrzymującej narzędzie.
+
+register_without_headers #1 [BRAK_NAGLOWKA_REJESTRU]
+  Co się stało: W Rejestrze zleceń brakuje wymaganego nagłówka SKUTECZNE. Nie utworzono żadnego pliku.
+  Gdzie: plik ZLECENIA INTERMAX OD 08_11_2021.xlsx, arkusz ZLECENIA, wiersz 1
+  Co zrobić: Dopisz albo popraw nagłówek SKUTECZNE w pierwszym wierszu arkusza ze zleceniami, zapisz i zamknij Rejestr zleceń i uruchom ponownie.
+
+register_without_headers #2 [BRAK_NAGLOWKA_REJESTRU]
+  Co się stało: W Rejestrze zleceń brakuje wymaganych nagłówków SKUTECZNE, WYKONAWCA. Nie utworzono żadnego pliku.
+  Gdzie: plik ZLECENIA INTERMAX OD 08_11_2021.xlsx, arkusz ZLECENIA, wiersz 1
+  Co zrobić: Dopisz albo popraw nagłówki SKUTECZNE, WYKONAWCA w pierwszym wierszu arkusza ze zleceniami, zapisz i zamknij Rejestr zleceń i uruchom ponownie.
+
+register_with_duplicated_headers #1 [POWTORZONY_NAGLOWEK_REJESTRU]
+  Co się stało: W Rejestrze zleceń nagłówek ADRES występuje więcej niż raz, więc nie wiadomo, z której kolumny brać dane. Nie utworzono żadnego pliku.
+  Gdzie: plik ZLECENIA INTERMAX OD 08_11_2021.xlsx, arkusz ZLECENIA, wiersz 1
+  Co zrobić: Zostaw nagłówek ADRES tylko w jednej kolumnie, zapisz i zamknij Rejestr zleceń i uruchom ponownie.
+
+register_with_duplicated_headers #2 [POWTORZONY_NAGLOWEK_REJESTRU]
+  Co się stało: W Rejestrze zleceń nagłówki ADRES, UMOWA występują więcej niż raz, więc nie wiadomo, z której kolumny brać dane. Nie utworzono żadnego pliku.
+  Gdzie: plik ZLECENIA INTERMAX OD 08_11_2021.xlsx, arkusz ZLECENIA, wiersz 1
+  Co zrobić: Zostaw każdy z nagłówków ADRES, UMOWA tylko w jednej kolumnie, zapisz i zamknij Rejestr zleceń i uruchom ponownie.
+
+register_without_data_sheet [BRAK_ARKUSZA_ZLECEN]
+  Co się stało: W Rejestrze zleceń nie znaleziono arkusza ze zleceniami, czyli arkusza z wymaganymi nagłówkami w pierwszym wierszu. Nie utworzono żadnego pliku.
+  Gdzie: plik ZLECENIA INTERMAX OD 08_11_2021.xlsx
+  Co zrobić: Sprawdź, czy wybrano właściwy plik Rejestru zleceń. Pierwszy wiersz arkusza ze zleceniami musi zawierać nagłówki: DATA GODZ. POCZ..
+
+period_orders_in_many_sheets [ZLECENIA_W_WIELU_ARKUSZACH]
+  Co się stało: Zlecenia tego okresu są w więcej niż jednym arkuszu Rejestru zleceń, więc nie wiadomo, który arkusz jest właściwy. Nie utworzono żadnego pliku.
+  Gdzie: plik ZLECENIA INTERMAX OD 08_11_2021.xlsx, arkusze ZLECENIA, ZLECENIA 2, okres 08_14_09_2026
+  Co zrobić: Zostaw zlecenia tego okresu tylko w jednym arkuszu, zapisz i zamknij Rejestr zleceń i uruchom ponownie.
+
+raw_orders_not_ordered #1 [SUROWE_ZLECENIA_W_OKRESIE]
+  Co się stało: Wklejone zlecenia na dole Rejestru zleceń nie są jeszcze uporządkowane, a mogą należeć do tego okresu. Nie utworzono żadnego pliku.
+  Gdzie: plik ZLECENIA INTERMAX OD 08_11_2021.xlsx, arkusz ZLECENIA, wiersze 120–140
+  Co zrobić: Najpierw uporządkuj INTERMAX w Centrum rozliczeń, potem uruchom ponownie.
+
+raw_orders_not_ordered #2 [SUROWE_ZLECENIA_W_OKRESIE]
+  Co się stało: Wklejone zlecenia na dole Rejestru zleceń nie są jeszcze uporządkowane, a mogą należeć do tego okresu. Nie utworzono żadnego pliku.
+  Gdzie: plik ZLECENIA INTERMAX OD 08_11_2021.xlsx, arkusz ZLECENIA, wiersz 120
+  Co zrobić: Najpierw uporządkuj INTERMAX w Centrum rozliczeń, potem uruchom ponownie.
+
+periods_directory_missing [BRAK_FOLDERU_OKRESOW]
+  Co się stało: Nie znaleziono folderu okresów. Nie utworzono żadnego pliku.
+  Gdzie: folder Dane\INEA
+  Co zrobić: Wybierz istniejący folder okresów, w którym są foldery poprzednich tygodni, i uruchom ponownie.
+
+folder_inaccessible [NIEDOSTEPNY_FOLDER]
+  Co się stało: Nie można teraz odczytać folderu. Nie utworzono żadnego pliku.
+  Gdzie: folder Dane\INEA
+  Co zrobić: Sprawdź, czy folder otwiera się w Eksploratorze plików i czy OneDrive działa, potem uruchom ponownie.
+
+period_folder_lookup_problem #1 [BRAK_FOLDERU_OKRESU]
+  Co się stało: Nie znaleziono folderu 08_14_09_2026 w żadnym folderze miesiąca. Nie utworzono żadnego pliku.
+  Gdzie: foldery INEA w folderze Załączniki
+  Co zrobić: Załóż folder 08_14_09_2026 w folderze INEA właściwego miesiąca i uruchom ponownie.
+
+period_folder_lookup_problem #2 [POWTORZONY_FOLDER_OKRESU]
+  Co się stało: Folder 08_14_09_2026 jest w więcej niż jednym folderze miesiąca, więc nie wiadomo, gdzie zapisać pliki. Nie utworzono żadnego pliku.
+  Gdzie: Rozliczenia 2026\06_Czerwiec_2026\INEA, Rozliczenia 2026\07_Lipiec_2026\INEA
+  Co zrobić: Zostaw folder 08_14_09_2026 tylko w jednym folderze miesiąca: drugi usuń albo zmień mu nazwę. Potem uruchom ponownie.
+
+rows_without_date #1 [WIERSZ_BEZ_DATY]
+  Co się stało: Między zleceniami okresu jest wiersz z danymi bez poprawnej daty w kolumnie DATA GODZ. POCZ. Nie utworzono żadnego pliku.
+  Gdzie: plik ZLECENIA INTERMAX OD 08_11_2021.xlsx, arkusz ZLECENIA, wiersz 7
+  Co zrobić: Wpisz poprawną datę w kolumnie DATA GODZ. POCZ. we wskazanych wierszach Rejestru zleceń albo wyczyść wiersz, jeśli jest zbędny. Zapisz i zamknij Rejestr, i uruchom ponownie.
+
+rows_without_date #2 [WIERSZ_BEZ_DATY]
+  Co się stało: Między zleceniami okresu są wiersze z danymi bez poprawnej daty w kolumnie DATA GODZ. POCZ. Nie utworzono żadnego pliku.
+  Gdzie: plik ZLECENIA INTERMAX OD 08_11_2021.xlsx, arkusz ZLECENIA, wiersze 7, 9
+  Co zrobić: Wpisz poprawną datę w kolumnie DATA GODZ. POCZ. we wskazanych wierszach Rejestru zleceń albo wyczyść wiersz, jeśli jest zbędny. Zapisz i zamknij Rejestr, i uruchom ponownie.
+
+invalid_successful_values #1 [ZLE_SKUTECZNE]
+  Co się stało: 1 zlecenie okresu nie ma tak ani nie w SKUTECZNE. Nie utworzono żadnego pliku.
+  Gdzie: plik ZLECENIA INTERMAX OD 08_11_2021.xlsx, arkusz ZLECENIA, puste: L4
+  Co zrobić: Wpisz tak albo nie we wskazanych komórkach Rejestru zleceń. Zapisz i zamknij Rejestr, i uruchom ponownie.
+
+invalid_successful_values #2 [ZLE_SKUTECZNE]
+  Co się stało: 4 zlecenia okresu nie mają tak ani nie w SKUTECZNE. Nie utworzono żadnego pliku.
+  Gdzie: plik ZLECENIA INTERMAX OD 08_11_2021.xlsx, arkusz ZLECENIA, puste: L4–L5, L9; inna wartość: L6 („???”)
+  Co zrobić: Wpisz tak albo nie we wskazanych komórkach Rejestru zleceń. Zapisz i zamknij Rejestr, i uruchom ponownie.
+
+invalid_successful_values #3 [ZLE_SKUTECZNE]
+  Co się stało: 12 zleceń okresu nie ma tak ani nie w SKUTECZNE. Nie utworzono żadnego pliku.
+  Gdzie: plik ZLECENIA INTERMAX OD 08_11_2021.xlsx, arkusz ZLECENIA, inna wartość: L2–L13 („tsk”)
+  Co zrobić: Wpisz tak albo nie we wskazanych komórkach Rejestru zleceń. Zapisz i zamknij Rejestr, i uruchom ponownie.
+
+unknown_workers #1 [NIEZNANY_WYKONAWCA]
+  Co się stało: Zlecenie skuteczne ma wykonawcę spoza konfiguracji wykonawców: nowy.wykonawca. Nie utworzono żadnego pliku.
+  Gdzie: plik ZLECENIA INTERMAX OD 08_11_2021.xlsx, arkusz ZLECENIA, nowy.wykonawca: wiersz 4
+  Co zrobić: Dopisz identyfikator wykonawcy do konfiguracji wykonawców (worker_mapping.yaml), tej samej co w Przebiegu rozliczeń, albo popraw WYKONAWCA we wskazanych wierszach Rejestru zleceń. Zapisz i zamknij Rejestr, i uruchom ponownie.
+
+unknown_workers #2 [NIEZNANY_WYKONAWCA]
+  Co się stało: Zlecenia skuteczne mają wykonawców spoza konfiguracji wykonawców: nowy.wykonawca, . Nie utworzono żadnego pliku.
+  Gdzie: plik ZLECENIA INTERMAX OD 08_11_2021.xlsx, arkusz ZLECENIA, nowy.wykonawca: wiersze 4, 9; : wiersz 6
+  Co zrobić: Dopisz identyfikator wykonawcy do konfiguracji wykonawców (worker_mapping.yaml), tej samej co w Przebiegu rozliczeń, albo popraw WYKONAWCA we wskazanych wierszach Rejestru zleceń. Zapisz i zamknij Rejestr, i uruchom ponownie.
+
+no_period_orders [BRAK_ZLECEN_OKRESU]
+  Co się stało: W Rejestrze zleceń nie ma żadnego zlecenia z tego okresu. Nie utworzono żadnego pliku.
+  Gdzie: plik ZLECENIA INTERMAX OD 08_11_2021.xlsx, arkusz ZLECENIA, okres 08_14_09_2026
+  Co zrobić: Sprawdź, czy wybrano właściwy okres i czy eksport zleceń do Rejestru został zrobiony i zapisany, i uruchom ponownie.
+
+too_few_zero_rows #1 [MALO_WIERSZY_Z_ZERAMI]
+  Co się stało: Zleceń skutecznych: 7, wierszy przygotowanych zerami we Wzorcu pliku zbiorczego: 6. Dolne wiersze Pliku zbiorczego nie mają zer w kolumnach ilości.
+  Gdzie: plik Rozliczenie 08_14_09_2026 - zbiorcze.xlsx, wiersz 24
+  Co zrobić: Sprawdź te wiersze jak pozostałe: narzędzie wpisało w nich ilości tak samo, a puste komórki liczą się jak 0. Jeśli zdarza się to często, przekaż to osobie utrzymującej narzędzie, żeby dodała wiersze z zerami we Wzorcu pliku zbiorczego.
+
+too_few_zero_rows #2 [MALO_WIERSZY_Z_ZERAMI]
+  Co się stało: Zleceń skutecznych: 9, wierszy przygotowanych zerami we Wzorcu pliku zbiorczego: 6. Dolne wiersze Pliku zbiorczego nie mają zer w kolumnach ilości.
+  Gdzie: plik Rozliczenie 08_14_09_2026 - zbiorcze.xlsx, wiersze 24–26
+  Co zrobić: Sprawdź te wiersze jak pozostałe: narzędzie wpisało w nich ilości tak samo, a puste komórki liczą się jak 0. Jeśli zdarza się to często, przekaż to osobie utrzymującej narzędzie, żeby dodała wiersze z zerami we Wzorcu pliku zbiorczego.
+
+unknown_devices #1 [NIEZNANE_URZADZENIA]
+  Co się stało: Narzędzie nie zna urządzenia z kolumny URZĄDZENIA, więc w tych wierszach Pliku zbiorczego wpisało tylko ilości niezależne od urządzeń (V, T i N).
+  Gdzie: plik Rozliczenie 08_14_09_2026 - zbiorcze.xlsx, wiersz 19
+  Co zrobić: Uzupełnij pozostałe ilości w tych wierszach ręcznie przed Przebiegiem rozliczeń. Jeśli to nowe urządzenie, które będzie wracać, powiedz o nim osobie utrzymującej narzędzie.
+
+unknown_devices #2 [NIEZNANE_URZADZENIA]
+  Co się stało: Narzędzie nie zna urządzenia z kolumny URZĄDZENIA, więc w tych wierszach Pliku zbiorczego wpisało tylko ilości niezależne od urządzeń (V, T i N).
+  Gdzie: plik Rozliczenie 08_14_09_2026 - zbiorcze.xlsx, wiersze 18, 19, 20, 21, 22, 23, 24, 25, 26, 27 i 2 kolejnych
+  Co zrobić: Uzupełnij pozostałe ilości w tych wierszach ręcznie przed Przebiegiem rozliczeń. Jeśli to nowe urządzenie, które będzie wracać, powiedz o nim osobie utrzymującej narzędzie.
+
+rows_from_description #1 [WIERSZE_Z_OPISU]
+  Co się stało: Te wiersze Pliku zbiorczego rozlicza się z opisu technika (prewencja, niedostępność usług albo puste URZĄDZENIA), więc narzędzie nie wpisało w nich żadnych ilości.
+  Gdzie: plik Rozliczenie 08_14_09_2026 - zbiorcze.xlsx, wiersz 20
+  Co zrobić: Wpisz ilości w tych wierszach według opisu technika w CZYNNOŚCI ZREALIZOWANE przed Przebiegiem rozliczeń.
+
+rows_from_description #2 [WIERSZE_Z_OPISU]
+  Co się stało: Te wiersze Pliku zbiorczego rozlicza się z opisu technika (prewencja, niedostępność usług albo puste URZĄDZENIA), więc narzędzie nie wpisało w nich żadnych ilości.
+  Gdzie: plik Rozliczenie 08_14_09_2026 - zbiorcze.xlsx, wiersze 20, 21, 23
+  Co zrobić: Wpisz ilości w tych wierszach według opisu technika w CZYNNOŚCI ZREALIZOWANE przed Przebiegiem rozliczeń.
+
+columns_from_description [KOLUMNY_Z_OPISU]
+  Co się stało: Ilości, które wynikają z opisu technika (CZYNNOŚCI ZREALIZOWANE), narzędzie zostawia do uzupełnienia.
+  Gdzie: plik Rozliczenie 08_14_09_2026 - zbiorcze.xlsx, kolumny Y, AB, AD, AJ, AK, AL i AM
+  Co zrobić: Przejrzyj opis technika w każdym wierszu Pliku zbiorczego i uzupełnij ilości w tych kolumnach przed Przebiegiem rozliczeń.
+
+incomplete_period [NIEPELNY_OKRES]
+  Co się stało: Ostatnie zlecenie okresu jest z soboty 12.09.2026, a okres kończy się w poniedziałek 14.09.2026. Rejestr zleceń może nie mieć jeszcze wszystkich zleceń tego okresu.
+  Gdzie: plik ZLECENIA INTERMAX OD 08_11_2021.xlsx, arkusz ZLECENIA, okres 08_14_09_2026
+  Co zrobić: Sprawdź liczby zleceń na dzień. Jeśli brakuje zleceń, przerwij, uzupełnij eksport w Rejestrze zleceń, zapisz go i uruchom ponownie. Jeśli okres jest pełny, kontynuuj.
+
+incomplete_period_refused #1 [PRZERWANO_NIEPELNY_OKRES]
+  Co się stało: Przerwano z powodu niepełnego okresu, zgodnie z odpowiedzią. Nie utworzono żadnego pliku.
+  Gdzie: okres 08_14_09_2026
+  Co zrobić: Uzupełnij eksport zleceń w Rejestrze zleceń, zapisz go, zamknij i uruchom ponownie. Jeśli okres jest pełny, uruchom proces w Centrum rozliczeń i przy decyzji wybierz „Kontynuuj”.
+
+incomplete_period_refused #2 [PRZERWANO_NIEPELNY_OKRES]
+  Co się stało: Przerwano z powodu niepełnego okresu, zgodnie z odpowiedzią. Nie utworzono żadnego pliku.
+  Gdzie: okres 08_14_09_2026
+  Co zrobić: Uzupełnij eksport zleceń w Rejestrze zleceń, zapisz go, zamknij i uruchom ponownie. Jeśli okres jest pełny, przy decyzji wybierz „Kontynuuj”.
+
+write_failed [BLAD_ZAPISU]
+  Co się stało: Nie udało się zapisać plików okresu. Nie utworzono żadnego pliku.
+  Gdzie: folder INEA\08_14_09_2026
+  Co zrobić: Sprawdź, czy folder jest dostępny i czy pliki okresu nie są otwarte, i uruchom ponownie. Jeśli błąd wraca, przekaż to osobie utrzymującej narzędzie.
+
+write_failed_with_file_left [BLAD_ZAPISU_POZOSTAL_PLIK]
+  Co się stało: Zapisano tylko jeden z dwóch plików okresu i nie udało się go usunąć.
+  Gdzie: folder INEA\08_14_09_2026, plik Rozliczenie wew. 08_14_09_2026.xlsx
+  Co zrobić: Usuń wskazany plik, bo bez drugiego pliku okresu jest niepełny, i uruchom ponownie. Jeśli nie daje się go usunąć, odczekaj chwilę. Jeśli błąd wraca, przekaż komunikat osobie utrzymującej narzędzie.
+
+unexpected_failure [BLAD_NIEOCZEKIWANY]
+  Co się stało: Wystąpił nieoczekiwany błąd. Nie utworzono żadnego pliku.
+  Gdzie: Przygotowanie pliku zbiorczego
+  Co zrobić: Uruchom ponownie. Jeśli błąd wraca, przekaż to osobie utrzymującej narzędzie.
+
+summary_not_shown [BLAD_PODSUMOWANIA]
+  Co się stało: Pliki okresu powstały, ale nie udało się pokazać podsumowania.
+  Gdzie: Przygotowanie pliku zbiorczego
+  Co zrobić: Nie uruchamiaj ponownie: oba pliki okresu już są. Sprawdź Folder okresu i przekaż ten komunikat osobie utrzymującej narzędzie.
+
+plan_not_shown [BLAD_PLANU]
+  Co się stało: Nie udało się pokazać planu. Nic nie zapisano.
+  Gdzie: Przygotowanie pliku zbiorczego
+  Co zrobić: Przekaż ten komunikat osobie utrzymującej narzędzie.
+
+=== Przebieg rozliczeń (src/rozliczenia/settlement_messages.py) ===
+
+collective_file_missing [BRAK_PLIKU_ZBIORCZEGO]
+  Co się stało: Nie znaleziono Pliku zbiorczego tego okresu. Nie utworzono żadnego pliku pracownika.
+  Gdzie: plik Rozliczenie 08_14_09_2026 - zbiorcze.xlsx, folder 08_14_09_2026
+  Co zrobić: Sprawdź, czy Plik zbiorczy leży w Folderze okresu pod tą nazwą, i uruchom ponownie. Jeśli okresu jeszcze nie przygotowano, najpierw przygotuj plik zbiorczy.
+
+collective_file_invalid [ZLY_PLIK_ZBIORCZY]
+  Co się stało: Plik zbiorczy nie nadaje się do Przebiegu rozliczeń. Plik Rozliczenie wew. jest poza zakresem tego procesu.
+  Gdzie: plik Rozliczenie 08_14_09_2026 - zbiorcze.xlsx, folder 08_14_09_2026
+  Co zrobić: Popraw Plik zbiorczy w Excelu. Potem zapisz i zamknij Plik zbiorczy w Excelu i uruchom ponownie. Jeśli błąd wraca, przekaż ten komunikat osobie utrzymującej narzędzie.
+
+collective_file_unusable #1 [BRAK_PLIKU_ZBIORCZEGO]
+  Co się stało: Nie znaleziono Pliku zbiorczego tego okresu. Nie utworzono żadnego pliku pracownika.
+  Gdzie: plik Rozliczenie 08_14_09_2026 - zbiorcze.xlsx, folder 08_14_09_2026
+  Co zrobić: Sprawdź, czy Plik zbiorczy leży w Folderze okresu pod tą nazwą, i uruchom ponownie. Jeśli okresu jeszcze nie przygotowano, najpierw przygotuj plik zbiorczy.
+
+collective_file_unusable #2 [PLIK_ZBIORCZY_OTWARTY]
+  Co się stało: Plik zbiorczy jest otwarty w Excelu. Nie utworzono żadnego pliku pracownika.
+  Gdzie: plik Rozliczenie 08_14_09_2026 - zbiorcze.xlsx, folder 08_14_09_2026
+  Co zrobić: Zapisz i zamknij Plik zbiorczy w Excelu i uruchom ponownie. Jeśli Excel jest zamknięty, a komunikat wraca, usuń z tego samego folderu pozostawiony plik ~$Rozliczenie 08_14_09_2026 - zbiorcze.xlsx i uruchom ponownie.
+
+collective_file_unusable #3 [NIEDOSTEPNY_PLIK_ZBIORCZY]
+  Co się stało: Nie można teraz odczytać Pliku zbiorczego. Plik może być zajęty przez inny program albo czekać na pobranie z OneDrive. Nie utworzono żadnego pliku pracownika.
+  Gdzie: plik Rozliczenie 08_14_09_2026 - zbiorcze.xlsx, folder 08_14_09_2026
+  Co zrobić: Poczekaj, aż OneDrive skończy synchronizację, i sprawdź, czy Plik zbiorczy otwiera się w Excelu. Zamknij go i uruchom ponownie. Jeśli błąd wraca, przekaż ten komunikat osobie utrzymującej narzędzie.
+
+collective_file_unusable #4 [ZLY_PLIK_ZBIORCZY]
+  Co się stało: Plik zbiorczy nie nadaje się do Przebiegu rozliczeń. Nie można odczytać Pliku zbiorczego Rozliczenie 08_14_09_2026 - zbiorcze.xlsx. Sprawdź, czy plik otwiera się w Excelu i nie jest uszkodzony.
+  Gdzie: plik Rozliczenie 08_14_09_2026 - zbiorcze.xlsx, folder 08_14_09_2026
+  Co zrobić: Popraw Plik zbiorczy w Excelu. Potem zapisz i zamknij Plik zbiorczy w Excelu i uruchom ponownie. Jeśli błąd wraca, przekaż ten komunikat osobie utrzymującej narzędzie.
+
+collective_file_unusable #5 [ZLY_PLIK_ZBIORCZY]
+  Co się stało: Plik zbiorczy nie nadaje się do Przebiegu rozliczeń. W wierszu 17 nie znaleziono nagłówka WYKONAWCA w kolumnie H.
+  Gdzie: plik Rozliczenie 08_14_09_2026 - zbiorcze.xlsx, folder 08_14_09_2026
+  Co zrobić: Popraw Plik zbiorczy w Excelu. Potem zapisz i zamknij Plik zbiorczy w Excelu i uruchom ponownie. Jeśli błąd wraca, przekaż ten komunikat osobie utrzymującej narzędzie.
+
+collective_file_unusable #6 [ZLY_PLIK_ZBIORCZY]
+  Co się stało: Plik zbiorczy nie nadaje się do Przebiegu rozliczeń. Nie można odczytać Pliku zbiorczego Rozliczenie 08_14_09_2026 - zbiorcze.xlsx. Sprawdź, czy plik otwiera się w Excelu i nie jest uszkodzony.
+  Gdzie: plik Rozliczenie 08_14_09_2026 - zbiorcze.xlsx, folder 08_14_09_2026
+  Co zrobić: Popraw Plik zbiorczy w Excelu. Potem zapisz i zamknij Plik zbiorczy w Excelu i uruchom ponownie. Jeśli błąd wraca, przekaż ten komunikat osobie utrzymującej narzędzie.
+
+worker_settlements_exist [FOLDER_ROZLICZEN_ISTNIEJE]
+  Co się stało: Folder rozliczeń pracowników tego okresu już istnieje, więc nie został nadpisany. Nie utworzono żadnego pliku pracownika.
+  Gdzie: folder 08_14_09_2026\Rozliczenie pracowników 08_14_09_2026
+  Co zrobić: Sprawdź, czy wybrano właściwy okres. Rozliczenia pracowników tego okresu już są w Folderze okresu. Jeśli trzeba je utworzyć od nowa, najpierw przenieś Folder rozliczeń pracowników poza Folder okresu i uruchom ponownie.
+
+worker_config_problem #1 [ZLA_KONFIGURACJA_WYKONAWCOW]
+  Co się stało: Konfiguracja wykonawców jest niepoprawna. Nie można odczytać pliku konfiguracji.
+  Gdzie: plik worker_mapping.yaml, folder config
+  Co zrobić: Przekaż ten komunikat osobie utrzymującej narzędzie.
+
+worker_config_problem #2 [NIEDOSTEPNA_KONFIGURACJA_WYKONAWCOW]
+  Co się stało: Nie można teraz odczytać konfiguracji wykonawców. Plik może być zajęty przez inny program.
+  Gdzie: plik worker_mapping.yaml, folder config
+  Co zrobić: Przekaż ten komunikat osobie utrzymującej narzędzie.
+
+worker_config_problem #3 [ZLA_KONFIGURACJA_WYKONAWCOW]
+  Co się stało: Konfiguracja wykonawców jest niepoprawna. Plik nie jest zapisany w kodowaniu UTF-8.
+  Gdzie: plik worker_mapping.yaml, folder config
+  Co zrobić: Przekaż ten komunikat osobie utrzymującej narzędzie.
+
+worker_config_problem #4 [ZLA_KONFIGURACJA_WYKONAWCOW]
+  Co się stało: Konfiguracja wykonawców jest niepoprawna. Plik nie jest poprawnym YAML.
+  Gdzie: plik worker_mapping.yaml, folder config
+  Co zrobić: Przekaż ten komunikat osobie utrzymującej narzędzie.
+
+worker_config_problem #5 [ZLA_KONFIGURACJA_WYKONAWCOW]
+  Co się stało: Konfiguracja wykonawców jest niepoprawna. Nieobsługiwana wersja konfiguracji.
+  Gdzie: plik worker_mapping.yaml, folder config
+  Co zrobić: Przekaż ten komunikat osobie utrzymującej narzędzie.
+
+worker_template_unusable #1 [ZLY_WZORZEC_PRACOWNIKA]
+  Co się stało: Nie można użyć Wzorca rozliczenia pracownika. Nie znaleziono Wzorca rozliczenia pracownika: Wzorzec rozliczenia pracownika.xlsx.
+  Gdzie: plik Wzorzec rozliczenia pracownika.xlsx, folder config
+  Co zrobić: Jeśli Wzorzec jest otwarty w Excelu, zamknij go bez zapisywania zmian i uruchom ponownie. W innym wypadku przekaż ten komunikat osobie utrzymującej narzędzie.
+
+worker_template_unusable #2 [ZLY_WZORZEC_PRACOWNIKA]
+  Co się stało: Nie można użyć Wzorca rozliczenia pracownika. Wzorzec rozliczenia pracownika jest otwarty lub zablokowany.
+  Gdzie: plik Wzorzec rozliczenia pracownika.xlsx, folder config
+  Co zrobić: Jeśli Wzorzec jest otwarty w Excelu, zamknij go bez zapisywania zmian i uruchom ponownie. Jeśli Excel jest zamknięty, a komunikat wraca, usuń z tego samego folderu pozostawiony plik ~$Wzorzec rozliczenia pracownika.xlsx i uruchom ponownie.
+
+worker_template_unusable #3 [ZLY_WZORZEC_PRACOWNIKA]
+  Co się stało: Nie można użyć Wzorca rozliczenia pracownika. Nie można odczytać Wzorca rozliczenia pracownika.
+  Gdzie: plik Wzorzec rozliczenia pracownika.xlsx, folder config
+  Co zrobić: Jeśli Wzorzec jest otwarty w Excelu, zamknij go bez zapisywania zmian i uruchom ponownie. W innym wypadku przekaż ten komunikat osobie utrzymującej narzędzie.
+
+worker_template_unusable #4 [ZLY_WZORZEC_PRACOWNIKA]
+  Co się stało: Nie można użyć Wzorca rozliczenia pracownika. Nie można odczytać Wzorca rozliczenia pracownika.
+  Gdzie: plik Wzorzec rozliczenia pracownika.xlsx, folder config
+  Co zrobić: Jeśli Wzorzec jest otwarty w Excelu, zamknij go bez zapisywania zmian i uruchom ponownie. W innym wypadku przekaż ten komunikat osobie utrzymującej narzędzie.
+
+worker_template_unusable #5 [ZLY_WZORZEC_PRACOWNIKA]
+  Co się stało: Nie można użyć Wzorca rozliczenia pracownika. Wzorzec rozliczenia pracownika nie ma nagłówka WYKONAWCA w H:17.
+  Gdzie: plik Wzorzec rozliczenia pracownika.xlsx, folder config
+  Co zrobić: Jeśli Wzorzec jest otwarty w Excelu, zamknij go bez zapisywania zmian i uruchom ponownie. W innym wypadku przekaż ten komunikat osobie utrzymującej narzędzie.
+
+worker_template_unusable #6 [ZLY_WZORZEC_PRACOWNIKA]
+  Co się stało: Nie można użyć Wzorca rozliczenia pracownika. Wzorzec rozliczenia pracownika zawiera dane i nie może być użyty jako wzór.
+  Gdzie: plik Wzorzec rozliczenia pracownika.xlsx, folder config
+  Co zrobić: Jeśli Wzorzec jest otwarty w Excelu, zamknij go bez zapisywania zmian i uruchom ponownie. W innym wypadku przekaż ten komunikat osobie utrzymującej narzędzie.
+
+worker_template_unusable_in_saving #1 [BLAD_KOPII_WZORCA]
+  Co się stało: Nie można utworzyć skoroszytów z Wzorca rozliczenia pracownika. Nie utworzono żadnego pliku pracownika.
+  Gdzie: plik Wzorzec rozliczenia pracownika.xlsx, folder config
+  Co zrobić: Uruchom ponownie. Jeśli błąd wraca, przekaż ten komunikat osobie utrzymującej narzędzie.
+
+worker_template_unusable_in_saving #2 [BLAD_KOPII_WZORCA]
+  Co się stało: Nie można utworzyć skoroszytów z Wzorca rozliczenia pracownika. Nie utworzono żadnego pliku pracownika.
+  Gdzie: plik Wzorzec rozliczenia pracownika.xlsx, folder config
+  Co zrobić: Uruchom ponownie. Jeśli błąd wraca, przekaż ten komunikat osobie utrzymującej narzędzie.
+
+worker_template_unusable_in_saving #3 [BLAD_KOPII_WZORCA]
+  Co się stało: Nie można utworzyć skoroszytów z Wzorca rozliczenia pracownika. Nie utworzono żadnego pliku pracownika.
+  Gdzie: plik Wzorzec rozliczenia pracownika.xlsx, folder config
+  Co zrobić: Uruchom ponownie. Jeśli błąd wraca, przekaż ten komunikat osobie utrzymującej narzędzie.
+
+worker_template_unusable_in_saving #4 [BLAD_KOPII_WZORCA]
+  Co się stało: Nie można utworzyć skoroszytów z Wzorca rozliczenia pracownika. Nie utworzono żadnego pliku pracownika.
+  Gdzie: plik Wzorzec rozliczenia pracownika.xlsx, folder config
+  Co zrobić: Uruchom ponownie. Jeśli błąd wraca, przekaż ten komunikat osobie utrzymującej narzędzie.
+
+worker_template_unusable_in_saving #5 [BLAD_SZABLONU_PRACOWNIKA]
+  Co się stało: Nie udało się przygotować skoroszytu pracownika Wykonawca Testowy. Nie utworzono żadnego pliku pracownika.
+  Gdzie: folder 08_14_09_2026\Rozliczenie pracowników 08_14_09_2026
+  Co zrobić: Uruchom ponownie. Jeśli błąd wraca, przekaż ten komunikat osobie utrzymującej narzędzie.
+
+worker_template_unusable_in_saving #6 [BLAD_SZABLONU_PRACOWNIKA]
+  Co się stało: Nie udało się przygotować skoroszytu pracownika Wykonawca Testowy. Nie utworzono żadnego pliku pracownika.
+  Gdzie: folder 08_14_09_2026\Rozliczenie pracowników 08_14_09_2026
+  Co zrobić: Uruchom ponownie. Jeśli błąd wraca, przekaż ten komunikat osobie utrzymującej narzędzie.
+
+unmapped_worker #1 [NIEZNANY_WYKONAWCA]
+  Co się stało: W Pliku zbiorczym jest WYKONAWCA spoza konfiguracji wykonawców: jan.nieznany. Nie utworzono żadnego pliku pracownika.
+  Gdzie: plik Rozliczenie 08_14_09_2026 - zbiorcze.xlsx, folder 08_14_09_2026, kolumna H
+  Co zrobić: Popraw WYKONAWCĘ w kolumnie H albo poproś osobę utrzymującą narzędzie o dopisanie Wykonawcy do konfiguracji wykonawców. Potem zapisz i zamknij Plik zbiorczy w Excelu i uruchom ponownie.
+
+unmapped_worker #2 [NIEZNANY_WYKONAWCA]
+  Co się stało: W Pliku zbiorczym są WYKONAWCY spoza konfiguracji wykonawców: jan.nieznany, ewa.nieznana. Nie utworzono żadnego pliku pracownika.
+  Gdzie: plik Rozliczenie 08_14_09_2026 - zbiorcze.xlsx, folder 08_14_09_2026, kolumna H
+  Co zrobić: Popraw WYKONAWCĘ w kolumnie H albo poproś osobę utrzymującą narzędzie o dopisanie Wykonawcy do konfiguracji wykonawców. Potem zapisz i zamknij Plik zbiorczy w Excelu i uruchom ponownie.
+
+rows_without_worker [WIERSZE_BEZ_WYKONAWCY]
+  Co się stało: Nie wszystkie Wiersze danych Pliku zbiorczego mają WYKONAWCĘ. Nie utworzono żadnego pliku pracownika.
+  Gdzie: plik Rozliczenie 08_14_09_2026 - zbiorcze.xlsx, folder 08_14_09_2026, kolumna H
+  Co zrobić: Uruchom Podgląd bez zapisu: lista problemów pokaże wiersze. Wpisz WYKONAWCĘ w kolumnie H tych wierszy. Potem zapisz i zamknij Plik zbiorczy w Excelu i uruchom ponownie.
+
+unmapped_worker_warning [BRAK_MAPOWANIA]
+  Co się stało: Nieznany identyfikator WYKONAWCA: jan.nieznany. Nie ma go w konfiguracji wykonawców.
+  Gdzie: plik Rozliczenie 08_14_09_2026 - zbiorcze.xlsx, folder 08_14_09_2026
+  Co zrobić: Popraw WYKONAWCĘ w kolumnie H albo poproś osobę utrzymującą narzędzie o dopisanie Wykonawcy do konfiguracji wykonawców. Potem zapisz i zamknij Plik zbiorczy w Excelu i uruchom ponownie.
+
+row_without_worker_warning [BRAK_WYKONAWCY]
+  Co się stało: Wiersz 19 ma dane, ale nie ma wykonawcy w kolumnie H.
+  Gdzie: plik Rozliczenie 08_14_09_2026 - zbiorcze.xlsx, folder 08_14_09_2026
+  Co zrobić: Wpisz WYKONAWCĘ w kolumnie H tego wiersza. Potem zapisz i zamknij Plik zbiorczy w Excelu i uruchom ponownie.
+
+worker_file_failed [BLAD_SZABLONU_PRACOWNIKA]
+  Co się stało: Nie udało się przygotować skoroszytu pracownika Wykonawca Testowy. Nie utworzono żadnego pliku pracownika.
+  Gdzie: folder 08_14_09_2026\Rozliczenie pracowników 08_14_09_2026
+  Co zrobić: Uruchom ponownie. Jeśli błąd wraca, przekaż ten komunikat osobie utrzymującej narzędzie.
+
+publish_failed [BLAD_PUBLIKACJI]
+  Co się stało: Nie można opublikować gotowego Folderu rozliczeń pracowników. Nie utworzono żadnego pliku pracownika.
+  Gdzie: folder 08_14_09_2026\Rozliczenie pracowników 08_14_09_2026
+  Co zrobić: Sprawdź, czy Folder okresu jest dostępny. Uruchom ponownie. Jeśli błąd wraca, przekaż ten komunikat osobie utrzymującej narzędzie.
+
+staging_left #1 [BLAD_PUBLIKACJI]
+  Co się stało: Nie można opublikować gotowego Folderu rozliczeń pracowników. W Folderze okresu został folder tymczasowy, którego nie udało się usunąć.
+  Gdzie: folder 08_14_09_2026\Rozliczenie pracowników 08_14_09_2026
+  Co zrobić: Usuń z Folderu okresu każdy folder, którego nazwa zaczyna się od „.Rozliczenie pracowników 08_14_09_2026.staging-”. To foldery tymczasowe, nie Folder rozliczeń pracowników. Jeśli któregoś nie daje się usunąć, odczekaj chwilę. Sprawdź, czy Folder okresu jest dostępny. Uruchom ponownie. Jeśli błąd wraca, przekaż ten komunikat osobie utrzymującej narzędzie.
+
+staging_left #2 [BLAD_SZABLONU_PRACOWNIKA]
+  Co się stało: Nie udało się przygotować skoroszytu pracownika Wykonawca Testowy. W Folderze okresu został folder tymczasowy, którego nie udało się usunąć.
+  Gdzie: folder 08_14_09_2026\Rozliczenie pracowników 08_14_09_2026
+  Co zrobić: Usuń z Folderu okresu każdy folder, którego nazwa zaczyna się od „.Rozliczenie pracowników 08_14_09_2026.staging-”. To foldery tymczasowe, nie Folder rozliczeń pracowników. Jeśli któregoś nie daje się usunąć, odczekaj chwilę. Uruchom ponownie. Jeśli błąd wraca, przekaż ten komunikat osobie utrzymującej narzędzie.
+
+staging_left #3 [FOLDER_ROZLICZEN_ISTNIEJE]
+  Co się stało: Folder rozliczeń pracowników tego okresu już istnieje, więc nie został nadpisany. W Folderze okresu został folder tymczasowy, którego nie udało się usunąć.
+  Gdzie: folder 08_14_09_2026\Rozliczenie pracowników 08_14_09_2026
+  Co zrobić: Usuń z Folderu okresu każdy folder, którego nazwa zaczyna się od „.Rozliczenie pracowników 08_14_09_2026.staging-”. To foldery tymczasowe, nie Folder rozliczeń pracowników. Jeśli któregoś nie daje się usunąć, odczekaj chwilę. Sprawdź, czy wybrano właściwy okres. Rozliczenia pracowników tego okresu już są w Folderze okresu. Jeśli trzeba je utworzyć od nowa, najpierw przenieś Folder rozliczeń pracowników poza Folder okresu i uruchom ponownie.
+
+write_failed [BLAD_ZAPISU]
+  Co się stało: Nie można przygotować Folderu rozliczeń pracowników. Nie utworzono żadnego pliku pracownika.
+  Gdzie: folder 08_14_09_2026\Rozliczenie pracowników 08_14_09_2026
+  Co zrobić: Sprawdź, czy Folder okresu jest dostępny. Uruchom ponownie. Jeśli błąd wraca, przekaż ten komunikat osobie utrzymującej narzędzie.
+
+unexpected_failure [BLAD_NIEOCZEKIWANY]
+  Co się stało: Wystąpił nieoczekiwany błąd. Nie utworzono żadnego pliku pracownika.
+  Gdzie: Przebieg rozliczeń
+  Co zrobić: Uruchom ponownie. Jeśli błąd wraca, przekaż ten komunikat osobie utrzymującej narzędzie.
+
+summary_not_shown [BLAD_PODSUMOWANIA]
+  Co się stało: Rozliczenia pracowników powstały, ale nie udało się pokazać podsumowania.
+  Gdzie: Przebieg rozliczeń
+  Co zrobić: Nie uruchamiaj ponownie: Folder rozliczeń pracowników już jest. Sprawdź Folder okresu i przekaż ten komunikat osobie utrzymującej narzędzie.
+
+plan_not_shown [BLAD_PLANU]
+  Co się stało: Nie udało się pokazać planu. Nic nie zapisano.
+  Gdzie: Przebieg rozliczeń
+  Co zrobić: Przekaż ten komunikat osobie utrzymującej narzędzie.
+
+=== Start Centrum rozliczeń (src/rozliczenia/centrum/start_problems.py) ===
+
+port_taken [PORT_ZAJETY]
+  Co się stało: Centrum rozliczeń nie wystartowało, bo port 47811 zajmuje inny program.
+  Gdzie: adres http://127.0.0.1:47811/ na tym komputerze
+  Co zrobić: Uruchom ponownie komputer i kliknij skrót „Centrum rozliczeń”. Jeśli komunikat wraca, przekaż go osobie utrzymującej narzędzie.
+
+other_version_running [INNA_WERSJA_CENTRUM]
+  Co się stało: Działa już Centrum rozliczeń w innej wersji (3c1d0a9).
+  Gdzie: adres http://127.0.0.1:47811/ na tym komputerze
+  Co zrobić: W karcie Centrum kliknij „Zamknij Centrum rozliczeń”, potem kliknij skrót „Centrum rozliczeń” ponownie.
+
+missing_library [BRAK_BIBLIOTEKI]
+  Co się stało: Brakuje biblioteki potrzebnej Centrum rozliczeń (fastapi).
+  Gdzie: Python na tym komputerze
+  Co zrobić: W folderze narzędzia uruchom py -3 -m pip install -r requirements.txt, potem kliknij skrót „Centrum rozliczeń” ponownie.
+
+unexpected_start_failure [NIEOCZEKIWANY_BLAD_STARTU]
+  Co się stało: Centrum rozliczeń nie wystartowało z nieoczekiwanego powodu.
+  Gdzie: dziennik Centrum logs\centrum-rozliczen.log w folderze narzędzia
+  Co zrobić: Kliknij skrót „Centrum rozliczeń” ponownie. Jeśli komunikat wraca, przekaż dziennik osobie utrzymującej narzędzie.
+
+not_started_after_update [NIE_WYSTARTOWALO_PO_AKTUALIZACJI]
+  Co się stało: Centrum rozliczeń nie wystartowało po aktualizacji narzędzia.
+  Gdzie: narzędzie na tym komputerze
+  Co zrobić: Przekaż ten komunikat Maksowi.
+
+update_finishing [AKTUALIZACJA_SIE_KONCZY]
+  Co się stało: Aktualizacja narzędzia jeszcze się kończy.
+  Gdzie: narzędzie na tym komputerze
+  Co zrobić: Poczekaj 10 minut i kliknij skrót „Centrum rozliczeń” ponownie.
+
+=== Diagnoza (src/rozliczenia/centrum/diagnosis_messages.py) ===
+
+cause_not_found [NIE_ZNALEZIONO_PRZYCZYNY]
+  Co się stało: Nie znalazłem przyczyny na tym komputerze.
+  Gdzie: Diagnoza w Centrum rozliczeń
+  Co zrobić: Wyślij do Maksa.
+
+newer_tool_version [NOWSZA_WERSJA_NARZEDZIA]
+  Co się stało: Jest nowsza wersja narzędzia.
+  Gdzie: narzędzie na tym komputerze
+  Co zrobić: Kliknij „Zaktualizuj narzędzie”. Gdy karta Centrum sama się odświeży, uruchom proces ponownie.
+
+file_only_in_cloud [PLIK_TYLKO_W_CHMURZE]
+  Co się stało: Plik jest tylko w OneDrive w chmurze, bez kopii na tym komputerze.
+  Gdzie: plik Rozliczenie 08_14_09_2026 - zbiorcze.xlsx, folder 08_14_09_2026
+  Co zrobić: W Eksploratorze plików kliknij ten plik prawym przyciskiem myszy, wybierz „Zawsze zachowuj na tym urządzeniu”, poczekaj, aż się pobierze, i uruchom ponownie.
+
+period_file_open [PLIK_OKRESU_OTWARTY]
+  Co się stało: Plik okresu jest otwarty w Excelu.
+  Gdzie: plik Rozliczenie wew. 08_14_09_2026.xlsx, folder 08_14_09_2026
+  Co zrobić: Zapisz i zamknij plik w Excelu, potem uruchom ponownie. Jeśli Excel jest zamknięty, usuń z tego samego folderu pozostawiony plik ~$Rozliczenie wew. 08_14_09_2026.xlsx i uruchom ponownie.
+
+=== Uzupełnienie pliku zbiorczego (src/rozliczenia/centrum/fill_messages.py) ===
+
+collective_file_unusable #1 [BRAK_PLIKU_ZBIORCZEGO]
+  Co się stało: Nie ma Pliku zbiorczego tego okresu.
+  Gdzie: plik Rozliczenie 08_14_09_2026 - zbiorcze.xlsx, folder 08_14_09_2026
+  Co zrobić: Jeśli okresu jeszcze nie przygotowano, najpierw przygotuj plik zbiorczy. Jeśli Plik zbiorczy ma inną nazwę albo leży w innym folderze, przywróć go pod tą nazwą do Folderu okresu i odśwież stronę.
+
+collective_file_unusable #2 [NIEDOSTEPNY_PLIK_ZBIORCZY]
+  Co się stało: Nie można teraz odczytać Pliku zbiorczego. Plik może być zajęty przez inny program albo czekać na pobranie z OneDrive.
+  Gdzie: plik Rozliczenie 08_14_09_2026 - zbiorcze.xlsx, folder 08_14_09_2026
+  Co zrobić: Poczekaj, aż OneDrive skończy synchronizację, i odśwież stronę. Jeśli komunikat wraca, zapisz i zamknij Plik zbiorczy w Excelu i odśwież stronę.
+
+collective_file_unusable #3 [NIEDOSTEPNY_PLIK_ZBIORCZY]
+  Co się stało: Nie można teraz odczytać Pliku zbiorczego. Plik może być zajęty przez inny program albo czekać na pobranie z OneDrive.
+  Gdzie: plik Rozliczenie 08_14_09_2026 - zbiorcze.xlsx, folder 08_14_09_2026
+  Co zrobić: Poczekaj, aż OneDrive skończy synchronizację, i odśwież stronę. Jeśli komunikat wraca, zapisz i zamknij Plik zbiorczy w Excelu i odśwież stronę.
+
+collective_file_unusable #4 [USZKODZONY_PLIK_ZBIORCZY]
+  Co się stało: Plik zbiorczy jest uszkodzony albo nie jest skoroszytem Excela.
+  Gdzie: plik Rozliczenie 08_14_09_2026 - zbiorcze.xlsx, folder 08_14_09_2026
+  Co zrobić: Sprawdź, czy Plik zbiorczy otwiera się w Excelu. Jeśli się otwiera, zapisz go w Excelu i odśwież stronę. W innym wypadku przekaż ten komunikat osobie utrzymującej narzędzie.
+
+collective_file_unusable #5 [BRAK_NAGLOWKA_PLIKU_ZBIORCZEGO]
+  Co się stało: Brakuje nagłówka w Pliku zbiorczym: WYKONAWCA w komórce H17.
+  Gdzie: plik Rozliczenie 08_14_09_2026 - zbiorcze.xlsx, folder 08_14_09_2026
+  Co zrobić: Przywróć nagłówek w Excelu tak jak w Wzorcu pliku zbiorczego, zapisz plik i odśwież stronę.
+
+collective_file_unusable #6 [USZKODZONY_PLIK_ZBIORCZY]
+  Co się stało: Plik zbiorczy jest uszkodzony albo nie jest skoroszytem Excela.
+  Gdzie: plik Rozliczenie 08_14_09_2026 - zbiorcze.xlsx, folder 08_14_09_2026
+  Co zrobić: Sprawdź, czy Plik zbiorczy otwiera się w Excelu. Jeśli się otwiera, zapisz go w Excelu i odśwież stronę. W innym wypadku przekaż ten komunikat osobie utrzymującej narzędzie.
+
+headers_missing #1 [BRAK_NAGLOWKA_PLIKU_ZBIORCZEGO]
+  Co się stało: Brakuje nagłówka w Pliku zbiorczym: URZĄDZENIA w wierszu 17.
+  Gdzie: plik Rozliczenie 08_14_09_2026 - zbiorcze.xlsx, folder 08_14_09_2026
+  Co zrobić: Przywróć nagłówek w Excelu tak jak w Wzorcu pliku zbiorczego, zapisz plik i odśwież stronę.
+
+headers_missing #2 [BRAK_NAGLOWKA_PLIKU_ZBIORCZEGO]
+  Co się stało: Brakuje nagłówka w Pliku zbiorczym: UMOWA i DATA w wierszu 17.
+  Gdzie: plik Rozliczenie 08_14_09_2026 - zbiorcze.xlsx, folder 08_14_09_2026
+  Co zrobić: Przywróć nagłówek w Excelu tak jak w Wzorcu pliku zbiorczego, zapisz plik i odśwież stronę.
+
+only_in_cloud [PLIK_ZBIORCZY_W_CHMURZE]
+  Co się stało: Plik zbiorczy jest tylko w OneDrive w chmurze, bez kopii na tym komputerze.
+  Gdzie: plik Rozliczenie 08_14_09_2026 - zbiorcze.xlsx, folder 08_14_09_2026
+  Co zrobić: W Eksploratorze plików kliknij ten plik prawym przyciskiem myszy, wybierz „Zawsze zachowuj na tym urządzeniu”, poczekaj, aż się pobierze, i odśwież stronę.
+
+=== Zgłoszenie (src/rozliczenia/centrum/report_messages.py) ===
+
+not_queued [ZGLOSZENIE_NIEZAPISANE]
+  Co się stało: Nie udało się zapisać Zgłoszenia na tym komputerze, więc nie pójdzie do Maksa.
+  Gdzie: folder kolejka
+  Co zrobić: Kliknij „Spróbuj ponownie”. Jeśli to nie pomoże, rozwiń „Co zostanie wysłane”, skopiuj treść i prześlij ją Maksowi mailem.
+
+=== Powiadomienia (src/rozliczenia/centrum/notification_messages.py) ===
+
+unavailable #1 [POWIADOMIENIA_NIEZAPISANE]
+  Co się stało: Centrum nie może teraz zapisać Powiadomień na tym komputerze, bo plik jest niedostępny.
+  Gdzie: plik sprawy-taty.json w folderze config
+  Co zrobić: Nie zamykaj Centrum: pamięta zmiany i zapisze je samo. Zamknij program, który może trzymać ten plik, i otwórz Powiadomienia ponownie. Jeśli Komunikat zostaje, wyślij Uwagę do Maksa.
+
+unavailable #2 [POWIADOMIENIA_NIEZAPISANE]
+  Co się stało: Centrum nie może teraz zapisać Powiadomień na tym komputerze, bo pliki są niedostępne.
+  Gdzie: pliki sprawy-taty.json i powiadomienia.json w folderze config
+  Co zrobić: Nie zamykaj Centrum: pamięta zmiany i zapisze je samo. Zamknij program, który może trzymać te pliki, i otwórz Powiadomienia ponownie. Jeśli Komunikat zostaje, wyślij Uwagę do Maksa.
+
+=== Aktualizacja narzędzia (src/rozliczenia/centrum/update_messages.py) ===
+
+no_git [BRAK_GITA]
+  Co się stało: Nie zaktualizowano narzędzia: na tym komputerze nie ma Gita.
+  Gdzie: narzędzie na tym komputerze
+  Co zrobić: Narzędzie działa dalej w poprzedniej wersji. Przekaż sprawę Maksowi: kliknij „Wyślij do Maksa”.
+
+no_connection [BRAK_POLACZENIA]
+  Co się stało: Nie zaktualizowano narzędzia: brak połączenia z GitHubem.
+  Gdzie: narzędzie na tym komputerze
+  Co zrobić: Narzędzie działa dalej w poprzedniej wersji. Sprawdź internet i kliknij „Zaktualizuj narzędzie” jeszcze raz.
+
+login_required [LOGOWANIE]
+  Co się stało: Nie zaktualizowano narzędzia: GitHub prosi o logowanie.
+  Gdzie: narzędzie na tym komputerze
+  Co zrobić: Narzędzie działa dalej w poprzedniej wersji. Przekaż sprawę Maksowi: kliknij „Wyślij do Maksa”.
+
+other_branch [INNA_GALAZ]
+  Co się stało: Nie zaktualizowano narzędzia: na tym komputerze jest inna gałąź narzędzia niż main.
+  Gdzie: narzędzie na tym komputerze
+  Co zrobić: Narzędzie działa dalej w poprzedniej wersji. Przekaż sprawę Maksowi: kliknij „Wyślij do Maksa”.
+
+local_changes [ZMIANY_NA_KOMPUTERZE]
+  Co się stało: Nie zaktualizowano narzędzia: ma zmiany zrobione na tym komputerze.
+  Gdzie: narzędzie na tym komputerze
+  Co zrobić: Narzędzie działa dalej w poprzedniej wersji. Przekaż sprawę Maksowi: kliknij „Wyślij do Maksa”.
+
+unexpected_failure [NIEOCZEKIWANY_BLAD]
+  Co się stało: Nie udało się zaktualizować narzędzia z nieoczekiwanego powodu.
+  Gdzie: narzędzie na tym komputerze
+  Co zrobić: Narzędzie działa dalej w poprzedniej wersji. Kliknij „Zaktualizuj narzędzie” jeszcze raz. Jeśli komunikat wraca, kliknij „Wyślij do Maksa”.
+
+libraries_failed [INSTALACJA_BIBLIOTEK]
+  Co się stało: Nie udało się zainstalować bibliotek nowej wersji narzędzia.
+  Gdzie: narzędzie na tym komputerze
+  Co zrobić: Narzędzie działa dalej w poprzedniej wersji. Kliknij „Zaktualizuj narzędzie” jeszcze raz. Jeśli komunikat wraca, kliknij „Wyślij do Maksa”.
+
+new_version_failed [NOWA_WERSJA_NIE_WYSTARTOWALA]
+  Co się stało: Nowa wersja narzędzia nie wystartowała.
+  Gdzie: narzędzie na tym komputerze
+  Co zrobić: Narzędzie działa dalej w poprzedniej wersji. Przekaż sprawę Maksowi: kliknij „Wyślij do Maksa”.
+
+rollback_failed [COFNIECIE_NIEUDANE]
+  Co się stało: Aktualizacja narzędzia się nie udała i nie dało się przywrócić poprzedniej wersji.
+  Gdzie: narzędzie na tym komputerze
+  Co zrobić: Kliknij „Zaktualizuj narzędzie” jeszcze raz. Jeśli komunikat wraca, kliknij „Wyślij do Maksa”.
+
+message_of #1 [NIEOCZEKIWANY_BLAD]
+  Co się stało: Nie udało się zaktualizować narzędzia z nieoczekiwanego powodu.
+  Gdzie: narzędzie na tym komputerze
+  Co zrobić: Narzędzie działa dalej w poprzedniej wersji. Kliknij „Zaktualizuj narzędzie” jeszcze raz. Jeśli komunikat wraca, kliknij „Wyślij do Maksa”.
+
+message_of #2 [INSTALACJA_BIBLIOTEK]
+  Co się stało: Nie udało się zainstalować bibliotek nowej wersji narzędzia.
+  Gdzie: narzędzie na tym komputerze
+  Co zrobić: Narzędzie działa dalej w poprzedniej wersji. Kliknij „Zaktualizuj narzędzie” jeszcze raz. Jeśli komunikat wraca, kliknij „Wyślij do Maksa”.
+
+message_of #3 [NOWA_WERSJA_NIE_WYSTARTOWALA]
+  Co się stało: Nowa wersja narzędzia nie wystartowała.
+  Gdzie: narzędzie na tym komputerze
+  Co zrobić: Narzędzie działa dalej w poprzedniej wersji. Przekaż sprawę Maksowi: kliknij „Wyślij do Maksa”.
+
+message_of #4 [COFNIECIE_NIEUDANE]
+  Co się stało: Aktualizacja narzędzia się nie udała i nie dało się przywrócić poprzedniej wersji.
+  Gdzie: narzędzie na tym komputerze
+  Co zrobić: Kliknij „Zaktualizuj narzędzie” jeszcze raz. Jeśli komunikat wraca, kliknij „Wyślij do Maksa”.
+
+message_of #5 [NIEOCZEKIWANY_BLAD]
+  Co się stało: Nie udało się zaktualizować narzędzia z nieoczekiwanego powodu.
+  Gdzie: narzędzie na tym komputerze
+  Co zrobić: Narzędzie działa dalej w poprzedniej wersji. Kliknij „Zaktualizuj narzędzie” jeszcze raz. Jeśli komunikat wraca, kliknij „Wyślij do Maksa”.
