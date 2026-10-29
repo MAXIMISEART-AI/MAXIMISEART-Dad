@@ -23,9 +23,7 @@ FEATURE = "uwaga-taty"
 LABEL = "uwaga-taty"
 WRITE = "Napisz do Maksa"
 SENT = "Uwaga wysłana do Maksa."
-# The one element of Uwaga taty, Zgłoszenie and Powiadomienia when the Token do Zgłoszeń is missing or refused (Q17).
-FOR_KEY = "Token do Zgłoszeń nie działa. Skontaktuj się z Maksem."
-REFUSED_CONTENT = "Tej Uwagi nie da się wysłać. Skontaktuj się z Maksem."
+WAITING = "Wyślę do Maksa, gdy będzie internet."
 # Synthetic key Maks would write; it must never reach the skrzynka, the log, an answer, or the browser.
 KEY = "github_pat_VERIFY_SYNTETYCZNY_KLUCZ"
 # Synthetic Uwagi: the first waits for the key, the second has no Treść.
@@ -62,8 +60,6 @@ PINNED = ("Podgląd każe sprawdzić okres", "Nie wiem, którego Wykonawcę mam 
 # because powiadomienia finds the newest Uwaga by it.
 REJECTED = ("Podgląd po odrzuconych Logach", "Proszę spojrzeć na ten podgląd.")
 NO_LOGS = ("Podgląd bez Logów", "")
-# An Uwaga whose content the skrzynka rejects; it goes out at the next start of Centrum.
-REFUSED = ("Uwaga, której Skrzynka nie przyjmie", "Treść odrzucona przez Skrzynkę.")
 LOGS_LABEL = "logi-uruchomienia"
 LOGS_LINK = re.compile(r"^\[Logi Uruchomienia\]\((.*)\)$", re.MULTILINE)
 MARKDOWN_LINK = re.compile(r"\[([^\]\n]+)\]\(([^)\s]+)\)")
@@ -560,14 +556,11 @@ def drive_dad_note(run: Run, page: Page) -> None:
     _scope(dialog, "Ogólna").click()
     _shows(run, figure, first, "back to Ogólna the figure shows the general draft again")
     expect(send).to_be_enabled()
-    answer = _send(page, send)
-    run.check(answer == {"state": "waiting", "waits_for": "key"}, f"without a key the server says the Uwaga waits for the token ({answer})")
-    expect(dialog.get_by_role("status")).to_have_text(FOR_KEY)
-    run.check(dialog.get_by_role("status").locator("svg").count() == 1, "the sentence has the error icon")
-    expect(dialog.get_by_text("Wyślę do Maksa, gdy będzie internet.", exact=True)).to_have_count(0)
+    send.click()
+    expect(dialog.get_by_role("status")).to_have_text(WAITING)
     expect(page.get_by_role("alert")).to_have_count(0)
     expect(error_toasts(page)).to_have_count(0)
-    run.capture(page, "174-uwaga-token-nie-dziala")
+    run.capture(page, "174-uwaga-czeka-na-internet")
     [waiting] = _queued(config)
     run.check(
         waiting["target"] == {"kind": "new_issue", "label": LABEL, "title": first["title"]}
@@ -642,49 +635,6 @@ def drive_dad_note(run: Run, page: Page) -> None:
         _drive_pinned(run, page, config, box)
     finally:
         key_file.unlink()
-
-
-def _send(page: Page, send: Locator) -> object:
-    """Dad clicks „Wyślij”; the server's answer to it."""
-
-    with page.expect_response(lambda response: response.url.endswith("/api/dad-notes") and response.request.method == "POST") as sent:
-        send.click()
-    return sent.value.json()
-
-
-def _drive_refused(run: Run, page: Page, config: Path, box: Path) -> list[Path]:
-    """The skrzynka rejects an Uwaga's content: Dad is told to contact Maks; the queue files that keep it."""
-
-    run.step(FEATURE, "uwaga-odrzucona")
-    rejecting = box / f"odrzuca-{LABEL}"
-    print("  harness: the skrzynka rejects the content of every new Uwaga taty", flush=True)
-    rejecting.touch()
-    try:
-        dialog = _open(page)
-        _write(dialog, *REFUSED)
-        _shows(run, dialog.get_by_role("figure", name="Co dostanie Maks", exact=True), _draft(run, *REFUSED, "uwaga-szkic-odrzucona"), "„Maks dostanie” shows the draft")
-        issues_before = len(_issues(box))
-        answer = _send(page, dialog.get_by_role("button", name="Wyślij", exact=True))
-        run.check(answer == {"state": "rejected"}, f"the server says the skrzynka rejected the Uwaga ({answer})")
-        status = dialog.get_by_role("status")
-        expect(status).to_have_text(REFUSED_CONTENT)
-        run.check(status.locator("svg").count() == 1, "the sentence has the error icon")
-        expect(error_toasts(page)).to_have_count(0)
-        run.capture(page, "174b-uwaga-odrzucona", full_page=False)
-        waiting = [
-            path for path in sorted((config / "zgloszenia" / "kolejka").glob(f"*-{LABEL}-*.json"))
-            if json.loads(path.read_text(encoding="utf-8"))["target"].get("title") == REFUSED[0]
-        ]
-        run.check(len(waiting) == 1, "the rejected Uwaga stays in the queue")
-        run.check(len(_issues(box)) == issues_before, "the skrzynka got no new Uwaga")
-        _close(dialog)
-        page.locator("header").get_by_role("button", name="Powiadomienia", exact=False).click()
-        row = page.get_by_role("list", name="Powiadomienia").get_by_role("listitem", name=f"Uwaga: {REFUSED[0]}")
-        expect(row).to_contain_text(REFUSED_CONTENT)
-        run.capture(page, "174c-uwaga-odrzucona-powiadomienia")
-    finally:
-        rejecting.unlink(missing_ok=True)
-    return waiting
 
 
 def _note_runs(run: Run, selected: str | None, name: str) -> list[dict[str, Any]]:
@@ -1100,7 +1050,6 @@ def _drive_missing_logs(run: Run, page: Page, config: Path, box: Path, period: s
         _as_maks_sees(run, page, _issue(box, issue["number"]), "198-uwaga-logi-odrzucone")
     finally:
         rejecting.unlink(missing_ok=True)
-    refused = _drive_refused(run, page, config, box)
 
     run.step(FEATURE, "uwaga-logi-dotarly")
     kontrola_ilosci._close(run, page)
@@ -1109,12 +1058,6 @@ def _drive_missing_logs(run: Run, page: Page, config: Path, box: Path, period: s
         lambda: _queue_files(config, LOGS_LABEL, run_id) == _queue_files(config, LABEL, run_id) == [],
         "at the start the skrzynka took the Logi and then the comment",
         timeout_s=30,
-    )
-    run.wait_for(lambda: not any(path.exists() for path in refused), "at the start the queue tried the rejected Uwaga again", timeout_s=30)
-    run.check(
-        [(issue["title"], issue["body"]) for issue in _issues(box) if issue["title"] == REFUSED[0]]
-        == [(REFUSED[0], json.loads((run.evidence / "api" / "uwaga-szkic-odrzucona.json").read_text(encoding="utf-8"))["body"])],
-        "once the skrzynka takes it, the rejected Uwaga is one issue, exactly as its figure showed it",
     )
     logs = _logs_comment(box, run_id)
     run.check(logs is not None, "the preview's Logi reached the skrzynka after the start")

@@ -267,7 +267,7 @@ def test_zatrzymanie_do_maksa_prowadzi_do_diagnozy_intermax_i_zgloszenia(tmp_pat
         "Pliki w OneDrive",
         "INTERMAX",
         "Aktualność narzędzia",
-        "Token do Zgłoszeń",
+        "Klucz do Zgłoszeń",
         "Dziennik Centrum rozliczeń",
     ]
     assert checks["Ustawienia taty"] == ("passed", "INTERMAX jest na miejscu.")
