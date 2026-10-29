@@ -17,6 +17,7 @@
 - Przegląd PR zlecaj zaraz po pushu, równolegle z CI.
 - PR jest gotowy do merge'a, gdy na HEAD PR zielony jest `Required CI status` (i każdy inny workflow niż `CI`, który biegnie na PR), przeszły skille `verify-*` z linii `SKILLE VERIFY` narzędzia `tools/skille_dla_zmiany.py` i jest `PASS` niezależnego recenzenta.
   Skille `verify-*` przeszły, gdy ich polecenia z linii `LICZY CI` przechodzą w zielonym CI, a resztę ich workflow agent wykonał i skończył bez FAIL.
+  Skryptów z linii `LICZY NOC` agent nie uruchamia: liczy je noc na `main` po merge'u, a ich porażka trafia do issue PR-u (ADR 0021).
   `SZYBKO OK` i `CI LOKALNIE OK` gotowości nie dają.
 - Mutacje zmienionych linii biegną nocą na `main` (ADR 0021), a każda przeżyta trafia do issue `Przeżyte mutacje z #N` (`ready-for-agent`) PR-u, który ostatni zmienił jej linię.
 - Merge PR: tylko `.venv/bin/python tools/scal_pr.py N` (Windows: `py -3 tools/scal_pr.py N`), nigdy gołe `gh pr merge`; warunki scalenia i postać werdyktów podaje jego `--help`. Zgoda to komentarz albo recenzja niezależnego recenzenta, której pierwsza linia to `WERDYKT: PASS <pełny SHA HEAD>`.

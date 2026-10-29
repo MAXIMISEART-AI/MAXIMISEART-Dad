@@ -15,9 +15,10 @@ ci: .agents/skills/verify-jedno-uruchomienie-naraz/scripts/explore_runs.py
 
 ## What CI runs and what stays local
 
-CI runs `explore_runs.py` whole (the `ci:` key), `check_runs_mutations.py` and
-`tests/test_jedno_uruchomienie_naraz.py` whenever a change touches this skill. Run them locally only
-to reproduce a red CI step, or one `--scope` while you work on it. What stays with you on every change
+CI runs `explore_runs.py` whole (the `ci:` key) and `tests/test_jedno_uruchomienie_naraz.py` whenever
+a change touches this skill, and `check_runs_mutations.py` in full CI on `main` and nightly on `main`
+(`mutacje-nocne.yml`). Run them locally only to reproduce a red CI step or the night's issue, or one
+`--scope` while you work on it. What stays with you on every change
 to the covered code is „Does the change touch it?”: read each commit since the sync commit against the
 table, above all the parts modelled by hand, whose change the check cannot see.
 
@@ -190,9 +191,9 @@ requests, `wątek Uruchomienie n` is the thread `RunHost.start` spawned,
 
 ## After changing the checker or an intended change to the covered code
 
-CI proves the check can still fail: Mutation checks runs the script below whenever a
-change touches this skill. Run it locally only to reproduce a red Mutation checks step
-or after you rewrite a mutation. It applies broken variants to a temporary copy
+CI proves the check can still fail: the night on `main` runs the script below after a
+change of this skill's folder. Run it locally only to reproduce a red Mutation checks step
+or the night's issue, or after you rewrite a mutation. It applies broken variants to a temporary copy
 of `src`, never to the checkout, each in the one scope that catches it (about
 45 s on a Mac):
 

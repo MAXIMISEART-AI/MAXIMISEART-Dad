@@ -12,14 +12,16 @@ potomne giną po jego końcu i po limicie, a cały skrypt ginie razem z runnerem
 przez SIGKILL. Kończy się ``MUTACJE SKILLI OK`` albo ``MUTACJE SKILLI FAIL | <skrypty>``.
 
 Z ``--zmiany-od REF`` biegnie tylko krok, którego werdykt może zmienić zmiana od ``REF`` (``szybko.changed_since``, z
-niezacommitowanymi), jak na pull request w CI (ADR 0020). Skill deklaruje we frontmatterze ``SKILL.md`` klucz ``pilnuje:``,
-listę globów ścieżek względem korzenia repozytorium (``*`` obejmuje też ``/``). Podstawa skilla biegnie, gdy zmieniony jest
-plik z ``pilnuje`` albo plik w folderze skilla; ten sam wybór (``hits``) wskazuje skille ``verify-*`` w
-``tools/skille_dla_zmiany.py``. Skrypt mutacji biegnie, gdy zmieniony jest plik w folderze skilla, runner mutacji
-(``RUNNER``) albo sprawdzenie, które uruchamiają jego mutacje. Importów ani plików, które krok czyta, wybór nie liczy: każdy
-krok uruchamia pełne CI ``main``. Zmiana ``INFRASTRUCTURE`` uruchamia każdy krok, a
-skill bez klucza ``pilnuje`` albo z kluczem, którego nie da się odczytać, biegnie zawsze. Pominięty krok dostaje linię
-``POMINIĘTY``.
+niezacommitowanymi), jak na pull request w CI (ADR 0020): podstawy skilli. Skill deklaruje we frontmatterze ``SKILL.md``
+klucz ``pilnuje:``, listę globów ścieżek względem korzenia repozytorium (``*`` obejmuje też ``/``). Podstawa skilla
+biegnie, gdy zmieniony jest plik z ``pilnuje`` albo plik w folderze skilla; ten sam wybór (``hits``) wskazuje skille
+``verify-*`` w ``tools/skille_dla_zmiany.py``. Skrypty mutacji na pull request nie biegną, tylko nocą na ``main``
+(``--noc``, workflow ``mutacje-nocne.yml``, ADR 0021): mierzą jakość sprawdzenia skilla, tak jak mutacje zmienionych
+linii mierzą jakość testów. Z ``--zmiany-od REF --noc`` biegną same skrypty mutacji, a skrypt biegnie, gdy zmieniony
+jest plik w folderze skilla, runner mutacji (``RUNNER``) albo sprawdzenie, które uruchamiają jego mutacje. Importów ani
+plików, które krok czyta, wybór nie liczy: każdy krok uruchamia pełne CI ``main``. Zmiana ``INFRASTRUCTURE`` uruchamia
+każdy krok swojego rodzaju, a skill bez klucza ``pilnuje`` albo z kluczem, którego nie da się odczytać, biegnie zawsze.
+Pominięty krok dostaje linię ``POMINIĘTY``.
 
 Krok to podstawa skilla albo jeden jego skrypt mutacji. W CI kroki dzieli między zadania Mutation checks plan runu
 (``tools/plan_ci.py``): bierze ten sam wybór (``wybor``), waży kroki czasami z ``czasy-ci``, a skrypt mutacji dłuższy niż
@@ -34,6 +36,7 @@ skrypt mutacji i tak uruchamia bez mutacji (podstawa ``check_all``), nie biegnie
     py -3 tools/mutacje_skilli.py                  # Windows
     .venv/bin/python tools/mutacje_skilli.py       # macOS i Linux
     .venv/bin/python tools/mutacje_skilli.py --zmiany-od origin/main
+    .venv/bin/python tools/mutacje_skilli.py --zmiany-od origin/main --noc
 """
 
 from __future__ import annotations
@@ -70,6 +73,9 @@ INFRASTRUCTURE = ("requirements.txt", ".github/workflows/ci.yml", ".gitattribute
 RUNNER = ("tools/mutacje.py", "tools/mutacje_skilli.py")
 # Powód w ``Hits`` dla pliku w folderze skilla.
 FOLDER = "folder skilla"
+# Powody pominięcia kroku, który biegnie przy innym zdarzeniu niż wybór.
+NIGHTLY = "skrypt mutacji biegnie nocą na main (mutacje-nocne.yml, ADR 0021)"
+ON_PULL_REQUEST = "podstawa biegnie na pull request, nie nocą"
 
 
 def _name(path: Path) -> str:
@@ -289,13 +295,23 @@ def _changes(names: Iterable[str]) -> str:
     return f"zmienione: {', '.join(names[:3])}" + (f" i {len(names) - 3} innych" if len(names) > 3 else "")
 
 
-def _why_run(step: Step, changed: frozenset[str]) -> tuple[bool, str]:
-    """Czy krok biegnie na pull request ze zmianą ``changed``, i dlaczego.
+def watched(step: Step) -> tuple[str, ...]:
+    """Ścieżki, których zmiana uruchamia skrypt mutacji ``step``: folder skilla (z ``/`` na końcu), ``RUNNER`` i
+    sprawdzenia, które uruchamiają jego mutacje; tabela, której nie da się wczytać, to wyjątek z ``exec_module``."""
 
-    Podstawa biegnie przy trafieniu w ``pilnuje`` albo w folder skilla, skrypt mutacji przy zmianie folderu skilla,
-    ``RUNNER`` albo sprawdzenia, które uruchamiają jego mutacje. Zmiana ``INFRASTRUCTURE`` uruchamia każdy krok.
+    checkers = sorted({mutation.command[0] for mutation in _mutations(ROOT / step.command[0])})
+    return (f"{_name(step.skill)}/", *RUNNER, *checkers)
+
+
+def _why_run(step: Step, changed: frozenset[str], night: bool) -> tuple[bool, str]:
+    """Czy krok biegnie przy zmianie ``changed``, i dlaczego: na pull request podstawa, nocą (``night``) skrypt mutacji.
+
+    Podstawa biegnie przy trafieniu w ``pilnuje`` albo w folder skilla, skrypt mutacji przy zmianie ścieżki z
+    ``watched``. Zmiana ``INFRASTRUCTURE`` uruchamia każdy krok swojego rodzaju.
     """
 
+    if night == (step.verdict is None):
+        return False, ON_PULL_REQUEST if night else NIGHTLY
     found = hits(step.skill, changed)
     if found.always:
         return True, found.always
@@ -305,12 +321,11 @@ def _why_run(step: Step, changed: frozenset[str]) -> tuple[bool, str]:
         if found.files:
             return True, _changes(found.files)
         return False, "zmiany nie trafiają w pilnuje ani w folder skilla"
-    script = ROOT / step.command[0]
     try:
-        checkers = {mutation.command[0] for mutation in _mutations(script)}
+        paths = watched(step)
     except Exception as error:  # noqa: BLE001 - skrypt, którego tabeli nie da się wczytać, biegnie i pokazuje swój błąd
         return True, f"nie da się wczytać tabeli mutacji: {error}"
-    touched = {name for name in changed if name.startswith(f"{_name(step.skill)}/") or name in RUNNER or name in checkers}
+    touched = {name for name in changed if name.startswith(paths[0]) or name in paths[1:]}
     if touched:
         return True, _changes(touched)
     return False, "zmiany nie dotykają folderu skilla, runnera mutacji ani sprawdzeń, które uruchamiają mutacje skryptu"
@@ -326,15 +341,18 @@ def _repeats(step: Step, chosen: Iterable[Step]) -> bool:
         return False
 
 
-def wybor(changed: frozenset[str] | None) -> Selection:
-    """Kroki, które biegną przy zmianie ``changed`` (``None``: push, wszystkie), pominięte i FAIL-e znalezienia."""
+def wybor(changed: frozenset[str] | None, *, night: bool = False) -> Selection:
+    """Kroki, które biegną przy zmianie ``changed`` (``None``: push, wszystkie), pominięte i FAIL-e znalezienia.
+
+    Przy zmianie biegną podstawy jak na pull request, a z ``night`` skrypty mutacji jak nocą na ``main``.
+    """
 
     scripts = sorted(SKILLS.glob(f"*/scripts/{PATTERN}"))
     failed = _lost(scripts)
     found = steps(failed)
     if not scripts and not failed:
         failed[f"scripts/{PATTERN}"] = f"brak skryptów .agents/skills/*/scripts/{PATTERN}"
-    why = {step: (True, "") if changed is None else _why_run(step, changed) for step in found}
+    why = {step: (True, "") if changed is None else _why_run(step, changed, night) for step in found}
     running = [step for step in found if why[step][0]]
     chosen = [(step, why[step][1]) for step in running if step.verdict or not _repeats(step, running)]
     skipped = [(step, why[step][1]) for step in found if not why[step][0]]
@@ -345,8 +363,11 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--limit-s", type=float, default=LIMIT_S, help="Limit czasu jednego skryptu w sekundach.")
     parser.add_argument("--zmiany-od", metavar="REF", help="Tylko kroki, których werdykt może zmienić zmiana od REF.")
+    parser.add_argument("--noc", action="store_true", help="Z --zmiany-od: skrypty mutacji, które uruchamia noc, zamiast podstaw.")
     args = parser.parse_args(argv)
-    selection = wybor(None if args.zmiany_od is None else szybko.changed_since(args.zmiany_od))
+    if args.noc and args.zmiany_od is None:
+        parser.error("--noc wybiera kroki zmiany, więc wymaga --zmiany-od")
+    selection = wybor(None if args.zmiany_od is None else szybko.changed_since(args.zmiany_od), night=args.noc)
     failed = dict(selection.failed)
     for name, why in sorted(failed.items()):
         print(f"FAIL {name}: {why}", flush=True)

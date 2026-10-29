@@ -11,9 +11,10 @@ ci: .agents/skills/verify-publikacja-plikow-okresu/scripts/explore_publication.p
 
 ## What CI runs and what stays local
 
-CI runs `explore_publication.py` (the `ci:` key), `check_publication_mutations.py` and
-`tests/test_publikacja_plikow_okresu.py` whenever a change touches this skill. Run them locally only
-to reproduce a red CI step, or one scope while you work on it. What stays with you: „Does the change
+CI runs `explore_publication.py` (the `ci:` key) and `tests/test_publikacja_plikow_okresu.py` whenever
+a change touches this skill, and `check_publication_mutations.py` in full CI on `main` and nightly on
+`main` (`mutacje-nocne.yml`). Run them locally only to reproduce a red CI step or the night's issue, or
+one scope while you work on it. What stays with you: „Does the change
 touch it?” (a change that makes Przygotowanie publish around `write_period_files` escapes the check
 altogether) and sorting a red run as „When the check fails” says.
 
@@ -165,9 +166,9 @@ is the code that made the call. Then sort it into one of three cases:
 
 ## After changing the checker or an intended change to the publication code
 
-CI proves the check can still fail: Mutation checks runs the script below whenever
-a change touches this skill. Run it locally only to reproduce a red Mutation checks
-step or after you rewrite a mutation. It applies the broken variants to a temporary
+CI proves the check can still fail: the night on `main` runs the script below after
+a change of this skill's folder. Run it locally only to reproduce a red Mutation checks
+step or the night's issue, or after you rewrite a mutation. It applies the broken variants to a temporary
 copy of the checkout (`tools/mutacje.py`), never to the checkout:
 
 ```powershell

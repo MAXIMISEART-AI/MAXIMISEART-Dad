@@ -1,5 +1,6 @@
 """Mutacje nocne (ADR 0021): noc mutuje zmiany ``main`` od ostatniej udanej nocy, a przeżyte mutacje trafiają do
-jednego issue na PR, który ostatni zmienił ich linię, bez powtórzeń przy kolejnym przebiegu.
+jednego issue na PR, który ostatni zmienił ich linię, bez powtórzeń przy kolejnym przebiegu. Skrypt mutacji skilla,
+który padł nocą, trafia tak samo do issue PR-u, który ostatni zmienił folder skilla.
 
 Historia ``main`` to prawdziwy Git z PR-ami scalonymi merge'em i squashem, a GitHub to atrapa w pamięci, która
 zapamiętuje założone issue i komentarze, więc drugi przebieg widzi skutki pierwszego.
@@ -27,7 +28,9 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
 
 import mutacje_nocne  # noqa: E402
+import mutacje_skilli  # noqa: E402
 import mutacje_zmiany  # noqa: E402
+import plan_ci  # noqa: E402
 
 REPO = "repos/{owner}/{repo}"
 RUNY = f"{REPO}/actions/workflows/mutacje-nocne.yml/runs?branch=main&status=success&per_page=1"
@@ -319,3 +322,130 @@ def _instalacje_na_linuksie(zadanie: dict[str, Any]) -> list[str]:
 def test_czesc_instaluje_to_samo_co_czesci_pytest_na_linuksie() -> None:
     # Część uruchamia testy dotknięte zmianą, a testy tools/scal_pr.py i tools/scalenia_pr.py wołają ruff i mypy.
     assert _instalacje_na_linuksie(_nocne()["jobs"]["change-mutations"]) == _instalacje_na_linuksie(jobs()["pytest"])
+
+
+def _historia_skilli(tmp_path: Path) -> tuple[Path, str]:
+    """``main`` ze skillami verify-a i verify-b: folder verify-a zmienił PR #21 (merge), potem src PR #22 i runner
+    mutacji PR #23 (squash); zwraca repozytorium i bazę nocy sprzed tych zmian."""
+
+    skille = {
+        f".agents/skills/{skill}/{plik}": tresc
+        for skill in ("verify-a", "verify-b")
+        for plik, tresc in (("SKILL.md", f"---\nname: {skill}\npilnuje:\n  - src/*\n---\n"), (f"scripts/check_{skill[-1]}_mutations.py", "MUTATIONS = ()\n"))
+    }
+    repo = repository(tmp_path / "repo", {**skille, "src/a.py": "a = 1\n", "tools/mutacje.py": "X = 1\n"})
+    git(repo, "checkout", "--quiet", "-b", "main")
+    baza = commit(repo, "baza nocy")
+    git(repo, "checkout", "--quiet", "-b", "feat/skill")
+    with (repo / ".agents/skills/verify-a/SKILL.md").open("a", encoding="utf-8") as plik:
+        plik.write("Nowa funkcja skilla.\n")
+    commit(repo, "skill a")
+    _scal(repo, "feat/skill", "Merge pull request #21 from org/feat/skill")
+    (repo / "src" / "a.py").write_text("a = 2\n", encoding="utf-8")
+    commit(repo, "Zmień a (#22)")
+    (repo / "tools" / "mutacje.py").write_text("X = 2\n", encoding="utf-8")
+    commit(repo, "Zmień runner mutacji (#23)")
+    return repo, baza
+
+
+SKRYPT_A, SKRYPT_B = "skill:verify-a/check_a_mutations.py", "skill:verify-b/check_b_mutations.py"
+PLAN_SKILLI = plan_ci.Plan(
+    plan_ci.NOC,
+    225.0,
+    (),
+    (
+        plan_ci.Zadanie("mutacje-1", "mutacje", "Mutation checks (1/2)", (f"{SKRYPT_A}#1/2",), 100.0),
+        plan_ci.Zadanie("mutacje-2", "mutacje", "Mutation checks (2/2)", (f"{SKRYPT_A}#2/2", SKRYPT_B), 100.0),
+    ),
+)
+
+
+def _wykonania(katalog: Path, wyniki: dict[str, tuple[str, dict[str, str]]]) -> Path:
+    """Zapis wykonania każdego zadania (id → digest planu, klucz → status) w artefakcie, który wgrywa zadanie nocy."""
+
+    for zadanie, (digest, jednostki) in wyniki.items():
+        sciezka = katalog / f"{mutacje_nocne.ARTEFAKT_SKILLI}{zadanie}" / plan_ci.WYKONANIE.name
+        sciezka.parent.mkdir(parents=True)
+        tresc = {"plan": digest, "zadanie": zadanie, "jednostki": [{"klucz": klucz, "s": 1.0, "status": status} for klucz, status in jednostki.items()]}
+        sciezka.write_text(json.dumps(tresc), encoding="utf-8")
+    return katalog
+
+
+def test_skrypt_mutacji_skilla_ktory_padl_noca_trafia_do_issue_pr_ktory_ostatni_zmienil_folder_skilla_bez_powtorzen(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    repo, baza = _historia_skilli(tmp_path)
+    monkeypatch.setattr(mutacje_skilli, "ROOT", repo)
+    monkeypatch.setattr(mutacje_skilli, "SKILLS", repo / ".agents" / "skills")
+    github = GitHubWPamieci()
+    # Obie części skryptu verify-a zgłaszają go pod jego kluczem; padła jedna z nich.
+    zapisy = _wykonania(
+        tmp_path / "zapisy",
+        {"mutacje-1": (PLAN_SKILLI.digest, {SKRYPT_A: "ok"}), "mutacje-2": (PLAN_SKILLI.digest, {SKRYPT_A: "fail", SKRYPT_B: "fail"})},
+    )
+
+    pierwszy = mutacje_nocne.zglos(github, repo, baza, zapisy, 0, RUN, PLAN_SKILLI)
+    wyjscie = capsys.readouterr().out
+    wyslane = list(github.wyslane)
+    drugi = mutacje_nocne.zglos(github, repo, baza, zapisy, 0, RUN, PLAN_SKILLI)
+
+    tresci = {issue["title"]: issue["body"] for issue in github.issues}
+    assert (pierwszy, drugi) == (0, 0), wyjscie
+    # Folder verify-b nie zmienił się od bazy, więc jego skrypt uruchomił runner mutacji z PR #23.
+    assert sorted(tresci) == ["Przeżyte mutacje skilli z #21", "Przeżyte mutacje skilli z #23"]
+    assert "SKRYPT .agents/skills/verify-a/scripts/check_a_mutations.py\n" in tresci["Przeżyte mutacje skilli z #21"]
+    assert "SKRYPT .agents/skills/verify-b/scripts/check_b_mutations.py\n" in tresci["Przeżyte mutacje skilli z #23"]
+    assert all(RUN in tresc and "nie warto, bo" in tresc for tresc in tresci.values())
+    assert all(issue["labels"] == ["ready-for-agent", "przezyte-mutacje"] for issue in github.issues)
+    assert github.wyslane == wyslane
+    assert wyjscie.splitlines()[-1] == "MUTACJE NOCNE OK | części 0 | przeżyło 0 | zadania skilli 2 | padło skryptów 2"
+
+
+def test_zadanie_skilli_bez_zapisu_tego_planu_albo_bez_wyniku_jednostki_czerwieni_przebieg(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    repo, baza = _historia_skilli(tmp_path)
+    monkeypatch.setattr(mutacje_skilli, "ROOT", repo)
+    monkeypatch.setattr(mutacje_skilli, "SKILLS", repo / ".agents" / "skills")
+    zapisy = _wykonania(tmp_path / "zapisy", {"mutacje-2": (PLAN_SKILLI.digest, {SKRYPT_A: "ok"})})
+
+    kod = mutacje_nocne.zglos(GitHubWPamieci(), repo, baza, zapisy, 0, RUN, PLAN_SKILLI)
+    inny_plan = mutacje_nocne.zglos(GitHubWPamieci(), repo, baza, _wykonania(tmp_path / "inne", {"mutacje-1": ("inny", {SKRYPT_A: "ok"})}), 0, RUN, PLAN_SKILLI)
+
+    wyjscie = capsys.readouterr().out.splitlines()
+    assert (kod, inny_plan) == (1, 1)
+    assert wyjscie[-1].startswith("MUTACJE NOCNE FAIL | Mutation checks (1/2): zapis innego planu niż ")
+    porazka = next(linia for linia in wyjscie if linia.startswith("MUTACJE NOCNE FAIL | Mutation checks (1/2) bez zapisu: "))
+    assert porazka.endswith(f"; Mutation checks (2/2): jednostki bez wyniku: {SKRYPT_B}")
+
+
+def _kroki_do_planu(zadanie: dict[str, Any]) -> list[dict[str, Any]]:
+    kroki: list[dict[str, Any]] = zadanie["steps"]
+    return kroki[: next(numer for numer, krok in enumerate(kroki) if "download-artifact" in krok.get("uses", ""))]
+
+
+def test_noc_planuje_skrypty_skilli_od_bazy_a_ich_zadanie_wgrywa_zapis_pod_nazwa_ktora_czyta_zgloszenie() -> None:
+    zadania = _nocne()["jobs"]
+    plan_nocy = zadania["plan"]
+    krok_planu = next(krok for krok in plan_nocy["steps"] if "tools/plan_ci.py plan" in krok.get("run", ""))
+    polecenie_planu = shlex.split(krok_planu["run"])
+    skille = zadania["skill-mutations"]
+    wykonanie = next(krok for krok in skille["steps"] if "tools/plan_ci.py wykonaj" in krok.get("run", ""))
+    wgranie = next(krok for krok in skille["steps"] if "upload-artifact" in krok.get("uses", ""))
+    zgloszenie = zadania["zgloszenie"]
+    pobrania = {krok["with"].get("pattern") or krok["with"]["name"]: krok["with"]["path"] for krok in zgloszenie["steps"] if "download-artifact" in krok.get("uses", "")}
+    polecenie_zgloszenia = shlex.split(next(krok["run"] for krok in zgloszenie["steps"] if "zglos" in krok.get("run", "")))
+
+    assert polecenie_planu[polecenie_planu.index("--zdarzenie") + 1] == plan_ci.NOC
+    assert (polecenie_planu[polecenie_planu.index("--baza") + 1], krok_planu["env"]["BAZA"]) == ("$BAZA", "${{ steps.plan.outputs.baza }}")
+    assert plan_nocy["outputs"]["skille"] == f"${{{{ steps.{krok_planu['id']}.outputs.mutations }}}}"
+    assert (skille["needs"], skille["strategy"]["matrix"]["include"]) == ("plan", "${{ fromJSON(needs.plan.outputs.skille) }}")
+    assert wykonanie["run"].endswith("--zadanie ${{ matrix.id }}") and wykonanie["continue-on-error"] is True
+    assert (wgranie["with"]["path"], wgranie["with"]["name"]) == (plan_ci.WYKONANIE.as_posix(), f"{mutacje_nocne.ARTEFAKT_SKILLI}${{{{ matrix.id }}}}")
+    assert "skill-mutations" in zgloszenie["needs"]
+    assert pobrania[f"{mutacje_nocne.ARTEFAKT_SKILLI}*"] == polecenie_zgloszenia[polecenie_zgloszenia.index("--zapisy") + 1]
+    assert polecenie_zgloszenia[polecenie_zgloszenia.index("--plan-skilli") + 1] == f"{pobrania['plan-skilli']}/plan.json"
+
+
+def test_zadanie_skryptow_skilli_przygotowuje_runner_jak_mutation_checks_w_ci() -> None:
+    assert _kroki_do_planu(_nocne()["jobs"]["skill-mutations"]) == _kroki_do_planu(jobs()["mutations"])

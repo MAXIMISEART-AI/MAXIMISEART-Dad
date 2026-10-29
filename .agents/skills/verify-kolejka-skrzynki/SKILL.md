@@ -12,9 +12,10 @@ ci: .agents/skills/verify-kolejka-skrzynki/scripts/explore_outbox.py
 
 ## What CI runs and what stays local
 
-CI runs `explore_outbox.py` (the `ci:` key) and `check_outbox_mutations.py` in Mutation checks whenever
-a change touches this skill. Run them locally only to reproduce a red Mutation checks step, or one
-`--scope` while you work on it. What stays with you on every change to the covered code is „Does the
+CI runs `explore_outbox.py` (the `ci:` key) in Mutation checks whenever a change touches this skill,
+and `check_outbox_mutations.py` in full CI on `main` and nightly on `main` (`mutacje-nocne.yml`) after a
+change of this skill's folder. Run them locally only to reproduce a red Mutation checks step or the
+night's issue, or one `--scope` while you work on it. What stays with you on every change to the covered code is „Does the
 change touch it?”: read each commit since the sync commit against the table, because a change that
 adds a new way to the Skrzynka (a new `Target`, a second writer of queue files, a box call outside
 `KeyedBox`) passes the check without being checked. Sorting a red run as „When the check fails” says
@@ -225,9 +226,9 @@ Never shrink a bound, a scope or a rule to make a real counterexample go away.
 
 ## After changing the checker or an intended change to the queue
 
-CI proves the check can still fail: Mutation checks runs
+CI proves the check can still fail: the night on `main` runs
 `.agents/skills/verify-kolejka-skrzynki/scripts/check_outbox_mutations.py`
-whenever a change touches this skill. It applies each broken variant of
+after a change of this skill's folder. It applies each broken variant of
 `outbox.py` to a temporary copy of the checkout (`tools/mutacje.py`) and must end
 with `MUTACJE OK`. Each of these gives `KOLEJKA: NOWE NARUSZENIE`:
 

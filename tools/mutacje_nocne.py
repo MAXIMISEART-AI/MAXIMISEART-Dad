@@ -18,6 +18,12 @@ Workflow ``mutacje-nocne.yml`` biegnie raz na dobę na ``main`` i ręcznie (``wo
   do istniejącego issue komentarzem, a zamknięte issue z nowymi liniami wraca otwarte z ``ready-for-agent``.
   Część bez zapisu albo z porażką inną niż przeżyte mutacje (testy padają bez mutacji, zły wyjątek) czerwieni run po
   zgłoszeniu reszty, więc następna noc liczy od tej samej bazy, a zgłoszone linie się nie powtórzą.
+- Skrypty mutacji skilli nocy planuje ``tools/plan_ci.py plan --zdarzenie noc --baza <baza>`` (skrypty skilli, których
+  folder, runner mutacji albo sprawdzenie zmieniło się od bazy), a zadanie planu wgrywa swój zapis wykonania jako
+  artefakt ``mutacje-skilli-<id zadania>``. ``zglos --plan-skilli`` daje każdy skrypt, który padł, linią
+  ``SKRYPT <skrypt>`` do issue ``Przeżyte mutacje skilli z #N`` PR-u, który ostatni zmienił folder skilla od bazy (bez
+  takiej zmiany: inną ścieżkę z ``mutacje_skilli.watched``, a bez niej ostatni PR nocy), na tych samych zasadach co
+  przeżyte mutacje zmiany. Zadanie bez zapisu tego planu albo bez wyniku jednostki czerwieni run.
 
 Bazę i liczbę części nocy drukuje lokalnie bez testów:
 
@@ -40,7 +46,9 @@ import subprocess
 import sys
 from typing import Any
 
+import mutacje_skilli
 import mutacje_zmiany
+import plan_ci
 from zgloszenia_ci import MERGE, REPO, SQUASH, GhApi, GitHub, blok_kodu
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -55,6 +63,8 @@ ETYKIETY = ("ready-for-agent", "przezyte-mutacje")
 # Artefakt części k w mutacje-nocne.yml: ``mutacje-nocne-<k>`` z plikiem ``--zapis`` narzędzia mutacji.
 ARTEFAKT = "mutacje-nocne-"
 ZAPIS = "czesc.json"
+# Artefakt zadania skryptów mutacji skilli: ``mutacje-skilli-<id zadania planu>`` z zapisem ``plan_ci.WYKONANIE``.
+ARTEFAKT_SKILLI = "mutacje-skilli-"
 STRONA = 100
 _ID = re.compile(r"(?P<plik>[^:\s]+):(?P<linia>[1-9][0-9]*) \S.*")
 
@@ -142,8 +152,8 @@ class Autor:
     commit: str | None = None
 
     @property
-    def tytul(self) -> str:
-        return f"Przeżyte mutacje z #{self.numer}" if self.numer else f"Przeżyte mutacje z commitu {str(self.commit)[:9]}"
+    def w_tytule(self) -> str:
+        return f"#{self.numer}" if self.numer else f"commitu {str(self.commit)[:9]}"
 
     @property
     def nazwa(self) -> str:
@@ -185,6 +195,78 @@ def przypisz(github: GitHub, root: Path, od: str, przezyte: Sequence[str]) -> di
     return wynik
 
 
+def wyniki_skilli(plan: plan_ci.Plan, katalog: Path) -> tuple[list[str], list[str]]:
+    """Kroki skilli (``skill:<skill>/<skrypt>``), które padły w zadaniach ``plan``, i przyczyny zadań bez wyniku."""
+
+    padly, problemy = set(), []
+    for zadanie in plan.zadania:
+        try:
+            zapis = json.loads((katalog / f"{ARTEFAKT_SKILLI}{zadanie.id}" / plan_ci.WYKONANIE.name).read_text(encoding="utf-8"))
+        except (OSError, ValueError) as blad:
+            problemy.append(f"{zadanie.nazwa} bez zapisu: {blad}")
+            continue
+        if zapis.get("plan") != plan.digest:
+            problemy.append(f"{zadanie.nazwa}: zapis innego planu niż {plan.digest[:12]}")
+            continue
+        wyniki = {jednostka["klucz"]: jednostka["status"] for jednostka in zapis["jednostki"]}
+        zaplanowane = {klucz.partition("#")[0] for klucz in zadanie.jednostki}
+        if brak := sorted(zaplanowane - wyniki.keys()):
+            problemy.append(f"{zadanie.nazwa}: jednostki bez wyniku: {', '.join(brak)}")
+        padly |= {klucz for klucz in zaplanowane if wyniki.get(klucz, "ok") != "ok"}
+    return sorted(padly), problemy
+
+
+def przypisz_skrypty(github: GitHub, root: Path, od: str, padly: Sequence[str]) -> dict[Autor, list[str]]:
+    """Skrypty mutacji skilli, które padły, według PR-u, który ostatni zmienił folder skilla od ``od``."""
+
+    kroki = {f"skill:{krok.key}": krok for krok in mutacje_skilli.steps({})}
+    wynik: dict[Autor, list[str]] = {}
+    for klucz in padly:
+        krok = kroki[klucz]
+        try:
+            sciezki = mutacje_skilli.watched(krok)
+        except Exception:  # noqa: BLE001 - tabela, której nie da się wczytać, wskazuje tylko folder skilla
+            sciezki = (f"{krok.skill.relative_to(mutacje_skilli.ROOT).as_posix()}/",)
+        for grupa in ((sciezki[0],), (*sciezki[1:], *mutacje_skilli.INFRASTRUCTURE), ()):
+            if commit := _git(root, "log", "-1", "--format=%H", f"{od}..HEAD", "--", *grupa):
+                break
+        wynik.setdefault(autor(github, root, od, commit or _git(root, "rev-parse", "HEAD")), []).append(krok.command[0])
+    return wynik
+
+
+@dataclass(frozen=True)
+class Rodzaj:
+    """Issue nocy jednego rodzaju: tytuł z ``{kto}`` (``#N`` albo ``commitu <sha>``), początek linii i treść issue."""
+
+    tytul: str
+    linia: str
+    wstep: str  # z ``{run}`` i ``{kto}``: PR albo commit, który ostatni zmienił linie
+    rada: tuple[str, ...]
+
+
+PRZEZYTE = Rodzaj(
+    "Przeżyte mutacje z {kto}",
+    "MUTACJA",
+    "Nocne mutacje `main` ([run]({run})) przeżyły testy na liniach, które ostatnio zmienił {kto}:",
+    (
+        "Dla każdej linii `MUTACJA` dodaj test, który zabija tę mutację (dowód: `tools/mutacje.py`), albo napisz w komentarzu "
+        "`MUTACJA <plik>:<linia> <opis> | nie warto, bo <powód>`.",
+        "Gdy każda linia ma test albo powód, zamknij issue (ADR 0021).",
+    ),
+)
+SKRYPTY = Rodzaj(
+    "Przeżyte mutacje skilli z {kto}",
+    "SKRYPT",
+    "Nocne skrypty mutacji skilli `main` ([run]({run})) padły po zmianie folderu skilla, którą ostatnio wniósł {kto}:",
+    (
+        "Log runu pokazuje, która mutacja przeżyła sprawdzenie skilla (`NIEWYKRYTA`), straciła kotwicę (`NIEAKTUALNA`) "
+        "albo czy padła podstawa; część z planu odtwarzasz z `MUTACJE_CZESC=<k>/<n>`.",
+        "Dla każdej linii `SKRYPT` popraw sprawdzenie skilla albo tabelę mutacji, albo napisz w komentarzu "
+        "`SKRYPT <skrypt> | nie warto, bo <powód>`, a potem zamknij issue (ADR 0021).",
+    ),
+)
+
+
 @dataclass(frozen=True)
 class Zaloz:
     tytul: str
@@ -214,7 +296,7 @@ def _ma(tekst: str, linia: str) -> bool:
     return any(obecna.strip() == linia or obecna.strip().startswith(f"{linia} |") for obecna in tekst.splitlines())
 
 
-def akcje(github: GitHub, przypisane: dict[Autor, list[str]], run: str) -> list[Akcja]:
+def akcje(github: GitHub, przypisane: dict[Autor, list[str]], run: str, rodzaj: Rodzaj = PRZEZYTE) -> list[Akcja]:
     """Nowe issue dla PR bez issue, a komentarz z nowymi liniami dla PR, którego issue ich jeszcze nie ma."""
 
     istniejace: dict[str, dict[str, Any]] = {}
@@ -222,24 +304,17 @@ def akcje(github: GitHub, przypisane: dict[Autor, list[str]], run: str) -> list[
         if "pull_request" not in znalezione:
             istniejace.setdefault(znalezione["title"], znalezione)
     wynik: list[Akcja] = []
-    for kto, mutacje in przypisane.items():
-        linie = [f"MUTACJA {mutacja}" for mutacja in mutacje]
-        issue = istniejace.get(kto.tytul)
+    for kto, wpisy in przypisane.items():
+        tytul = rodzaj.tytul.format(kto=kto.w_tytule)
+        linie = [f"{rodzaj.linia} {wpis}" for wpis in wpisy]
+        issue = istniejace.get(tytul)
         if issue is None:
-            tresc = [
-                f"Nocne mutacje `main` ([run]({run})) przeżyły testy na liniach, które ostatnio zmienił {kto.nazwa}:",
-                "",
-                *blok_kodu(linie),
-                "",
-                "Dla każdej linii `MUTACJA` dodaj test, który zabija tę mutację (dowód: `tools/mutacje.py`), albo napisz w komentarzu "
-                "`MUTACJA <plik>:<linia> <opis> | nie warto, bo <powód>`.",
-                "Gdy każda linia ma test albo powód, zamknij issue (ADR 0021).",
-            ]
-            wynik.append(Zaloz(kto.tytul, "\n".join(tresc)))
+            tresc = [rodzaj.wstep.format(run=run, kto=kto.nazwa), "", *blok_kodu(linie), "", *rodzaj.rada]
+            wynik.append(Zaloz(tytul, "\n".join(tresc)))
             continue
         znane = "\n".join([issue.get("body") or "", *(komentarz["body"] or "" for komentarz in _strony(github, f"{REPO}/issues/{issue['number']}/comments"))])
         if nowe := [linia for linia in linie if not _ma(znane, linia)]:
-            tresc = [f"Nowe przeżyte mutacje z [runu]({run}):", "", *blok_kodu(nowe)]
+            tresc = [f"Nowe linie z [runu]({run}):", "", *blok_kodu(nowe)]
             wynik.append(Uzupelnij(issue["number"], "\n".join(tresc), issue["state"] == "closed"))
     return wynik
 
@@ -260,14 +335,20 @@ def wykonaj(github: GitHub, wykonane: Sequence[Akcja]) -> list[str]:
     return linie
 
 
-def zglos(github: GitHub, root: Path, od: str, katalog: Path, liczba: int, run: str) -> int:
+def zglos(github: GitHub, root: Path, od: str, katalog: Path, liczba: int, run: str, plan_skilli: plan_ci.Plan | None = None) -> int:
     przezyte, problemy = zapisy(katalog, liczba)
     linie = wykonaj(github, akcje(github, przypisz(github, root, od, przezyte), run))
+    padly: list[str] = []
+    if plan_skilli is not None:
+        padly, problemy_skilli = wyniki_skilli(plan_skilli, katalog)
+        problemy += problemy_skilli
+        linie += wykonaj(github, akcje(github, przypisz_skrypty(github, root, od, padly), run, SKRYPTY))
     print("\n".join(linie) or "MUTACJE NOCNE | nic nowego do zgłoszenia")
     if problemy:
         print(f"MUTACJE NOCNE FAIL | {'; '.join(problemy)}")
         return 1
-    print(f"MUTACJE NOCNE OK | części {liczba} | przeżyło {len(przezyte)}")
+    skille = "" if plan_skilli is None else f" | zadania skilli {len(plan_skilli.zadania)} | padło skryptów {len(padly)}"
+    print(f"MUTACJE NOCNE OK | części {liczba} | przeżyło {len(przezyte)}{skille}")
     return 0
 
 
@@ -281,11 +362,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     zgloszenie.add_argument("--zapisy", type=Path, required=True, help=f"Katalog z podkatalogami artefaktów {ARTEFAKT}<k>.")
     zgloszenie.add_argument("--czesci", type=int, required=True, help="Liczba części z planu.")
     zgloszenie.add_argument("--run", required=True, help="URL runu workflow.")
+    zgloszenie.add_argument("--plan-skilli", type=Path, help=f"Plan skryptów mutacji skilli nocy; ich zapisy w podkatalogach {ARTEFAKT_SKILLI}<id zadania>.")
     args = parser.parse_args(argv)
     try:
         if args.polecenie == "plan":
             return _plan(args.od)
-        return zglos(GhApi(), ROOT, args.baza, args.zapisy, args.czesci, args.run)
+        plan_skilli = None if args.plan_skilli is None else plan_ci.Plan.z_json(args.plan_skilli.read_text(encoding="utf-8"))
+        return zglos(GhApi(), ROOT, args.baza, args.zapisy, args.czesci, args.run, plan_skilli)
     except (RuntimeError, ValueError, KeyError, OSError, subprocess.CalledProcessError) as blad:
         szczegol = blad.stderr.strip() if isinstance(blad, subprocess.CalledProcessError) else blad
         print(f"MUTACJE NOCNE FAIL | {szczegol}")
