@@ -104,12 +104,12 @@ def test_tytul_uwagi_w_dwoch_liniach_jest_odrzucony(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize(
-    ("key", "outcome", "waits_for"),
-    [(False, None, "key"), (True, Unreachable(), "internet"), (True, Refused(), "key")],
+    ("key", "outcome"),
+    [(False, None), (True, Unreachable()), (True, Refused())],
     ids=["brak-klucza", "brak-sieci", "odmowa"],
 )
 def test_uwaga_bez_skrzynki_czeka_w_kolejce_i_wychodzi_przy_nastepnym_starcie_centrum(
-    tmp_path: Path, key: bool, outcome: SendOutcome | None, waits_for: str
+    tmp_path: Path, key: bool, outcome: SendOutcome | None
 ) -> None:
     started = with_key(tmp_path) if key else centrum(tmp_path)
     if outcome is not None:
@@ -119,7 +119,7 @@ def test_uwaga_bez_skrzynki_czeka_w_kolejce_i_wychodzi_przy_nastepnym_starcie_ce
     response = started.client.post("/api/dad-notes", json={"title": TITLE, "body": BODY})
 
     assert response.status_code == 200
-    assert response.json() == {"state": "waiting", "waits_for": waits_for}
+    assert response.json() == {"state": "waiting"}
     # Odpowiedź przychodzi z końcem nieudanej próby wysyłki, a nie po całym czasie czekania na skrzynkę.
     assert time.monotonic() - asked_at < DELIVERY_WAIT_S
     assert started.report_box.issues == []
@@ -158,10 +158,7 @@ def test_uwaga_ktorej_kolejka_nie_zapisala_jest_odmowa_bez_sladu_w_stanie_uwag(t
 def test_uwaga_bez_sieci_wysyla_sie_sama_minute_po_powrocie_sieci_bez_restartu(tmp_path: Path) -> None:
     started = with_key(tmp_path)
     started.report_box.outcomes.append(Unreachable())
-    assert started.client.post("/api/dad-notes", json={"title": TITLE, "body": BODY}).json() == {
-        "state": "waiting",
-        "waits_for": "internet",
-    }
+    assert started.client.post("/api/dad-notes", json={"title": TITLE, "body": BODY}).json() == {"state": "waiting"}
 
     started.clock.advance(RETRY_S)
 

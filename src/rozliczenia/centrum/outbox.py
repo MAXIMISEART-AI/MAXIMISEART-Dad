@@ -501,8 +501,7 @@ class Outbox:
     ``skrzynka-kolejka``), więc pliki nie potrzebują blokady. Blokada chroni tylko to, czy wątek już biegnie, i
     adresy dostarczonych wysyłek; zbiory nazw plików i plik ``addresses`` zna tylko ten jeden wątek.
     ``on_delivered`` dostaje każdą wysyłkę przyjętą przez skrzynkę i numer jej issue, w wątku wysyłki, zanim plik
-    dostanie znacznik. ``on_rejected`` dostaje każdą wysyłkę, której treść skrzynka odrzuciła, w wątku wysyłki, zanim
-    przejście pójdzie dalej. ``prepare`` dostaje wysyłkę z pliku tuż przed wysłaniem i zwraca tę, która pójdzie, albo
+    dostanie znacznik. ``prepare`` dostaje wysyłkę z pliku tuż przed wysłaniem i zwraca tę, która pójdzie, albo
     ``None``: wysyłka czeka na inną i zostaje w kolejce do następnego przejścia.
 
     Dwie kolejki jednego folderu w tym procesie nie wysyłają naraz (``_claimed``): kolejka, która zastanie przejście
@@ -523,7 +522,6 @@ class Outbox:
         *,
         clock: Clock,
         on_delivered: Callable[[Post, int], None] = lambda _post, _number: None,
-        on_rejected: Callable[[Post], None] = lambda _post: None,
         prepare: Callable[[Post], Post | None] = lambda post: post,
         addresses: Path | None = None,
     ) -> None:
@@ -532,7 +530,6 @@ class Outbox:
         self._log = log
         self._clock = clock
         self._on_delivered = on_delivered
-        self._on_rejected = on_rejected
         self._prepare = prepare
         self._addresses = addresses
         self._sequence = itertools.count(1)
@@ -689,7 +686,6 @@ class Outbox:
                 with self._lock:
                     self._rejected_posts.add((post.run_id, label))
                 self._log.box_post_waiting(label=label, period=period, cause=cause, file=path.name)
-                self._on_rejected(post)
                 continue
             self._stopped_on = None
             self._log.box_post_sent(label=label, period=period, number=outcome.number)
