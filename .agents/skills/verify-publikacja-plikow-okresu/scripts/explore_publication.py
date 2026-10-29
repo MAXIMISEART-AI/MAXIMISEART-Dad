@@ -36,7 +36,6 @@ import shutil
 import stat as stat_module
 import sys
 import tempfile
-import threading
 import time
 from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
@@ -44,6 +43,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from types import TracebackType
 from typing import Any, Literal
+
+from greenlet import getcurrent, greenlet  # type: ignore[import-untyped]  # greenlet ships no type hints
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "src"))
 
@@ -58,7 +59,6 @@ DAD = "tata"
 INTERNAL = "Rozliczenie wewnętrzne"
 COLLECTIVE = "Plik zbiorczy"
 VERIFIED_FILE = "preparation_files.py"
-STEP_TIMEOUT_SECONDS = 10.0
 
 RunResult = Literal["SUKCES", "ZATRZYMANE", "PRZERWANE"]
 
@@ -216,6 +216,14 @@ class VirtualDisk:
 # --- Scheduler: one Uruchomienie procesu moves at a time, one filesystem call per step --------------
 
 
+# --- Scheduler: one Uruchomienie procesu runs at a time, from one step to the next --------------------
+#
+# Each Uruchomienie procesu is a greenlet on the checker's own OS thread. With an OS thread each, every step was a
+# hand-over through the kernel, 140 thousand per check, and on a Windows runner with Python 3.11 busy with other
+# xdist workers each one waited for a free CPU until the check hit pytest's 120 s limit. A greenlet switch does not
+# wait.
+
+
 @dataclass
 class Pending:
     call: str
@@ -231,7 +239,6 @@ class Pending:
 @dataclass
 class Run:
     name: str
-    thread: threading.Thread | None = None
     status: Literal["new", "running", "parked", "done"] = "new"
     pending: Pending | None = None
     go: str | None = None
@@ -241,13 +248,11 @@ class Run:
     stop_text: str = ""
     gap: str | None = None
     history: list[str] = field(default_factory=list)
-
-
-_CURRENT = threading.local()
+    greenlet: greenlet | None = None
 
 
 def _current_run() -> Run | None:
-    run: Run | None = getattr(_CURRENT, "run", None)
+    run: Run | None = getattr(getcurrent(), "checked_run", None)
     return run
 
 
@@ -263,7 +268,7 @@ def _code_location() -> str:
 class Scheduler:
     def __init__(self, disk: VirtualDisk) -> None:
         self.disk = disk
-        self.condition = threading.Condition()
+        self.home = getcurrent()  # the checker, which picks every step
         self.probe_calls: list[str] | None = None
 
     def step(
@@ -289,15 +294,11 @@ class Scheduler:
         if run.stopped_by is not None:
             raise run.stopped_by()
         pending = Pending(call, tuple(self.disk.label(path) for path in paths), mutating, _code_location(), killable)
-        with self.condition:
-            run.pending = pending
-            run.status = "parked"
-            self.condition.notify_all()
-            while run.go is None:
-                self.condition.wait()
-            outcome, run.go = run.go, None
-            run.status = "running"
-            run.pending = None
+        run.pending = pending
+        run.status = "parked"
+        self.home.switch()
+        outcome, run.go = run.go, None
+        run.pending = None
         if outcome in ("crash", "abort"):
             run.stopped_by = Crash if outcome == "crash" else Abort
             raise run.stopped_by()
@@ -312,21 +313,17 @@ class Scheduler:
         run.history.append(f"{call}={answer!r}" if not isinstance(answer, os.stat_result) else f"{call}={answer.st_mode}")
         return answer
 
-    def wait_until_settled(self, runs: Sequence[Run]) -> None:
-        deadline = time.monotonic() + STEP_TIMEOUT_SECONDS
-        with self.condition:
-            while any(run.status in ("new", "running") for run in runs):
-                remaining = deadline - time.monotonic()
-                if remaining <= 0:
-                    raise RuntimeError("Uruchomienie procesu nie doszło do kolejnego kroku na czas; sprawdź zawieszenie.")
-                self.condition.wait(remaining)
+    def settle(self, runs: Sequence[Run]) -> None:
+        """Runs every released or new Uruchomienie procesu up to its next step or its end."""
+
+        while (run := next((run for run in runs if run.status == "running"), None)) is not None:
+            assert run.greenlet is not None
+            self.disk.actor = run.name
+            run.greenlet.switch()
 
     def release(self, run: Run, outcome: str) -> None:
-        with self.condition:
-            self.disk.actor = run.name
-            run.status = "running"
-            run.go = outcome
-            self.condition.notify_all()
+        run.status = "running"
+        run.go = outcome
 
 
 # --- Interception of os.* for paths on the in-memory disk ------------------------------------------
@@ -692,7 +689,6 @@ class Execution:
 
 
 def _run_body(run: Run, layout: Layout) -> None:
-    _CURRENT.run = run
     try:
         preparation_files.write_period_files(layout.files, [], [])
         run.result = "SUKCES"
@@ -706,8 +702,6 @@ def _run_body(run: Run, layout: Layout) -> None:
         message = getattr(error, "message", None)
         run.error = f"{type(error).__name__} {message.code}" if message is not None else type(error).__name__
         run.stop_text = message.text if message is not None else str(error)
-    finally:
-        _CURRENT.run = None
 
 
 NOTHING_CREATED = "Nie utworzono żadnego pliku"
@@ -780,17 +774,14 @@ def execute(scope: Scope, prefix: Sequence[int], visited: set[object]) -> Execut
                 try:
                     _run_body(run, layout)
                 finally:
-                    with scheduler.condition:
-                        run.status = "done"
-                        scheduler.condition.notify_all()
+                    run.status = "done"
 
-            disk.actor = run.name
+            run.greenlet = greenlet(body, parent=scheduler.home)
+            run.greenlet.checked_run = run
             run.status = "running"
-            run.thread = threading.Thread(target=body, name=f"uruchomienie-{run.name}", daemon=True)
-            run.thread.start()
-            scheduler.wait_until_settled(runs[:started])
+            scheduler.settle(runs[:started])
         while True:
-            scheduler.wait_until_settled(runs)
+            scheduler.settle(runs)
             parked = [run for run in runs if run.status == "parked"]
             if not parked:
                 break
@@ -832,9 +823,6 @@ def execute(scope: Scope, prefix: Sequence[int], visited: set[object]) -> Execut
             faults_left -= kind == "fault"
             crashes_left -= kind == "crash"
             scheduler.release(chosen, kind)
-        for run in runs:
-            assert run.thread is not None
-            run.thread.join(STEP_TIMEOUT_SECONDS)
 
     violations = list(disk.violations)
     gaps = [f"{run.name}: {run.gap}" for run in runs if run.gap]

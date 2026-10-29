@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import importlib.util
 import sys
+import threading
 from pathlib import Path
 from types import ModuleType
 
@@ -44,3 +45,31 @@ def test_publikacja_plikow_okresu_zachowuje_nienadpisywanie_i_razem_albo_zaden_w
     outcome = explorer.summarize([explorer.explore(scope) for scope in explorer.SCOPES.values()])
 
     assert outcome.exit_code == 0, "\n".join(outcome.lines)
+
+
+def test_sprawdzenie_publikacji_prowadzi_uruchomienia_bez_watkow_systemu(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Czas sprawdzenia nie zależy od tego, jak zajęte są procesory runnera.
+
+    Wątek systemu na każde Uruchomienie procesu w każdym harmonogramie oddawał sterowanie przez jądro przy każdym
+    kroku, a na runnerze Windows z Pythonem 3.11 zajętym innymi workerami xdist sprawdzenie dochodziło do limitu
+    120 s pytest i worker ginął (`main` od 6f94edb8).
+    """
+
+    explorer = _load_explorer()
+    started: list[str] = []
+    start = threading.Thread.start
+    checking = threading.current_thread()
+
+    def counted(thread: threading.Thread) -> None:
+        # Wątki tła zostawione przez wcześniejsze testy w tym workerze startują swoje wątki same; liczy się tylko to,
+        # co uruchomiło sprawdzenie.
+        if threading.current_thread() is checking:
+            started.append(thread.name)
+        start(thread)
+
+    monkeypatch.setattr(threading.Thread, "start", counted)
+
+    report = explorer.explore(explorer.SCOPES["jedno-uruchomienie"])
+
+    assert report.undisturbed_successes
+    assert started == []
