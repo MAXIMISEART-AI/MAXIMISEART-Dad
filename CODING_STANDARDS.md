@@ -41,7 +41,6 @@ A rule that a check enforces sits in its section's table, one line per rule, bes
   Other code calls its catalog's factories directly, and a process summary reports its problems as warning Komunikaty in `warnings`.
 - Only a catalog decides on a Komunikat's code, and no code maps a code back to the fact that produced it.
   The facts are typed (`preparation_plan.Plan.incomplete_period`, `preparation_files.CollectiveFilePlan`), and a catalog factory takes facts (row numbers, column letters, dates), not layout types.
-  Centrum rozliczeń still decides on two codes until its own change: `NEWER_TOOL_VERSION` in `centrum/diagnosis.py` and `_RETRIED_BY_TATA` in `centrum/tool_updates.py`.
 - Classify failures that can invalidate a write as typed critical exceptions.
   This includes preparing or restoring `xl/externalLinks/*`, not only the final filesystem replacement.
 - Preserve `Nienadpisywanie`: existing input data is reported and never replaced automatically.

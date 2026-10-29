@@ -25,7 +25,12 @@ from rozliczenia.centrum.outbox import RETRY_S
 from rozliczenia.centrum.report_box import Unreachable
 from rozliczenia.centrum.tool_update import (
     LIBRARIES_FAILED,
+    LOCAL_CHANGES,
+    LOGIN,
     NEW_VERSION_FAILED,
+    NO_CONNECTION,
+    NO_GIT,
+    OTHER_BRANCH,
     RESULT_FILE,
     ROLLBACK_FAILED,
     UNEXPECTED,
@@ -943,6 +948,35 @@ def test_wynik_aktualizacji_trafia_na_karte_gdy_dziennika_nie_da_sie_przeczytac(
     assert (view["state"], view["message"]["what"]) == ("failed", "Nowa wersja narzędzia nie wystartowała.")
     assert view["report"] == {"state": "ready"}
     assert view["draft"]["title"] == "NOWA_WERSJA_NIE_WYSTARTOWALA: Nowa wersja narzędzia nie wystartowała."
+
+
+@pytest.mark.parametrize(
+    ("code", "shown", "next_action"),
+    [
+        (NO_GIT, NO_GIT, "report"),
+        (NO_CONNECTION, NO_CONNECTION, "retry"),
+        (LOGIN, LOGIN, "report"),
+        (OTHER_BRANCH, OTHER_BRANCH, "report"),
+        (LOCAL_CHANGES, LOCAL_CHANGES, "report"),
+        (UNEXPECTED, UNEXPECTED, "retry"),
+        (LIBRARIES_FAILED, LIBRARIES_FAILED, "retry"),
+        (NEW_VERSION_FAILED, NEW_VERSION_FAILED, "report"),
+        (ROLLBACK_FAILED, ROLLBACK_FAILED, "retry"),
+        ("KOD_Z_INNEJ_WERSJI", UNEXPECTED, "retry"),
+    ],
+    ids=lambda value: value if isinstance(value, str) else None,
+)
+def test_karta_porazki_mowi_czy_tata_klika_jeszcze_raz_czy_przekazuje_sprawe_maksowi(
+    tmp_path: Path, code: str, shown: str, next_action: str
+) -> None:
+    centrum, repository = updating_centrum(tmp_path)
+    write_result(tmp_path / "config" / RESULT_FILE, UpdateResult(code, repository.head(), None))
+
+    centrum.restart()
+    view = centrum.client.get("/api/tool-update").json()
+
+    # Kod Komunikatu na karcie to początek tytułu Zgłoszenia; nieznany kod to porażka nieoczekiwana.
+    assert (view["state"], view["draft"]["title"].split(":")[0], view["next_action"]) == ("failed", shown, next_action)
 
 
 def test_zgloszony_wynik_nie_wraca_gdy_dysk_nie_pozwala_usunac_jego_pliku(
