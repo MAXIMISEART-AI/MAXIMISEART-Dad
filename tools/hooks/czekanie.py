@@ -42,11 +42,13 @@ ASKS_CI = re.compile(
 )
 WATCH = re.compile(_GH + r"(?:pr\s+checks\b[^;&|\n]*--watch|run\s+watch)\b")
 PGREP = re.compile(r"\bpgrep\s+(?:-\w+\s+)*-\w*f")
-# Agenci śpią też przez `perl -e 'select(undef,undef,undef,N)'`, gdy harness blokuje sam `sleep`.
-SLEEP = re.compile(r"(?<![\w.$-])sleep\s+\S|\bselect\(undef\b")
+# Agenci śpią też przez `perl -e 'select(undef,undef,undef,N)'`, gdy harness blokuje sam `sleep`; w napisie bez
+# spacji nawias jest już podkreśleniem (`QUOTED_SEPARATOR`).
+SLEEP = re.compile(r"(?<![\w.$-])sleep\s+\S|\bselect[(_]undef\b")
 WHITESPACE = re.compile(r"\s")
-# W napisie bez spacji (`perl -e 'select(undef,…)'`, wzorzec `rg 'while|until'`) słowo pętli nie stoi na pozycji polecenia.
-QUOTED_SEPARATOR = re.compile(r"[;&|{!`]")
+# W napisie bez spacji (`perl -e 'select(undef,…)'`, wzorzec `rg '(while|until)'`) słowo pętli nie stoi na pozycji
+# polecenia, a nawias nie otwiera ani nie zamyka grupy.
+QUOTED_SEPARATOR = re.compile(r"[;&|(){}!`]")
 # Słowo pętli liczy się na pozycji polecenia, więc „done” w `grep -q done` nie zamyka pętli.
 _STARTS = r"(?:^|(?<=[;&|({!`])|(?<=\bdo)|(?<=\bthen)|(?<=\belse))\s*"
 _ENDS = r"(?:(?<=[;&\n])|(?<=\bdo))\s*"

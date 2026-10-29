@@ -174,6 +174,8 @@ PASSING = (
     "until test -f x; do echo; done; sleep 5; gh pr checks 1; done",
     "rg -n 'while|until' tools/hooks/czekanie.py; sleep 1; gh pr checks 446",
     'grep -nw "until" tools/hooks/czekanie.py; sleep 1; gh pr checks 446',
+    "rg -n '(while)' tools/hooks/czekanie.py; sleep 1; gh pr checks 446",
+    'grep -E "^(until)$" tools/hooks/czekanie.py; sleep 1; gh pr checks 446',
     # ``-c`` innego polecenia niż powłoka to nie skrypt: ``grep -c`` liczy wiersze z tym tekstem.
     "grep -c 'until ! gh pr checks 1 | grep -q pending; do sleep 30; done' ~/.t3/notes/czekanie.log",
 )
