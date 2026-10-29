@@ -41,7 +41,7 @@ from rozliczenia.centrum.tool_update import (
     write_result,
 )
 
-from tests.fixtures.centrum import NO_RELEASE, views_until
+from tests.fixtures.centrum import NO_RELEASE, UPDATE_THREAD, join_threads_since, views_until
 from tests.fixtures.centrum_processes import PreparingCentrum, Surroundings, preparing_centrum, run_to_end, stopped_for_maks
 from tests.fixtures.potomne import wait_for
 from tests.fixtures.preparation import PERIOD, incomplete_period_rows
@@ -79,12 +79,22 @@ UPDATE_WAIT_S = 30
 
 
 def update_until_done(centrum: PreparingCentrum) -> dict[str, Any]:
-    """Klika „Zaktualizuj narzędzie” i czeka na wynik albo na ponowny start Centrum."""
+    """Klika „Zaktualizuj narzędzie” i czeka na wynik albo na zamknięcie Centrum do ponownego startu."""
 
     started = centrum.client.post("/api/tool-update")
     assert started.status_code == 202, started.json()
     assert started.json() == {"state": "running", "step": "fetching"}
-    return tool_update_until(centrum, lambda view: view["state"] != "running" or view["step"] == "restarting")
+    return tool_update_done(centrum)
+
+
+def tool_update_done(centrum: PreparingCentrum) -> dict[str, Any]:
+    """Czeka na wynik trwającej Aktualizacji narzędzia albo na zamknięcie Centrum do ponownego startu."""
+
+    view = tool_update_until(centrum, lambda view: view["state"] != "running" or view["step"] == "restarting")
+    if view["state"] == "running":
+        # Karta widzi „restarting”, zanim opiekun wystartuje, a Centrum zamyka się dopiero po jego starcie (#661).
+        join_threads_since(centrum.client.since, named=UPDATE_THREAD)
+    return view
 
 
 def update_until_result(centrum: PreparingCentrum) -> dict[str, Any]:
@@ -765,7 +775,7 @@ def test_nowe_biblioteki_karta_widzi_krok_instalowania_a_dziennik_zapisuje_insta
 
     installing = tool_update_until(centrum, lambda view: view.get("step") == "installing")
     hold.set()
-    view = tool_update_until(centrum, lambda view: view.get("step") == "restarting")
+    view = tool_update_done(centrum)
 
     assert installing == {"state": "running", "step": "installing"}
     assert view == {"state": "running", "step": "restarting"}
