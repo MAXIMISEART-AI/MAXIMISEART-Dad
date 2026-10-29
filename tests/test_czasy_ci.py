@@ -10,6 +10,7 @@ from __future__ import annotations
 from collections.abc import Iterator
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
+import math
 import os
 from pathlib import Path
 import shlex
@@ -87,6 +88,15 @@ JUNIT_UNITS = [
     {"klucz": "pytest:tests/test_d.py", "s": 2.0, "status": "ok"},
     {"klucz": "pytest:tests/test_e.py", "s": 0.0, "status": "fail"},
 ]
+# Czas każdego testu z id pytest; plik, którego nie dało się zaimportować, nie ma testu.
+JUNIT_TESTS = {
+    "tests/test_b.py::test_ok": 0.1,
+    "tests/test_b.py::TestK::test_w_klasie": 0.2,
+    "tests/test_a.py::test_zly": 1.5,
+    "tests/test_c.py::test_fixture": 0.254,
+    "tests/test_d.py::test_pominiety": 0.0,
+    "tests/test_d.py::test_ok": 2.0,
+}
 # Jednostki, które mierzy ``tools/plan_ci.py wykonaj``, i plan, z którego biegły.
 PLANNED = {"plan": "digest-planu", "zadanie": "windows-3.14-1"}
 PLANNED_UNITS = [
@@ -177,6 +187,7 @@ def test_zadanie_pytest_zapisuje_czas_kazdego_pliku_testow_i_kazdej_jednostki_pl
         "bledy": [],
         "plan": "digest-planu",
         "zadanie_planu": "windows-3.14-1",
+        "testy": JUNIT_TESTS,
     }
     assert capsys.readouterr().out.splitlines() == ["CZASY CI | pytest (Python 3.14, 1/2) | windows-3.14 | 9 jednostek | narzut 17 s | pytest-0-2.json"]
 
@@ -301,7 +312,9 @@ def _merge(folder: Path, output: Path) -> int:
     return main(["scal", "--katalog", str(folder), "--wyjscie", str(output)])
 
 
-def _saved(folder: Path, name: str, *, run: int, attempt: int, job: str, tor: str = "windows-3.14", seconds: float = 1.0) -> None:
+def _saved(
+    folder: Path, name: str, *, run: int, attempt: int, job: str, tor: str = "windows-3.14", seconds: float = 1.0, tests: dict[str, float] | None = None
+) -> None:
     record = {
         "wersja": 1,
         "run": run,
@@ -314,6 +327,7 @@ def _saved(folder: Path, name: str, *, run: int, attempt: int, job: str, tor: st
         "narzut_s": None,
         "jednostki": [{"klucz": "krok:pytest", "s": seconds, "status": "ok"}],
         "bledy": [],
+        **({} if tests is None else {"testy": tests}),
     }
     folder.mkdir(parents=True, exist_ok=True)
     (folder / name).write_text(json.dumps(record), encoding="utf-8")
@@ -345,10 +359,17 @@ def test_scalenie_zapisow_runu_daje_obserwacje_kazdego_klucza_na_torze(tmp_path:
             "narzut:pytest": observed({"s": 17.0, "status": "ok"}),
         },
     }
+    tests = {
+        "tests/test_a.py": {"test_zly": 1.5},
+        "tests/test_b.py": {"TestK::test_w_klasie": 0.2, "test_ok": 0.1},
+        "tests/test_c.py": {"test_fixture": 0.254},
+        "tests/test_d.py": {"test_ok": 2.0, "test_pominiety": 0.0},
+    }
+    assert merged["testy"] == {"linux-3.14": tests, "windows-3.14": tests}
     assert list(merged["tory"]["windows-3.14"]) == sorted(merged["tory"]["windows-3.14"])
     assert capsys.readouterr().out.splitlines() == [
-        "CZASY CI | linux-3.14 | 7 kluczy, w tym 5 plików testów",
-        "CZASY CI | windows-3.14 | 10 kluczy, w tym 5 plików testów",
+        "CZASY CI | linux-3.14 | 7 kluczy, w tym 5 plików testów | 6 testów",
+        "CZASY CI | windows-3.14 | 10 kluczy, w tym 5 plików testów | 6 testów",
         "CZASY CI SCALONE | 2 zapisów zadań | czasy-ci.json",
     ]
 
@@ -367,6 +388,35 @@ def test_scalenie_tych_samych_zapisow_daje_ten_sam_plik_niezaleznie_od_nazw_plik
     observations = json.loads(merged)["tory"]["windows-3.14"]["krok:pytest"]
     assert [(o["run"], o["proba"], o["zadanie"], o["s"]) for o in observations] == [(1, 1, "A", 3), (1, 1, "B", 2), (1, 2, "A", 1), (2, 1, "A", 0)]
     assert [(run["run"], run["proba"]) for run in json.loads(merged)["runy"]] == [(1, 1), (1, 2), (2, 1)]
+
+
+def test_czas_testu_w_czasach_ci_jest_z_ostatniej_proby_zadania_a_zapis_sprzed_czasow_testow_ich_nie_ma(tmp_path: Path) -> None:
+    _saved(tmp_path / "zapisy", "a1.json", run=1, attempt=1, job="A", tests={"tests/test_x.py::test_a[1]": 50.0, "tests/test_x.py::K::test_b": 1.0})
+    _saved(tmp_path / "zapisy", "a2.json", run=1, attempt=2, job="A", tests={"tests/test_x.py::test_a[1]": 5.0})
+    _saved(tmp_path / "zapisy", "b1.json", run=1, attempt=1, job="B", tests={"tests/test_y.py::test_c": 2.0})
+    _saved(tmp_path / "zapisy", "c1.json", run=1, attempt=1, job="C", tor="linux-3.14")
+
+    assert _merge(tmp_path / "zapisy", tmp_path / "czasy-ci.json") == 0
+    assert json.loads((tmp_path / "czasy-ci.json").read_text(encoding="utf-8"))["testy"] == {
+        "windows-3.14": {"tests/test_x.py": {"test_a[1]": 5.0}, "tests/test_y.py": {"test_c": 2.0}}
+    }
+
+
+def test_czas_testu_z_main_to_mediana_runow_w_ktorych_biegl(tmp_path: Path) -> None:
+    (tmp_path / "czasy").mkdir()
+    for run, seconds in ((1, 3.0), (2, 1.0), (3, 2.0)):
+        tests = {"tests/test_x.py::test_a": seconds} | ({"tests/test_x.py::K::test_nowy[p-1]": 7.0} if run == 3 else {})
+        _saved(tmp_path / f"zapisy-{run}", "a.json", run=run, attempt=1, job="A", tests=tests)
+        _merge(tmp_path / f"zapisy-{run}", tmp_path / "czasy" / f"{run}.json")
+    old = json.loads((tmp_path / "czasy" / "1.json").read_text(encoding="utf-8"))
+    del old["testy"]
+    (tmp_path / "czasy" / "1.json").write_text(json.dumps(old), encoding="utf-8")
+    (tmp_path / "czasy" / "pobrane").touch()
+
+    czasy = czasy_ci.z_mainu(tmp_path / "czasy", odswiez_po_s=math.inf)
+
+    assert czasy.czasy_testow("windows-3.14", "tests/test_x.py") == {"tests/test_x.py::test_a": 1.5, "tests/test_x.py::K::test_nowy[p-1]": 7.0}
+    assert czasy.czasy_testow("linux-3.14", "tests/test_x.py") == czasy.czasy_testow("windows-3.14", "tests/test_y.py") == {}
 
 
 @pytest.mark.parametrize(

@@ -146,7 +146,7 @@ jobs:
     # main runs every test file on Windows 3.11, Windows 3.14 and Linux 3.14. A pull request runs on Windows 3.11 (tata's
     # oldest Python) and Linux 3.14 only the files tools/szybko.py selects for the change, plus its structure tests; a
     # change under .github/workflows/ or in szybko.FULL runs every file (ADR 0020). The plan decides how many jobs each
-    # lane runs and which files (or crc32 shares of a long file) each takes, so that every job ends near the same time;
+    # lane runs and which files (or shares of a long file, split by measured test times) each takes, so that every job ends near the same time;
     # E2E and the timing guard are units of the Windows jobs it puts them in.
     name: ${{ matrix.nazwa }}
     needs: plan

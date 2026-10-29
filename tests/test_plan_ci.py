@@ -103,6 +103,53 @@ def test_kazdy_plik_testow_biegnie_raz_na_kazdym_torze_a_udzialy_dlugiego_pliku_
     assert [job.id for job in plan.zadania if "krok:timing" in job.jednostki] != [] == [job for job in plan.zadania if "krok:timing" in job.jednostki and job.tor != "windows-3.14"]
 
 
+def test_udzialy_dlugiego_pliku_maja_rowny_czas_jego_zmierzonych_testow_a_kazdy_test_jest_w_jednym_udziale() -> None:
+    # Cztery testy po 200 s, jak przypadki z podprocesem icacls na Windows, wśród lekkich i pominiętych na torze (0 s).
+    tests = {f"{LONG}::test_ciezki[{i}]": 200.0 for i in range(4)} | {f"{LONG}::TestK::test_lekki[{i}]": 10.0 for i in range(30)}
+    tests |= {f"{LONG}::test_pominiety[{i}]": 0.0 for i in range(10)}
+    czasy = dataclasses.replace(_times(), testy={lane.pomiary: {LONG: {test: (s,) for test, s in tests.items()}} for lane in plan_ci.TORY})
+
+    plan = plan_ci.Plan.z_json(_plan(czasy, [*FILES, LONG]).do_json())
+
+    for lane in plan_ci.TORY:
+        shares = plan.udzialy[lane.nazwa][LONG]
+        units = [unit for job in plan.zadania if job.tor == lane.nazwa for unit in job.jednostki if unit.startswith(f"pytest:{LONG}#")]
+        sums = [sum(tests[test] for test in share) for share in shares]
+
+        assert len(shares) == len(units) > 1, lane
+        assert Counter(test for share in shares for test in share) == Counter(set(tests))
+        assert all(shares) and max(sums) - min(sums) <= max(tests.values()), sums
+
+
+@pytest.mark.parametrize(
+    "tests",
+    [{f"{LONG}::test_{i}": 550.0 for i in range(2)}, {f"{LONG}::test_ciezki": 1100.0} | {f"{LONG}::test_pominiety[{i}]": 0.0 for i in range(5)}],
+    ids=["dwa testy", "jeden test z czasem i pominięte"],
+)
+def test_plik_dzieli_sie_najwyzej_na_tyle_udzialow_ile_ma_zmierzonych_testow_a_kazdy_udzial_ma_test(tests: dict[str, float]) -> None:
+    czasy = dataclasses.replace(_times(), testy={lane.pomiary: {LONG: {test: (s,) for test, s in tests.items()}} for lane in plan_ci.TORY})
+    # Pojemność, przy której plik bez czasów testów dzieli się na 4 udziały.
+    four_shares = 1100 / plan_ci.WORKERY / 3.5
+    assert [unit.klucz for unit in plan_ci.wycen(plan_ci.TORY[0], [LONG], _times()).jednostki(four_shares)][-1] == f"pytest:{LONG}#4/4"
+
+    shares = [unit.testy for unit in plan_ci.wycen(plan_ci.TORY[0], [LONG], czasy).jednostki(four_shares) if unit.klucz.startswith(f"pytest:{LONG}#")]
+
+    assert 1 < len(shares) <= len(tests) and all(shares), shares
+
+
+def test_udzial_pliku_wazy_czesc_jego_czasu_rowna_czesci_czasu_swoich_testow() -> None:
+    tests = {f"{LONG}::test_ciezki": 300.0, f"{LONG}::test_sredni": 100.0, f"{LONG}::test_lekki": 100.0}
+    czasy = dataclasses.replace(_times(), testy={lane.pomiary: {LONG: {test: (s,) for test, s in tests.items()}} for lane in plan_ci.TORY})
+    wycena = plan_ci.wycen(plan_ci.TORY[0], [LONG], czasy)
+
+    shares = [unit for unit in wycena.jednostki(150.0) if unit.klucz.startswith(f"pytest:{LONG}#")]
+
+    assert [(unit.klucz, unit.testy, round(unit.s, 6)) for unit in shares] == [
+        (f"pytest:{LONG}#1/2", (f"{LONG}::test_ciezki",), round(1100 / plan_ci.WORKERY * 0.6, 6)),
+        (f"pytest:{LONG}#2/2", (f"{LONG}::test_lekki", f"{LONG}::test_sredni"), round(1100 / plan_ci.WORKERY * 0.4, 6)),
+    ]
+
+
 @pytest.mark.parametrize("skills", [False, True])
 def test_run_miesci_sie_w_limicie_zadan_konta_bo_cel_sciany_rosnie_co_5_s(skills: bool, monkeypatch: pytest.MonkeyPatch) -> None:
     czasy = _with_skill_times(_times(per_file_s=150.0))
@@ -300,6 +347,21 @@ def test_udzialy_pliku_dziela_go_miedzy_zadania_bez_luk_i_powtorzen_niezaleznie_
     assert all(ran) and ran == [{f"test_{i:02}" for i in range(30) if zlib.crc32(f"tests/test_mini.py::test_{i:02}".encode()) % 3 == share} for share in range(3)]
 
 
+def test_zadanie_biegnie_zmierzone_testy_swojego_udzialu_z_planu_a_test_nowy_po_pomiarze_wedlug_crc32(mini_repo: Path) -> None:
+    measured = [f"tests/test_mini.py::test_{i:02}" for i in range(0, 30, 2)]
+    shares = (tuple(measured[:2]), tuple(measured[2:9]), tuple(measured[9:]))
+    jobs = tuple(plan_ci.Zadanie(f"linux-3.14-{share}", "linux-3.14", f"pytest (Python 3.14, Linux, {share}/3)", (f"pytest:tests/test_mini.py#{share}/3",), 1.0) for share in (1, 2, 3))
+    plan = plan_ci.Plan.z_json(plan_ci.Plan("push", plan_ci.CEL_S, (), jobs, (), {"linux-3.14": {"tests/test_mini.py": shares}}).do_json())
+    ran = []
+    for share in (1, 2, 3):
+        plan_ci.wykonaj(plan, f"linux-3.14-{share}")
+        ran.append(_junit_tests())
+
+    new = [f"tests/test_mini.py::test_{i:02}" for i in range(1, 30, 2)]
+    assert Counter(test for tests in ran for test in tests) == Counter(f"test_{index:02}" for index in range(30))
+    assert ran == [{test.partition("::")[2] for test in [*shares[share], *(t for t in new if zlib.crc32(t.encode()) % 3 == share)]} for share in range(3)]
+
+
 def test_zadanie_wykonuje_kroki_po_czerwonym_pytest_przerywa_krok_po_limicie_i_zapisuje_wynik_z_planem(
     mini_repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -348,7 +410,7 @@ def test_bramka_ponawia_raz_test_ktory_padl_a_przejscie_po_ponowieniu_to_flak_a_
     job = plan_ci.Zadanie("linux-3.14-1", "linux-3.14", "pytest (Python 3.14, Linux, 1/1)", ("pytest:tests/test_flak.py",), 1.0)
 
     result = plan_ci.wykonaj(plan_ci.Plan("pull_request", plan_ci.CEL_S, (), (job,)), job.id)
-    records = czasy_ci._junit(plan_ci.JUNIT)
+    records, _ = czasy_ci._junit(plan_ci.JUNIT)
 
     assert result == code
     assert [(unit.klucz, unit.status) for unit in records] == [("pytest:tests/test_flak.py", "ok" if code == 0 else "fail")]

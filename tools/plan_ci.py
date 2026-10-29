@@ -16,8 +16,11 @@ krok skilla bez pomiaru waży medianę zmierzonych jednostek tego rodzaju na tor
 
 Ściana zadania to narzut (od startu zadania do pracy), start pytest, suma kosztów jego jednostek i koniec zadania;
 narzut i start też są z pomiarów. Plan dzieli każdy tor na najmniej zadań o ścianie najwyżej ``cel_s`` (LPT: najdłuższa jednostka do
-zadania o najmniejszej sumie). Plik dłuższy niż zadanie dzieli się na k udziałów o tej samej wadze: udział k biegnie
-z ``-p tools.pytest_czesc`` (crc32 id testu modulo k). Skrypt mutacji dłuższy niż zadanie dzieli się tak samo na
+zadania o najmniejszej sumie). Plik dłuższy niż zadanie dzieli się na k udziałów, najwyżej po jednym na zmierzony test:
+LPT rozdziela jego zmierzone testy po ich czasach (``czasy_ci.Czasy.czasy_testow``), plan zapisuje id testów każdego
+udziału w ``udzialy``, a udział biegnie z ``-p tools.pytest_czesc``. Test, którego plan nie zna (nowy po pomiarze),
+idzie do udziału z crc32 swojego id, więc udziały i tak pokrywają plik bez luk i bez powtórzeń. Plik bez czasów testów
+dzieli się tylko po crc32, na udziały o tej samej wadze. Skrypt mutacji dłuższy niż zadanie dzieli się tak samo na
 najwyżej tyle części, ile ma mutacji: część biegnie z ``MUTACJE_CZESC=k/n`` (``tools/mutacje.py``), z podstawą
 poleceń swoich mutacji. Podstawy ``ci:`` plan nie dzieli, więc drukuje najdłuższą jednostkę każdego toru po podziale:
 poniżej niej ściana zadania nie zejdzie.
@@ -176,6 +179,7 @@ class Jednostka:
 
     klucz: str
     s: float  # ściana, którą dodaje do zadania
+    testy: tuple[str, ...] = ()  # id zmierzonych testów udziału pliku
 
 
 @dataclass(frozen=True)
@@ -195,6 +199,7 @@ class Plan:
     runy: tuple[int, ...]  # runy main, z których są czasy
     zadania: tuple[Zadanie, ...]
     bledy: tuple[str, ...] = ()  # FAIL-e znalezienia kroków skilli: zgubiony skrypt mutacji, zły klucz ``ci:``
+    udzialy: Mapping[str, Mapping[str, tuple[tuple[str, ...], ...]]] = field(default_factory=dict)  # tor -> plik -> id testów każdego udziału
 
     @property
     def digest(self) -> str:
@@ -213,7 +218,8 @@ class Plan:
             raise ValueError(f"plan w wersji innej niż {WERSJA}")
         digest = dane.pop("digest")
         zadania = tuple(Zadanie(**{**zadanie, "jednostki": tuple(zadanie["jednostki"])}) for zadanie in dane.pop("zadania"))
-        plan = cls(**{**dane, "runy": tuple(dane["runy"]), "zadania": zadania, "bledy": tuple(dane["bledy"])})
+        udzialy = {tor: {plik: tuple(map(tuple, testy)) for plik, testy in pliki.items()} for tor, pliki in dane.pop("udzialy").items()}
+        plan = cls(**{**dane, "runy": tuple(dane["runy"]), "zadania": zadania, "bledy": tuple(dane["bledy"]), "udzialy": udzialy})
         if plan.digest != digest:
             raise ValueError(f"treść planu nie zgadza się z jego digest {digest[:12]}")
         return plan
@@ -245,6 +251,7 @@ class Wycena:
     start_s: float
     czesci: Mapping[str, int] = field(default_factory=dict)  # najwięcej części jednostki podzielnej (skrypt: mutacje)
     przegladarka: frozenset[str] = frozenset()  # jednostki, które potrzebują Chromium
+    testy: Mapping[str, Mapping[str, float]] = field(default_factory=dict)  # plik testów -> id testu -> czas testu
 
     def jednostki(self, pojemnosc_s: float) -> list[Jednostka]:
         """Jednostki podzielne dłuższe niż ``pojemnosc_s`` w częściach, które się w niej mieszczą, i niepodzielne."""
@@ -253,7 +260,16 @@ class Wycena:
         for klucz, s in self.podzielne.items():
             k = max(1, math.ceil(s / pojemnosc_s)) if pojemnosc_s > 0 else 1
             k = min(k, self.czesci.get(klucz, k))
-            wynik += [Jednostka(klucz, s)] if k == 1 else [Jednostka(f"{klucz}#{i}/{k}", s / k) for i in range(1, k + 1)]
+            if k == 1:
+                wynik.append(Jednostka(klucz, s))
+            elif testy := self.testy.get(klucz):
+                # Udział waży swoją część czasu testów pliku, a cały plik tyle, co jego pomiar.
+                razem = sum(testy.values())
+                for i, udzial in enumerate(_lpt((Jednostka(test, czas) for test, czas in testy.items()), k), start=1):
+                    waga = s * sum(j.s for j in udzial) / razem if razem else s / k
+                    wynik.append(Jednostka(f"{klucz}#{i}/{k}", waga, tuple(sorted(j.klucz for j in udzial))))
+            else:
+                wynik += [Jednostka(f"{klucz}#{i}/{k}", s / k) for i in range(1, k + 1)]
         return wynik
 
 
@@ -290,6 +306,7 @@ def wycen(tor: Tor, pliki: Sequence[str], czasy: czasy_ci.Czasy) -> Wycena:
 
     zmierzone = czasy.pliki(tor.pomiary)
     domyslny = statistics.median(zmierzone.values()) if zmierzone else DOMYSLNIE.plik_s
+    testy = {f"pytest:{plik}": czasy_testow for plik in pliki if "::" not in plik and (czasy_testow := czasy.czasy_testow(tor.pomiary, plik))}
     kroki = {f"krok:{nazwa}": czasy.praca(tor.pomiary, f"krok:{nazwa}") or KROKI[nazwa].domyslnie_s for nazwa in tor.kroki}
     wezly = {f"pytest:{wezel}": min(zmierzone.get(wezel.partition("::")[0], domyslny), domyslny) / WORKERY for wezel in pliki if "::" in wezel}
     zadania = [z for z in czasy.zadania(tor.pomiary) if f"narzut:{tor.szablon}" in z]
@@ -302,6 +319,8 @@ def wycen(tor: Tor, pliki: Sequence[str], czasy: czasy_ci.Czasy) -> Wycena:
         {**wezly, **kroki},
         statistics.median(narzuty) if narzuty else DOMYSLNIE.narzut_s,
         max(0.0, statistics.median(starty)) if starty else DOMYSLNIE.start_s,
+        {klucz: len(czasy_testow) for klucz, czasy_testow in testy.items()},
+        testy=testy,
     )
 
 
@@ -327,12 +346,13 @@ def wycen_mutacje(kroki: Sequence[mutacje_skilli.Step], czasy: czasy_ci.Czasy) -
 
 
 def _lpt(jednostki: Iterable[Jednostka], n: int) -> list[list[Jednostka]]:
-    """Najdłuższa jednostka do zadania o najmniejszej sumie, remis po kluczu i numerze zadania."""
+    """Najdłuższa jednostka do zadania o najmniejszej sumie, remis po kluczu, liczbie jednostek zadania i jego numerze:
+    zadanie bez jednostek dostaje jednostkę także wtedy, gdy reszta waży 0 s."""
 
     zadania: list[list[Jednostka]] = [[] for _ in range(n)]
     sumy = [0.0] * n
     for jednostka in sorted(jednostki, key=lambda j: (-j.s, j.klucz)):
-        najlzejsze = sumy.index(min(sumy))
+        najlzejsze = min(range(n), key=lambda i: (sumy[i], len(zadania[i]), i))
         zadania[najlzejsze].append(jednostka)
         sumy[najlzejsze] += jednostka.s
     return zadania
@@ -377,7 +397,10 @@ def rozplanuj(wyceny: Sequence[Wycena], zdarzenie: str, runy: tuple[int, ...] = 
         cel += KROK_CELU_S
         podzial = [_upakuj(wycena, cel) for wycena in wyceny]
     zadania = []
+    udzialy: dict[str, dict[str, list[tuple[str, ...]]]] = {}
     for wycena, tor in zip(wyceny, podzial, strict=True):
+        for jednostka in sorted((j for jednostki in tor for j in jednostki if j.testy), key=lambda j: _udzial(j.klucz)):
+            udzialy.setdefault(wycena.tor.nazwa, {}).setdefault(jednostka.klucz.partition("#")[0].removeprefix("pytest:"), []).append(jednostka.testy)
         for numer, jednostki in enumerate(tor, start=1):
             zadania.append(
                 Zadanie(
@@ -389,7 +412,14 @@ def rozplanuj(wyceny: Sequence[Wycena], zdarzenie: str, runy: tuple[int, ...] = 
                     przegladarka=any(j.klucz.partition("#")[0] in wycena.przegladarka for j in jednostki),
                 )
             )
-    return Plan(zdarzenie, cel, runy, tuple(zadania), bledy)
+    return Plan(zdarzenie, cel, runy, tuple(zadania), bledy, {tor: {plik: tuple(testy) for plik, testy in pliki.items()} for tor, pliki in udzialy.items()})
+
+
+def _udzial(klucz: str) -> tuple[str, int]:
+    """``pytest:<plik>#k/n`` → (``pytest:<plik>``, k)."""
+
+    nazwa, _, udzial = klucz.partition("#")
+    return nazwa, int(udzial.partition("/")[0])
 
 
 def _git(*argumenty: str) -> str:
@@ -448,8 +478,8 @@ def _plan(args: argparse.Namespace) -> int:
 # --- wykonanie ---
 
 
-def _pytest(pliki: Mapping[str, list[tuple[int, int]]]) -> tuple[str, ...]:
-    czesci = {plik: {"n": udzialy[0][1], "udzialy": sorted(k for k, _ in udzialy)} for plik, udzialy in pliki.items() if udzialy}
+def _pytest(pliki: Mapping[str, list[tuple[int, int]]], testy: Mapping[str, Sequence[Sequence[str]]]) -> tuple[str, ...]:
+    czesci = {plik: {"n": udzialy[0][1], "udzialy": sorted(k for k, _ in udzialy), "testy": testy.get(plik, [])} for plik, udzialy in pliki.items() if udzialy}
     CZESCI.parent.mkdir(parents=True, exist_ok=True)
     CZESCI.write_text(json.dumps(czesci, indent=1), encoding="utf-8")
     # Bez '=' w argumentach: shim py (cmd) dzieli argument na '='.
@@ -507,7 +537,7 @@ def _krok_pytest(plan: Plan, zadanie: Zadanie, pliki: Mapping[str, list[tuple[in
     """Pytest zadania; na pull request po porażce raz same testy, które padły. Potem wynik testów z kwarantanny."""
 
     start = time.monotonic()
-    status = _uruchom("krok:pytest", [(_pytest(pliki), None)])["status"]
+    status = _uruchom("krok:pytest", [(_pytest(pliki, plan.udzialy.get(zadanie.tor, {})), None)])["status"]
     if status != "ok" and plan.zdarzenie == "pull_request" and (testy := niestabilne_testy.padniete(JUNIT)):
         if len(testy) > PONOWIENIE_NAJWIECEJ:
             print(f"PONOWIENIE | bez ponowienia: padło {len(testy)} testów, a flak to najwyżej {PONOWIENIE_NAJWIECEJ}", flush=True)

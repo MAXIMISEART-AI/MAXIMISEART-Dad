@@ -6,7 +6,7 @@ Zapis zadania. Zadania ``pytest`` i ``mutations`` kończą się poleceniem ``zad
     {"wersja": 1, "run": 40259456807, "proba": 1, "szablon": "pytest", "zadanie": "pytest (Python 3.14, 1/4)",
      "tor": "windows-3.14", "zdarzenie": "push", "sha": "31bb7651...", "narzut_s": 17.0,
      "jednostki": [{"klucz": "pytest:tests/test_adr.py", "s": 0.412, "status": "ok"}, ...], "bledy": [],
-     "plan": "9f2c...", "zadanie_planu": "windows-3.14-1"}
+     "plan": "9f2c...", "zadanie_planu": "windows-3.14-1", "testy": {"tests/test_adr.py::test_numer": 0.012, ...}}
 
 Tor to system runnera i jego Python (``windows-3.11``, ``windows-3.14``, ``linux-3.14``). Klucz jednostki nie zależy od
 podziału na zadania, więc para tor i klucz wskazuje tę samą pracę w każdym runie:
@@ -20,7 +20,9 @@ podziału na zadania, więc para tor i klucz wskazuje tę samą pracę w każdym
     skill:<skill>/ci         podstawa skilla w zadaniu Mutation checks
     skill:<skill>/<skrypt>   skrypt mutacji skilla; jego części z różnych zadań runu dają kilka obserwacji klucza
 
-Status jednostki to ``ok`` albo ``fail``; pominięty krok i pominięty skrypt nie są jednostką. Czasy kroków i start zadania
+``testy`` to czas każdego testu z junit (setup + call + teardown) pod jego id pytest (``niestabilne_testy.id_z_junit``):
+z nich plan dzieli długi plik na udziały o równym czasie. Status jednostki to ``ok`` albo ``fail``; pominięty krok i
+pominięty skrypt nie są jednostką. Czasy kroków i start zadania
 podaje API zadań runu (``$GITHUB_API_URL/repos/<repo>/actions/runs/<run>/attempts/<próba>/jobs``, token z ``GH_TOKEN``,
 z dokładnością do sekundy), w którym zadanie znajduje się po nazwie swojego runnera. Narzut to sekundy od startu zadania do startu pierwszego kroku jednostki.
 Krok jednostki, który właśnie się skończył, API pokazuje przez chwilę bez wyniku (``conclusion: null``), więc zadanie
@@ -33,9 +35,11 @@ Scalenie. Na pushu do main ``Required CI status`` pobiera zapisy runu i poleceni
 
     {"wersja": 1, "runy": [{"run": 40259456807, "proba": 1, "sha": "31bb7651...", "zdarzenie": "push"}],
      "tory": {"windows-3.14": {"narzut:pytest": [{"run": 40259456807, "proba": 1, "zadanie": "...", "s": 17.0, "status": "ok"}],
-                               "pytest:tests/test_adr.py": [...]}}}
+                               "pytest:tests/test_adr.py": [...]}},
+     "testy": {"windows-3.14": {"tests/test_adr.py": {"test_numer": 0.012, "TestK::test_y[1]": 0.3}}}}
 
-Obserwacje klucza idą po runie, próbie i zadaniu, więc te same zapisy dają ten sam plik bajt w bajt.
+Obserwacje klucza idą po runie, próbie i zadaniu, więc te same zapisy dają ten sam plik bajt w bajt. Czas testu w
+``testy`` jest z ostatniej próby zadania, w którym test biegł, a klucz pod plikiem to id testu bez ``<plik>::``.
 
 Wejście, którego brakuje albo którego nie da się odczytać, daje linię ``CZASY CI FAIL | ...`` i kod 1, a zapis powstaje
 z reszty. Pomiar nie zmienia werdyktu CI: jego kroki w ``ci.yml`` mają ``continue-on-error``.
@@ -44,7 +48,7 @@ Odczyt. ``z_mainu`` daje ``Czasy`` z artefaktów ``czasy-ci`` ostatnich ``ILE_RU
 (``gh``, w CI z ``GH_TOKEN``), które trzyma w katalogu: plan CI w świeżym katalogu runu, ``tools/szybko.py`` w
 ``.git/czasy-ci`` wspólnym dla worktree, odświeżanym co ``ODSWIEZ_S``. Bez sieci, bez ``gh`` i bez artefaktu
 ``Czasy`` są puste, a ``blad`` mówi dlaczego: czytający waży wtedy pracę domyślnie, zamiast padać. Obserwacje
-zadania z kilku prób runu liczą się z ostatniej.
+zadania z kilku prób runu liczą się z ostatniej. Czas testu to mediana po runach, w których biegł.
 
     python tools/czasy_ci.py zadanie --tor Windows-3.14.0 --junit junit.xml --wykonanie wykonanie.json --wyjscie zapis.json
     python3 tools/czasy_ci.py scal --katalog zapisy --wyjscie czasy-ci.json
@@ -55,7 +59,7 @@ from __future__ import annotations
 import argparse
 from collections import defaultdict
 from collections.abc import Mapping
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from datetime import datetime
 import json
 import os
@@ -67,6 +71,8 @@ import time
 from typing import Any, Literal
 import urllib.request
 from xml.etree import ElementTree
+
+import niestabilne_testy
 
 WERSJA = 1
 # Krok zadania, który właśnie się skończył, API pokazuje przez około sekundę bez wyniku (conclusion: null).
@@ -105,6 +111,7 @@ class Zapis:
     bledy: tuple[str, ...]
     plan: str | None = None  # digest planu, z którego zadanie biegło (tools/plan_ci.py)
     zadanie_planu: str | None = None
+    testy: Mapping[str, float] = field(default_factory=dict)  # id testu -> czas z junit
 
 
 @dataclass(frozen=True)
@@ -121,6 +128,7 @@ class Czasy:
     runy: tuple[int, ...]
     tory: Mapping[str, Mapping[str, tuple[Obserwacja, ...]]]
     blad: str | None = None
+    testy: Mapping[str, Mapping[str, Mapping[str, tuple[float, ...]]]] = field(default_factory=dict)  # tor -> plik -> id testu -> czas w każdym runie
 
     def praca(self, tor: str, klucz: str) -> float | None:
         """Mediana po runach sumy klucza w runie: plik testów podzielony między zadania liczy się raz, cały."""
@@ -134,6 +142,11 @@ class Czasy:
         """Koszt każdego zmierzonego pliku testów toru: ``praca`` jego klucza ``pytest:``."""
 
         return {klucz.removeprefix("pytest:"): s for klucz in self.tory.get(tor, {}) if klucz.startswith("pytest:") and (s := self.praca(tor, klucz)) is not None}
+
+    def czasy_testow(self, tor: str, plik: str) -> dict[str, float]:
+        """Mediana po runach czasu każdego zmierzonego testu pliku: id testu -> sekundy."""
+
+        return {test: statistics.median(czasy) for test, czasy in self.testy.get(tor, {}).get(plik, {}).items()}
 
     def zadania(self, tor: str) -> list[dict[str, float]]:
         """Pomiary każdego zadania toru w każdym runie: klucz -> sekundy."""
@@ -152,12 +165,15 @@ def _tor(runner: str) -> str:
     return f"{system}-{'.'.join(wersja.split('.')[:2])}"
 
 
-def _junit(plik: Path) -> list[Jednostka]:
+def _junit(plik: Path) -> tuple[list[Jednostka], dict[str, float]]:
+    """Jednostka każdego pliku testów i czas każdego testu, który ma id (błąd importu pliku go nie ma)."""
+
     try:
         korzen = ElementTree.parse(plik).getroot()
     except ElementTree.ParseError as error:
         raise ValueError(f"to nie jest XML ({error})") from None
     sekundy: dict[str, float] = defaultdict(float)
+    testy: dict[str, float] = {}
     porazki = set()
     for test in korzen.iter("testcase"):
         nazwa, czas = test.get("file"), test.get("time")
@@ -165,11 +181,13 @@ def _junit(plik: Path) -> list[Jednostka]:
             raise ValueError(f"test {test.get('name')} bez atrybutu file albo time (pytest bez junit_family = xunit1)")
         nazwa = nazwa.replace("\\", "/")
         sekundy[nazwa] += float(czas)
+        if (id_testu := niestabilne_testy.id_z_junit(test)) is not None:
+            testy[id_testu] = round(float(czas), 3)
         if test.find("failure") is not None or test.find("error") is not None:
             porazki.add(nazwa)
     if not sekundy:
         raise ValueError("brak testów")
-    return [Jednostka(f"pytest:{nazwa}", round(s, 3), "fail" if nazwa in porazki else "ok") for nazwa, s in sorted(sekundy.items())]
+    return [Jednostka(f"pytest:{nazwa}", round(s, 3), "fail" if nazwa in porazki else "ok") for nazwa, s in sorted(sekundy.items())], testy
 
 
 def _wykonanie(plik: Path) -> tuple[str, str, list[Jednostka]]:
@@ -232,9 +250,11 @@ def _zadanie(args: argparse.Namespace) -> int:
         jednostki += kroki
     except (OSError, ValueError, KeyError, TypeError) as error:
         bledy.append(f"API zadań runu: {error!r}")
+    testy: dict[str, float] = {}
     if args.junit:
         try:
-            jednostki += _junit(args.junit)
+            z_junit, testy = _junit(args.junit)
+            jednostki += z_junit
         except (OSError, ValueError) as error:
             bledy.append(f"{args.junit.name}: {error!r}")
     plan = zadanie_planu = None
@@ -257,6 +277,7 @@ def _zadanie(args: argparse.Namespace) -> int:
         bledy=tuple(bledy),
         plan=plan,
         zadanie_planu=zadanie_planu,
+        testy=testy,
     )
     args.wyjscie.parent.mkdir(parents=True, exist_ok=True)
     args.wyjscie.write_text(json.dumps({"wersja": WERSJA, **asdict(zapis)}, indent=1), encoding="utf-8")
@@ -277,6 +298,7 @@ def _scal(args: argparse.Namespace) -> int:
     bledy = []
     tory: dict[str, dict[str, list[dict[str, object]]]] = defaultdict(lambda: defaultdict(list))
     runy = set()
+    z_testami: dict[tuple[str, int, str], Zapis] = {}
     pliki = list(args.katalog.rglob("*.json"))
     for plik in pliki:
         try:
@@ -289,6 +311,14 @@ def _scal(args: argparse.Namespace) -> int:
         for jednostka in (*zapis.jednostki, *narzut):
             obserwacja = {"run": zapis.run, "proba": zapis.proba, "zadanie": zapis.zadanie, "s": jednostka.s, "status": jednostka.status}
             tory[zapis.tor][jednostka.klucz].append(obserwacja)
+        miejsce = (zapis.tor, zapis.run, zapis.zadanie)
+        if zapis.testy and (miejsce not in z_testami or zapis.proba > z_testami[miejsce].proba):
+            z_testami[miejsce] = zapis
+    testy: dict[str, dict[str, dict[str, float]]] = defaultdict(lambda: defaultdict(dict))
+    for zapis in z_testami.values():
+        for test, s in zapis.testy.items():
+            plik, _, reszta = test.partition("::")
+            testy[zapis.tor][plik][reszta] = s
     if not pliki:
         bledy.append(f"brak zapisów zadań w {args.katalog}")
     for blad in bledy:
@@ -302,11 +332,13 @@ def _scal(args: argparse.Namespace) -> int:
             tor: {klucz: sorted(obserwacje, key=lambda o: (o["run"], o["proba"], o["zadanie"])) for klucz, obserwacje in sorted(klucze.items())}
             for tor, klucze in sorted(tory.items())
         },
+        "testy": {tor: {plik: dict(sorted(czasy.items())) for plik, czasy in sorted(pliki_toru.items())} for tor, pliki_toru in sorted(testy.items())},
     }
     args.wyjscie.write_text(json.dumps(czasy, indent=1), encoding="utf-8")
     for tor, klucze in sorted(tory.items()):
         pliki_testow = sum(klucz.startswith("pytest:") for klucz in klucze)
-        print(f"CZASY CI | {tor} | {len(klucze)} kluczy, w tym {pliki_testow} plików testów")
+        liczba_testow = sum(map(len, testy.get(tor, {}).values()))
+        print(f"CZASY CI | {tor} | {len(klucze)} kluczy, w tym {pliki_testow} plików testów | {liczba_testow} testów")
     print(f"CZASY CI SCALONE | {len(pliki) - len(bledy)} zapisów zadań | {args.wyjscie.name}")
     return 1 if bledy else 0
 
@@ -350,6 +382,19 @@ def _obserwacje(dokumenty: list[dict[str, Any]]) -> dict[str, dict[str, tuple[Ob
     return tory
 
 
+def _testy(dokumenty: list[dict[str, Any]]) -> dict[str, dict[str, dict[str, tuple[float, ...]]]]:
+    """Czas każdego testu z każdego runu; artefakt sprzed czasów testów ich nie ma."""
+
+    testy: dict[str, dict[str, dict[str, tuple[float, ...]]]] = {}
+    for dokument in dokumenty:
+        for tor, pliki in dokument.get("testy", {}).items():
+            for plik, czasy in pliki.items():
+                w_pliku = testy.setdefault(tor, {}).setdefault(plik, {})
+                for reszta, s in czasy.items():
+                    w_pliku[f"{plik}::{reszta}"] = (*w_pliku.get(f"{plik}::{reszta}", ()), float(s))
+    return testy
+
+
 def z_mainu(katalog: Path, *, odswiez_po_s: float = 0) -> Czasy:
     """``Czasy`` z artefaktów w ``katalog``, który najpierw odświeża z GitHuba, gdy ostatnie udane pobranie jest starsze
     niż ``odswiez_po_s``. Błąd sieci, ``gh`` albo pliku nie przerywa: ``Czasy`` mają wtedy to, co się dało, i ``blad``,
@@ -373,11 +418,12 @@ def z_mainu(katalog: Path, *, odswiez_po_s: float = 0) -> Czasy:
     try:
         tory = _obserwacje(dokumenty)
         runy = tuple(sorted({run["run"] for dokument in dokumenty for run in dokument["runy"]}))
+        testy = _testy(dokumenty)
     except (KeyError, TypeError, ValueError, AttributeError) as error:
         return Czasy((), {}, f"{ARTEFAKT} w innym kształcie: {error!r}")
     if not dokumenty and blad is None:
         blad = f"brak artefaktu {ARTEFAKT} z zielonego runu main"
-    return Czasy(runy, tory, blad)
+    return Czasy(runy, tory, blad, testy)
 
 
 def main(argv: list[str] | None = None) -> int:

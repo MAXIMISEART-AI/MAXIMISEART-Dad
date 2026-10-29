@@ -68,7 +68,7 @@ def _tool(root: Path) -> list[str]:
     """Kopia narzędzia w ``root``; kopii, która już jest, nie nadpisuje, bo test może ją zmieniać."""
 
     (root / "tools").mkdir(exist_ok=True)
-    for name in (TOOL.name, "potomne.py", "ciezkie_ci.py", "mutacje.py", "sciezki_w_kodzie.py", "szybko.py", "ci_lokalnie.py", "czasy_ci.py"):
+    for name in (TOOL.name, "potomne.py", "ciezkie_ci.py", "mutacje.py", "sciezki_w_kodzie.py", "szybko.py", "ci_lokalnie.py", "czasy_ci.py", "niestabilne_testy.py"):
         if not (root / "tools" / name).exists():
             shutil.copy(TOOLS / name, root / "tools" / name)
     return [sys.executable, str(root / "tools" / TOOL.name)]

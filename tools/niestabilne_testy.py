@@ -139,7 +139,7 @@ def stan_kwarantanny(zapisy: Iterable[ZapisKwarantanny]) -> StanKwarantanny:
     return "przeszła"
 
 
-def _id(test: ElementTree.Element) -> str | None:
+def id_z_junit(test: ElementTree.Element) -> str | None:
     plik = (test.get("file") or "").replace("\\", "/")
     modul = plik.removesuffix(".py").replace("/", ".")
     klasy, nazwa = test.get("classname", ""), test.get("name")
@@ -149,7 +149,7 @@ def _id(test: ElementTree.Element) -> str | None:
 
 
 def _testy(junit: Path) -> list[tuple[str | None, ElementTree.Element]]:
-    return [(_id(test), test) for test in ElementTree.parse(junit).getroot().iter("testcase")]
+    return [(id_z_junit(test), test) for test in ElementTree.parse(junit).getroot().iter("testcase")]
 
 
 def _wynik(test: ElementTree.Element) -> Wynik:
@@ -187,7 +187,7 @@ def po_ponowieniu(junit: Path, ponowienie: Path, testy: Sequence[str]) -> bool:
         return False
     drzewo = ElementTree.parse(junit)
     for test in drzewo.getroot().iter("testcase"):
-        if _id(test) in testy:
+        if id_z_junit(test) in testy:
             for porazka in [*test.findall("failure"), *test.findall("error")]:
                 test.remove(porazka)
     drzewo.write(junit, encoding="utf-8", xml_declaration=True)

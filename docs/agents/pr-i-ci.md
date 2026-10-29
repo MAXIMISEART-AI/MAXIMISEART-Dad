@@ -45,6 +45,7 @@ Dlaczego PR dostaje mniej sprawdzeń niż `main`, mówi [ADR 0020](../adr/0020-c
 ## Plan runu, zadania pytest i Mutation checks
 
 - Ile zadań pytest startuje na każdym torze i które pliki testów (albo udziały długiego pliku) bierze każde, ustala zadanie `Plan CI` (`tools/plan_ci.py`) z czasów ostatnich zielonych runów `main`, a E2E i straż czasu dokłada do zadań Windows.
+- Udział długiego pliku bierze testy, które plan rozdzielił po ich czasach z `czasy-ci` (pole `udzialy` w artefakcie `plan`), a test, którego plan nie znał, według crc32 jego id.
 - Plan dzieli kroki skilli (podstawę `ci:` i każdy skrypt `check_*_mutations.py`) między zadania Mutation checks w tym samym limicie zadań runu i z tym samym celem ściany co pytest, a skrypt mutacji dłuższy niż zadanie dzieli na części, najwyżej po jednej na mutację.
 - Podstawy `ci:` plan nie dzieli, więc linia każdego toru w planie nazywa najdłuższą jednostkę po podziale, poniżej której ściana zadania nie zejdzie.
 - Chromium instaluje tylko zadanie Mutation checks z krokiem skilla, którego skrypty importują Playwright.
