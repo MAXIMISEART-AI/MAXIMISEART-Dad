@@ -22,8 +22,11 @@ server's answer and the files on disk.
 CI runs `run_centrum_verification.py --feature all` (the `ci:` key) in Mutation checks on Windows whenever a change
 touches this skill, in up to `ci-czesci` parts: part k of n (`MUTACJE_CZESC=k/n`) drives the k-th of n consecutive runs of
 the order of `all` (`FEATURES` in `scripts/drive/__init__.py`) on its own fixture and Centrum, so a feature must also pass
-right after the fixture or after any earlier feature of that order. A red run leaves its evidence in the
-`evidence-<job id>-<attempt>` artifact (e.g. `evidence-mutacje-2-1`), and its job name in the plan says which part.
+right after the fixture or after any earlier feature of that order: a feature that needs an earlier feature's state
+drives that feature itself when the state is missing (`powiadomienia` drives `zgloszenie` and `uwaga-taty`). A pull
+request runs the parts of one n, and the night on `main` runs every part of every n up to `ci-czesci` after a change that
+picks this check on a pull request. A red run leaves its evidence in the `evidence-<job id>-<attempt>` artifact (e.g.
+`evidence-mutacje-2-1`), and its job name in the plan says which part.
 The `check_centrum_<feature>_mutations.py` scripts run in full CI on `main` and nightly on `main` (`mutacje-nocne.yml`)
 after a change of this skill's folder. Run `all` and the mutations locally only to reproduce a red Mutation checks step
 or the night's issue. What stays with you: drive the feature you change, as a background

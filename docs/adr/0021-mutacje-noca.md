@@ -34,6 +34,9 @@ Luka w teście nie jest defektem, który trafi do taty: ten zatrzymuje Wydanie z
   Ta sama noc uruchamia skrypty skilli, których folder, runner mutacji albo sprawdzenie zmieniło się od jej bazy, w zadaniach planu `tools/plan_ci.py plan --zdarzenie noc`, a pełne CI `main` dalej uruchamia każdy skrypt.
   Skrypt, który padł, trafia linią `SKRYPT <skrypt>` do issue `Przeżyte mutacje skilli z #N` z etykietą `ready-for-agent` PR-u, który ostatni zmienił folder skilla, bez powtórzeń; zadanie bez zapisu czerwieni przebieg.
   `tools/skille_dla_zmiany.py` wymienia te skrypty w linii `LICZY NOC`, więc agent nie uruchamia ich przed pushem.
+- Podstawa z `ci-czesci:` biegnie na PR w częściach jednego n, które plan wybiera z celu ściany, więc ta sama noc, przy zmianie, która wybrałaby ją na PR, uruchamia każdą część każdego n od 1 do `ci-czesci`.
+  Część, która pada tylko przy innym n (na przykład część zaczynająca się od funkcji, która potrzebuje stanu wcześniejszej), wychodzi tak w nocy, a nie dopiero na PR, którego cel ściany zmieni n.
+  Pełne CI `main` uruchamia podstawę raz, w częściach z planu: wszystkie części każdego n przy każdym pushu `main` kosztowałyby ok. 55 min runnera Windows na merge.
 
 ## Konsekwencje
 

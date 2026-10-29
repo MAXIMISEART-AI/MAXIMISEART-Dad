@@ -30,12 +30,14 @@ Dlaczego PR dostaje mniej sprawdzeń niż `main`, mówi [ADR 0020](../adr/0020-c
 
 - Biegną raz na dobę (workflow `mutacje-nocne.yml`, ADR 0021) na `main`, na liniach plików `src/**/*.py` i `tools/**/*.py` zmienionych od commitu ostatniego udanego przebiegu, a bez niego od 24 h wstecz.
   W tym samym przebiegu biegną skrypty mutacji skilli, których folder, runner mutacji albo sprawdzenie zmieniło się od tej bazy, w zadaniach z planu `tools/plan_ci.py plan --zdarzenie noc`.
+  Biegnie w nim też każda część każdego n od 1 do `ci-czesci` podstawy z `ci-czesci:`, którą zmiana od bazy wybrałaby na pull request, bo pull request uruchamia jej części tylko jednego n.
   Ręczne uruchomienie workflow przyjmuje `od`, czyli commit, od którego liczyć zmiany.
 - `tools/mutacje_nocne.py` dzieli mutacje na części po najwyżej 25, więc każda trwa ok. 10–15 min.
   Bazę i liczbę części drukuje bez testów `.venv/bin/python tools/mutacje_nocne.py plan`.
 - Każdą przeżytą mutację ostatnie zadanie przypisuje PR-owi, który ostatni zmienił zmienione linie, które ona psuje, i dopisuje linią `MUTACJA <plik>:<linia> <opis> | klucz <klucz>` do issue `Przeżyte mutacje z #N` z etykietą `ready-for-agent`.
   Klucz nie ma numerów linii, więc mutacja nie trafia do issue drugi raz, także gdy następny PR przesunie jej linie.
 - Skrypt mutacji skilla, który padł, ostatnie zadanie dopisuje linią `SKRYPT <skrypt>` do issue `Przeżyte mutacje skilli z #N` PR-u, który ostatni zmienił folder skilla od bazy, tak samo bez powtórzeń.
+  Część podstawy, która padła, trafia tam linią `SKRYPT <skrypt z ci:>`, a bez zmiany folderu skilla do PR-u, który ostatni zmienił jego `pilnuje:`.
 - Issue naprawiasz testem, który zabija mutację (dowód z `tools/mutacje.py`), albo linią `MUTACJA <plik>:<linia> <opis> | nie warto, bo <powód>`, a potem je zamykasz.
   Issue skryptu skilla naprawiasz poprawką sprawdzenia skilla albo tabeli mutacji, albo linią `SKRYPT <skrypt> | nie warto, bo <powód>`.
 - Ani `Required CI status`, ani `tools/scal_pr.py` na mutacje nie czekają.

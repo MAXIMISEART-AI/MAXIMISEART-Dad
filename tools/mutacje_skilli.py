@@ -34,6 +34,9 @@ i jego argumenty), którym CI sprawdza skill na niezmienionym kodzie. Runner uru
 skrypt mutacji i tak uruchamia bez mutacji (podstawa ``check_all``), nie biegnie drugi raz. Podstawa przechodzi z kodem 0.
 Klucz ``ci-czesci: <n>`` mówi, że polecenie ``ci:`` dzieli się na najwyżej n części, które plan CI uruchamia jak części
 skryptu mutacji, z ``MUTACJE_CZESC=k/n`` (``tools/skrypt_skilla.py``, ``part``); bez klucza podstawa jest niepodzielna.
+Na pull request biegną części jednego n, więc taką podstawę wybiera też noc (``--noc``), przy tej samej zmianie co pull
+request, a jej plan uruchamia każdą część każdego n od 1 do ``ci-czesci``: część, która pada tylko przy innym n, wychodzi
+w nocy, zanim plan pull requestu po zmianie celu ściany wybierze to n.
 
     py -3 tools/mutacje_skilli.py                  # Windows
     .venv/bin/python tools/mutacje_skilli.py       # macOS i Linux
@@ -321,13 +324,14 @@ def watched(step: Step) -> tuple[str, ...]:
 
 
 def _why_run(step: Step, changed: frozenset[str], night: bool) -> tuple[bool, str]:
-    """Czy krok biegnie przy zmianie ``changed``, i dlaczego: na pull request podstawa, nocą (``night``) skrypt mutacji.
+    """Czy krok biegnie przy zmianie ``changed``, i dlaczego: na pull request podstawa, nocą (``night``) skrypt mutacji
+    i podstawa z ``ci-czesci``, której plan CI daje nocą każdą część każdej liczby części.
 
     Podstawa biegnie przy trafieniu w ``pilnuje`` albo w folder skilla, skrypt mutacji przy zmianie ścieżki z
     ``watched``. Zmiana ``INFRASTRUCTURE`` uruchamia każdy krok swojego rodzaju.
     """
 
-    if night == (step.verdict is None):
+    if night == (step.verdict is None) and not (night and step.parts > 1):
         return False, ON_PULL_REQUEST if night else NIGHTLY
     found = hits(step.skill, changed)
     if found.always:
