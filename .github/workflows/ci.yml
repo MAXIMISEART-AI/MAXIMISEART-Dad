@@ -227,13 +227,13 @@ jobs:
         id: units
         run: python tools/plan_ci.py wykonaj --plan .ci-plan/plan.json --zadanie ${{ matrix.id }}
 
-      # Tests that passed only on their retry; the workflow zgloszenia.yml files an issue "Flak: <test>" for each.
+      # Tests that passed only on their retry; the workflow zgloszenia.yml files an issue "Flaky test: <test>" for each.
       - name: Upload the flaky tests
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v7
         with:
-          name: flaki-${{ matrix.id }}-${{ github.run_attempt }}
-          path: .ci-niestabilne/flaki.json
+          name: flaky-testy-${{ matrix.id }}-${{ github.run_attempt }}
+          path: .ci-niestabilne/flaky-testy.json
           retention-days: 7
           if-no-files-found: ignore
           include-hidden-files: true

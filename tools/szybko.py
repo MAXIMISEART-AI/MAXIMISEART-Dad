@@ -96,6 +96,7 @@ STRUCTURE = (
     "tests/test_skille_dla_zmiany.py::test_skill_nie_kaze_uruchamiac_przed_pushem_tego_co_liczy_ci",
     "tests/test_skille_dla_zmiany.py::test_skill_z_poleceniami_w_ci_mowi_co_liczy_ci_a_co_zostaje_lokalnie",
     "tests/test_skrypty_bez_instalacji.py",
+    "tests/test_slowo_flaky_test.py",
     "tests/test_struktura_testow.py",
     "tests/test_systemowy_python.py",
     "tests/test_uszkodzone_wejscia.py::test_macierz_obejmuje_kazda_operacje_kontraktu_centrum",

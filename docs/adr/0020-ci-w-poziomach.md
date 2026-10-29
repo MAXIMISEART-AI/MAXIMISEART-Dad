@@ -18,7 +18,7 @@ Od 25.10 15:00 do 26.10 42% tego czasu to była kolejka, bo konto ma limit 20 za
 Wartość ciężkich zadań do 26.10 wyglądała tak:
 
 - Change mutations w 2,5 dnia od wprowadzenia zużyło 113 runner-godzin i nie złapało żadnego defektu produktu, którego nie złapał pytest w tym samym runie; dało 35 luk w testach.
-- Mutation checks jako osobne zadanie w 5 dni zużyło 222 runner-godziny, złapało 1 unikalny defekt (#438), a 88% jego porażek to flaki, infrastruktura albo błąd samego sprawdzenia.
+- Mutation checks jako osobne zadanie w 5 dni zużyło 222 runner-godziny, złapało 1 unikalny defekt (#438), a 88% jego porażek to flaky testy, infrastruktura albo błąd samego sprawdzenia.
 - Tor Windows 3.11 w 28 dniach sam złapał 2 defekty importu na Pythonie 3.11 (#282, #285).
 
 ## Decyzja
