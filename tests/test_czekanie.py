@@ -74,6 +74,10 @@ CI_LOOPS = (
     "/bin/bash --noprofile --norc -o pipefail -c 'until ! gh pr checks 1 | grep -q pending; do sleep 30; done'",
     "bash -ce 'until ! gh pr checks 1 | grep -q pending; do sleep 30; done'",
     "fish -c 'while true; sleep 30; gh pr checks 1; end'",
+    # Słowa przed ``-c`` mogą być dowolne, więc ``-c`` za nazwą skryptu też dostaje odmowę (fałszywą, ale tańszą).
+    "bash skrypt.sh -c 'until ! gh pr checks 1 | grep -q pending; do sleep 30; done'",
+    # Powłoka tuż za separatorem albo nawiasem.
+    "cd x;bash -c 'until ! gh pr checks 1 | grep -q pending; do sleep 30; done'",
     "for i in $(seq 20); do gh pr checks 1 | grep -c pending; sleep 30; done",
     "until [ $(for n in 1 2; do gh pr checks $n; done | grep -c pending) = 0 ]; do sleep 30; done",
     # Wyjście z pętli przez ``exit`` i ``return`` zamiast ``break``.
@@ -93,6 +97,10 @@ CI_LOOPS = (
     "until ! gh pr checks 446 | grep -q pending; do sleep 30; done | (cat & wait)",
     "until ! gh pr checks 446 | grep -q pending; do sleep 30; done | { tee ci.log & wait; }",
     "until ! gh pr checks 446 | grep -q pending; do sleep 30; done | tee >(cat &)",
+    # ``{`` bez zamknięcia jest argumentem, więc ``&`` na końcu nie puszcza w tło pętli za ``;``.
+    "echo { a; until ! gh pr checks 446 | grep -q pending; do sleep 30; done; echo koniec &",
+    # ``\&`` to znak, a nie tło.
+    "until ! gh pr checks 446 | grep -q pending; do sleep 30; done | sed s/a/\\&/",
 )
 WATCHES = (
     "timeout 1500 gh pr checks 215 --watch > .audit/swarm-215/lane1-pr-checks.txt 2>&1; echo exit=$?",
@@ -200,8 +208,9 @@ PASSING = (
     'grep -E "^(until)$" tools/hooks/czekanie.py; sleep 1; gh pr checks 446',
     # ``-c`` innego polecenia niż powłoka to nie skrypt: ``grep -c`` liczy wiersze z tym tekstem.
     "grep -c 'until ! gh pr checks 1 | grep -q pending; do sleep 30; done' ~/.t3/notes/czekanie.log",
-    # ``-c`` za nazwą skryptu to jego argument.
-    "bash skrypt.sh -c 'until ! gh pr checks 1 | grep -q pending; do sleep 30; done'",
+    # Bez ``-c`` powłoka dostaje w napisie nazwę pliku skryptu albo jego argument.
+    "sh -e 'until ! gh pr checks 1 | grep -q pending; do sleep 30; done'",
+    "bash backup.sh 'until ! gh pr checks 1 | grep -q pending; do sleep 30; done'",
 )
 
 

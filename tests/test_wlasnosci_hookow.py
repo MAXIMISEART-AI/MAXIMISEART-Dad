@@ -23,6 +23,7 @@ import json
 from pathlib import Path
 import shlex
 import shutil
+import string
 import subprocess
 import sys
 from types import ModuleType
@@ -241,27 +242,69 @@ WRAPPERS: tuple[Callable[[str], str], ...] = (
     lambda member: f"timeout 600 sh -c {_single_quoted(member)}",
 )
 CONNECTORS = ("; ", " && ", " || ", " | ", "\n", "\n  ")
-SHELLS = ("sh", "bash", "zsh", "dash", "ksh", "mksh", "fish", "tcsh", "/bin/sh", "/usr/bin/env bash", "timeout 600 bash")
-# Opcje powłoki przed ``-c``; jednoliterowa może się złączyć z ``-c`` (``-lc``, ``-cl``).
-SHELL_OPTIONS = ("-l", "-e", "-x", "-i", "--login", "--noprofile", "-o pipefail", "+o history")
-SU = ("su", "su -", "su - x", "su -l x", "su x", "runuser -l x")
+# Polecenia, które według docstringu hooka uruchamiają argument ``-c`` jako skrypt powłoki, także przez inne polecenie.
+SCRIPT_RUNNERS = (
+    "sh",
+    "bash",
+    "zsh",
+    "dash",
+    "ksh",
+    "fish",
+    "tcsh",
+    "/bin/sh",
+    "/opt/homebrew/bin/bash",
+    "/usr/bin/env bash",
+    "timeout 600 bash",
+    "sudo -u x bash",
+    "xargs -I{} sh",
+    "su",
+    "runuser",
+    "flock /tmp/blokada",
+    "script -q",
+    '"$SHELL"',
+    '"/bin/bash"',
+)
+# Słowa przed ``-c`` biorą się z ogólnej składni opcji i argumentów, a nie z listy, którą zna hook: w rundach 1 i 2
+# #636 własność losowała opcje z listy wzorca hooka, więc nie mogła znaleźć ``bash -euo pipefail -c`` ani
+# ``su -l -s /bin/sh root -c``.
+LETTERS = st.text(alphabet=string.ascii_letters, min_size=1, max_size=4)
+LONG_NAME = st.from_regex(r"[a-z][a-z0-9-]{0,10}", fullmatch=True)
+VALUE = st.text(alphabet=string.ascii_letters + string.digits + "/._-~=:,@%+", min_size=1, max_size=12)
+WORDS = st.one_of(
+    LETTERS.map(lambda letters: f"-{letters}"),
+    LETTERS.map(lambda letters: f"+{letters}"),
+    LONG_NAME.map(lambda name: f"--{name}"),
+    st.builds(lambda name, value: f"--{name}={value}", LONG_NAME, VALUE),
+    st.builds(lambda letters, value: f"-{letters} {value}", LETTERS, VALUE),
+    VALUE,
+    st.sampled_from(
+        ("-", "--", "root", "~/.bashrc", '"moje rc"', "'a b'", "$(mktemp)", "`mktemp`", "\\;", "x\\&y")
+    ),
+    # Separator w cudzysłowie to znak, a nie koniec polecenia.
+    st.sampled_from(("'a;b'", '"x|y"', "'(c'")),
+    # Przekierowanie między słowami nie kończy polecenia.
+    st.sampled_from(("2>/dev/null", ">&2", "&>/dev/null", ">|plik", "<&0")),
+)
+SCRIPT_OPTIONS = st.builds(
+    lambda before, after: f"-{before}c{after}",
+    st.text(alphabet=string.ascii_letters, max_size=3),
+    st.text(alphabet=string.ascii_letters, max_size=3),
+)
+
+
+@st.composite
+def _script_prefix(draw: st.DrawFn) -> str:
+    """Początek ``-c`` powłoki z dowolnymi słowami przed ``-c``, jak ``bash --rcfile x -euc``."""
+
+    return " ".join([draw(st.sampled_from(SCRIPT_RUNNERS)), *draw(st.lists(WORDS, max_size=8)), draw(SCRIPT_OPTIONS)])
 
 
 @st.composite
 def _shell_script(draw: st.DrawFn) -> Callable[[str], str]:
-    """Skrypt ``-c`` powłoki albo ``su`` z opcjami przed ``-c``, jak ``bash -l -c '…'``, ``bash -lc`` i ``su - x -c``.
+    """Skrypt ``-c`` powłoki: ``main`` brał za skrypt argument każdego ``-c``, więc żadna z tych form nie przechodzi."""
 
-    ``main`` brał za skrypt powłoki argument każdego ``-c``, więc żadna z tych form nie może przejść.
-    """
-
-    if draw(st.booleans()):
-        words = [draw(st.sampled_from(SU)), "-c"]
-    else:
-        words = [draw(st.sampled_from(SHELLS)), *draw(st.lists(st.sampled_from(SHELL_OPTIONS), max_size=3)), "-c"]
-        if len(words) > 2 and len(words[-2]) == 2 and words[-2][0] == "-" and draw(st.booleans()):
-            words[-2:] = [draw(st.sampled_from((words[-2] + "c", "-c" + words[-2][1])))]
-    shell = " ".join(words)
-    return lambda member: f"{shell} {_single_quoted(member)}"
+    prefix = draw(_script_prefix())
+    return lambda member: f"{prefix} {_single_quoted(member)}"
 
 
 @st.composite
@@ -291,8 +334,8 @@ PROGRAMS = (
     "jq -n --arg opis",
     "python3 -c",
     "perl -e",
-    # ``-c`` za skryptem to jego argument, a nie opcja powłoki.
-    "bash skrypt.sh -c",
+    "jq -c",
+    "tr -c",
 )
 LOOP_WORDS = ("until", "while", "for", "do", "done", "sleep", "gh", "pgrep")
 
@@ -318,7 +361,6 @@ def _quoted_argument(text: str, quote: str) -> str:
 @example(text="while|until", program="rg -n", quote="'", after="sleep 1; gh pr checks 446")
 @example(text="(while)", program="rg -n", quote="'", after="sleep 1; gh pr checks 446")
 @example(text="x=$(until ! gh pr checks 1; do sleep 30; done)", program="echo", quote="'", after="")
-@example(text="until ! gh pr checks 1; do sleep 30; done", program="bash skrypt.sh -c", quote="'", after="")
 @given(
     text=st.one_of(_compound().map(lambda case: case.text), _pattern()),
     program=st.sampled_from(PROGRAMS),
@@ -381,7 +423,10 @@ def _redirected(draw: st.DrawFn) -> tuple[Case, Case]:
     redirections = " ".join(draw(st.lists(st.sampled_from(REDIRECTIONS), max_size=3)))
     looped = f"{loop.text()} {redirections}".rstrip()
     # ``&`` w grupie za potokiem puszcza w tło tylko tę grupę, a nie pętlę.
-    after = draw(st.sampled_from(("", "; gh pr checks 1", " && echo koniec", "\necho koniec", *GROUPS_AFTER)))
+    # ``\&`` za potokiem to znak, a nie tło.
+    after = draw(
+        st.sampled_from(("", "; gh pr checks 1", " && echo koniec", "\necho koniec", " | sed s/a/\\&/", *GROUPS_AFTER))
+    )
     in_background = draw(
         st.sampled_from(
             (
@@ -392,6 +437,7 @@ def _redirected(draw: st.DrawFn) -> tuple[Case, Case]:
                 f"{{ {looped}; echo koniec ${{n}}; }} &",
                 f"( {looped}; echo koniec ) &",
                 f"( {{ {looped}; }} & echo w tle )",
+                f"{{ {looped}; echo koniec &}} &",
                 f"{looped} | (cat; wait) &",
                 f"{looped} | tee ci-${{n}}.log &",
             )
@@ -460,6 +506,76 @@ def test_przekierowanie_za_petla_to_nie_tlo_a_pętla_puszczona_ampersandem_przec
 def test_polecenie_zlozone_dostaje_werdykt_najgorszego_czlonu(case: Case) -> None:
     assert _verdict_matches(case), case.text
     assert czekanie.judge(case.text, in_background=True) is None
+
+
+LOOP = Template("until ! gh pr checks {} | grep -q pending; do sleep 30; done", ("1",), frozenset({"ci"}))
+
+
+@PROPERTY
+# Runda 1 #636: opcja przed ``-c``.
+@example(prefix="bash -l -c", wait=LOOP)
+@example(prefix="bash -e -c", wait=LOOP)
+@example(prefix="bash --login -c", wait=LOOP)
+@example(prefix="zsh -i -c", wait=LOOP)
+@example(prefix="sh -x -c", wait=LOOP)
+@example(prefix="su -c", wait=LOOP)
+# Runda 2 #636: opcja z wartością, dłuższe ``su`` i słowa dłuższe niż dawne okno 80 znaków.
+@example(prefix="bash -euo pipefail -c", wait=LOOP)
+@example(prefix="bash -eo pipefail -c", wait=LOOP)
+@example(prefix="sh -eo pipefail -c", wait=LOOP)
+@example(prefix="bash --rcfile x -c", wait=LOOP)
+@example(prefix="bash --init-file x -c", wait=LOOP)
+@example(prefix="bash --rcfile=x -c", wait=LOOP)
+@example(prefix="bash -l --rcfile x -c", wait=LOOP)
+@example(prefix="su -l -s /bin/sh root -c", wait=LOOP)
+@example(prefix="su --login --shell /bin/zsh maks -c", wait=LOOP)
+@example(prefix="su -m -p -l root -c", wait=LOOP)
+@example(prefix="su -m -l root -c", wait=LOOP)
+@example(prefix="su - root -m -c", wait=LOOP)
+@example(prefix="bash -o pipefail -o errexit -o nounset -o noclobber -o xtrace -o verbose -o noglob -c", wait=LOOP)
+# ``$(…)`` i `` `…` `` wśród słów to osobne polecenie, po którym słowa wracają do powłoki.
+@example(prefix="bash $(echo -l) -c", wait=LOOP)
+@example(prefix="bash `echo -l` --norc -c", wait=LOOP)
+@example(prefix="bash 'a;b' --norc -c", wait=LOOP)
+@given(prefix=_script_prefix(), wait=_waits())
+def test_skrypt_c_powloki_z_dowolnymi_slowami_przed_c_to_polecenie(prefix: str, wait: Template) -> None:
+    command = f"{prefix} {_single_quoted(wait.text())}"
+
+    assert _judged(command) == wait.refusals, command
+
+
+# Separator kończy polecenie proste powłoki, a ``$(…)`` i `` `…` `` zaczynają w nim osobne.
+SEPARATORS = (
+    ("; ", ""),
+    (" && ", ""),
+    (" || ", ""),
+    (" | ", ""),
+    (" & ", ""),
+    ("\n", ""),
+    (" $(", ")"),
+    (" `", "`"),
+)
+
+
+@PROPERTY
+@example(prefix="bash -l x.sh", separator=("; ", ""), program="grep -c", wait=LOOP)
+@example(prefix="su - root", separator=(" | ", ""), program="python3 -c", wait=LOOP)
+@example(prefix="sh", separator=(" $(", ")"), program="python3 -c", wait=LOOP)
+@given(
+    prefix=st.builds(
+        lambda runner, words: " ".join([runner, *words]), st.sampled_from(SCRIPT_RUNNERS), st.lists(WORDS, max_size=6)
+    ),
+    separator=st.sampled_from(SEPARATORS),
+    program=st.sampled_from(("grep -c", "rg -c", "python3 -c", "jq -c", "tr -c", "shasum -c")),
+    wait=_waits(),
+)
+def test_powloka_za_separatorem_nie_robi_skryptu_z_argumentu_c_innego_polecenia(
+    prefix: str, separator: tuple[str, str], program: str, wait: Template
+) -> None:
+    opening, closing = separator
+    command = f"{prefix}{opening}{program} {_single_quoted(wait.text())} wyniki.log{closing}"
+
+    assert czekanie.judge(command, in_background=False) is None, command
 
 
 def _bash_4() -> str | None:

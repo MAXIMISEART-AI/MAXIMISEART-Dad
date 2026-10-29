@@ -18,8 +18,9 @@ Wszystko inne, także te polecenia z ``run_in_background``, przechodzi bez słow
 Wejście, którego nie da się odczytać, też przechodzi, bo hook nie może zatrzymać pracy.
 
 Ciała heredoców (skrypt Pythona, treść commitu) i napisy ze spacją w cudzysłowach (opis commitu, wiersz logu)
-hook pomija, bo to nie są polecenia powłoki; zostawia z nich ``$(…)`` i ciało ``-c`` powłoki, także z opcjami
-przed nim (``bash -l -c '…'``, ``bash -lc``, ``zsh -i -c``, ``su - x -c``).
+hook pomija, bo to nie są polecenia powłoki; zostawia z nich ``$(…)`` i ciało ``-c`` powłoki, ``su``, ``runuser``,
+``flock`` albo ``script`` z dowolnymi słowami przed ``-c`` (``bash -euo pipefail -c '…'``, ``bash -lc``,
+``su -l -s /bin/sh root -c``).
 
 Granica: inne harnessy niż Claude Code (Codex, opencode), pętlę w skrypcie uruchomionym z pliku, w Pythonie
 (``time.sleep``) albo z adresem ``gh api`` w cudzysłowie, czekanie na plik wyjścia zadania w tle i pętle, których
@@ -67,22 +68,29 @@ OVER_LIST = re.compile(r"(?:for|while\s+(?:IFS=\S*\s+)?read)\b")
 FOR_ARITHMETIC = re.compile(r"for\s*\(\(")
 STOPS = re.compile(r"\b(?:break|exit|return)\b(?!=)|\$\(seq\s+(?:[01]\s+)?\d+\s*\)|\{[01]\.\.\d+\}")
 # Pętla puszczona `&` (próbnik obok pomiaru, ubijany potem `kill`) nie blokuje polecenia, a `&>`, `>&2`, `2>&1`
-# i `|&` to przekierowania. `&` puszcza w tło całą listę do `;` albo nowej linii, także z `|` i `||` (`done | tee log &`),
-# a `&` za grupą `( … )` albo `{ …; }` także pętle w niej. Grupa za pętlą (`done | (cat & wait)`, `>(cat &)`) to jedno
-# polecenie listy, więc `&` w środku nie dotyczy pętli. `{` grupy ma za sobą odstęp, a `}` przed sobą, w odróżnieniu
-# od `${x}` i `{1..3}`. Bez zagnieżdżonych kwantyfikatorów, bo cofanie po `2>1 2>1 …` nie miałoby końca.
+# i `|&` to przekierowania, a `\&` to znak. `&` puszcza w tło całą listę do `;` albo nowej linii, także z `|` i `||`
+# (`done | tee log &`), a `&` za grupą `( … )` albo `{ …; }` także pętle w niej. Grupa za pętlą (`done | (cat & wait)`,
+# `>(cat &)`) to jedno polecenie listy, więc `&` w środku nie dotyczy pętli. `{` grupy ma za sobą odstęp, a `}` przed
+# sobą, w odróżnieniu od `${x}` i `{1..3}`. Bez zagnieżdżonych kwantyfikatorów, bo cofanie po `2>1 2>1 …` nie miałoby
+# końca.
 LIST_PART = re.compile(
     r"(?P<open>\(|\{(?=\s))|(?P<close>\)|(?<=[\s;&])\})"
-    r"|(?P<end>[;\n])|(?P<background>(?<![<>&|])&(?![&>]))"
+    r"|(?P<end>[;\n])|(?P<background>(?<![<>&|\\])&(?![&>]))"
 )
 HEREDOC = re.compile(r"(?<!<)<<-?\s*(['\"]?)(\w+)\1")
-# Skrypt powłoki to tylko argument `-c` powłoki: `grep -c '…'` liczy wiersze, a `python3 -c '…'` to Python. Przed
-# `-c` mogą stać opcje powłoki (`-l`, `--login`, `-o pipefail`, także złączone: `-lc`, `-ce`), a w `su` i `runuser`
-# też użytkownik; `bash skrypt.sh -c '…'` podaje tekst skryptowi. Liczba słów `su` jest ograniczona, żeby szukanie
-# było liniowe. `fish` i `csh` mają inną składnię pętli, ale pętla bez `done` sięga do końca polecenia.
-_SHELL_OPTIONS = r"(?:ba|da|k|z|mk|a|fi|c|tc)?sh(?:\s+(?:[-+][oO]\s+\w+|[-+][-\w]*))*"
-_SU_WORDS = r"(?:su|runuser)(?:\s+[^\s;&|()`]+){0,3}?"
-SHELL_ARGUMENT = re.compile(rf"(?:^|[\s/;&|(`])(?:{_SHELL_OPTIONS}|{_SU_WORDS})\s+-[a-zA-Z]*c[a-zA-Z]*\s*$")
+# Skrypt powłoki to tylko argument `-c` (także złączonego: `-lc`, `-euc`) w poleceniu prostym, w którym stoi słowo
+# powłoki, `su`, `runuser`, `flock` albo `script`: `grep -c '…'` liczy wiersze, a `python3 -c '…'` to Python. Słowa
+# między nimi mogą być dowolne (`-euo pipefail`, `--rcfile x`, `-s /bin/sh root`), więc `bash skrypt.sh -c '…'` też
+# dostaje odmowę. Polecenie proste kończą `;`, `&`, `|` i nowa linia, a `(` i lewy `` ` `` zaczynają polecenie, po
+# którym `)` i prawy `` ` `` wracają do zewnętrznego (`bash $(echo -l) -c`). `fish` i `csh` mają inną składnię pętli,
+# ale pętla bez `done` sięga do końca polecenia.
+_SHELLS = r"(?:ba|da|k|z|mk|a|fi|c|tc)?sh|su|runuser|flock|script|\$\{?(?:SHELL|BASH)\}?"
+SHELL_NAME = re.compile(rf"(?:{_SHELLS})")
+COMMAND_PART = re.compile(
+    r"\\[\s\S]|(?P<end>[;\n]|(?<![<>])&(?!>)|(?<!>)\|)|(?P<open>\()|(?P<close>\))|(?P<tick>`)"
+    rf"|(?P<shell>(?<![^\s/;&|(`])(?:{_SHELLS})(?![^\s;&|()`]))"
+)
+SCRIPT_OPTION = re.compile(r"-[a-zA-Z]+")
 
 INSTEAD = (
     "Zamiast czekać: dziecko delegate_task kończy zadanie i zwraca URL PR i pełny SHA HEAD (rodzic ma "
@@ -130,6 +138,7 @@ def _code(command: str, start: int = 0, inside_substitution: bool = False) -> tu
     """
 
     kept: list[str] = []
+    scripts = _ShellScripts(command, start)
     # Napis przyklejony do skryptu ``-c`` to jego dalszy ciąg: w ``bash -c '… perl -e '\''select(…)'\''; done'``
     # ``done`` stoi w trzecim napisie.
     depth, index, script_end = 0, start, -1
@@ -143,10 +152,11 @@ def _code(command: str, start: int = 0, inside_substitution: bool = False) -> tu
             continue
         if char in "'\"":
             literal, end = _quoted(command, index)
+            script = scripts.is_script(index, end)
             if index == script_end:
                 kept.append(command[index + 1 : end])
                 script_end = end
-            elif SHELL_ARGUMENT.search("".join(kept[-80:])):
+            elif script:
                 kept.append(";" + command[index + 1 : end])
                 script_end = end
             else:
@@ -186,6 +196,41 @@ def _quoted(command: str, start: int) -> tuple[str, int]:
         end, kept = index + 1, "".join(parts) + '"'
     literal = command[start:end]
     return (kept if WHITESPACE.search(literal) else QUOTED_SEPARATOR.sub("_", literal)), end
+
+
+class _ShellScripts:
+    """Napisy w cudzysłowach jednego polecenia po kolei: który z nich to skrypt ``-c`` powłoki.
+
+    Każdy znak poza cudzysłowami czyta raz, więc czas zostaje liniowy przy dowolnie wielu słowach przed ``-c``.
+    """
+
+    def __init__(self, command: str, start: int) -> None:
+        self.command, self.read_to = command, start
+        self.shell = False
+        self.outer: list[tuple[str, bool]] = []
+
+    def is_script(self, quote: int, end: int) -> bool:
+        """Czy napis od ``quote`` do ``end`` stoi za ``-c`` w poleceniu prostym ze słowem powłoki."""
+
+        for part in COMMAND_PART.finditer(self.command, self.read_to, quote):
+            kind = part.lastgroup
+            if kind == "shell":
+                self.shell = True
+            elif kind == "end":
+                self.shell = False
+            elif kind == "open" or (kind == "tick" and not (self.outer and self.outer[-1][0] == "`")):
+                self.outer.append((part.group(), self.shell))
+                self.shell = False
+            elif kind is not None:
+                self.shell = self.outer.pop()[1] if self.outer else False
+        words = self.command[self.read_to : quote].split()
+        option = words[-1] if words else ""
+        script = self.shell and "c" in option and SCRIPT_OPTION.fullmatch(option) is not None
+        self.read_to = end
+        # Nazwa powłoki w cudzysłowie (``"$SHELL" -c``) też jest słowem powłoki.
+        if SHELL_NAME.fullmatch(self.command[quote + 1 : end - 1].rsplit("/", 1)[-1]):
+            self.shell = True
+        return script
 
 
 class _Matches:
