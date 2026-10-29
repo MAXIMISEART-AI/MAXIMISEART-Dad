@@ -54,9 +54,13 @@ def test_sprawdzenie_przeplotow_prowadzi_watki_modelu_bez_watkow_systemu(monkeyp
     explorer = _load_explorer()
     started: list[str] = []
     start = threading.Thread.start
+    checking = threading.current_thread()
 
     def counted(thread: threading.Thread) -> None:
-        started.append(thread.name)
+        # Wątki tła zostawione przez wcześniejsze testy w tym workerze startują swoje wątki same; liczy się tylko to,
+        # co uruchomiło sprawdzenie.
+        if threading.current_thread() is checking:
+            started.append(thread.name)
         start(thread)
 
     monkeypatch.setattr(threading.Thread, "start", counted)
