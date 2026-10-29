@@ -211,7 +211,7 @@ def test_kazdy_test_repozytorium_da_sie_ponowic_i_zglosic() -> None:
 
 @pytest.fixture
 def main(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[dict[str, str]]:
-    """`main`: początek, merge'e PR #9 (9:40) i #10 (10:00) i czerwony merge PR #11 (10:30)."""
+    """`main`: początek, merge PR #9 (9:40), squash PR #10 (10:00) i czerwony merge PR #11 (10:30)."""
 
     repo = tmp_path / "repo"
     repo.mkdir()
@@ -224,7 +224,11 @@ def main(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[dict[str, 
         (repo / f"pr{numer}.txt").write_text(f"{numer}\n", encoding="utf-8")
         shas[f"head{numer}"] = commit(repo, f"zmiana {numer}")
         git(repo, "switch", "--quiet", "main")
-        git(repo, "merge", "--no-ff", "--quiet", "-m", f"Merge pull request #{numer} from maximiseartai/pr-{numer}", "-m", f"fix: zmiana {numer}", f"pr-{numer}")
+        if numer == 10:
+            git(repo, "merge", "--squash", "--quiet", f"pr-{numer}")
+            commit(repo, f"fix: zmiana {numer} (#{numer})")
+        else:
+            git(repo, "merge", "--no-ff", "--quiet", "-m", f"Merge pull request #{numer} from maximiseartai/pr-{numer}", "-m", f"fix: zmiana {numer}", f"pr-{numer}")
         shas[f"pr{numer}"] = git(repo, "rev-parse", "HEAD")
     monkeypatch.chdir(repo)
     yield shas

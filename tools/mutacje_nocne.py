@@ -268,10 +268,10 @@ def przypisz_skrypty(github: GitHub, root: Path, od: str, padly: Sequence[str]) 
             sciezki = mutacje_skilli.watched(krok) if krok.verdict else (folder, *(mutacje_skilli.guarded(krok.skill / "SKILL.md") or ()))
         except Exception:  # noqa: BLE001 - tabela, której nie da się wczytać, wskazuje tylko folder skilla
             sciezki = (folder,)
+        # Grupa bez ścieżek daje ostatni commit nocy.
         for grupa in ((sciezki[0],), (*sciezki[1:], *mutacje_skilli.INFRASTRUCTURE), ()):
             if commit := _git(root, "log", "-1", "--format=%H", f"{od}..HEAD", "--", *grupa):
                 break
-        commit = commit or _git(root, "rev-parse", "HEAD")
         wynik.setdefault(autor(github, root, linia_main[_wniesienie(root, linia_main, commit)], commit), []).append(krok.command[0])
     return wynik
 
