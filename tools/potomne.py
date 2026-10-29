@@ -16,7 +16,7 @@ Strażnik to ten plik uruchomiony ``python -I`` we własnej sesji. Po EOF na std
 narzędzia, zabija zgłoszone drzewa i usuwa zgłoszone kopie. Narzędzie uruchomione przez inne narzędzie
 ma własnego strażnika, więc śmierć zewnętrznego kończy kolejne poziomy po kolei. Gdy strażnik nie żyje,
 ``commit_copy``, a na POSIX także ``run``, rzucają ``OSError``, zamiast działać bez tej gwarancji. Na Windows
-zabite drzewo, które żyje jeszcze ``_KILL_S`` po zabiciu, ``run`` nazywa na stderr i wraca jak zwykle.
+``run`` rzuca ``OSError`` (także w miejsce ``TimeoutExpired`` i ``Stopped``), gdy drzewo żyje jeszcze ``_KILL_S`` po zabiciu.
 
 Granice: na POSIX potomek, który sam założył sesję albo grupę procesów (``setsid``, ``setpgid``), jest poza
 drzewem i przeżywa; ``run`` czeka na resztę wyjścia najwyżej ``_DRAIN_S``. Na Windows narzędzie zabite razem z cudzym Job Object
@@ -81,7 +81,8 @@ def run(
 
     Czeka na koniec polecenia, nie na zamknięcie jego wyjścia, i po nim zabija potomków, którzy je przeżyli.
     ``echo`` drukuje wyjście na bieżąco; stderr trafia wtedy do stdout. stdin to DEVNULL, tekst UTF-8 z
-    ``errors="replace"``. Po ``timeout`` rzuca ``subprocess.TimeoutExpired``, a po ``stop`` ``Stopped``.
+    ``errors="replace"``. Po ``timeout`` rzuca ``subprocess.TimeoutExpired``, po ``stop`` ``Stopped``, a na Windows
+    ``OSError`` (także w ich miejsce), gdy drzewo żyje jeszcze ``_KILL_S`` po zabiciu.
     """
 
     arguments = list(command)
@@ -209,8 +210,6 @@ if sys.platform == "win32":
     _PROCESS_ID_LIST = 3
     _ERROR_MORE_DATA = 234
     _SYNCHRONIZE = 0x00100000
-    _QUERY_LIMITED_INFORMATION = 0x1000
-    _WAIT_TIMEOUT = 0x102
     _TERMINATE_SET_QUOTA_AND_RESUME = 0x0901
     _CREATE_SUSPENDED = 0x0004
 
@@ -268,74 +267,30 @@ if sys.platform == "win32":
             """``TerminateJobObject`` tylko zaczyna zabijanie: proces z I/O w toku pisze jeszcze po jego powrocie (#401).
 
             Licznik ``ActiveProcesses`` zadania spada, zanim proces zgłosi koniec, więc czeka na uchwyty członków
-            zadania otwarte przed zabiciem, najwyżej ``_KILL_S``. Po tym terminie nie wywraca wołającego, tylko
-            nazywa na stderr procesy, które jeszcze żyją.
+            zadania otwarte przed zabiciem, najwyżej ``_KILL_S``.
             """
 
             kernel32 = self._kernel32
             try:
-                started = time.monotonic()
-                deadline = started + _KILL_S
+                deadline = time.monotonic() + _KILL_S
                 while members := self._members():
                     if time.monotonic() >= deadline:
-                        self._survived(started, {})
-                        return
-                    handles = self._handles(members)
+                        raise OSError("drzewo procesów polecenia przeżyło zabicie")
+                    opened = (wintypes.HANDLE(kernel32.OpenProcess(_SYNCHRONIZE, False, pid)) for pid in members)
+                    handles = [handle for handle in opened if handle.value]  # bez uchwytu: już się zakończył
                     try:
                         if not kernel32.TerminateJobObject(self._job, 1):
                             raise ctypes.WinError(ctypes.get_last_error(), "zabicie Job Object polecenia")
-                        for pid, handle in handles.items():
+                        for handle in handles:
                             remaining_ms = max(0, int((deadline - time.monotonic()) * 1000))
-                            waited = kernel32.WaitForSingleObject(handle, remaining_ms) & 0xFFFFFFFF
-                            if waited == _WAIT_TIMEOUT:
-                                self._survived(started, {pid: "WAIT_TIMEOUT"})
-                                return
-                            if waited:
-                                self._survived(started, {pid: f"WAIT_FAILED, błąd {ctypes.get_last_error()}"})
-                                return
+                            if kernel32.WaitForSingleObject(handle, remaining_ms) != 0:
+                                raise OSError("drzewo procesów polecenia przeżyło zabicie")
                     finally:
-                        for handle in handles.values():
+                        for handle in handles:
                             kernel32.CloseHandle(handle)
-                    if not handles:  # członek bez uchwytu już się kończy, a bez pauzy pętla kręciłaby się do terminu
-                        time.sleep(_POLL_S)
             finally:
                 kernel32.CloseHandle(self._job)
                 self.process.wait()
-
-        def _handles(self, members: list[int]) -> dict[int, wintypes.HANDLE]:
-            """Uchwyty członków, którzy jeszcze istnieją: PID członka, który zdążył się skończyć, mógł już dostać
-            proces spoza zadania, a na niego czekanie trwałoby do terminu."""
-
-            kernel32 = self._kernel32
-            handles = {}
-            for pid in members:
-                handle = wintypes.HANDLE(kernel32.OpenProcess(_SYNCHRONIZE | _QUERY_LIMITED_INFORMATION, False, pid))
-                if handle.value and self._in_job(handle):
-                    handles[pid] = handle
-                elif handle.value:
-                    kernel32.CloseHandle(handle)
-            return handles
-
-        def _in_job(self, handle: wintypes.HANDLE) -> bool:
-            inside = wintypes.BOOL()
-            return bool(self._kernel32.IsProcessInJob(handle, self._job, ctypes.byref(inside)) and inside.value)
-
-        def _survived(self, started: float, alive: dict[int, str]) -> None:
-            alive = {pid: "" for pid in self._members()} | alive
-            named = ", ".join(f"{pid} {self._image(pid)}" + (f" ({why})" if why else "") for pid, why in alive.items())
-            took = time.monotonic() - started
-            print(f"potomne: po zabiciu po {took:.1f} s żyją procesy {named}", file=sys.stderr, flush=True)
-
-        def _image(self, pid: int) -> str:
-            kernel32 = self._kernel32
-            handle = wintypes.HANDLE(kernel32.OpenProcess(_QUERY_LIMITED_INFORMATION, False, pid))
-            path = ctypes.create_unicode_buffer(32768)
-            size = wintypes.DWORD(len(path))
-            try:
-                found = handle.value and kernel32.QueryFullProcessImageNameW(handle, 0, path, ctypes.byref(size))
-            finally:
-                kernel32.CloseHandle(handle)
-            return Path(path.value).name if found else "?"
 
         def _members(self) -> list[int]:
             """PID-y procesów zadania, najwyżej 64; resztę zabija to samo ``TerminateJobObject``, a łapie następne koło."""
