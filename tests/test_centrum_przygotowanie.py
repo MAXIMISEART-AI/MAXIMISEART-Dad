@@ -435,9 +435,8 @@ def test_uruchom_bez_podgladu_i_podglad_wymagajacy_sprawdzenia_nie_sa_udanym_pod
             started_at="2026-09-08T08:00:00+00:00",
             total_duration_ms=1000,
             phase_durations_ms={},
-            result="BLAD_KRYTYCZNY",
+            ending={"kind": "for_tata", "code": "ZLE_SKUTECZNE"},
             counters=dict.fromkeys(preparation_process.PROCESS.counter_names, 0),
-            stop={"kind": "for_tata", "code": "ZLE_SKUTECZNE"},
         )
     )
 

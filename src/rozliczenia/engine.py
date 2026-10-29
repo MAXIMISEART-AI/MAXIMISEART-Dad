@@ -7,7 +7,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 
 from . import collective_file, input_checks, settlement_files, settlement_messages
-from .domain import ProgressObserver, SettlementSummary, WorkerResult
+from .domain import PlannedWorkerResult, ProgressObserver, SavedWorkerResult, SettlementSummary, WorkerResult
 from .inea_only_quantities import Cleared
 from .input_checks import FILE_READERS, Readers
 from .message import Message, StopError
@@ -130,7 +130,7 @@ def run_settlements(
         target_path = directory / folder.worker_settlement(worker_name).name
         rows = rows_by_target.get(normalize_text(worker_name), [])
         if dry_run:
-            return WorkerResult(worker_name, target_path, len(rows), "PLAN" if rows else "PUSTY_SZABLON")
+            return PlannedWorkerResult(worker_name, target_path, len(rows))
         try:
             route = worker_template.create(target_path, rows)
         except WorkbookError as error:
@@ -139,7 +139,7 @@ def run_settlements(
             ) from error
         except (OSError, WorkbookSaveError) as exc:
             raise StopError(settlement_messages.worker_file_failed(target_directory, worker_name)) from exc
-        return WorkerResult(worker_name, target_path, len(rows), "ZAPISANO" if rows else "PUSTY_SZABLON", route)
+        return SavedWorkerResult(worker_name, target_path, len(rows), route)
 
     def save_templates(directory: Path) -> list[WorkerResult]:
         return phases.each_template(lambda worker_name: settle(directory, worker_name))

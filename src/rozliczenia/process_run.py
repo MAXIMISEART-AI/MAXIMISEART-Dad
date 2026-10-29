@@ -29,7 +29,7 @@ from .decision import Conversation, Decision, Declined
 from .domain import ProgressEvent, ProgressObserver, ProgressPhase, StopKind
 from .message import Message, StopError
 from .progress import PhaseState, ProgressProjection, ProgressSnapshot
-from .telemetry import MetricsStore, RecordedStop, metric_record
+from .telemetry import CompletedResult, MetricsStore, RecordedStop, metric_record
 from .template_file import RouteCounts
 
 __all__ = [
@@ -113,7 +113,7 @@ class Finished:
     powstało każdą drogą zapisu z Wzorca (ADR 0008); proces, który nie pisze z Wzorca, nie ma żadnej.
     """
 
-    result: Literal["OK", "WYMAGA_SPRAWDZENIA"]
+    result: CompletedResult
     counters: Mapping[str, int]
     phase_durations_ms: Mapping[ProgressPhase, int]
     routes: RouteCounts = field(default_factory=lambda: MappingProxyType({}))
@@ -312,7 +312,6 @@ def run_process(
     )
 
     finished = ending if isinstance(ending, Finished) else None
-    stop = None if isinstance(ending, Finished) else RecordedStop(kind=ending.stop_kind, code=ending.message.code)
     record = metric_record(
         mode=mode,
         period=inputs.period,
@@ -321,9 +320,12 @@ def run_process(
         phase_durations_ms=(
             finished.phase_durations_ms if finished else observation.projection.snapshot.phase_durations_ms
         ),
-        result=finished.result if finished else "BLAD_KRYTYCZNY",
+        ending=(
+            ending.result
+            if isinstance(ending, Finished)
+            else RecordedStop(kind=ending.stop_kind, code=ending.message.code)
+        ),
         counters=finished.counters if finished else dict.fromkeys(process.counter_names, 0),
-        stop=stop,
         # Bez wyniku drogi zapisu są nieznane i rekord ma ich zero, tak jak liczników: także gdy zatrzymanie przyszło
         # dopiero przy pokazaniu wyniku, a pliki z Wzorca już powstały.
         routes=finished.routes if finished else {},
