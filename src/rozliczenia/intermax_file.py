@@ -65,7 +65,7 @@ from .raw_orders import SHIFT, CellFacts, DayPlan, IntermaxEntry, OperatorColor,
 from .row_look import BORDER
 from .workbook_files import WorkbookError, header_columns, is_blank
 from .workbook_parts import MAIN, OFFICE_REL, IrregularSheetData, SheetData, SheetRow, office_document, relationships
-from .workbook_save import WorkbookSaveError, write_atomically
+from .workbook_save import SaveProblem, WorkbookSaveError, write_atomically
 from .worker_config import normalize_text
 
 __all__ = ["OrderSheet", "Register", "UnsupportedShape", "WriteMismatch", "save"]
@@ -835,7 +835,7 @@ def _replace(
                 unchanged = workbook_files.workbook_content(target) == current
             except WorkbookError as error:
                 if error.problem is workbook_files.Problem.OPEN_IN_EXCEL:
-                    raise WorkbookSaveError(target.name) from error
+                    raise WorkbookSaveError(target, SaveProblem.OPEN_IN_EXCEL) from error
                 raise HeldByOneDrive(target.name) from error
             if not unchanged:
                 raise HeldByOneDrive(target.name)

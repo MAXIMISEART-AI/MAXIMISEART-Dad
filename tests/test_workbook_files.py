@@ -12,7 +12,7 @@ from collections.abc import Callable
 from datetime import date, datetime, time
 from decimal import Decimal
 from pathlib import Path
-from typing import Any, cast
+from typing import IO, Any, cast
 
 import pytest
 from openpyxl import Workbook, load_workbook
@@ -37,8 +37,9 @@ from rozliczenia.workbook_files import (
     read_workbook,
     workbook_content,
 )
+from rozliczenia.template_copy import Package
 from rozliczenia.template_file import Route, TemplateFile
-from rozliczenia.workbook_save import ExternalLinksError, WorkbookSaveError, save_workbook
+from rozliczenia.workbook_save import ExternalLinksError, SaveProblem, WorkbookSaveError, save_workbook
 
 from tests.fixtures.benchmark import (
     COLLECTIVE_TEMPLATE,
@@ -68,6 +69,7 @@ from tests.fixtures.workbooks import (
     without_styles,
 )
 from tests.fixtures.data_rows import data_row, register_row
+from tests.fixtures.locked_file import lock_file
 from tests.fixtures.settlement import COLLECTIVE_HEADERS, write_source, write_template
 
 
@@ -794,11 +796,12 @@ def test_znak_niedozwolony_w_xml_przerywa_zapis_rozliczenia_pracownika_bez_pliku
     output_directory = tmp_path / "okres"
     output_directory.mkdir()
 
-    with pytest.raises(WorkbookSaveError):
+    with pytest.raises(WorkbookSaveError) as raised:
         TemplateFile.worker_settlement(template_path).create(
             output_directory / "Rozliczenie.xlsx", [_data_row(_row(A="syntetyczny\x01znak"))]
         )
 
+    assert (raised.value.target, raised.value.problem) == (output_directory / "Rozliczenie.xlsx", SaveProblem.INVALID_VALUE)
     assert list(output_directory.iterdir()) == []
     assert template_path.read_bytes() == template_before
 
@@ -809,11 +812,12 @@ def test_znak_niedozwolony_w_xml_przerywa_zapis_rozliczenia_wewnetrznego_bez_pli
     output_directory.mkdir()
     row = register_row({"DATA": "syntetyczny\x01znak"})
 
-    with pytest.raises(WorkbookSaveError):
+    with pytest.raises(WorkbookSaveError) as raised:
         TemplateFile.internal_settlement(template_path).create(
             output_directory / "Rozliczenie wew.xlsx", [row]
         )
 
+    assert (raised.value.target, raised.value.problem) == (output_directory / "Rozliczenie wew.xlsx", SaveProblem.INVALID_VALUE)
     assert list(output_directory.iterdir()) == []
 
 
@@ -824,10 +828,31 @@ def test_nieudany_zapis_pliku_z_wzorca_nie_zostawia_pliku(tmp_path: Path, by_cop
         refused_by_copy(template_path)
     missing_directory = tmp_path / "brak"
 
-    with pytest.raises(WorkbookSaveError):
+    with pytest.raises(WorkbookSaveError) as raised:
         TemplateFile.worker_settlement(template_path).create(missing_directory / "Plik.xlsx", [])
 
+    assert (raised.value.target, raised.value.problem) == (missing_directory / "Plik.xlsx", SaveProblem.TEMPORARY_FILE)
     assert not missing_directory.exists()
+
+
+def test_pelny_dysk_przy_zapisie_kopii_wzorca_przerywa_zapis_bez_pliku(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    template_path = linked_template(tmp_path / "Wzorzec.xlsx")
+    output_directory = tmp_path / "okres"
+    output_directory.mkdir()
+
+    def full_disk(package: Package, out: IO[bytes]) -> None:
+        out.write(b"PK")
+        raise OSError(28, "wymuszony: brak miejsca na dysku")
+
+    monkeypatch.setattr(Package, "write", full_disk)
+
+    with pytest.raises(WorkbookSaveError) as raised:
+        TemplateFile.worker_settlement(template_path).create(output_directory / "Plik.xlsx", [_data_row(_row())])
+
+    assert (raised.value.target, raised.value.problem) == (output_directory / "Plik.xlsx", SaveProblem.CONTENT)
+    assert list(output_directory.iterdir()) == []
 
 
 def test_nieczytelne_linki_zewnetrzne_przerywaja_zapis_bez_zmiany_skoroszytu(tmp_path: Path) -> None:
@@ -838,13 +863,54 @@ def test_nieczytelne_linki_zewnetrzne_przerywaja_zapis_bez_zmiany_skoroszytu(tmp
     try:
         active_worksheet(workbook)["A18"] = "syntetyczne miasto"
 
-        with pytest.raises(ExternalLinksError):
+        with pytest.raises(ExternalLinksError) as raised:
             save_workbook(workbook, target_path)
     finally:
         workbook.close()
 
+    assert (raised.value.target, raised.value.problem) == (target_path, SaveProblem.EXTERNAL_LINKS_UNREADABLE)
     assert target_path.read_bytes() == b"to nie jest skoroszyt"
     assert sorted(path.name for path in tmp_path.iterdir()) == ["Plik zbiorczy.xlsx", "Uszkodzony.xlsx"]
+
+
+class _FullDisk(Workbook):
+    """Skoroszyt, którego zapis pada jak na pełnym dysku."""
+
+    def save(self, filename: object) -> None:
+        raise OSError(28, "wymuszony: brak miejsca na dysku")
+
+
+class _NotAZip(Workbook):
+    """Skoroszyt, którego zapis daje plik bez archiwum ZIP, więc odwołań zewnętrznych nie da się w nim przywrócić."""
+
+    def save(self, filename: object) -> None:
+        assert isinstance(filename, Path), "write_atomically podaje ścieżkę pliku tymczasowego"
+        filename.write_bytes(b"to nie jest skoroszyt")
+
+
+@pytest.mark.parametrize(
+    ("workbook", "replace_refused", "problem"),
+    [
+        (Workbook(), True, SaveProblem.REPLACE),
+        (_FullDisk(), False, SaveProblem.CONTENT),
+        (_NotAZip(), False, SaveProblem.EXTERNAL_LINKS_NOT_RESTORED),
+    ],
+    ids=["podmiana", "tresc", "odwolania"],
+)
+def test_nieudany_krok_zapisu_nazywa_skoroszyt_i_krok_a_skoroszyt_zostaje_bez_zmian(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, workbook: Workbook, replace_refused: bool, problem: SaveProblem
+) -> None:
+    target_path = linked_template(tmp_path / "Plik zbiorczy.xlsx")
+    before = target_path.read_bytes()
+    if replace_refused:
+        lock_file(monkeypatch, target_path.name)
+
+    with pytest.raises(WorkbookSaveError) as raised:
+        save_workbook(workbook, target_path)
+
+    assert (raised.value.target, raised.value.problem) == (target_path, problem)
+    assert target_path.read_bytes() == before
+    assert [path.name for path in tmp_path.iterdir()] == ["Plik zbiorczy.xlsx"]
 
 
 def _register_row() -> RegisterRow:
