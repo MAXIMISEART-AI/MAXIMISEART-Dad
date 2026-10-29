@@ -9,15 +9,19 @@ Workflow ``mutacje-nocne.yml`` biegnie raz na dobę na ``main`` i ręcznie (``wo
   najwyżej ``NAJWIECEJ_CZESCI`` części, i pisze do ``GITHUB_OUTPUT`` ``baza``, ``czesci`` (macierz numerów) i ``liczba``.
 - Część k z n to ``tools/mutacje_zmiany.py --baza <baza> --czesc k/n --zapis …``: kolejne mutacje z listy
   posortowanej po plikach, więc pokrycie biegnie na testach kilku plików, nie całej zmiany dnia.
-- ``zglos`` czyta zapisy części. Każdą przeżytą mutację przypisuje PR-owi, który ostatni zmienił jej linię: ``git blame``
-  linii na HEAD daje commit, a numer PR podaje temat commitu linii pierwszych rodziców HEAD, który go wniósł
+- ``zglos`` czyta zapisy części. Każdą przeżytą mutację przypisuje PR-owi, który ostatni zmienił jej linie: zmienione
+  linie, które mutacja psuje, a nie linię jej nazwy, bo nazwę daje początek węzła, a w wielowierszowym ``if (`` zmienia
+  się często tylko linia w środku. ``git blame`` tych linii daje commity nocy, bo to linie zmienione od bazy, a z nich
+  liczy się ten, który linia pierwszych rodziców HEAD wniosła ostatni. Numer PR podaje temat commitu tej linii, który go wniósł
   (``Merge pull request #N`` albo squash ``… (#N)``); gałąź zbudowana na innej wnosi swoje commity do kilku PR-ów, a
   temat scalenia mówi, który z nich je scalił. Bez numeru w temacie PR podaje ``gh api …/commits/<sha>/pulls``. Na PR
-  przypada jedno issue ``Przeżyte mutacje z #N`` z etykietami ``ETYKIETY``, a w nim linie ``MUTACJA <plik>:<linia> <opis>``
-  (id jak w ``NIEWYKRYTA``). Linii, którą issue już ma w treści albo komentarzu, nie dostaje drugi raz; nowe linie idą
-  do istniejącego issue komentarzem, a zamknięte issue z nowymi liniami wraca otwarte z ``ready-for-agent``.
+  przypada jedno issue ``Przeżyte mutacje z #N`` z etykietami ``ETYKIETY``, a w nim linie
+  ``MUTACJA <plik>:<linia> <opis> | klucz <klucz>`` (id jak w ``NIEWYKRYTA``, klucz z ``mutacje_zmiany.fingerprint``).
+  Mutacji, której klucz issue już ma w treści albo komentarzu, nie dostaje drugi raz; nowe idą do istniejącego issue
+  komentarzem, a zamknięte issue z nowymi wraca otwarte z ``ready-for-agent``.
   Część bez zapisu albo z porażką inną niż przeżyte mutacje (testy padają bez mutacji, zły wyjątek) czerwieni run po
-  zgłoszeniu reszty, więc następna noc liczy od tej samej bazy, a zgłoszone linie się nie powtórzą.
+  zgłoszeniu reszty, więc następna noc liczy od tej samej bazy. Zgłoszone mutacje się nie powtórzą, także gdy PR z
+  następnego dnia przesunie ich linie, bo klucz nie ma numerów linii.
 
 Bazę i liczbę części nocy drukuje lokalnie bez testów:
 
@@ -56,7 +60,8 @@ ETYKIETY = ("ready-for-agent", "przezyte-mutacje")
 ARTEFAKT = "mutacje-nocne-"
 ZAPIS = "czesc.json"
 STRONA = 100
-_ID = re.compile(r"(?P<plik>[^:\s]+):(?P<linia>[1-9][0-9]*) \S.*")
+_ID = re.compile(r"(?P<plik>[^:\s]+):[1-9][0-9]* \S.*")
+_KLUCZ = re.compile(r"\| klucz (?P<klucz>[0-9a-f]{12})\b")
 
 
 def _git(root: Path, *argumenty: str) -> str:
@@ -117,10 +122,27 @@ def _plan(od: str) -> int:
 # --- zgłoszenie ---
 
 
-def zapisy(katalog: Path, liczba: int) -> tuple[list[str], list[str]]:
+@dataclass(frozen=True)
+class Przezyta:
+    """Przeżyta mutacja z zapisu części: nazwa ``<plik>:<linia> <opis>``, zmienione linie, które psuje, i jej klucz."""
+
+    id: str
+    linie: tuple[int, ...]
+    klucz: str
+
+    @property
+    def plik(self) -> str:
+        znalezione = _ID.fullmatch(self.id)
+        if znalezione is None:
+            raise ValueError(f"przeżyta mutacja bez postaci <plik>:<linia> <opis>: {self.id}")
+        return znalezione["plik"]
+
+
+def zapisy(katalog: Path, liczba: int) -> tuple[list[Przezyta], list[str]]:
     """Przeżyte mutacje wszystkich części i przyczyny porażki części, które nie dały wyniku."""
 
-    przezyte, problemy = [], []
+    przezyte: list[Przezyta] = []
+    problemy: list[str] = []
     for numer in range(1, liczba + 1):
         try:
             zapis = json.loads((katalog / f"{ARTEFAKT}{numer}" / ZAPIS).read_text(encoding="utf-8"))
@@ -128,7 +150,7 @@ def zapisy(katalog: Path, liczba: int) -> tuple[list[str], list[str]]:
             problemy.append(f"część {numer}/{liczba} bez zapisu: {blad}")
             continue
         if zapis.get("przezyte"):
-            przezyte += zapis["przezyte"]
+            przezyte += [Przezyta(wpis["id"], tuple(wpis["linie"]), wpis["klucz"]) for wpis in zapis["przezyte"]]
         elif not str(zapis.get("wynik")).startswith("MUTACJE ZMIANY OK"):
             problemy.append(f"część {numer}/{liczba}: {zapis.get('wynik')}")
     return przezyte, problemy
@@ -155,34 +177,46 @@ def _pr_z_tematu(temat: str) -> int | None:
     return int(znalezione["numer"]) if znalezione else None
 
 
-def autor(github: GitHub, root: Path, od: str, commit: str) -> Autor:
-    """PR, który wniósł ``commit`` na linię pierwszych rodziców HEAD po ``od``."""
+def _wniesienie(root: Path, linia_main: Sequence[str], commit: str) -> int:
+    """Pozycja na ``linia_main`` commitu, który wniósł ``commit`` na linię pierwszych rodziców HEAD."""
+
+    potomkowie = {commit, *_git(root, "rev-list", "--ancestry-path", f"{commit}..HEAD").split()}
+    return next(numer for numer, kandydat in enumerate(linia_main) if kandydat in potomkowie)
+
+
+def _commity_linii(root: Path, plik: str, linie: Sequence[int]) -> set[str]:
+    """Commity, które ostatnie zmieniły ``linie`` pliku na HEAD; wiersz ``blame -l -s`` zaczyna pełny SHA commitu."""
+
+    zakresy = [argument for linia in linie for argument in ("-L", f"{linia},{linia}")]
+    return {wiersz.split(maxsplit=1)[0] for wiersz in _git(root, "blame", "-l", "-s", *zakresy, "HEAD", "--", plik).splitlines()}
+
+
+def przypisz(github: GitHub, root: Path, od: str, przezyte: Sequence[Przezyta]) -> dict[Autor, list[Przezyta]]:
+    """Przeżyte mutacje według PR-u, który ostatni zmienił ich zmienione linie."""
 
     linia_main = _git(root, "rev-list", "--first-parent", "--reverse", f"{od}..HEAD").split()
-    potomkowie = {commit, *_git(root, "rev-list", "--ancestry-path", f"{commit}..HEAD").split()}
-    scalenie = next((kandydat for kandydat in linia_main if kandydat in potomkowie), None)
-    if scalenie is not None and (numer := _pr_z_tematu(_git(root, "log", "-1", "--format=%s", scalenie))):
+    wniesione: dict[str, int] = {}
+    autorzy: dict[str, Autor] = {}
+    wynik: dict[Autor, list[Przezyta]] = {}
+    for mutacja in przezyte:
+        # Linie mutacji to linie zmienione od ``od``, więc blame daje tylko commity nocy.
+        commity = _commity_linii(root, mutacja.plik, mutacja.linie)
+        for commit in commity - wniesione.keys():
+            wniesione[commit] = _wniesienie(root, linia_main, commit)
+        commit = max(sorted(commity), key=wniesione.__getitem__)
+        if commit not in autorzy:
+            autorzy[commit] = autor(github, root, linia_main[wniesione[commit]], commit)
+        wynik.setdefault(autorzy[commit], []).append(mutacja)
+    return wynik
+
+
+def autor(github: GitHub, root: Path, scalenie: str, commit: str) -> Autor:
+    """PR, który wniósł ``commit`` commitem ``scalenie`` linii pierwszych rodziców HEAD."""
+
+    if numer := _pr_z_tematu(_git(root, "log", "-1", "--format=%s", scalenie)):
         return Autor(numer)
     scalone = [pr for pr in github.json(f"{REPO}/commits/{commit}/pulls") if pr.get("merged_at")]
     return Autor(int(scalone[0]["number"])) if scalone else Autor(None, commit)
-
-
-def przypisz(github: GitHub, root: Path, od: str, przezyte: Sequence[str]) -> dict[Autor, list[str]]:
-    """Przeżyte mutacje według PR-u, który ostatni zmienił ich linię."""
-
-    commity: dict[str, Autor] = {}
-    wynik: dict[Autor, list[str]] = {}
-    for mutacja in przezyte:
-        znalezione = _ID.fullmatch(mutacja)
-        if znalezione is None:
-            raise ValueError(f"przeżyta mutacja bez postaci <plik>:<linia> <opis>: {mutacja}")
-        linia = znalezione["linia"]
-        blame = _git(root, "blame", "--porcelain", "-L", f"{linia},{linia}", "HEAD", "--", znalezione["plik"])
-        commit = blame.split(maxsplit=1)[0]
-        if commit not in commity:
-            commity[commit] = autor(github, root, od, commit)
-        wynik.setdefault(commity[commit], []).append(mutacja)
-    return wynik
 
 
 @dataclass(frozen=True)
@@ -210,12 +244,8 @@ def _strony(github: GitHub, sciezka: str) -> Iterator[dict[str, Any]]:
             return
 
 
-def _ma(tekst: str, linia: str) -> bool:
-    return any(obecna.strip() == linia or obecna.strip().startswith(f"{linia} |") for obecna in tekst.splitlines())
-
-
-def akcje(github: GitHub, przypisane: dict[Autor, list[str]], run: str) -> list[Akcja]:
-    """Nowe issue dla PR bez issue, a komentarz z nowymi liniami dla PR, którego issue ich jeszcze nie ma."""
+def akcje(github: GitHub, przypisane: dict[Autor, list[Przezyta]], run: str) -> list[Akcja]:
+    """Nowe issue dla PR bez issue, a komentarz z nowymi mutacjami dla PR, którego issue nie ma jeszcze ich kluczy."""
 
     istniejace: dict[str, dict[str, Any]] = {}
     for znalezione in _strony(github, f"{REPO}/issues?labels={ETYKIETY[1]}&state=all"):
@@ -223,7 +253,7 @@ def akcje(github: GitHub, przypisane: dict[Autor, list[str]], run: str) -> list[
             istniejace.setdefault(znalezione["title"], znalezione)
     wynik: list[Akcja] = []
     for kto, mutacje in przypisane.items():
-        linie = [f"MUTACJA {mutacja}" for mutacja in mutacje]
+        linie = [f"MUTACJA {mutacja.id} | klucz {mutacja.klucz}" for mutacja in mutacje]
         issue = istniejace.get(kto.tytul)
         if issue is None:
             tresc = [
@@ -238,7 +268,8 @@ def akcje(github: GitHub, przypisane: dict[Autor, list[str]], run: str) -> list[
             wynik.append(Zaloz(kto.tytul, "\n".join(tresc)))
             continue
         znane = "\n".join([issue.get("body") or "", *(komentarz["body"] or "" for komentarz in _strony(github, f"{REPO}/issues/{issue['number']}/comments"))])
-        if nowe := [linia for linia in linie if not _ma(znane, linia)]:
+        klucze = {znalezione["klucz"] for znalezione in _KLUCZ.finditer(znane)}
+        if nowe := [linia for linia, mutacja in zip(linie, mutacje, strict=True) if mutacja.klucz not in klucze]:
             tresc = [f"Nowe przeżyte mutacje z [runu]({run}):", "", *blok_kodu(nowe)]
             wynik.append(Uzupelnij(issue["number"], "\n".join(tresc), issue["state"] == "closed"))
     return wynik

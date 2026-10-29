@@ -23,10 +23,11 @@ Luka w teście nie jest defektem, który trafi do taty: ten zatrzymuje Wydanie z
 - Workflow `mutacje-nocne.yml` biegnie raz na dobę na `main` i ręcznie z opcjonalnym `od`.
   Mutuje linie `src/` i `tools/` zmienione od commitu ostatniego udanego przebiegu (bez niego od 24 h wstecz) tym samym `tools/mutacje_zmiany.py`: jedna mutacja na linię, cofnięcie fragmentu, wyjątki `# mutacje-zmiany:`.
 - Mutacje dzielą się na części po najwyżej 25, kolejne na liście posortowanej po plikach, żeby każda część liczyła pokrycie tylko dla kilku plików i trwała 10–15 min.
-- Każda przeżyta mutacja trafia do issue `Przeżyte mutacje z #N` z etykietą `ready-for-agent` PR-u, który ostatni zmienił jej linię (`git blame` na `main`, commit scalenia, a bez numeru w jego temacie API GitHuba).
-  Jedno issue na PR, a ta sama linia nie trafia do niego drugi raz.
+- Każda przeżyta mutacja trafia do issue `Przeżyte mutacje z #N` z etykietą `ready-for-agent` PR-u, który ostatni zmienił zmienione linie, które ona psuje (`git blame` na `main`, commit scalenia, a bez numeru w jego temacie API GitHuba).
+  Jedno issue na PR, a ta sama mutacja nie trafia do niego drugi raz, także gdy jej linie się przesuną: porównuje się klucz z pliku i zmienionego kodu, bez numerów linii.
   Issue naprawia agent testem, który zabija mutację, albo linią `MUTACJA <id> | nie warto, bo <powód>`.
-- Przebieg, w którym część nie dała wyniku, jest czerwony i nie przesuwa bazy, więc następna noc sprawdza te linie jeszcze raz.
+- Część, która nie dała wyniku, jest czerwona, a przebieg z nią jest czerwony i nie przesuwa bazy, więc następna noc sprawdza te linie jeszcze raz.
+  Przeżyte mutacje to wynik, więc zostawiają część zieloną.
 
 ## Konsekwencje
 

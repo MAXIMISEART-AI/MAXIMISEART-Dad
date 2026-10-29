@@ -31,10 +31,12 @@ Dlaczego PR dostaje mniej sprawdzeń niż `main`, mówi [ADR 0020](../adr/0020-c
   Ręczne uruchomienie workflow przyjmuje `od`, czyli commit, od którego liczyć zmiany.
 - `tools/mutacje_nocne.py` dzieli mutacje na części po najwyżej 25, więc każda trwa ok. 10–15 min.
   Bazę i liczbę części drukuje bez testów `.venv/bin/python tools/mutacje_nocne.py plan`.
-- Każdą przeżytą mutację ostatnie zadanie przypisuje PR-owi, który ostatni zmienił jej linię, i dopisuje linią `MUTACJA <plik>:<linia> <opis>` do issue `Przeżyte mutacje z #N` z etykietą `ready-for-agent`, bez powtórzeń.
+- Każdą przeżytą mutację ostatnie zadanie przypisuje PR-owi, który ostatni zmienił zmienione linie, które ona psuje, i dopisuje linią `MUTACJA <plik>:<linia> <opis> | klucz <klucz>` do issue `Przeżyte mutacje z #N` z etykietą `ready-for-agent`.
+  Klucz nie ma numerów linii, więc mutacja nie trafia do issue drugi raz, także gdy następny PR przesunie jej linie.
 - Issue naprawiasz testem, który zabija mutację (dowód z `tools/mutacje.py`), albo linią `MUTACJA <plik>:<linia> <opis> | nie warto, bo <powód>`, a potem je zamykasz.
 - Ani `Required CI status`, ani `tools/scal_pr.py` na mutacje nie czekają.
-- Część bez wyniku (testy padają bez mutacji, zły wyjątek `# mutacje-zmiany:`) czerwieni przebieg, więc następna noc liczy od tej samej bazy.
+- Część bez wyniku (testy padają bez mutacji, zły wyjątek `# mutacje-zmiany:`) jest czerwona i czerwieni przebieg, więc następna noc liczy od tej samej bazy, a przeżyte mutacje zostawiają część zieloną.
+  Czerwoną część odtwarzasz na commicie runu: `git checkout --detach <headSha runu>` i `.venv/bin/python tools/mutacje_zmiany.py --baza <baza z planu> --czesc K/N --odtwarzam <run>`.
 
 ## Zadanie CI padło
 
@@ -75,7 +77,7 @@ Dlaczego PR dostaje mniej sprawdzeń niż `main`, mówi [ADR 0020](../adr/0020-c
 | Reguła | Co jej pilnuje |
 |---|---|
 | Rebase albo merge `main` do gałęzi robisz tylko przy konflikcie albo gdy `main` zmienił te same pliki co PR. | werdykt `AKTUALIZACJA` z `tools/praca_w_toku.py --aktualizacja`, drukowany też przez bramę `tools/hooks/pre-push`; `tests/test_praca_w_toku.py`, `tests/test_brama_pre_push.py` |
-| Ciężkie zadania CI (`change-mutations`, `mutations`) liczy GitHub, a lokalnie biegną tylko do odtworzenia porażki z runu Actions tej gałęzi. | `tools/ciezkie_ci.py`, `tests/test_ciezkie_ci.py`, `tests/test_na_scalonych_pr.py` |
+| Ciężkie zadania CI (`change-mutations`, `mutations`) liczy GitHub, a lokalnie biegną tylko do odtworzenia porażki z runu Actions tej gałęzi albo, na jego commicie, z runu `mutacje-nocne.yml`. | `tools/ciezkie_ci.py`, `tests/test_ciezkie_ci.py`, `tests/test_na_scalonych_pr.py` |
 | Lista dłuższa niż `TARGETED` mutacji w `tools/mutacje.py` to ręczne `change-mutations`, więc poza CI biegnie tylko z tymi samymi wyjątkami, a skrypty mutacji skilli `verify-*` (`check_all`) nie mają tego limitu. | `tools/ciezkie_ci.py` (`TARGETED`), `tests/test_ciezkie_ci.py` |
 | Bramka PR uruchamia pytest na Windows 3.11 i Linux 3.14 na wyborze `tools/szybko.py` dla zmiany, a zmiana pliku z `szybko.FULL` albo pod `.github/workflows/` wybiera wszystkie pliki, E2E i straż czasu. | `tests/test_plan_ci.py::test_bramka_pr_biegnie_na_windows_311_i_linuksie_z_wyborem_szybko_a_e2e_i_straz_czasu_tylko_przy_ich_zmianie` |
 | Do bramki PR dokładasz tylko to, co złapałoby defekt, który przez nią przeszedł, z dowodem z backtestu, a plan wzorcowych PR-ów L i C ponad limit testów, zadań albo prognozy ściany to decyzja Maksa. | limitu testów, zadań i prognozy ściany (+20%) pilnuje `tests/test_ksztalt_bramki.py`, a dowodu z backtestu tylko przegląd |
