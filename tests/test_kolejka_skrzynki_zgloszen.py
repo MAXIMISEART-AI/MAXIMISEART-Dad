@@ -7,6 +7,7 @@ Centrum nieosiągalna rozsądnym kosztem.
 
 from __future__ import annotations
 
+import itertools
 from pathlib import Path
 import shutil
 import threading
@@ -553,6 +554,61 @@ def test_plik_kolejki_ktorego_nie_da_sie_odczytac_zostaje_z_jednym_wpisem_i_nie_
 
     assert queue.log().count(f"skrzynka-nieczytelny plik={broken}") == 1
     assert "nieoczekiwany-wyjatek" not in queue.log()
+    queue.passed()
+    assert queue.clock.wakes == 0  # treść nie zmieni się sama, więc ponowienie jej nie pomoże
+
+
+def locked_reads(monkeypatch: pytest.MonkeyPatch, queue: Queue, times: int | None) -> None:
+    """``read_text`` pliku kolejki rzuca ``PermissionError`` ``times`` razy (``None``: zawsze), jak plik, który trzyma
+    OneDrive albo antywirus."""
+
+    read_text = Path.read_text
+    failures = itertools.count(1)
+
+    def locked(path: Path, encoding: str | None = None, errors: str | None = None) -> str:
+        if path.parent == queue.directory and (times is None or next(failures) <= times):
+            raise PermissionError("plik otwarty w innym programie")
+        return read_text(path, encoding=encoding, errors=errors)
+
+    monkeypatch.setattr(Path, "read_text", locked)
+
+
+def test_plik_kolejki_ktorego_raz_nie_da_sie_odczytac_wychodzi_po_minucie_bez_kolejnej_wysylki(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    queue = Queue(tmp_path, FakeReportBox())
+    [name] = queue.queued("treść\n")
+    locked_reads(monkeypatch, queue, times=1)
+
+    queue.outbox.resume()
+    queue.passed()
+    assert (queue.box.issues, queue.files()) == ([], [name])
+    queue.clock.advance(RETRY_S)
+
+    assert queue.box.wait_until(lambda box: len(box.issues) == 1)
+    assert wait_for(lambda: queue.files() == [])
+    queue.passed()
+    assert queue.clock.wakes == 0
+    assert queue.log().count(f"skrzynka-nieczytelny plik={name}") == 1
+
+
+def test_plik_kolejki_ktorego_nigdy_nie_da_sie_odczytac_ponawia_co_minute_z_jedna_linia_dziennika(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    queue = Queue(tmp_path, FakeReportBox())
+    [name] = queue.queued("treść\n")
+    locked_reads(monkeypatch, queue, times=None)
+    queue.outbox.resume()
+    queue.passed()
+
+    for _ in range(3):
+        assert queue.clock.wakes == 1
+        queue.clock.advance(RETRY_S)
+        queue.passed()
+
+    assert (queue.box.issues, queue.box.keys, queue.files()) == ([], [], [name])
+    [line] = queue.log().splitlines()
+    assert f"skrzynka-nieczytelny plik={name}" in line
 
 
 def test_wyslanej_wysylki_ktorej_nie_da_sie_usunac_skrzynka_nie_dostaje_drugi_raz(

@@ -61,6 +61,7 @@ VARIABLES
                    \* (uvicorn zamknął gniazdo, a proces jeszcze kończy pracę: _GRACEFUL_SHUTDOWN_S)
     pc,            \* krok wątku skrzynka-kolejka kolejki q; "spi", gdy wątek nie biegnie
     draining, again, armed, stopped, \* Outbox._draining, _again, _retry_armed, _stopped_on is not None
+    nieczytany,    \* Outbox._read_failed: przejście pominęło plik, którego nie dało się odczytać
     undeleted, rejected,             \* Outbox._undeleted, _rejected (nazwy plików)
     lista,         \* pliki tego przejścia jeszcze nie obsłużone (sorted(glob("*.json")) w _send_all)
     biez,          \* plik, który przejście właśnie wysyła
@@ -83,13 +84,13 @@ VARIABLES
     slady          \* przyczyny ryzyk i znanych znalezisk, które już się zdarzyły
 
 dysk == <<plik, tmp, numer>>
-watek == <<pc, draining, again, armed, stopped, undeleted, rejected, lista, biez, nr, kom, bezZnacznika, bezOchrony>>
+watek == <<pc, draining, again, armed, stopped, nieczytany, undeleted, rejected, lista, biez, nr, kom, bezZnacznika, bezOchrony>>
 nadawanie == <<nadawca, przez, zakolejkowane, odrzucone>>
 awarie == <<sieci, zgubione, odmowy, bledyPliku, wylaczenia>>
 vars == <<dysk, issues, zyje, watek, passes, zamkniecia, nadawanie, awarie, krok, slady>>
 
 \* Znane znaleziska (SKILL.md, oczekiwane.json): ślad przyczyny, po której obietnica pada.
-ZnaneZnaleziska == {"przejecie", "dwa_procesy", "odczyt"}
+ZnaneZnaleziska == {"przejecie", "dwa_procesy"}
 \* Ryzyka, które obietnica JednoIssue przyjmuje sama (ADR 0015, docstring outbox.py, komentarze w _send_all).
 Ryzyka == {"zerwane_po_zalozeniu", "bez_znacznika", "bez_numeru"}
 
@@ -105,7 +106,7 @@ TypeOK ==
     /\ zyje \in [Q -> {"nie", "tak", "zamkniety"}]
     /\ pc \in [Q -> Kroki]
     /\ draining \in [Q -> BOOLEAN] /\ again \in [Q -> BOOLEAN]
-    /\ armed \in [Q -> BOOLEAN] /\ stopped \in [Q -> BOOLEAN]
+    /\ armed \in [Q -> BOOLEAN] /\ stopped \in [Q -> BOOLEAN] /\ nieczytany \in [Q -> BOOLEAN]
     /\ undeleted \in [Q -> SUBSET W] /\ rejected \in [Q -> SUBSET W]
     /\ lista \in [Q -> Seq(W)] /\ biez \in [Q -> W] /\ nr \in [Q -> Nat]
     /\ kom \in [Q -> Seq(1..Czesci)] /\ bezZnacznika \in [Q -> BOOLEAN] /\ bezOchrony \in [Q -> SUBSET W]
@@ -123,7 +124,7 @@ Init ==
     /\ zyje = [q \in Q |-> "nie"]
     /\ pc = [q \in Q |-> "spi"]
     /\ draining = [q \in Q |-> FALSE] /\ again = [q \in Q |-> FALSE]
-    /\ armed = [q \in Q |-> FALSE] /\ stopped = [q \in Q |-> FALSE]
+    /\ armed = [q \in Q |-> FALSE] /\ stopped = [q \in Q |-> FALSE] /\ nieczytany = [q \in Q |-> FALSE]
     /\ undeleted = [q \in Q |-> {}] /\ rejected = [q \in Q |-> {}]
     /\ lista = [q \in Q |-> <<>>] /\ biez = [q \in Q |-> 1] /\ nr = [q \in Q |-> 0]
     /\ kom = [q \in Q |-> <<>>] /\ bezZnacznika = [q \in Q |-> FALSE] /\ bezOchrony = [q \in Q |-> {}]
@@ -202,6 +203,7 @@ Idz(q, krokKodu, opis) == pc' = Ustaw(pc, q, krokKodu) /\ krok' = opis
 \* _waiting daje "stop" (brak sieci, odmowa klucza, brak klucza): _stopped_on i return z _send_all.
 Stop(q, opis) ==
     /\ stopped' = Ustaw(stopped, q, TRUE)
+    /\ UNCHANGED nieczytany
     /\ Idz(q, "zwolnij", opis)
 \* _waiting daje "next" (odmowa treści): plik w _rejected do następnego startu, przejście idzie dalej.
 Odrzuc(q, w, opis) ==
@@ -213,51 +215,56 @@ Slad(s) == slady' = slady \cup {s}
 
 \* outbox.py Outbox._drain: początek pętli while i _claimed. Kolejka, która zastanie przejście
 \* innej kolejki tego folderu w swoim procesie, tylko prosi o następne (_PASSES = True) i nie wysyła.
-\* Zajęta kolejka bierze pliki po nazwie: sorted(glob("*.json")) w _send_all (bez *.json.tmp).
+\* Zajęta kolejka zeruje _read_failed i bierze pliki po nazwie: sorted(glob("*.json")) w _send_all (bez *.json.tmp).
 Petla(q) ==
     /\ pc[q] = "petla"
     /\ IF passes[Proc(q)] = "wolny"
        THEN /\ passes' = Ustaw(passes, Proc(q), "zajety")
+            /\ nieczytany' = Ustaw(nieczytany, q, FALSE)
             /\ lista' = Ustaw(lista, q, SelectSeq([i \in 1..Wysylek |-> i],
                                                   LAMBDA w : plik[w] \in {"czeka", "oznaczony"}))
             /\ Idz(q, "plik", "_drain: _claimed, _send_all bierze pliki kolejki po nazwie")
        ELSE /\ passes' = Ustaw(passes, Proc(q), "prosba")
-            /\ UNCHANGED lista
+            /\ UNCHANGED <<lista, nieczytany>>
             /\ Idz(q, "decyzja", "_drain: _claimed zastaje przejscie innej kolejki, prosi o nastepne")
     /\ UNCHANGED <<dysk, issues, zyje, draining, again, armed, stopped, undeleted, rejected, biez, nr, kom,
                    bezZnacznika, bezOchrony, zamkniecia, nadawanie, awarie, slady>>
 
 \* outbox.py Outbox._send_all, jeden plik: _undeleted (_remove), _rejected (pomija), _queued (odczyt:
-\* nieczytelny albo usunięty przez inny proces plik pomija), delivered (_remove), potem _deliver.
+\* nieczytelny albo usunięty przez inny proces plik pomija, a OSError ustawia _read_failed), delivered
+\* (_remove), potem _deliver.
 \* Koniec listy: self._stopped_on = None.
 Plik(q) ==
     /\ pc[q] = "plik"
     /\ IF lista[q] = <<>>
        THEN /\ stopped' = Ustaw(stopped, q, FALSE)
-            /\ UNCHANGED <<lista, biez, bledyPliku, slady>>
+            /\ UNCHANGED <<lista, biez, nieczytany, bledyPliku, slady>>
             /\ Idz(q, "zwolnij", "_send_all: koniec plikow, _stopped_on = None")
        ELSE LET w == Head(lista[q]) IN
             /\ lista' = Ustaw(lista, q, Tail(lista[q]))
             /\ biez' = Ustaw(biez, q, w)
             /\ UNCHANGED stopped
             /\ CASE w \in undeleted[q] ->
-                      /\ UNCHANGED <<bledyPliku, slady>>
+                      /\ UNCHANGED <<nieczytany, bledyPliku, slady>>
                       /\ Idz(q, "usun", "_send_all: plik w _undeleted, _remove")
                  [] w \in rejected[q] ->
-                      /\ UNCHANGED <<bledyPliku, slady>>
+                      /\ UNCHANGED <<nieczytany, bledyPliku, slady>>
                       /\ Idz(q, "plik", "_send_all: plik w _rejected, czeka do nastepnego startu")
                  [] OTHER ->
                       \/ /\ AwariaOdczytu /\ bledyPliku < MaxBledowPliku /\ plik[w] /= "usuniety"
-                         /\ bledyPliku' = bledyPliku + 1 /\ Slad("odczyt")
-                         /\ Idz(q, "plik", "_queued: read_text rzuca OSError, _skip_unreadable pomija plik")
+                         /\ bledyPliku' = bledyPliku + 1
+                         /\ nieczytany' = Ustaw(nieczytany, q, TRUE)
+                         /\ UNCHANGED slady
+                         /\ Idz(q, "plik", "_queued: read_text rzuca OSError, _read_failed, _skip_unreadable pomija plik")
                       \/ /\ plik[w] = "usuniety"
+                         /\ nieczytany' = Ustaw(nieczytany, q, TRUE)
                          /\ UNCHANGED <<bledyPliku, slady>>
-                         /\ Idz(q, "plik", "_queued: pliku juz nie ma (usunal go inny proces), _skip_unreadable")
+                         /\ Idz(q, "plik", "_queued: pliku juz nie ma (usunal go inny proces), _read_failed, _skip_unreadable")
                       \/ /\ plik[w] = "oznaczony"
-                         /\ UNCHANGED <<bledyPliku, slady>>
+                         /\ UNCHANGED <<nieczytany, bledyPliku, slady>>
                          /\ Idz(q, "usun", "_queued: plik ze znacznikiem dostarczenia, _remove")
                       \/ /\ plik[w] = "czeka"
-                         /\ UNCHANGED <<bledyPliku, slady>>
+                         /\ UNCHANGED <<nieczytany, bledyPliku, slady>>
                          \* _deliver: NewIssue zakłada issue od razu, reszta celów i plik z numerem issue
                          \* (Opened) najpierw pytają Skrzynkę.
                          /\ IF Cel = "nowe" /\ numer[w] = 0
@@ -275,7 +282,7 @@ Szukaj(q) ==
           /\ Stop(q, "labelled_issues: Unreachable (brak sieci), przejscie staje")
           /\ UNCHANGED <<nr, kom, slady>>
        \/ /\ Cel = "okres"
-          /\ UNCHANGED <<sieci, stopped, slady>>
+          /\ UNCHANGED <<sieci, stopped, nieczytany, slady>>
           \* _deliver_to_period: bez issue okresu nowe issue, a do znalezionego każda część komentarzem.
           /\ IF Najnowsze = 0
              THEN /\ UNCHANGED <<nr, kom>>
@@ -283,7 +290,7 @@ Szukaj(q) ==
              ELSE /\ nr' = Ustaw(nr, q, Najnowsze) /\ kom' = Ustaw(kom, q, Od(1))
                   /\ Idz(q, "komentuj", "find_issue: jest issue okresu, kazda czesc komentarzem")
        \/ /\ Cel = "zgloszenie"
-          /\ UNCHANGED <<sieci, stopped>>
+          /\ UNCHANGED <<sieci, stopped, nieczytany>>
           \* _deliver_report: otwarte Zgłoszenie z tym odciskiem to Delivered(found, ()), bez komentarzy.
           /\ IF Najnowsze = 0
              THEN /\ UNCHANGED <<nr, kom, slady>>
@@ -292,12 +299,12 @@ Szukaj(q) ==
                   /\ Slad("przejecie")
                   /\ Idz(q, "dostarczona", "_deliver_report: jest Zgloszenie z odciskiem, Delivered(found, ()) bez komentarzy")
        \/ /\ Cel = "znane"
-          /\ UNCHANGED <<sieci, stopped, slady>>
+          /\ UNCHANGED <<sieci, stopped, nieczytany, slady>>
           \* _deliver_to_known: issue jest na liście (Gone model pomija), każda część komentarzem.
           /\ nr' = Ustaw(nr, q, 1) /\ kom' = Ustaw(kom, q, Od(1))
           /\ Idz(q, "komentuj", "_deliver_to_known: issue jest na liscie, kazda czesc komentarzem")
        \/ /\ Cel = "nowe"
-          /\ UNCHANGED <<sieci, stopped, slady>>
+          /\ UNCHANGED <<sieci, stopped, nieczytany, slady>>
           \* _deliver z issue z pliku: _deliver_to_known, issue jest na liście, komentarze z Post.opening.
           /\ nr' = Ustaw(nr, q, numer[biez[q]]) /\ kom' = Ustaw(kom, q, Reszta)
           /\ Idz(q, "komentuj", "_deliver_to_known: issue z pliku kolejki jest na liscie, reszta czesci komentarzami")
@@ -313,7 +320,7 @@ Zaloz(q) ==
     /\ pc[q] = "zaloz"
     /\ \/ /\ issues' = nowe
           /\ nr' = Ustaw(nr, q, Len(nowe)) /\ kom' = Ustaw(kom, q, Reszta)
-          /\ UNCHANGED <<stopped, rejected, sieci, zgubione, odmowy, slady, odrzucone>>
+          /\ UNCHANGED <<stopped, nieczytany, rejected, sieci, zgubione, odmowy, slady, odrzucone>>
           /\ IF Reszta = <<>>
              THEN Idz(q, "dostarczona", "open_issue: Sent, cala wysylka w tresci issue")
              ELSE Idz(q, "komentuj", "open_issue: Sent, reszta czesci komentarzami (_comment_all)")
@@ -329,7 +336,7 @@ Zaloz(q) ==
        \/ /\ odmowy < MaxOdmowTresci
           /\ odmowy' = odmowy + 1 /\ odrzucone' = odrzucone \cup {w}
           /\ Odrzuc(q, w, "open_issue: Rejected, plik czeka do nastepnego startu")
-          /\ UNCHANGED <<issues, nr, kom, stopped, sieci, zgubione, slady>>
+          /\ UNCHANGED <<issues, nr, kom, stopped, nieczytany, sieci, zgubione, slady>>
     /\ UNCHANGED <<dysk, zyje, draining, again, armed, undeleted, lista, biez, bezZnacznika, bezOchrony, passes, zamkniecia,
                    nadawca, przez, zakolejkowane, bledyPliku, wylaczenia>>
 
@@ -342,7 +349,7 @@ Komentuj(q) ==
     /\ pc[q] = "komentuj"
     /\ \/ /\ issues' = dopisane
           /\ kom' = Ustaw(kom, q, Tail(kom[q]))
-          /\ UNCHANGED <<stopped, rejected, sieci, zgubione, odmowy, slady, odrzucone>>
+          /\ UNCHANGED <<stopped, nieczytany, rejected, sieci, zgubione, odmowy, slady, odrzucone>>
           /\ IF Tail(kom[q]) = <<>>
              THEN Idz(q, "dostarczona", "comment: Commented, ostatnia czesc, Delivered")
              ELSE Idz(q, "komentuj", "comment: Commented")
@@ -363,7 +370,7 @@ Komentuj(q) ==
              THEN /\ UNCHANGED rejected
                   /\ Idz(q, "zapisz_numer", "comment: Rejected po open_issue, Opened: plik zapamieta numer issue")
              ELSE Odrzuc(q, w, "comment: Rejected, plik czeka do nastepnego startu")
-          /\ UNCHANGED <<issues, kom, stopped, sieci, zgubione, slady>>
+          /\ UNCHANGED <<issues, kom, stopped, nieczytany, sieci, zgubione, slady>>
     /\ UNCHANGED <<dysk, zyje, draining, again, armed, undeleted, lista, biez, nr, bezZnacznika, bezOchrony, passes,
                    zamkniecia, nadawca, przez, zakolejkowane, bledyPliku, wylaczenia>>
 
@@ -381,7 +388,7 @@ ZapiszNumer(q) ==
           /\ bezOchrony' = Ustaw(bezOchrony, q, bezOchrony[q] \cup {w})
           /\ UNCHANGED tmp
           /\ Odrzuc(q, w, "numer issue: write_text pliku .json.tmp rzuca OSError (suppress), plik bez numeru w _rejected")
-    /\ UNCHANGED <<plik, numer, issues, zyje, draining, again, armed, stopped, undeleted, lista, biez, nr, kom,
+    /\ UNCHANGED <<plik, numer, issues, zyje, draining, again, armed, stopped, nieczytany, undeleted, lista, biez, nr, kom,
                    bezZnacznika, passes, zamkniecia, nadawanie, sieci, zgubione, odmowy, wylaczenia, slady>>
 
 \* atomic_file.py replace_atomically: temporary.replace(path); OSError (także FileNotFoundError, gdy plik
@@ -403,7 +410,7 @@ ZamienNumer(q) ==
           /\ bezOchrony' = Ustaw(bezOchrony, q, bezOchrony[q] \cup {w})
           /\ UNCHANGED <<numer, bledyPliku>>
           /\ Odrzuc(q, w, "numer issue: pliku .json.tmp juz nie ma, os.replace rzuca OSError (suppress); _rejected")
-    /\ UNCHANGED <<plik, issues, zyje, draining, again, armed, stopped, undeleted, lista, biez, nr, kom,
+    /\ UNCHANGED <<plik, issues, zyje, draining, again, armed, stopped, nieczytany, undeleted, lista, biez, nr, kom,
                    bezZnacznika, passes, zamkniecia, nadawanie, sieci, zgubione, odmowy, wylaczenia, slady>>
 
 \* outbox.py _send_all po Delivered: _stopped_on = None, on_delivered, _first_comments,
@@ -414,6 +421,7 @@ Znacznik(q) ==
     LET w == biez[q] IN
     /\ pc[q] = "dostarczona"
     /\ stopped' = Ustaw(stopped, q, FALSE)
+    /\ UNCHANGED nieczytany
     /\ \/ /\ tmp' = tmp \cup {w}
           /\ UNCHANGED <<bezZnacznika, bledyPliku>>
           /\ Idz(q, "zamiana", "znacznik: replace_atomically zapisuje plik .json.tmp")
@@ -445,8 +453,8 @@ Zamiana(q) ==
           /\ bezZnacznika' = Ustaw(bezZnacznika, q, TRUE)
           /\ UNCHANGED <<plik, bledyPliku>>
           /\ Idz(q, "usun", "znacznik: pliku .json.tmp juz nie ma, os.replace rzuca OSError (suppress); _remove")
-    /\ UNCHANGED <<numer, issues, zyje, draining, again, armed, stopped, undeleted, rejected, lista, biez, nr, kom, bezOchrony,
-                   passes, zamkniecia, nadawanie, sieci, zgubione, odmowy, wylaczenia, slady>>
+    /\ UNCHANGED <<numer, issues, zyje, draining, again, armed, stopped, nieczytany, undeleted, rejected, lista, biez, nr, kom,
+                   bezOchrony, passes, zamkniecia, nadawanie, sieci, zgubione, odmowy, wylaczenia, slady>>
 
 \* outbox.py Outbox._remove: path.unlink(missing_ok=True); OSError (Windows, antywirus, OneDrive trzyma
 \* plik) dopisuje nazwę do _undeleted, a następne przejście tej pracy Centrum usuwa plik bez wysyłania.
@@ -465,8 +473,8 @@ Usun(q) ==
           /\ bezOchrony' = IF bezZnacznika[q] THEN Ustaw(bezOchrony, q, bezOchrony[q] \cup {w}) ELSE bezOchrony
           /\ UNCHANGED <<plik, slady>>
           /\ Idz(q, "plik", "_remove: unlink rzuca OSError, plik zostaje, nazwa w _undeleted")
-    /\ UNCHANGED <<tmp, numer, issues, zyje, draining, again, armed, stopped, rejected, lista, biez, nr, kom, passes,
-                   zamkniecia, nadawanie, sieci, zgubione, odmowy, wylaczenia>>
+    /\ UNCHANGED <<tmp, numer, issues, zyje, draining, again, armed, stopped, nieczytany, rejected, lista, biez, nr, kom,
+                   passes, zamkniecia, nadawanie, sieci, zgubione, odmowy, wylaczenia>>
 
 \* outbox.py Outbox._drain, finally po _send_all: _released; prośba innej kolejki o przejście to _again.
 Zwolnij(q) ==
@@ -474,11 +482,12 @@ Zwolnij(q) ==
     /\ again' = IF passes[Proc(q)] = "prosba" THEN Ustaw(again, q, TRUE) ELSE again
     /\ passes' = Ustaw(passes, Proc(q), "wolny")
     /\ Idz(q, "decyzja", "_drain: _released")
-    /\ UNCHANGED <<dysk, issues, zyje, draining, armed, stopped, undeleted, rejected, lista, biez, nr, kom,
+    /\ UNCHANGED <<dysk, issues, zyje, draining, armed, stopped, nieczytany, undeleted, rejected, lista, biez, nr, kom,
                    bezZnacznika, bezOchrony, zamkniecia, nadawanie, awarie, slady>>
 
 \* outbox.py Outbox._drain pod self._changed: z _again następne przejście; bez niego _draining = False
-\* i, gdy przejście stanęło (_stopped_on) a budzenie nie jest nastawione, clock.after(RETRY_S, _woken).
+\* i, gdy przejście stanęło (_stopped_on) albo pominęło nieczytelny plik (_read_failed), a budzenie nie jest
+\* nastawione, clock.after(RETRY_S, _woken).
 Decyzja(q) ==
     /\ pc[q] = "decyzja"
     /\ IF again[q]
@@ -486,10 +495,10 @@ Decyzja(q) ==
             /\ UNCHANGED <<draining, armed>>
             /\ Idz(q, "petla", "_drain: _again, nastepne przejscie")
        ELSE /\ draining' = Ustaw(draining, q, FALSE)
-            /\ armed' = Ustaw(armed, q, armed[q] \/ stopped[q])
+            /\ armed' = Ustaw(armed, q, armed[q] \/ stopped[q] \/ nieczytany[q])
             /\ UNCHANGED again
-            /\ Idz(q, "spi", IF stopped[q] THEN "_drain: koniec watku, budzenie za RETRY_S" ELSE "_drain: koniec watku")
-    /\ UNCHANGED <<dysk, issues, zyje, stopped, undeleted, rejected, lista, biez, nr, kom, bezZnacznika, bezOchrony, passes,
+            /\ Idz(q, "spi", IF stopped[q] \/ nieczytany[q] THEN "_drain: koniec watku, budzenie za RETRY_S" ELSE "_drain: koniec watku")
+    /\ UNCHANGED <<dysk, issues, zyje, stopped, nieczytany, undeleted, rejected, lista, biez, nr, kom, bezZnacznika, bezOchrony, passes,
                    zamkniecia, nadawanie, awarie, slady>>
 
 Watek(q) ==
@@ -504,7 +513,7 @@ Budzenie(q) ==
     /\ armed' = Ustaw(armed, q, FALSE)
     /\ Budz(q)
     /\ krok' = "_woken po RETRY_S: send_in_background"
-    /\ UNCHANGED <<dysk, issues, zyje, stopped, undeleted, rejected, lista, biez, nr, kom, bezZnacznika, bezOchrony, passes,
+    /\ UNCHANGED <<dysk, issues, zyje, stopped, nieczytany, undeleted, rejected, lista, biez, nr, kom, bezZnacznika, bezOchrony, passes,
                    zamkniecia, nadawanie, awarie, slady>>
 
 \* --- Zapytania HTTP: Outbox.post ------------------------------------------------
@@ -562,8 +571,8 @@ Nadaj(w) ==
           /\ krok' = "post: send_in_background"
           /\ UNCHANGED <<plik, tmp, przez, zakolejkowane, bledyPliku>>
     /\ nadawca[w] /= "czeka" => zyje[przez[w]] /= "nie"
-    /\ UNCHANGED <<numer, issues, zyje, armed, stopped, undeleted, rejected, lista, biez, nr, kom, bezZnacznika, bezOchrony,
-                   passes, zamkniecia, odrzucone, sieci, zgubione, odmowy, wylaczenia, slady>>
+    /\ UNCHANGED <<numer, issues, zyje, armed, stopped, nieczytany, undeleted, rejected, lista, biez, nr, kom, bezZnacznika,
+                   bezOchrony, passes, zamkniecia, odrzucone, sieci, zgubione, odmowy, wylaczenia, slady>>
 
 \* --- Procesy Centrum ------------------------------------------------------------
 
@@ -576,6 +585,7 @@ Zabij(S) ==
     /\ again' = [q \in Q |-> IF q \in S THEN FALSE ELSE again[q]]
     /\ armed' = [q \in Q |-> IF q \in S THEN FALSE ELSE armed[q]]
     /\ stopped' = [q \in Q |-> IF q \in S THEN FALSE ELSE stopped[q]]
+    /\ nieczytany' = [q \in Q |-> IF q \in S THEN FALSE ELSE nieczytany[q]]
     /\ undeleted' = [q \in Q |-> IF q \in S THEN {} ELSE undeleted[q]]
     /\ rejected' = [q \in Q |-> IF q \in S THEN {} ELSE rejected[q]]
     /\ lista' = [q \in Q |-> IF q \in S THEN <<>> ELSE lista[q]]
@@ -622,8 +632,8 @@ Start(q) ==
     \* zamyka gniazdo, potem czeka do _GRACEFUL_SHUTDOWN_S na połączenia, a wątek kolejki dalej biegnie).
     /\ IF DwaProcesy /\ \E r \in Q : zyje[r] = "zamkniety" THEN Slad("dwa_procesy") ELSE UNCHANGED slady
     /\ krok' = "Centrum startuje: Outbox.resume usuwa *.tmp, send_in_background"
-    /\ UNCHANGED <<plik, numer, issues, again, armed, stopped, undeleted, rejected, lista, biez, nr, kom, bezZnacznika,
-                   bezOchrony, passes, zamkniecia, nadawanie, awarie>>
+    /\ UNCHANGED <<plik, numer, issues, again, armed, stopped, nieczytany, undeleted, rejected, lista, biez, nr, kom,
+                   bezZnacznika, bezOchrony, passes, zamkniecia, nadawanie, awarie>>
 
 \* Tata zamyka Centrum albo opiekun ponownego startu je restartuje: uvicorn zamyka gniazdo (port wolny
 \* dla nowego Centrum), a proces jeszcze kończy pracę.
