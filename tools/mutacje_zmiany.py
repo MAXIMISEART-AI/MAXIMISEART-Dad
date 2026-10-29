@@ -1,4 +1,4 @@
-"""Psuje zmienione linie ``src/`` i ``tools/`` i sprawdza, że test to zauważa, jak zadanie CI ``Change mutations``.
+"""Psuje zmienione linie ``src/`` i ``tools/`` i sprawdza, że test to zauważa, jak nocne mutacje ``main`` (ADR 0021).
 
 Zmiana to linie plików ``src/**/*.py`` i ``tools/**/*.py``, którymi checkout (z niezacommitowanymi i nieśledzonymi
 plikami) różni się od ``merge-base`` HEAD z ``--baza`` (domyślnie ``origin/main``). Na każdej zmienionej linii narzędzie
@@ -65,10 +65,12 @@ fragmentu ma linię początku fragmentu, więc obejmuje je komentarz nad nim alb
 terminie nie obowiązuje, ale narzędzie widzi go dopiero przy
 następnej zmianie jego pliku, a komentarz ``mutacje-zmiany:`` w innej postaci kończy narzędzie błędem.
 
-Kończy się ``MUTACJE ZMIANY OK | …`` albo ``MUTACJE ZMIANY FAIL | …``. W CI biegnie na Linuksie w trzech częściach
-zadania ``Change mutations``, które startuje dopiero po zielonym ``Required CI status`` i go nie blokuje. Z ``--zapis``
-każda część zapisuje swoją ostatnią linię i nazwy przeżytych mutacji (``<plik>:<linia> <opis>``, jak w linii
-``NIEWYKRYTA``), a ``tools/scal_pr.py`` każe recenzentowi omówić każdą z nich w ``PASS``.
+Kończy się ``MUTACJE ZMIANY OK | …`` (kod 0) albo ``MUTACJE ZMIANY FAIL | …``: kodem 1, gdy przeżyły mutacje, a
+kodem 2, gdy wynik mutacji nic nie mówi (nieznana baza, zły wyjątek, testy padają bez mutacji, odmowa
+``tools/ciezkie_ci.py``). W CI biegnie nocą na Linuksie, na ``main``, od bazy z ``tools/mutacje_nocne.py``, w częściach
+workflow ``mutacje-nocne.yml``. Z ``--zapis`` każda część zapisuje swoją ostatnią linię i przeżyte mutacje: nazwę
+(``<plik>:<linia> <opis>``, jak w linii ``NIEWYKRYTA``), zmienione linie, które mutacja psuje (``Mutant.lines``), i klucz
+(``fingerprint``), a ``tools/mutacje_nocne.py`` zakłada z nich issue PR-u, który ostatni zmienił te linie.
 
 Granica: nie zastępuje mutacji z opisu PR. Obietnicę, której żadna z tych mutacji nie psuje (inny klucz
 wyszukiwania, kolejność kroków), samo usunięcie linii, dekoratory, argument pozycyjny, kod poza ``src/`` i ``tools/``
@@ -79,12 +81,14 @@ Pod ``tools/na_scalonych_pr.py`` pliki ``tools/``, które ten podmienił narzęd
 commitu w takim pliku narzędzie zgłasza linią ``NIESPRAWDZONA``: zmianę ``tools/`` z historii sprawdza tylko próba
 z ``--narzedzia`` wskazującym commit, który do narzędzi tego commitu dokłada samo nowe ``tools/mutacje_zmiany.py``.
 
-Poza CI biegnie tylko do odtworzenia porażki zadania z runu Actions tej gałęzi (``tools/ciezkie_ci.py``):
+Poza CI biegnie tylko do odtworzenia części, która padła (kod 2) w runie Actions (``tools/ciezkie_ci.py``). Run
+nocny odtwarza się na jego commicie, z bazą i częścią z jego planu:
 
-    .venv/bin/python tools/mutacje_zmiany.py --odtwarzam <id albo URL runu>
-    .venv/bin/python tools/mutacje_zmiany.py --baza feat/galaz-rodzica --odtwarzam <id albo URL runu>
+    git checkout --detach <headSha runu>
+    .venv/bin/python tools/mutacje_zmiany.py --baza <baza z planu> --czesc K/N --odtwarzam <id albo URL runu>
 
-Z ``--czesc K/N`` biegnie co N-ta mutacja od K-tej, więc N zadań CI dzieli mutacje bez listy w ``ci.yml``.
+Z ``--czesc K/N`` biegnie K-ty z N kolejnych kawałków listy mutacji, posortowanej po plikach i liniach, więc N zadań
+CI dzieli mutacje bez listy w workflow, a każde liczy pokrycie tylko na testach swoich kilku plików.
 """
 
 from __future__ import annotations
@@ -95,6 +99,8 @@ from collections import defaultdict
 from collections.abc import Iterable, Iterator, Sequence
 from dataclasses import dataclass, field, replace
 import datetime
+import difflib
+import hashlib
 import io
 import itertools
 import json
@@ -619,6 +625,15 @@ def selected(path: str, text: str, hunks: Sequence[Hunk], platform: str = sys.pl
     return [mutant for mutant in found if mutant.revert or last[mutant.line] is mutant]
 
 
+def fingerprint(mutant: Mutant, text: str) -> str:
+    """Klucz mutacji pliku o treści ``text``, ten sam po przesunięciu jej linii: plik i linie, które mutacja usuwa i
+    dodaje, bez numerów i wcięć. Ta sama zmiana tego samego kodu w dwóch miejscach pliku ma jeden klucz."""
+
+    diff = difflib.unified_diff(text.splitlines(), mutant.source.splitlines(), n=0, lineterm="")
+    edited = [line[0] + line[1:].strip() for line in itertools.islice(diff, 2, None) if not line.startswith("@@")]
+    return hashlib.sha256("\n".join([mutant.path, *edited]).encode("utf-8")).hexdigest()[:12]
+
+
 def exceptions(text: str, path: str) -> dict[int, Allowance]:
     """Wyjątki ``# mutacje-zmiany:`` pliku według linii kodu, której dotyczą; zła postać rzuca ``ValueError``.
 
@@ -749,31 +764,41 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--baza", default=BASE, help=f"Gałąź, od której liczy się zmiana (domyślnie {BASE}).")
     parser.add_argument("--rownolegle", type=int, default=WORKERS, help="Ile mutacji biegnie naraz, każda w swojej kopii.")
     parser.add_argument("--limit-s", type=float, default=900, help="Limit czasu testów jednej mutacji w sekundach.")
-    parser.add_argument("--czesc", metavar="K/N", type=_part, default=(1, 1), help="Tylko co N-ta mutacja, od K-tej.")
+    parser.add_argument("--czesc", metavar="K/N", type=_part, default=(1, 1), help="Tylko K-ty z N kolejnych kawałków listy mutacji.")
     parser.add_argument("--zapis", type=Path, help="Plik JSON z ostatnią linią i nazwami przeżytych mutacji (artefakt CI).")
     ciezkie_ci.argument(parser)
     args = parser.parse_args(argv)
     if refusal := ciezkie_ci.refusal({"change-mutations"}, args.odtwarzam, root=ROOT):
         print(refusal)
         return 2
-    survived: list[str] = []
+    survived: list[tuple[Mutant, str]] = []
     code, result = _mutate(args, survived)
     print(result)
     if args.zapis is not None:
         args.zapis.parent.mkdir(parents=True, exist_ok=True)
-        record = {"czesc": "/".join(map(str, args.czesc)), "wynik": result, "przezyte": survived}
+        record = {"czesc": "/".join(map(str, args.czesc)), "wynik": result, "przezyte": [entry(mutant, text) for mutant, text in survived]}
         args.zapis.write_text(json.dumps(record, ensure_ascii=False, indent=1), encoding="utf-8")
     return code
 
 
-def _mutate(args: argparse.Namespace, survived: list[str]) -> tuple[int, str]:
-    """Kod wyjścia i ostatnia linia; nazwy przeżytych mutacji dopisuje do ``survived``."""
+def _name(mutant: Mutant) -> str:
+    return f"{mutant.path}:{mutant.line} {mutant.description}"
+
+
+def entry(mutant: Mutant, text: str) -> dict[str, object]:
+    """Przeżyta mutacja pliku o treści ``text`` w zapisie ``--zapis``, który czyta ``tools/mutacje_nocne.py``."""
+
+    return {"id": _name(mutant), "linie": sorted(mutant.lines), "klucz": fingerprint(mutant, text)}
+
+
+def _mutate(args: argparse.Namespace, survived: list[tuple[Mutant, str]]) -> tuple[int, str]:
+    """Kod wyjścia i ostatnia linia; przeżyte mutacje z treścią ich pliku przed mutacją dopisuje do ``survived``."""
 
     number, count = args.czesc
     try:
         fork = _git("merge-base", "HEAD", args.baza).strip()
     except subprocess.CalledProcessError:
-        return 1, f"MUTACJE ZMIANY FAIL | nieznana baza {args.baza}"
+        return 2, f"MUTACJE ZMIANY FAIL | nieznana baza {args.baza}"
     replaced, unseen = overlay(fork)
     hunks = {path: found for path, found in changes(fork).items() if path not in replaced}
     for path in unseen:
@@ -782,9 +807,9 @@ def _mutate(args: argparse.Namespace, survived: list[str]) -> tuple[int, str]:
     try:
         allowed = {path: exceptions(text, path) for path, text in texts.items()}
     except ValueError as error:
-        return 1, f"MUTACJE ZMIANY FAIL | {error}"
+        return 2, f"MUTACJE ZMIANY FAIL | {error}"
     every = [mutant for path, text in texts.items() for mutant in selected(path, text, hunks[path])]
-    found = every[number - 1 :: count]
+    found = every[len(every) * (number - 1) // count : len(every) * number // count]
     if not found:
         where = f" w części {number}/{count}" if every else ""
         return 0, f"MUTACJE ZMIANY OK | brak mutacji zmienionych linii src/ i tools/ od {args.baza}{where}"
@@ -806,7 +831,7 @@ def _mutate(args: argparse.Namespace, survived: list[str]) -> tuple[int, str]:
     narrow: list[tuple[Mutant, mutacje.Mutation, list[str]]] = []  # i testy drugiego przebiegu, gdy pierwszy przeżyje
     excused = other_system = 0
     for mutant in found:
-        name = f"{mutant.path}:{mutant.line} {mutant.description}"
+        name = _name(mutant)
         allowance = _allowance(allowed[mutant.path], mutant, today)
         if allowance is not None:
             excused += 1
@@ -817,7 +842,7 @@ def _mutate(args: argparse.Namespace, survived: list[str]) -> tuple[int, str]:
             print(f"POMINIĘTA: {name} → kod innego systemu niż {sys.platform}")
             continue
         if not by_file[mutant.path]:
-            survived.append(name)
+            survived.append((mutant, texts[mutant.path]))
             print(f"NIEWYKRYTA: {name} → żaden test nie zależy od {mutant.path}")
             continue
         # Kod, którego wynik dostają też testy, które go nie wykonały (import, fixture szersza niż test, ``@cache``),
@@ -832,18 +857,18 @@ def _mutate(args: argparse.Namespace, survived: list[str]) -> tuple[int, str]:
     clock.append(time.monotonic())
     # Pokrycie tylko przyspiesza: mutacja, która przeżyła testy swoich linii, biegnie ze wszystkimi testami pliku.
     # Takich jest kilka, a testów pliku tysiące, więc biegną po jednej, każda z workerami xdist.
-    wide: list[mutacje.Mutation] = []
-    for (_, mutation, second), (verdict, last) in zip(narrow, mutacje.verdicts([m for _, m, _ in narrow], workers=args.rownolegle, limit_s=args.limit_s), strict=True):
+    wide: list[tuple[Mutant, mutacje.Mutation]] = []
+    for (mutant, mutation, second), (verdict, last) in zip(narrow, mutacje.verdicts([m for _, m, _ in narrow], workers=args.rownolegle, limit_s=args.limit_s), strict=True):
         if verdict != "WYKRYTA" and not second:
-            survived.append(mutation.name)
+            survived.append((mutant, texts[mutant.path]))
         if verdict == "WYKRYTA" or not second:
             print(f"{verdict}: {mutation.name} → {last}", flush=True)
         else:
-            wide.append(mutacje.Mutation(mutation.name, mutation.edits, _command(second, args.rownolegle)))
+            wide.append((mutant, mutacje.Mutation(mutation.name, mutation.edits, _command(second, args.rownolegle))))
     clock.append(time.monotonic())
-    for mutation, (verdict, last) in zip(wide, mutacje.verdicts(wide, workers=1, limit_s=args.limit_s), strict=True):
+    for (mutant, mutation), (verdict, last) in zip(wide, mutacje.verdicts([m for _, m in wide], workers=1, limit_s=args.limit_s), strict=True):
         if verdict != "WYKRYTA":
-            survived.append(mutation.name)
+            survived.append((mutant, texts[mutant.path]))
         print(f"{verdict}: {mutation.name} → {last} (testy pliku)", flush=True)
     clock.append(time.monotonic())
     uncovered = sum(not second for _, _, second in narrow)

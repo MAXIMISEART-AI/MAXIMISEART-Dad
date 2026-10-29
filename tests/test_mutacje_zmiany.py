@@ -21,7 +21,7 @@ from tests.fixtures.git_repo import commit, git, repository
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
 
-from mutacje_zmiany import Hunk, exceptions, mutants, selected  # noqa: E402
+from mutacje_zmiany import Hunk, exceptions, fingerprint, mutants, selected  # noqa: E402
 import pokrycie_procesu  # noqa: E402
 
 MODULE = "src/rozliczenia/warunek.py"
@@ -87,7 +87,37 @@ def test_zmiana_bez_testu_ktory_ja_widzi_konczy_sie_fail_z_nazwa_mutacji_takze_w
     assert sorted(survived) == ["src/rozliczenia/warunek.py:2 bez `b` w `and`", "src/rozliczenia/warunek.py:2 zmiana linii 2 cofnięta do bazy"]
     assert done.stdout.splitlines()[-1].startswith("MUTACJE ZMIANY FAIL | przeżyło 2")
     written = json.loads(record.read_text(encoding="utf-8"))
-    assert (written["czesc"], written["wynik"], sorted(written["przezyte"])) == ("1/1", done.stdout.splitlines()[-1], sorted(survived))
+    assert (written["czesc"], written["wynik"]) == ("1/1", done.stdout.splitlines()[-1])
+    assert sorted((entry["id"], entry["linie"]) for entry in written["przezyte"]) == [(name, [2]) for name in sorted(survived)]
+    assert len({entry["klucz"] for entry in written["przezyte"]}) == 2
+
+
+@pytest.mark.parametrize(
+    ("changed", "arguments", "verdict"),
+    [
+        (CHANGED.replace("and b", "and b  # mutacje-zmiany: bez terminu"), (), "MUTACJE ZMIANY FAIL | src/rozliczenia/warunek.py:2: wyjątek musi mieć postać"),
+        (CHANGED, ("--baza", "nie-ma-takiej"), "MUTACJE ZMIANY FAIL | nieznana baza nie-ma-takiej"),
+    ],
+    ids=["zly-wyjatek", "nieznana-baza"],
+)
+def test_porazka_bez_wyniku_mutacji_ma_inny_kod_niz_przezyte_mutacje(tmp_path: Path, changed: str, arguments: tuple[str, ...], verdict: str) -> None:
+    # Nocna część zostawia kod 1 przeżytych mutacji zgłoszeniu, a każdą inną porażką czerwieni się (mutacje-nocne.yml).
+    done = _run(_repo(tmp_path, ONE_CASE, changed), *arguments)
+
+    assert done.returncode == 2, done.stdout + done.stderr
+    assert done.stdout.splitlines()[-1].startswith(verdict)
+
+
+def test_klucz_mutacji_nie_zalezy_od_jej_linii_a_rozroznia_mutacje() -> None:
+    hunk = Hunk(2, 1, ("    return a",))
+    found = selected(MODULE, CHANGED, [hunk])
+    shifted = "# opis\n\n" + CHANGED
+    moved = selected(MODULE, shifted, [Hunk(4, 1, ("    return a",))])
+
+    assert [mutant.line for mutant in moved] == [mutant.line + 2 for mutant in found]
+    keys = [fingerprint(mutant, CHANGED) for mutant in found]
+    assert [fingerprint(mutant, shifted) for mutant in moved] == keys
+    assert len(set(keys)) == len(keys) == 2
 
 
 def test_zmiana_z_testami_ktore_widza_kazda_mutacje_konczy_sie_ok(tmp_path: Path) -> None:
@@ -117,6 +147,17 @@ def test_czesci_dziela_mutacje_miedzy_siebie(tmp_path: Path) -> None:
     names = [{line.split(" → ")[0].split(": ", 1)[1] for line in done.stdout.splitlines() if "WYKRYTA: " in line} for done in parts]
     assert len(names[0]) == len(names[1]) == 1, [done.stdout for done in parts]
     assert not names[0] & names[1]
+
+
+def test_czesc_bierze_kolejne_mutacje_wiec_pokrycie_biegnie_na_testach_mniejszej_liczby_plikow(tmp_path: Path) -> None:
+    # Noc mutuje zmiany wielu PR-ów; co N-ta mutacja dałaby każdej części testy wszystkich zmienionych plików.
+    repo = _repo(tmp_path, ONE_CASE, other="def inny(a: bool, b: bool) -> bool:\n    return a\n")
+    (repo / "src" / "rozliczenia" / "inny.py").write_text("def inny(a: bool, b: bool) -> bool:\n    return a or b\n", encoding="utf-8")
+
+    parts = [_run(repo, "--czesc", f"{number}/2") for number in (1, 2)]
+
+    counted = [next(line for line in done.stdout.splitlines() if line.startswith("Mutacje: ")) for done in parts]
+    assert [line.partition(" od ")[0] for line in counted] == [f"Mutacje: 2 (część {number}/2 z 4) w 1 plikach src/ i tools/" for number in (1, 2)]
 
 
 def test_wyjatek_w_linii_mutacji_ja_pomija_a_wygasly_juz_nie(tmp_path: Path) -> None:

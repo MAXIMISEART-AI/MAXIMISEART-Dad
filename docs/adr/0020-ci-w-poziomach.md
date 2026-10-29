@@ -3,6 +3,7 @@
 ## Status
 
 Zaakceptowana (decyzje Maksa z 26.10).
+Część o Change mutations na PR (poziom 2) zastępuje [ADR 0021](0021-mutacje-noca.md): mutacje biegną nocą na `main`, a przeżyte trafiają do issue PR-u.
 Opisuje stan docelowy, który wchodzi krokami, jeden PR na krok.
 Dopóki kroki nie wejdą, CI działa tak, jak opisuje Kontekst.
 Opiera się na [ADR 0014](0014-tata-dostaje-tylko-wydania.md), według którego tata dostaje tylko Wydanie z commitu `main` z zielonym `Required CI status`.

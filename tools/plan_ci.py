@@ -1,4 +1,4 @@
-"""Plan CI: ile zadań pytest i Mutation checks startuje w runie ``ci.yml``, co biegnie w każdym i czy biegną Change mutations.
+"""Plan CI: ile zadań pytest i Mutation checks startuje w runie ``ci.yml`` i co biegnie w każdym.
 
 Pracę pytest wyznacza ``zakres`` (ADR 0020). Na pushu to pełne CI ``main``: trzy tory (``TORY``: Windows 3.11, Windows
 3.14, Linux 3.14), na każdym każdy plik testów ``tests/``, oraz kroki CI (``KROKI``) na swoich torach: E2E na obu
@@ -22,12 +22,8 @@ najwyżej tyle części, ile ma mutacji: część biegnie z ``MUTACJE_CZESC=k/n`
 poleceń swoich mutacji. Podstawy ``ci:`` plan nie dzieli, więc drukuje najdłuższą jednostkę każdego toru po podziale:
 poniżej niej ściana zadania nie zejdzie.
 Zadanie Mutation checks instaluje Chromium tylko wtedy, gdy ma krok skilla, którego skrypty importują Playwright. Gdy
-run (``STALE_ZADANIA``, zadania pytest i Mutation checks, ``ZADANIA_ZMIANY``, jeśli są mutacje zmiany) przekroczyłby
-``ZADANIA_RUNU``, cel wszystkich torów rośnie co ``KROK_CELU_S``.
-
-Change mutations startują tylko na pull request, który ma mutacje zmiany albo wyjątek ``# mutacje-zmiany:`` w złej
-postaci, i dopiero po zielonym ``Required CI status``, którego nie blokują: plan liczy je tak samo jak
-``tools/mutacje_zmiany.py`` (``selected``), bez testów i bez instalacji.
+run (``STALE_ZADANIA``, zadania pytest i Mutation checks) przekroczyłby ``ZADANIA_RUNU``, cel wszystkich torów rośnie
+co ``KROK_CELU_S``. Mutacje zmienionych linii nie biegną na pull request, tylko nocą na ``main`` (ADR 0021).
 
 Na pull request zadanie po porażce pytest uruchamia raz same testy, które padły (``niestabilne_testy``, najwyżej
 ``PONOWIENIE_NAJWIECEJ``; więcej porażek to nie flak), jeśli id każdego da się zgłosić w issue. Gdy wszystkie
@@ -69,7 +65,6 @@ import time
 import czasy_ci
 import mutacje
 import mutacje_skilli
-import mutacje_zmiany
 import niestabilne_testy
 from niestabilne_testy import Flak, ZapisKwarantanny
 import potomne
@@ -91,10 +86,9 @@ CEL_S = 225.0
 KROK_CELU_S = 5.0
 # Limit konta to 20 zadań naraz ze wszystkich workflowów; 20. slot zostaje dla scalenia.yml.
 ZADANIA_RUNU = 19
-# Zadania ci.yml o stałej liczbie (plan, szybkie, Required) i części Change mutations.
+# Zadania ci.yml o stałej liczbie (plan, szybkie, Required).
 STALE_ZADANIA = 3
-ZADANIA_ZMIANY = 3
-# Zadania bramki w ci.yml, które startują tylko z pracą od planu; Change mutations biegną po Required.
+# Zadania bramki w ci.yml, które startują tylko z pracą od planu.
 Z_PLANU = ("pytest", "mutations")
 
 
@@ -199,7 +193,6 @@ class Plan:
     zdarzenie: str
     cel_s: float
     runy: tuple[int, ...]  # runy main, z których są czasy
-    mutacje_zmiany: int
     zadania: tuple[Zadanie, ...]
     bledy: tuple[str, ...] = ()  # FAIL-e znalezienia kroków skilli: zgubiony skrypt mutacji, zły klucz ``ci:``
 
@@ -371,11 +364,11 @@ def _kolejnosc(jednostka: Jednostka) -> tuple[bool, float, str, bool, str]:
     return (jednostka.klucz.startswith("krok:"), -jednostka.s, "", False, jednostka.klucz)
 
 
-def rozplanuj(wyceny: Sequence[Wycena], zdarzenie: str, mutacje_zmiany: int, runy: tuple[int, ...] = (), bledy: tuple[str, ...] = ()) -> Plan:
+def rozplanuj(wyceny: Sequence[Wycena], zdarzenie: str, runy: tuple[int, ...] = (), bledy: tuple[str, ...] = ()) -> Plan:
     """Najmniej zadań na tor przy celu ``CEL_S``; gdy run przekroczyłby ``ZADANIA_RUNU``, cel wszystkich torów rośnie o
     ``KROK_CELU_S``. Tor bez pracy nie ma zadań."""
 
-    limit = ZADANIA_RUNU - STALE_ZADANIA - (ZADANIA_ZMIANY if mutacje_zmiany else 0)
+    limit = ZADANIA_RUNU - STALE_ZADANIA
     if limit < sum(bool(wycena.podzielne or wycena.niepodzielne) for wycena in wyceny):
         raise ValueError(f"limit {ZADANIA_RUNU} zadań runu nie mieści po jednym zadaniu na tor z pracą")
     cel = CEL_S
@@ -396,30 +389,11 @@ def rozplanuj(wyceny: Sequence[Wycena], zdarzenie: str, mutacje_zmiany: int, run
                     przegladarka=any(j.klucz.partition("#")[0] in wycena.przegladarka for j in jednostki),
                 )
             )
-    return Plan(zdarzenie, cel, runy, mutacje_zmiany, tuple(zadania), bledy)
+    return Plan(zdarzenie, cel, runy, tuple(zadania), bledy)
 
 
 def _git(*argumenty: str) -> str:
     return subprocess.run(["git", *argumenty], cwd=ROOT, capture_output=True, text=True, encoding="utf-8", check=True).stdout
-
-
-def liczba_mutacji_zmiany(baza: str) -> int:
-    """Mutacje zmiany od ``merge-base`` HEAD z ``baza``, policzone jak w ``tools/mutacje_zmiany.py``, bez testów.
-
-    Wyjątek ``# mutacje-zmiany:`` w złej postaci w zmienionym pliku to praca Change mutations także bez mutacji (np.
-    przy zmianie samego komentarza): ich zadanie zgłasza go jako ``MUTACJE ZMIANY FAIL``, jak przed planem.
-    """
-
-    fragmenty = mutacje_zmiany.changes(_git("merge-base", "HEAD", baza).strip())
-    teksty = {sciezka: (ROOT / sciezka).read_text(encoding="utf-8") for sciezka in fragmenty}
-    liczba = sum(len(mutacje_zmiany.selected(sciezka, tekst, fragmenty[sciezka])) for sciezka, tekst in teksty.items())
-    try:
-        for sciezka, tekst in teksty.items():
-            mutacje_zmiany.exceptions(tekst, sciezka)
-    except ValueError as error:
-        print(f"MUTACJE ZMIANY | {error}; Change mutations startują, żeby to zgłosić")
-        return max(liczba, 1)
-    return liczba
 
 
 def _katalog_czasow() -> Path:
@@ -427,9 +401,9 @@ def _katalog_czasow() -> Path:
 
 
 def _wypisz(plan: Plan, praca: Zakres, wyceny: Sequence[Wycena], wybor: mutacje_skilli.Selection) -> None:
-    run = STALE_ZADANIA + len(plan.zadania) + (ZADANIA_ZMIANY if plan.mutacje_zmiany else 0)
+    run = STALE_ZADANIA + len(plan.zadania)
     zrodlo = ", ".join(map(str, plan.runy)) or "brak (wagi domyślne)"
-    print(f"PLAN CI | {plan.zdarzenie} | {praca.zrodlo} | cel {plan.cel_s:.0f} s | {run} zadań runu (limit {ZADANIA_RUNU}) | mutacje zmiany {plan.mutacje_zmiany} | czasy z runów main: {zrodlo}")
+    print(f"PLAN CI | {plan.zdarzenie} | {praca.zrodlo} | cel {plan.cel_s:.0f} s | {run} zadań runu (limit {ZADANIA_RUNU}) | czasy z runów main: {zrodlo}")
     for wycena in wyceny:
         # Najdłuższa jednostka po podziale to dolna granica ściany zadania toru: celu poniżej niej plan nie osiągnie.
         najdluzsza = max(wycena.jednostki(_pojemnosc(wycena, plan.cel_s)), key=lambda j: (j.s, j.klucz), default=None)
@@ -458,9 +432,8 @@ def _plan(args: argparse.Namespace) -> int:
     praca = zakres(args.zdarzenie, zmiana or frozenset())
     wybor = mutacje_skilli.wybor(zmiana)
     wyceny = [*(wycen(tor, praca.pliki, czasy) for tor in praca.tory), wycen_mutacje([krok for krok, _ in wybor.chosen], czasy)]
-    mutacje = liczba_mutacji_zmiany(args.baza) if args.zdarzenie == "pull_request" else 0
     bledy = tuple(f"{nazwa}: {powod}" for nazwa, powod in sorted(wybor.failed.items()))
-    plan = rozplanuj(wyceny, args.zdarzenie, mutacje, czasy.runy, bledy)
+    plan = rozplanuj(wyceny, args.zdarzenie, czasy.runy, bledy)
     _wypisz(plan, praca, wyceny, wybor)
     if args.wyjscie:
         args.wyjscie.parent.mkdir(parents=True, exist_ok=True)
@@ -469,7 +442,6 @@ def _plan(args: argparse.Namespace) -> int:
         with open(wyjscie, "a", encoding="utf-8") as plik:
             for szablon in dict.fromkeys(tor.szablon for tor in (*TORY, MUTACJE)):
                 plik.write(f"{szablon}={json.dumps(plan.macierz(szablon), ensure_ascii=False)}\n")
-            plik.write(f"mutacje-zmiany={plan.mutacje_zmiany}\n")
     return 0
 
 
@@ -656,9 +628,9 @@ def _werdykt(args: argparse.Namespace) -> int:
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     polecenia = parser.add_subparsers(dest="polecenie", required=True)
-    plan = polecenia.add_parser("plan", help="Plan runu: zadania pytest, Mutation checks i Change mutations (zadanie plan albo lokalnie).")
+    plan = polecenia.add_parser("plan", help="Plan runu: zadania pytest i Mutation checks (zadanie plan albo lokalnie).")
     plan.add_argument("--zdarzenie", choices=("pull_request", "push"), default="pull_request")
-    plan.add_argument("--baza", default="origin/main", help="Od czego na pull request liczy się zmiana: wybór plików pytest, E2E i straży czasu, mutacje zmiany i wybór kroków skilli (w CI HEAD^1).")
+    plan.add_argument("--baza", default="origin/main", help="Od czego na pull request liczy się zmiana: wybór plików pytest, E2E i straży czasu i wybór kroków skilli (w CI HEAD^1).")
     plan.add_argument("--czasy", type=Path, help="Katalog artefaktów czasy-ci, pobieranych od nowa (domyślnie .git/czasy-ci).")
     plan.add_argument("--wyjscie", type=Path)
     wykonanie = polecenia.add_parser("wykonaj", help="Jednostki jednego zadania planu (w zadaniu pytest albo Mutation checks).")
