@@ -1,4 +1,4 @@
-"""``tools/zgloszenia_ci.py``: issue flaka, issue czerwonego `main` z rozpoznaniem zderzenia i jego zamknięcie.
+"""``tools/zgloszenia_ci.py``: issue flaky testu, issue czerwonego `main` z rozpoznaniem zderzenia i jego zamknięcie.
 
 Historia `main` to prawdziwy Git z PR-ami scalonymi merge'em, a GitHub to zapisane odpowiedzi API w kształcie
 odpowiedzi z runów 26.10.
@@ -19,6 +19,7 @@ import zipfile
 
 import pytest
 
+from tests.fixtures.ci_workflow import jobs
 from tests.fixtures.git_repo import commit, git
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
@@ -70,11 +71,11 @@ def _run(run_id: int, zdarzenie: str, sha: str, wynik: str = "failure", *, pr: t
 def _zip(tresc: object) -> bytes:
     spakowane = io.BytesIO()
     with zipfile.ZipFile(spakowane, "w") as archiwum:
-        archiwum.writestr("flaki.json", json.dumps(tresc))
+        archiwum.writestr("flaky-testy.json", json.dumps(tresc))
     return spakowane.getvalue()
 
 
-def _flak(test: str) -> dict[str, object]:
+def _flaky(test: str) -> dict[str, object]:
     return {"test": test, "zadanie": "pytest (Python 3.11, 1/2)", "sha": "a" * 40, "run": 1, "proba": 1}
 
 
@@ -100,7 +101,7 @@ def _blok_kodu(tresc: str) -> list[str]:
     return linie[start : koniec + 1]
 
 
-def test_kazdy_flak_runu_ma_jedno_otwarte_issue_a_zly_wpis_artefaktu_nie_zabiera_reszty(capsys: pytest.CaptureFixture[str]) -> None:
+def test_kazdy_flaky_test_runu_ma_jedno_otwarte_issue_a_zly_wpis_artefaktu_nie_zabiera_reszty(capsys: pytest.CaptureFixture[str]) -> None:
     nowy = "tests/test_skrzynka.py::test_zatrzymanie_czeka_na_watki[przygotowanie]"
     znany = "tests/test_centrum.py::TestKarta::test_karta"
     escapowany = "tests/test_centrum.py::test_nazwa[za\\u017c\\xf3\\u0142\\u0107]"
@@ -111,35 +112,35 @@ def test_kazdy_flak_runu_ma_jedno_otwarte_issue_a_zly_wpis_artefaktu_nie_zabiera
             **_artefakty(
                 40380584486,
                 {
-                    "flaki-linux-3.14-1-1": [_flak(nowy), _flak(znany)],
-                    "flaki-windows-3.11-1-1": [_flak(nowy), _flak("tests/test_centrum.py::test_x @maks [link](https://zly.example)"), _flak(escapowany)],
-                    "flaki-windows-3.11-2-1": [{"test": surowy}, _flak("tests/../etc.py::test_x"), _flak("tests/test_x.py::test_y[a\nb]"), _flak("tests/test_x.py::test_y[a\u202eb]"), _flak(surowy)],
+                    "flaky-testy-linux-3.14-1-1": [_flaky(nowy), _flaky(znany)],
+                    "flaky-testy-windows-3.11-1-1": [_flaky(nowy), _flaky("tests/test_centrum.py::test_x @maks [link](https://zly.example)"), _flaky(escapowany)],
+                    "flaky-testy-windows-3.11-2-1": [{"test": surowy}, _flaky("tests/../etc.py::test_x"), _flaky("tests/test_x.py::test_y[a\nb]"), _flaky("tests/test_x.py::test_y[a\u202eb]"), _flaky(surowy)],
                 },
             ),
-            **_issues("flak", "open", [{"number": 5, "title": f"Flak: {znany}"}, {"number": 6, "title": f"Flak: {nowy}", "pull_request": {}}]),
+            **_issues("flaky-test", "open", [{"number": 5, "title": f"Flaky test: {znany}"}, {"number": 6, "title": f"Flaky test: {nowy}", "pull_request": {}}]),
         }
     )
 
     akcje = zgloszenia_ci.akcje(github, Path.cwd(), 40380584486, TERAZ)
 
     assert [(type(akcja), akcja.tytul if isinstance(akcja, Zaloz) else akcja.issue) for akcja in akcje] == [
-        (Zaloz, f"Flak: {nowy}"),
+        (Zaloz, f"Flaky test: {nowy}"),
         (Skomentuj, 5),
-        (Zaloz, f"Flak: {escapowany}"),
-        (Zaloz, f"Flak: {surowy}"),
+        (Zaloz, f"Flaky test: {escapowany}"),
+        (Zaloz, f"Flaky test: {surowy}"),
     ]
     zalozone = akcje[0]
-    assert isinstance(zalozone, Zaloz) and zalozone.etykiety == ("flak",)
+    assert isinstance(zalozone, Zaloz) and zalozone.etykiety == ("flaky-test",)
     assert f"commit {'b' * 40}, PR #540" in zalozone.tresc
     assert [_blok_kodu(akcja.tresc)[1] for akcja in akcje] == [nowy, znany, escapowany, surowy]
     assert "@maks" not in "".join(akcja.tresc for akcja in akcje)
     odrzucone = [linia for linia in capsys.readouterr().out.splitlines() if "odrzucony wpis" in linia]
     assert [linia.split(": ", 1)[0] for linia in odrzucone] == [
-        "ZGŁOSZENIA | odrzucony wpis artefaktu flaki-windows-3.11-1-1",
-        "ZGŁOSZENIA | odrzucony wpis artefaktu flaki-windows-3.11-2-1",
-        "ZGŁOSZENIA | odrzucony wpis artefaktu flaki-windows-3.11-2-1",
-        "ZGŁOSZENIA | odrzucony wpis artefaktu flaki-windows-3.11-2-1",
-        "ZGŁOSZENIA | odrzucony wpis artefaktu flaki-windows-3.11-2-1",
+        "ZGŁOSZENIA | odrzucony wpis artefaktu flaky-testy-windows-3.11-1-1",
+        "ZGŁOSZENIA | odrzucony wpis artefaktu flaky-testy-windows-3.11-2-1",
+        "ZGŁOSZENIA | odrzucony wpis artefaktu flaky-testy-windows-3.11-2-1",
+        "ZGŁOSZENIA | odrzucony wpis artefaktu flaky-testy-windows-3.11-2-1",
+        "ZGŁOSZENIA | odrzucony wpis artefaktu flaky-testy-windows-3.11-2-1",
     ]
 
 
@@ -149,8 +150,8 @@ def test_id_testu_z_backtickami_zostaje_w_bloku_kodu_a_dlugie_jest_przyciete() -
     github = Nagrany(
         {
             f"{REPO}/actions/runs/7": _run(7, "pull_request", "b" * 40, "success"),
-            **_artefakty(7, {"flaki-linux-3.14-1-1": [_flak(backticki), _flak(dlugi)]}),
-            **_issues("flak", "open", []),
+            **_artefakty(7, {"flaky-testy-linux-3.14-1-1": [_flaky(backticki), _flaky(dlugi)]}),
+            **_issues("flaky-test", "open", []),
         }
     )
 
@@ -159,33 +160,33 @@ def test_id_testu_z_backtickami_zostaje_w_bloku_kodu_a_dlugie_jest_przyciete() -
     assert isinstance(pierwszy, Zaloz) and isinstance(drugi, Zaloz)
     assert _blok_kodu(pierwszy.tresc) == ["````", backticki, "````"]
     assert _blok_kodu(drugi.tresc)[1] == dlugi[: zgloszenia_ci.DLUGOSC_W_TRESCI - 1] + "…"
-    assert drugi.tytul == f"Flak: {dlugi[: zgloszenia_ci.DLUGOSC_W_TYTULE - 1]}…"
+    assert drugi.tytul == f"Flaky test: {dlugi[: zgloszenia_ci.DLUGOSC_W_TYTULE - 1]}…"
 
 
-def test_run_z_forka_nie_zaklada_issue_flaka() -> None:
+def test_run_z_forka_nie_zaklada_issue_flaky_testu() -> None:
     github = Nagrany(
         {
             f"{REPO}/actions/runs/8": _run(8, "pull_request", "b" * 40, "success", fork="obcy"),
-            **_artefakty(8, {"flaki-linux-3.14-1-1": [_flak("tests/test_x.py::test_y")]}),
+            **_artefakty(8, {"flaky-testy-linux-3.14-1-1": [_flaky("tests/test_x.py::test_y")]}),
         }
     )
 
     assert zgloszenia_ci.akcje(github, Path.cwd(), 8, TERAZ) == []
 
 
-def test_run_z_awaria_zglasza_najwyzej_dziesiec_flakow_w_kolejnosci_artefaktow() -> None:
+def test_run_z_awaria_zglasza_najwyzej_dziesiec_flaky_testow_w_kolejnosci_artefaktow() -> None:
     testy = [f"tests/test_x.py::test_{numer:02}" for numer in range(11)]
     github = Nagrany(
         {
             f"{REPO}/actions/runs/9": _run(9, "pull_request", "b" * 40, "success"),
-            **_artefakty(9, {"flaki-linux-3.14-1-1": [_flak(test) for test in testy]}),
-            **_issues("flak", "open", []),
+            **_artefakty(9, {"flaky-testy-linux-3.14-1-1": [_flaky(test) for test in testy]}),
+            **_issues("flaky-test", "open", []),
         }
     )
 
     akcje = zgloszenia_ci.akcje(github, Path.cwd(), 9, TERAZ)
 
-    assert [akcja.tytul for akcja in akcje if isinstance(akcja, Zaloz)] == [f"Flak: {test}" for test in testy[:10]]
+    assert [akcja.tytul for akcja in akcje if isinstance(akcja, Zaloz)] == [f"Flaky test: {test}" for test in testy[:10]]
 
 
 def test_kazdy_test_repozytorium_da_sie_ponowic_i_zglosic() -> None:
@@ -202,11 +203,18 @@ def test_kazdy_test_repozytorium_da_sie_ponowic_i_zglosic() -> None:
     ).stdout
     testy = [linia for linia in zebrane.splitlines() if "::" in linia]
 
-    flaki, odrzucone = niestabilne_testy.flaki_z_json(json.dumps([_flak(test) for test in testy]))
+    flaky_testy, odrzucone = niestabilne_testy.flaky_testy_z_json(json.dumps([_flaky(test) for test in testy]))
 
     assert len(testy) > 5000
     assert odrzucone == []
-    assert [flak.test for flak in flaki] == testy
+    assert [flaky.test for flaky in flaky_testy] == testy
+
+
+def test_zgloszenia_czytaja_artefakt_w_ktorym_ci_yml_wysyla_flaky_testy() -> None:
+    wysylki = [krok["with"] for zadanie in jobs().values() for krok in zadanie["steps"] if "upload-artifact" in krok.get("uses", "")]
+    flaky_testy = [wysylka for wysylka in wysylki if Path(wysylka["path"]) == niestabilne_testy.FLAKY_TESTY]
+
+    assert [wysylka["name"].startswith(zgloszenia_ci.ARTEFAKT_FLAKY_TESTOW) for wysylka in flaky_testy] == [True]
 
 
 @pytest.fixture

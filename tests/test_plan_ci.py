@@ -439,7 +439,7 @@ def test_zadanie_wykonuje_kroki_po_czerwonym_pytest_przerywa_krok_po_limicie_i_z
 FLAKY = (
     "import pathlib\n\nimport pytest\n\n\n"
     "def test_stabilny() -> None:\n    pass\n\n\n"
-    "class TestFlak:\n"
+    "class TestFlaky:\n"
     "    def test_pada_raz(self) -> None:\n"
     "        marker = pathlib.Path('padl-raz')\n"
     "        if marker.exists():\n            {second}\n"
@@ -450,37 +450,37 @@ FLAKY = (
 
 @pytest.mark.parametrize(
     ("always", "second", "code", "flaky"),
-    [(True, "return", 0, ["tests/test_flak.py::TestFlak::test_pada_raz"]), (False, "return", 1, None), (True, "pytest.skip('drugi raz')", 1, None)],
-    ids=["flak", "dwie porazki", "pominiety po ponowieniu"],
+    [(True, "return", 0, ["tests/test_flaky.py::TestFlaky::test_pada_raz"]), (False, "return", 1, None), (True, "pytest.skip('drugi raz')", 1, None)],
+    ids=["flaky test", "dwie porazki", "pominiety po ponowieniu"],
 )
-def test_bramka_ponawia_raz_test_ktory_padl_a_przejscie_po_ponowieniu_to_flak_a_druga_porazka_to_porazka(
+def test_bramka_ponawia_raz_test_ktory_padl_a_przejscie_po_ponowieniu_to_flaky_test_a_druga_porazka_to_porazka(
     mini_repo: Path, monkeypatch: pytest.MonkeyPatch, always: bool, second: str, code: int, flaky: list[str] | None
 ) -> None:
-    (mini_repo / "tests" / "test_flak.py").write_text(FLAKY.format(always=always, second=second), encoding="utf-8")
+    (mini_repo / "tests" / "test_flaky.py").write_text(FLAKY.format(always=always, second=second), encoding="utf-8")
     monkeypatch.setenv("GITHUB_RUN_ID", "40380584486")
-    job = plan_ci.Zadanie("linux-3.14-1", "linux-3.14", "pytest (Python 3.14, Linux, 1/1)", ("pytest:tests/test_flak.py",), 1.0)
+    job = plan_ci.Zadanie("linux-3.14-1", "linux-3.14", "pytest (Python 3.14, Linux, 1/1)", ("pytest:tests/test_flaky.py",), 1.0)
 
     result = plan_ci.wykonaj(plan_ci.Plan("pull_request", plan_ci.CEL_S, (), (job,)), job.id)
     records = czasy_ci._junit(plan_ci.JUNIT)
 
     assert result == code
-    assert [(unit.klucz, unit.status) for unit in records] == [("pytest:tests/test_flak.py", "ok" if code == 0 else "fail")]
-    found = niestabilne_testy.FLAKI
-    assert (None if not found.exists() else [(flak.test, flak.run, flak.zadanie) for flak in niestabilne_testy.flaki_z_json(found.read_text(encoding="utf-8"))[0]]) == (
+    assert [(unit.klucz, unit.status) for unit in records] == [("pytest:tests/test_flaky.py", "ok" if code == 0 else "fail")]
+    found = niestabilne_testy.FLAKY_TESTY
+    assert (None if not found.exists() else [(flaky.test, flaky.run, flaky.zadanie) for flaky in niestabilne_testy.flaky_testy_z_json(found.read_text(encoding="utf-8"))[0]]) == (
         None if flaky is None else [(test, 40380584486, job.nazwa) for test in flaky]
     )
 
 
 def test_push_nie_ponawia_testu_ktory_padl(mini_repo: Path) -> None:
-    (mini_repo / "tests" / "test_flak.py").write_text(FLAKY.format(always=True, second="return"), encoding="utf-8")
-    job = plan_ci.Zadanie("linux-3.14-1", "linux-3.14", "pytest (Python 3.14, Linux, 1/1)", ("pytest:tests/test_flak.py",), 1.0)
+    (mini_repo / "tests" / "test_flaky.py").write_text(FLAKY.format(always=True, second="return"), encoding="utf-8")
+    job = plan_ci.Zadanie("linux-3.14-1", "linux-3.14", "pytest (Python 3.14, Linux, 1/1)", ("pytest:tests/test_flaky.py",), 1.0)
 
     assert plan_ci.wykonaj(plan_ci.Plan("push", plan_ci.CEL_S, (), (job,)), job.id) == 1
-    assert not niestabilne_testy.FLAKI.exists()
+    assert not niestabilne_testy.FLAKY_TESTY.exists()
 
 
 def test_zadanie_zapisuje_wynik_testow_z_kwarantanny_xfail_to_porazka_a_xpass_przejscie(mini_repo: Path) -> None:
-    (mini_repo / "tests" / "test_flak.py").write_text(
+    (mini_repo / "tests" / "test_flaky.py").write_text(
         FLAKY.format(always=False, second="return"),
         encoding="utf-8",
     )
@@ -492,13 +492,13 @@ def test_zadanie_zapisuje_wynik_testow_z_kwarantanny_xfail_to_porazka_a_xpass_pr
         f"        item.user_properties.append(({niestabilne_testy.WLASNOSC!r}, '#1 do 2026-11-01'))\n",
         encoding="utf-8",
     )
-    job = plan_ci.Zadanie("windows-3.14-1", "windows-3.14", "pytest (Python 3.14, 1/1)", ("pytest:tests/test_flak.py",), 1.0)
+    job = plan_ci.Zadanie("windows-3.14-1", "windows-3.14", "pytest (Python 3.14, 1/1)", ("pytest:tests/test_flaky.py",), 1.0)
 
     plan_ci.wykonaj(plan_ci.Plan("push", plan_ci.CEL_S, (), (job,)), job.id)
     record = niestabilne_testy.kwarantanna_z_json(niestabilne_testy.KWARANTANNA.read_text(encoding="utf-8"))
 
     assert record.zadanie == job.id
-    assert record.wyniki == {"tests/test_flak.py::test_pada_zawsze": "padł", "tests/test_flak.py::test_stabilny": "przeszedł"}
+    assert record.wyniki == {"tests/test_flaky.py::test_pada_zawsze": "padł", "tests/test_flaky.py::test_stabilny": "przeszedł"}
     assert niestabilne_testy.stan_kwarantanny([record]) == "padła"
 
 
@@ -531,28 +531,28 @@ def _padajace_raz(liczba: int) -> str:
 
 
 @pytest.mark.parametrize(("padniete", "code"), [(5, 0), (6, 1)])
-def test_bramka_ponawia_najwyzej_piec_testow_bo_wiecej_porazek_to_nie_flak(
+def test_bramka_ponawia_najwyzej_piec_testow_bo_wiecej_porazek_to_nie_flaky_test(
     mini_repo: Path, capsys: pytest.CaptureFixture[str], padniete: int, code: int
 ) -> None:
-    (mini_repo / "tests" / "test_flak.py").write_text(_padajace_raz(padniete), encoding="utf-8")
-    job = plan_ci.Zadanie("linux-3.14-1", "linux-3.14", "pytest (Python 3.14, Linux, 1/1)", ("pytest:tests/test_flak.py",), 1.0)
+    (mini_repo / "tests" / "test_flaky.py").write_text(_padajace_raz(padniete), encoding="utf-8")
+    job = plan_ci.Zadanie("linux-3.14-1", "linux-3.14", "pytest (Python 3.14, Linux, 1/1)", ("pytest:tests/test_flaky.py",), 1.0)
 
     assert plan_ci.wykonaj(plan_ci.Plan("pull_request", plan_ci.CEL_S, (), (job,)), job.id) == code
-    flaki = [] if code else niestabilne_testy.flaki_z_json(niestabilne_testy.FLAKI.read_text(encoding="utf-8"))[0]
-    assert [flak.test for flak in flaki] == ([] if code else [f"tests/test_flak.py::test_pada_raz_{numer}" for numer in range(5)])
-    assert ("PONOWIENIE | bez ponowienia: padło 6 testów, a flak to najwyżej 5" in capsys.readouterr().out) == bool(code)
-    assert niestabilne_testy.FLAKI.exists() == (not code)
+    flaky_testy = [] if code else niestabilne_testy.flaky_testy_z_json(niestabilne_testy.FLAKY_TESTY.read_text(encoding="utf-8"))[0]
+    assert [flaky.test for flaky in flaky_testy] == ([] if code else [f"tests/test_flaky.py::test_pada_raz_{numer}" for numer in range(5)])
+    assert ("PONOWIENIE | bez ponowienia: padło 6 testów, a flaky testy to najwyżej 5" in capsys.readouterr().out) == bool(code)
+    assert niestabilne_testy.FLAKY_TESTY.exists() == (not code)
 
 
 def test_bramka_nie_ponawia_testu_ktorego_id_nie_da_sie_zglosic_wiec_zostaje_czerwona(mini_repo: Path, capsys: pytest.CaptureFixture[str]) -> None:
     (mini_repo / "tests" / "z-myslnikiem").mkdir()
-    (mini_repo / "tests" / "z-myslnikiem" / "test_flak.py").write_text(_padajace_raz(1), encoding="utf-8")
-    unit = "pytest:tests/z-myslnikiem/test_flak.py"
+    (mini_repo / "tests" / "z-myslnikiem" / "test_flaky.py").write_text(_padajace_raz(1), encoding="utf-8")
+    unit = "pytest:tests/z-myslnikiem/test_flaky.py"
     job = plan_ci.Zadanie("linux-3.14-1", "linux-3.14", "pytest (Python 3.14, Linux, 1/1)", (unit,), 1.0)
 
     assert plan_ci.wykonaj(plan_ci.Plan("pull_request", plan_ci.CEL_S, (), (job,)), job.id) == 1
-    assert "PONOWIENIE | bez ponowienia: id testu, którego nie da się zgłosić w issue: tests/z-myslnikiem/test_flak.py::test_pada_raz_0" in capsys.readouterr().out
-    assert not niestabilne_testy.FLAKI.exists()
+    assert "PONOWIENIE | bez ponowienia: id testu, którego nie da się zgłosić w issue: tests/z-myslnikiem/test_flaky.py::test_pada_raz_0" in capsys.readouterr().out
+    assert not niestabilne_testy.FLAKY_TESTY.exists()
 
 
 def test_zadanie_mutation_checks_uruchamia_po_kolei_swoje_kroki_skilli_a_czesc_skryptu_z_jej_numerem(
