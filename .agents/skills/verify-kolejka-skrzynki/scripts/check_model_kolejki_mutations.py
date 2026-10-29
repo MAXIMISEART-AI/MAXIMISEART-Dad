@@ -120,14 +120,33 @@ MUTATIONS = (
         (
             Edit(
                 MODEL,
-                '          /\\ Odrzuc(q, w, "comment: Rejected, plik czeka do nastepnego startu")\n'
-                "          /\\ UNCHANGED <<issues, kom, stopped, sieci, zgubione>>\n",
+                '          /\\ IF Cel = "nowe" /\\ numer[w] = 0\n'
+                "             THEN /\\ UNCHANGED rejected\n"
+                '                  /\\ Idz(q, "zapisz_numer", "comment: Rejected po open_issue, Opened: plik zapamieta numer issue")\n'
+                '             ELSE Odrzuc(q, w, "comment: Rejected, plik czeka do nastepnego startu")\n'
+                "          /\\ UNCHANGED <<issues, kom, stopped, sieci, zgubione, slady>>\n",
                 '          /\\ Idz(q, "usun", "comment: Rejected, _remove")\n'
-                "          /\\ UNCHANGED <<issues, kom, stopped, rejected, sieci, zgubione>>\n",
+                "          /\\ UNCHANGED <<issues, kom, stopped, rejected, sieci, zgubione, slady>>\n",
             ),
         ),
         _check("odmowa-tresci"),
-        "Uwaga taty, której komentarz Skrzynka odrzuciła, znika z kolejki bez części 2, choć jej znalezisko wybacza tylko drugie issue",
+        "Uwaga taty, której komentarz Skrzynka odrzuciła, znika z kolejki bez części 2",
+        NEW,
+    ),
+    Mutation(
+        "odrzucony komentarz po założeniu issue Uwagi nie zapisuje numeru (_send_all: replace_atomically po Opened)",
+        (Edit(MODEL, '          /\\ IF Cel = "nowe" /\\ numer[w] = 0\n             THEN /\\ UNCHANGED rejected\n',
+              "          /\\ IF FALSE\n             THEN /\\ UNCHANGED rejected\n"),),
+        _check("odmowa-tresci"),
+        "następny start zakłada drugie issue z tą samą Uwagą taty",
+        NEW,
+    ),
+    Mutation(
+        "plik z numerem issue zakłada nowe issue (_deliver: if opened is not None)",
+        (Edit(MODEL, '                         /\\ IF Cel = "nowe" /\\ numer[w] = 0\n',
+              '                         /\\ IF Cel = "nowe"\n'),),
+        _check("odmowa-tresci"),
+        "Uwaga taty, której plik zapamiętał numer issue, dostaje przy następnym starcie drugie issue",
         NEW,
     ),
     Mutation(

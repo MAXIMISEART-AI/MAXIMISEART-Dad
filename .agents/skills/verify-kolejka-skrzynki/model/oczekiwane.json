@@ -36,9 +36,6 @@
     "znalezisko": "plik kolejki, którego raz nie da się odczytać (_queued), przejście pomija bez budzenia za RETRY_S, więc czeka do następnej wysyłki albo startu"
   },
   "odmowa-tresci": {
-    "wynik": "narusza",
-    "obietnica": "JednoIssue",
-    "przyczyna": "odmowa_po_zalozeniu",
-    "znalezisko": "Skrzynka odrzuca komentarz (Rejected) po założeniu issue Uwagi taty, a następny start zakłada drugie issue z tą samą Uwagą"
+    "wynik": "przechodzi"
   }
 }
