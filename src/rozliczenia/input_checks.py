@@ -199,7 +199,7 @@ def check_settlement(
     try:
         folder = PeriodFolder.from_collective_file(source)
     except PeriodFolderError as error:
-        raise StopError(settlement_messages.collective_file_invalid(source, error.message)) from error
+        raise StopError(settlement_messages.collective_file_invalid(source, error)) from error
     settlement_files.ensure_worker_settlements_absent(folder.worker_settlements)
     mapping = _worker_mapping(config, settlement_messages.worker_config_problem)
     return folder, mapping, ProcessTemplate.worker(worker_template).checked(readers)

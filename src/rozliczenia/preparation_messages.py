@@ -22,7 +22,7 @@ from typing import Final, assert_never
 from .message import REPORT_TO_MAINTAINER, Message, file_label, folder_label
 from .period_folder import PeriodFolderLookupError, month_folder_label
 from .workbook_files import WORKER_HEADER, MergedCells, MissingHeader, Problem, WorkbookError
-from .worker_config import WorkerConfigError
+from .worker_config import ContentProblem, SameWorkerFile, WorkerConfigError
 
 # Napisy Decyzji taty o niepełnym okresie; jej Komunikat to ``incomplete_period``, odmowa ``incomplete_period_refused``.
 INCOMPLETE_PERIOD_TITLE: Final = "Ostrzeżenie: niepełny okres"
@@ -61,19 +61,49 @@ def invalid_period_token(token: str) -> Message:
 
 
 def worker_config_problem(config_path: Path, error: WorkerConfigError) -> Message:
-    """Konfiguracji wykonawców nie da się użyć; poza brakiem pliku ``error.detail`` mówi, co jest nie tak."""
+    """Konfiguracji wykonawców nie da się użyć; poza brakiem pliku Komunikat mówi, co jest nie tak z jego treścią."""
 
-    if error.reason == "inaccessible":
-        return _worker_config_inaccessible(config_path)
-    what = "Nie można odczytać konfiguracji wykonawców."
-    if error.reason != "missing":
-        what = f"{what} {error.detail}"
+    match error.reason:
+        case "inaccessible":
+            return _worker_config_inaccessible(config_path)
+        case "missing":
+            what = "Nie można odczytać konfiguracji wykonawców."
+        case content:
+            what = f"Nie można odczytać konfiguracji wykonawców. {_worker_config_content(content)}"
     return Message(
         code="ZLA_KONFIGURACJA_WYKONAWCOW",
         what=what,
         where=f"plik {config_path.name}",
         action="Przekaż to osobie utrzymującej narzędzie.",
     )
+
+
+def _worker_config_content(problem: ContentProblem) -> str:
+    """Co jest nie tak z treścią konfiguracji wykonawców, bez ścieżki pliku."""
+
+    match problem:
+        case "not_utf8":
+            return "Plik nie jest zapisany w kodowaniu UTF-8."
+        case "not_yaml":
+            return "Plik nie jest poprawnym YAML."
+        case "not_mapping":
+            return "Konfiguracja musi być mapą z sekcją workers."
+        case "unsupported_version":
+            return "Nieobsługiwana wersja konfiguracji."
+        case "no_workers":
+            return "Konfiguracja workers musi zawierać co najmniej jeden wpis."
+        case "not_text_entry":
+            return "Konfiguracja zawiera niepoprawny identyfikator lub nazwę pracownika."
+        case "empty_entry":
+            return "Konfiguracja zawiera pusty identyfikator lub nazwę pracownika."
+        case "repeated_id":
+            return "Konfiguracja zawiera powtórzony identyfikator pracownika."
+        case "invalid_worker_name":
+            return "Konfiguracja zawiera nazwę pracownika nieprawidłową dla nazwy pliku."
+        case "too_long_worker_name":
+            return "Konfiguracja zawiera nazwę pracownika zbyt długą dla nazwy pliku."
+        case SameWorkerFile(first=first, second=second):
+            return f"Dwóch identyfikatorów wskazuje ten sam plik pracownika: {first} / {second}"
 
 
 def _worker_config_inaccessible(config_path: Path) -> Message:

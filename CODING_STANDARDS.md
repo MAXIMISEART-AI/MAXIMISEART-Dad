@@ -34,7 +34,6 @@ A rule that a check enforces sits in its section's table, one line per rule, bes
 ## Error Ownership
 
 - Write a Komunikat's text only in a process's catalog (`preparation_messages`, `settlement_messages`).
-  Two known exceptions wait for their own change: `WorkerConfigError.detail` and `PeriodFolderError.message`.
   Workbook code (`workbook_files`, `template_file`) raises `WorkbookError`, and each caller translates the error with one catalog function.
   The files that Sprawdzanie reads go through `input_checks`, which translates their reader errors once for both processes, the Diagnoza and the Konfiguracja.
   That function ends its `match` on `Problem` with `assert_never`, so mypy rejects a new `Problem` until every catalog handles it.

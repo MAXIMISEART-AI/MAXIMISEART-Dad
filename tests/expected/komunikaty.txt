@@ -38,6 +38,46 @@ worker_config_problem #5 [ZLA_KONFIGURACJA_WYKONAWCOW]
   Gdzie: plik worker_mapping.yaml
   Co zrobić: Przekaż to osobie utrzymującej narzędzie.
 
+worker_config_problem #6 [ZLA_KONFIGURACJA_WYKONAWCOW]
+  Co się stało: Nie można odczytać konfiguracji wykonawców. Konfiguracja musi być mapą z sekcją workers.
+  Gdzie: plik worker_mapping.yaml
+  Co zrobić: Przekaż to osobie utrzymującej narzędzie.
+
+worker_config_problem #7 [ZLA_KONFIGURACJA_WYKONAWCOW]
+  Co się stało: Nie można odczytać konfiguracji wykonawców. Konfiguracja workers musi zawierać co najmniej jeden wpis.
+  Gdzie: plik worker_mapping.yaml
+  Co zrobić: Przekaż to osobie utrzymującej narzędzie.
+
+worker_config_problem #8 [ZLA_KONFIGURACJA_WYKONAWCOW]
+  Co się stało: Nie można odczytać konfiguracji wykonawców. Konfiguracja zawiera niepoprawny identyfikator lub nazwę pracownika.
+  Gdzie: plik worker_mapping.yaml
+  Co zrobić: Przekaż to osobie utrzymującej narzędzie.
+
+worker_config_problem #9 [ZLA_KONFIGURACJA_WYKONAWCOW]
+  Co się stało: Nie można odczytać konfiguracji wykonawców. Konfiguracja zawiera pusty identyfikator lub nazwę pracownika.
+  Gdzie: plik worker_mapping.yaml
+  Co zrobić: Przekaż to osobie utrzymującej narzędzie.
+
+worker_config_problem #10 [ZLA_KONFIGURACJA_WYKONAWCOW]
+  Co się stało: Nie można odczytać konfiguracji wykonawców. Konfiguracja zawiera powtórzony identyfikator pracownika.
+  Gdzie: plik worker_mapping.yaml
+  Co zrobić: Przekaż to osobie utrzymującej narzędzie.
+
+worker_config_problem #11 [ZLA_KONFIGURACJA_WYKONAWCOW]
+  Co się stało: Nie można odczytać konfiguracji wykonawców. Konfiguracja zawiera nazwę pracownika nieprawidłową dla nazwy pliku.
+  Gdzie: plik worker_mapping.yaml
+  Co zrobić: Przekaż to osobie utrzymującej narzędzie.
+
+worker_config_problem #12 [ZLA_KONFIGURACJA_WYKONAWCOW]
+  Co się stało: Nie można odczytać konfiguracji wykonawców. Konfiguracja zawiera nazwę pracownika zbyt długą dla nazwy pliku.
+  Gdzie: plik worker_mapping.yaml
+  Co zrobić: Przekaż to osobie utrzymującej narzędzie.
+
+worker_config_problem #13 [ZLA_KONFIGURACJA_WYKONAWCOW]
+  Co się stało: Nie można odczytać konfiguracji wykonawców. Dwóch identyfikatorów wskazuje ten sam plik pracownika: Jan Testowy / jan testowy
+  Gdzie: plik worker_mapping.yaml
+  Co zrobić: Przekaż to osobie utrzymującej narzędzie.
+
 template_unusable #1 [BRAK_WZORCA]
   Co się stało: Nie znaleziono wzorca, z którego powstają pliki okresu. Nie utworzono żadnego pliku.
   Gdzie: plik Wzorzec pliku zbiorczego.xlsx, folder config
@@ -300,8 +340,23 @@ collective_file_missing [BRAK_PLIKU_ZBIORCZEGO]
   Gdzie: plik Rozliczenie 08_14_09_2026 - zbiorcze.xlsx, folder 08_14_09_2026
   Co zrobić: Sprawdź, czy Plik zbiorczy leży w Folderze okresu pod tą nazwą, i uruchom ponownie. Jeśli okresu jeszcze nie przygotowano, najpierw przygotuj plik zbiorczy.
 
-collective_file_invalid [ZLY_PLIK_ZBIORCZY]
+collective_file_invalid #1 [ZLY_PLIK_ZBIORCZY]
   Co się stało: Plik zbiorczy nie nadaje się do Przebiegu rozliczeń. Plik Rozliczenie wew. jest poza zakresem tego procesu.
+  Gdzie: plik Rozliczenie 08_14_09_2026 - zbiorcze.xlsx, folder 08_14_09_2026
+  Co zrobić: Popraw Plik zbiorczy w Excelu. Potem zapisz i zamknij Plik zbiorczy w Excelu i uruchom ponownie. Jeśli błąd wraca, przekaż ten komunikat osobie utrzymującej narzędzie.
+
+collective_file_invalid #2 [ZLY_PLIK_ZBIORCZY]
+  Co się stało: Plik zbiorczy nie nadaje się do Przebiegu rozliczeń. Wybierz plik nazwany dokładnie: Rozliczenie {dd}_{dd}_{mm}_{rrrr} - zbiorcze.xlsx.
+  Gdzie: plik Rozliczenie 08_14_09_2026 - zbiorcze.xlsx, folder 08_14_09_2026
+  Co zrobić: Popraw Plik zbiorczy w Excelu. Potem zapisz i zamknij Plik zbiorczy w Excelu i uruchom ponownie. Jeśli błąd wraca, przekaż ten komunikat osobie utrzymującej narzędzie.
+
+collective_file_invalid #3 [ZLY_PLIK_ZBIORCZY]
+  Co się stało: Plik zbiorczy nie nadaje się do Przebiegu rozliczeń. Okres 09_15_09_2026 w nazwie pliku nie jest okresem od wtorku do poniedziałku (przykład okresu: 08_14_09_2026).
+  Gdzie: plik Rozliczenie 08_14_09_2026 - zbiorcze.xlsx, folder 08_14_09_2026
+  Co zrobić: Popraw Plik zbiorczy w Excelu. Potem zapisz i zamknij Plik zbiorczy w Excelu i uruchom ponownie. Jeśli błąd wraca, przekaż ten komunikat osobie utrzymującej narzędzie.
+
+collective_file_invalid #4 [ZLY_PLIK_ZBIORCZY]
+  Co się stało: Plik zbiorczy nie nadaje się do Przebiegu rozliczeń. Folder pliku musi nazywać się tak samo jak okres: 08_14_09_2026.
   Gdzie: plik Rozliczenie 08_14_09_2026 - zbiorcze.xlsx, folder 08_14_09_2026
   Co zrobić: Popraw Plik zbiorczy w Excelu. Potem zapisz i zamknij Plik zbiorczy w Excelu i uruchom ponownie. Jeśli błąd wraca, przekaż ten komunikat osobie utrzymującej narzędzie.
 
@@ -362,6 +417,46 @@ worker_config_problem #4 [ZLA_KONFIGURACJA_WYKONAWCOW]
 
 worker_config_problem #5 [ZLA_KONFIGURACJA_WYKONAWCOW]
   Co się stało: Konfiguracja wykonawców jest niepoprawna. Nieobsługiwana wersja konfiguracji.
+  Gdzie: plik worker_mapping.yaml, folder config
+  Co zrobić: Przekaż ten komunikat osobie utrzymującej narzędzie.
+
+worker_config_problem #6 [ZLA_KONFIGURACJA_WYKONAWCOW]
+  Co się stało: Konfiguracja wykonawców jest niepoprawna. Konfiguracja musi być mapą z sekcją workers.
+  Gdzie: plik worker_mapping.yaml, folder config
+  Co zrobić: Przekaż ten komunikat osobie utrzymującej narzędzie.
+
+worker_config_problem #7 [ZLA_KONFIGURACJA_WYKONAWCOW]
+  Co się stało: Konfiguracja wykonawców jest niepoprawna. Konfiguracja workers musi zawierać co najmniej jeden wpis.
+  Gdzie: plik worker_mapping.yaml, folder config
+  Co zrobić: Przekaż ten komunikat osobie utrzymującej narzędzie.
+
+worker_config_problem #8 [ZLA_KONFIGURACJA_WYKONAWCOW]
+  Co się stało: Konfiguracja wykonawców jest niepoprawna. Konfiguracja zawiera niepoprawny identyfikator lub nazwę pracownika.
+  Gdzie: plik worker_mapping.yaml, folder config
+  Co zrobić: Przekaż ten komunikat osobie utrzymującej narzędzie.
+
+worker_config_problem #9 [ZLA_KONFIGURACJA_WYKONAWCOW]
+  Co się stało: Konfiguracja wykonawców jest niepoprawna. Konfiguracja zawiera pusty identyfikator lub nazwę pracownika.
+  Gdzie: plik worker_mapping.yaml, folder config
+  Co zrobić: Przekaż ten komunikat osobie utrzymującej narzędzie.
+
+worker_config_problem #10 [ZLA_KONFIGURACJA_WYKONAWCOW]
+  Co się stało: Konfiguracja wykonawców jest niepoprawna. Konfiguracja zawiera powtórzony identyfikator pracownika.
+  Gdzie: plik worker_mapping.yaml, folder config
+  Co zrobić: Przekaż ten komunikat osobie utrzymującej narzędzie.
+
+worker_config_problem #11 [ZLA_KONFIGURACJA_WYKONAWCOW]
+  Co się stało: Konfiguracja wykonawców jest niepoprawna. Konfiguracja zawiera nazwę pracownika nieprawidłową dla nazwy pliku.
+  Gdzie: plik worker_mapping.yaml, folder config
+  Co zrobić: Przekaż ten komunikat osobie utrzymującej narzędzie.
+
+worker_config_problem #12 [ZLA_KONFIGURACJA_WYKONAWCOW]
+  Co się stało: Konfiguracja wykonawców jest niepoprawna. Konfiguracja zawiera nazwę pracownika zbyt długą dla nazwy pliku.
+  Gdzie: plik worker_mapping.yaml, folder config
+  Co zrobić: Przekaż ten komunikat osobie utrzymującej narzędzie.
+
+worker_config_problem #13 [ZLA_KONFIGURACJA_WYKONAWCOW]
+  Co się stało: Konfiguracja wykonawców jest niepoprawna. Dwóch identyfikatorów wskazuje ten sam plik pracownika: Jan Testowy / jan testowy
   Gdzie: plik worker_mapping.yaml, folder config
   Co zrobić: Przekaż ten komunikat osobie utrzymującej narzędzie.
 

@@ -1,8 +1,8 @@
-"""Konfiguracja wykonawców: każda reguła pliku daje powód i bezpieczny szczegół.
+"""Konfiguracja wykonawców: każda reguła pliku daje swój powód.
 
 Moduł nie zna katalogów Komunikatów; to, co tata zobaczy w Przebiegu
 rozliczeń, Przygotowaniu pliku zbiorczego i Centrum rozliczeń, sprawdzają
-testy tych procesów.
+testy tych procesów i plik expect Komunikatów.
 """
 
 from __future__ import annotations
@@ -15,7 +15,13 @@ from typing import get_args
 import pytest
 import yaml
 
-from rozliczenia.worker_config import WorkerConfigError, WorkerConfigProblem, load_worker_mapping, normalize_text
+from rozliczenia.worker_config import (
+    SameWorkerFile,
+    WorkerConfigError,
+    WorkerConfigProblem,
+    load_worker_mapping,
+    normalize_text,
+)
 
 
 def write_config(tmp_path: Path, content: str) -> Path:
@@ -59,7 +65,7 @@ def test_brak_pliku_konfiguracji_wykonawcow(tmp_path: Path, missing: Path) -> No
     with pytest.raises(WorkerConfigError) as raised:
         load_worker_mapping(tmp_path / missing)
 
-    assert (raised.value.reason, raised.value.detail) == ("missing", "Nie można odczytać pliku konfiguracji.")
+    assert raised.value.reason == "missing"
 
 
 @pytest.mark.parametrize(
@@ -98,7 +104,23 @@ def test_plik_konfiguracji_wykonawcow_w_folderze_bez_dostepu_jest_niedostepny(tm
 
 def test_typ_powodu_wymienia_dokladnie_powody_ktore_daje_wczytanie_konfiguracji() -> None:
     # Katalogi Komunikatów wybierają Komunikat po powodzie, więc typ jest umową: powód spoza niego nie ma Komunikatu.
-    assert set(get_args(WorkerConfigProblem)) == {"missing", "inaccessible", "not_utf8", "not_yaml", "invalid"}
+    literals = {value for part in get_args(WorkerConfigProblem) for value in get_args(part) or (part,)}
+
+    assert literals == {
+        "missing",
+        "inaccessible",
+        "not_utf8",
+        "not_yaml",
+        "not_mapping",
+        "unsupported_version",
+        "no_workers",
+        "not_text_entry",
+        "empty_entry",
+        "repeated_id",
+        "invalid_worker_name",
+        "too_long_worker_name",
+        SameWorkerFile,
+    }
 
 
 @pytest.mark.parametrize("encoding", ["cp1250", "utf-16"], ids=["ansi-notatnik", "powershell-5"])
@@ -109,50 +131,32 @@ def test_konfiguracja_wykonawcow_zapisana_poza_utf8(tmp_path: Path, encoding: st
     with pytest.raises(WorkerConfigError) as raised:
         load_worker_mapping(config_path)
 
-    assert (raised.value.reason, raised.value.detail) == ("not_utf8", "Plik nie jest zapisany w kodowaniu UTF-8.")
+    assert raised.value.reason == "not_utf8"
 
 
 def test_konfiguracja_wykonawcow_ktora_nie_jest_yaml(tmp_path: Path) -> None:
     with pytest.raises(WorkerConfigError) as raised:
         load_worker_mapping(write_config(tmp_path, "workers: [niedomknięta lista\n"))
 
-    assert (raised.value.reason, raised.value.detail) == ("not_yaml", "Plik nie jest poprawnym YAML.")
+    assert raised.value.reason == "not_yaml"
 
 
 @pytest.mark.parametrize(
-    ("content", "detail"),
+    ("content", "reason"),
     [
-        ("- lista\n", "Konfiguracja musi być mapą z sekcją workers."),
-        ("schema_version: 2\nworkers:\n  a: A\n", "Nieobsługiwana wersja konfiguracji."),
-        ("schema_version: '1'\nworkers:\n  a: A\n", "Nieobsługiwana wersja konfiguracji."),
-        ("schema_version: true\nworkers:\n  a: A\n", "Nieobsługiwana wersja konfiguracji."),
-        ("schema_version: 1\n", "Konfiguracja workers musi zawierać co najmniej jeden wpis."),
-        ("schema_version: 1\nworkers: {}\n", "Konfiguracja workers musi zawierać co najmniej jeden wpis."),
-        (
-            "schema_version: 1\nworkers:\n  7: Siódmy\n",
-            "Konfiguracja zawiera niepoprawny identyfikator lub nazwę pracownika.",
-        ),
-        (
-            "schema_version: 1\nworkers:\n  a: [A]\n",
-            "Konfiguracja zawiera niepoprawny identyfikator lub nazwę pracownika.",
-        ),
-        (
-            "schema_version: 1\nworkers:\n  '  ': A\n",
-            "Konfiguracja zawiera pusty identyfikator lub nazwę pracownika.",
-        ),
-        ("schema_version: 1\nworkers:\n  a: '  '\n", "Konfiguracja zawiera pusty identyfikator lub nazwę pracownika."),
-        (
-            "schema_version: 1\nworkers:\n  Adrian: A\n  ' adrian ': B\n",
-            "Konfiguracja zawiera powtórzony identyfikator pracownika.",
-        ),
-        (
-            f"schema_version: 1\nworkers:\n  a: {'X' * 223}\n",
-            "Konfiguracja zawiera nazwę pracownika zbyt długą dla nazwy pliku.",
-        ),
-        (
-            "schema_version: 1\nworkers:\n  a: Ten Sam\n  b: ten sam\n",
-            "Dwóch identyfikatorów wskazuje ten sam plik pracownika: Ten Sam / ten sam",
-        ),
+        ("- lista\n", "not_mapping"),
+        ("schema_version: 2\nworkers:\n  a: A\n", "unsupported_version"),
+        ("schema_version: '1'\nworkers:\n  a: A\n", "unsupported_version"),
+        ("schema_version: true\nworkers:\n  a: A\n", "unsupported_version"),
+        ("schema_version: 1\n", "no_workers"),
+        ("schema_version: 1\nworkers: {}\n", "no_workers"),
+        ("schema_version: 1\nworkers:\n  7: Siódmy\n", "not_text_entry"),
+        ("schema_version: 1\nworkers:\n  a: [A]\n", "not_text_entry"),
+        ("schema_version: 1\nworkers:\n  '  ': A\n", "empty_entry"),
+        ("schema_version: 1\nworkers:\n  a: '  '\n", "empty_entry"),
+        ("schema_version: 1\nworkers:\n  Adrian: A\n  ' adrian ': B\n", "repeated_id"),
+        (f"schema_version: 1\nworkers:\n  a: {'X' * 223}\n", "too_long_worker_name"),
+        ("schema_version: 1\nworkers:\n  a: Ten Sam\n  b: ten sam\n", SameWorkerFile("Ten Sam", "ten sam")),
     ],
     ids=[
         "nie-mapa",
@@ -170,11 +174,13 @@ def test_konfiguracja_wykonawcow_ktora_nie_jest_yaml(tmp_path: Path) -> None:
         "dwa-identyfikatory-na-jedna-nazwe",
     ],
 )
-def test_zlamana_regula_konfiguracji_wykonawcow_ma_szczegol(tmp_path: Path, content: str, detail: str) -> None:
+def test_zlamana_regula_konfiguracji_wykonawcow_ma_swoj_powod(
+    tmp_path: Path, content: str, reason: WorkerConfigProblem
+) -> None:
     with pytest.raises(WorkerConfigError) as raised:
         load_worker_mapping(write_config(tmp_path, content))
 
-    assert (raised.value.reason, raised.value.detail) == ("invalid", detail)
+    assert raised.value.reason == reason
 
 
 @pytest.mark.parametrize("name", ["../poza", "a\\b", "a:b", "a*b", "a?b", 'a"b', "a<b", "a>b", "a|b", "a\tb", "Kowalski."])
@@ -184,7 +190,4 @@ def test_nazwa_wykonawcy_niedozwolona_w_nazwie_pliku_w_windows_lamie_konfiguracj
     with pytest.raises(WorkerConfigError) as raised:
         load_worker_mapping(write_config(tmp_path, content))
 
-    assert (raised.value.reason, raised.value.detail) == (
-        "invalid",
-        "Konfiguracja zawiera nazwę pracownika nieprawidłową dla nazwy pliku.",
-    )
+    assert raised.value.reason == "invalid_worker_name"

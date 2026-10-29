@@ -16,8 +16,9 @@ from pathlib import Path
 from typing import Final, assert_never
 
 from .message import REPORT_TO_MAINTAINER, Message, file_label, folder_label
+from .period_folder import FolderNotNamedAfterPeriod, NotPeriodToken, PeriodFolderError, collective_file_name_with
 from .workbook_files import WORKER_HEADER, Problem, WorkbookError
-from .worker_config import WorkerConfigError
+from .worker_config import ContentProblem, SameWorkerFile, WorkerConfigError
 
 _NOTHING_CREATED: Final = "Nie utworzono żadnego pliku pracownika."
 _STAGING_LEFT: Final = "W Folderze okresu został folder tymczasowy, którego nie udało się usunąć."
@@ -94,11 +95,26 @@ def _collective_file_inaccessible(source: Path) -> Message:
     )
 
 
-def collective_file_invalid(source: Path, detail: str) -> Message:
-    """Nazwa, folder albo układ Pliku zbiorczego.
+def collective_file_invalid(source: Path, error: PeriodFolderError) -> Message:
+    """Nazwa albo folder Pliku zbiorczego nie pasują do Folderu okresu; ``error`` mówi, co jest nie tak."""
 
-    ``detail`` to ``message`` z ``PeriodFolderError`` albo opis problemu z odczytem, nie tekst wyjątku.
-    """
+    match error.problem:
+        case "internal_settlement":
+            detail = "Plik Rozliczenie wew. jest poza zakresem tego procesu."
+        case "not_collective_file_name":
+            detail = f"Wybierz plik nazwany dokładnie: {collective_file_name_with('{dd}_{dd}_{mm}_{rrrr}')}."
+        case NotPeriodToken(token=token):
+            detail = (
+                f"Okres {token} w nazwie pliku nie jest okresem od wtorku do poniedziałku "
+                "(przykład okresu: 08_14_09_2026)."
+            )
+        case FolderNotNamedAfterPeriod(token=token):
+            detail = f"Folder pliku musi nazywać się tak samo jak okres: {token}."
+    return _collective_file_unfit(source, detail)
+
+
+def _collective_file_unfit(source: Path, detail: str) -> Message:
+    """Nazwa, folder albo układ Pliku zbiorczego; ``detail`` mówi, co jest nie tak."""
 
     return Message(
         code="ZLY_PLIK_ZBIORCZY",
@@ -112,7 +128,7 @@ def collective_file_invalid(source: Path, detail: str) -> Message:
 def _collective_file_unreadable(source: Path) -> Message:
     """Plik zbiorczy nie daje się odczytać jako skoroszyt .xlsx."""
 
-    return collective_file_invalid(
+    return _collective_file_unfit(
         source,
         f"Nie można odczytać Pliku zbiorczego {source.name}. Sprawdź, czy plik otwiera się w Excelu i nie jest uszkodzony.",
     )
@@ -121,7 +137,7 @@ def _collective_file_unreadable(source: Path) -> Message:
 def _collective_file_without_worker_header(source: Path) -> Message:
     """Plik zbiorczy nie ma nagłówka WYKONAWCA w H17, skąd Przebieg rozliczeń czyta Wykonawcę."""
 
-    return collective_file_invalid(
+    return _collective_file_unfit(
         source, f"W wierszu {WORKER_HEADER.row} nie znaleziono nagłówka WYKONAWCA w kolumnie {WORKER_HEADER.column}."
     )
 
@@ -141,16 +157,49 @@ def worker_settlements_exist(target_directory: Path) -> Message:
 
 
 def worker_config_problem(config_path: Path, error: WorkerConfigError) -> Message:
-    """Konfiguracji wykonawców nie da się użyć; ``error.detail`` nie zawiera ścieżki."""
+    """Konfiguracji wykonawców nie da się użyć; Komunikat mówi, czy pliku brak, czy co jest nie tak z jego treścią."""
 
-    if error.reason == "inaccessible":
-        return _worker_config_inaccessible(config_path)
+    match error.reason:
+        case "inaccessible":
+            return _worker_config_inaccessible(config_path)
+        case "missing":
+            detail = "Nie można odczytać pliku konfiguracji."
+        case content:
+            detail = _worker_config_content(content)
     return Message(
         code="ZLA_KONFIGURACJA_WYKONAWCOW",
-        what=f"Konfiguracja wykonawców jest niepoprawna. {error.detail}",
+        what=f"Konfiguracja wykonawców jest niepoprawna. {detail}",
         where=file_label(config_path),
         action=REPORT_TO_MAINTAINER,
     )
+
+
+def _worker_config_content(problem: ContentProblem) -> str:
+    """Co jest nie tak z treścią konfiguracji wykonawców, bez ścieżki pliku."""
+
+    match problem:
+        case "not_utf8":
+            return "Plik nie jest zapisany w kodowaniu UTF-8."
+        case "not_yaml":
+            return "Plik nie jest poprawnym YAML."
+        case "not_mapping":
+            return "Konfiguracja musi być mapą z sekcją workers."
+        case "unsupported_version":
+            return "Nieobsługiwana wersja konfiguracji."
+        case "no_workers":
+            return "Konfiguracja workers musi zawierać co najmniej jeden wpis."
+        case "not_text_entry":
+            return "Konfiguracja zawiera niepoprawny identyfikator lub nazwę pracownika."
+        case "empty_entry":
+            return "Konfiguracja zawiera pusty identyfikator lub nazwę pracownika."
+        case "repeated_id":
+            return "Konfiguracja zawiera powtórzony identyfikator pracownika."
+        case "invalid_worker_name":
+            return "Konfiguracja zawiera nazwę pracownika nieprawidłową dla nazwy pliku."
+        case "too_long_worker_name":
+            return "Konfiguracja zawiera nazwę pracownika zbyt długą dla nazwy pliku."
+        case SameWorkerFile(first=first, second=second):
+            return f"Dwóch identyfikatorów wskazuje ten sam plik pracownika: {first} / {second}"
 
 
 def _worker_config_inaccessible(config_path: Path) -> Message:
