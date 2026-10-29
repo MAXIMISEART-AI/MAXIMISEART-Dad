@@ -80,10 +80,9 @@ def _register(tmp_path: Path, intermax: Intermax | None = None) -> tuple[Path, L
 
 
 def _expected(order: Order, entry: tuple[str, str] | None = None) -> tuple[object, ...]:
-    """Wartości A:AK zlecenia ``order`` w uporządkowanym dniu, puste za ``UWAGI``; ``entry``: Wpis (``URZĄDZENIA``,
-    ``CZYNNOŚCI``)."""
+    """Wartości B:AK zlecenia ``order`` w uporządkowanym dniu; ``entry``: Wpis (``URZĄDZENIA``, ``CZYNNOŚCI``)."""
 
-    values: dict[int, object] = {column: value for column, value in order.values().items() if column <= LAST}
+    values: dict[int, object] = dict(order.values())
     if entry is not None:
         values[DEVICES], values[ACTIVITIES] = entry
     return tuple(values.get(column) for column in range(1, APP_LAST + 1))
@@ -220,21 +219,21 @@ def test_pierwszy_wiersz_na_miejscu_nie_jest_przesuwany(tmp_path: Path) -> None:
     assert order_rows(path, layout.yellow + 9, layout.yellow + 9) == [_expected(layout.raw[0])]
 
 
-def test_zlecenia_maja_wyglad_reszty_intermax_od_kolumny_a_z_pogrubionym_wykonawca_i_nic_za_uwagi(tmp_path: Path) -> None:
+def test_zlecenia_maja_wyglad_reszty_intermax_a_kolumny_za_uwagi_zostaja_jak_przyszly(tmp_path: Path) -> None:
     path, layout = _register(tmp_path)
 
     _run(tmp_path)
 
     assert layout.yellow is not None
     sheet = load_workbook(path).worksheets[1]
-    for row in (layout.yellow + 2, layout.yellow + 5, layout.yellow + 9):
-        for column in range(1, LAST + 1):
+    for row in (layout.yellow + 2, layout.yellow + 9):
+        for column in range(FIRST, LAST + 1):
             cell = sheet.cell(row, column)
             font = cell.font
             assert (font.name, font.sz, font.b, font.i, font.color.rgb) == (
                 "Calibri",
                 9 if column == WORKER else 8,
-                column == WORKER,
+                False,
                 False,
                 "FF000000",
             ), cell.coordinate
@@ -243,11 +242,11 @@ def test_zlecenia_maja_wyglad_reszty_intermax_od_kolumny_a_z_pogrubionym_wykonaw
                 "thin"
             }
             assert (cell.alignment.horizontal, cell.alignment.vertical) == ("left", "center")
-        assert sheet.cell(row, DATE + 1).number_format == "General"
-    for row in (layout.yellow + 2, layout.yellow + 9):
         assert sheet.cell(row, DATE).number_format == "m/d/yy h:mm"
-        written = {letters.decode("ascii") for letters in re.findall(rb'<c r="([A-Z]+)\d', _row_xml(path, row))}
-        assert written == {get_column_letter(column) for column in range(1, LAST + 1)}, row
+        assert sheet.cell(row, DATE + 1).number_format == "General"
+        for column in range(LAST + 1, APP_LAST + 1):
+            cell = sheet.cell(row, column)
+            assert (cell.font.name, cell.font.sz, cell.font.b, cell.fill.fill_type) == ("Roboto", 4, True, "solid")
 
 
 _GREEN, _ORANGE, _DARK_BLUE, _LIGHT_BLUE, _PINK = "FF99FF66", "FFFFC000", "FF69D8FF", "FF00FFFF", "FFE89CA7"
@@ -841,8 +840,8 @@ CORRUPTIONS: dict[str, Callable[[bytes, Layout], bytes]] = {
         lambda xml, row: re.sub(rb'(<row r="%d"[^>]*>.*?)</row>' % row, rb'\g<1><c r="AZ%d"><v>1</v></c></row>' % row, xml, count=1, flags=re.S)
     ),
     "brak pustej komórki zlecenia": _in_first_order(lambda xml, row: re.sub(rb'<c r="B%d"[^>]*/>' % row, b"", xml, count=1)),
-    "pusta komórka za UWAGI": _in_first_order(
-        lambda xml, row: re.sub(rb'(<row r="%d"[^>]*>.*?)</row>' % row, rb'\g<1><c r="P%d" s="0"/></row>' % row, xml, count=1, flags=re.S)
+    "wygląd kolumny za UWAGI": _in_first_order(
+        lambda xml, row: re.sub(rb'(<c r="P%d" s=")\d+' % row, rb"\g<1>0", xml, count=1)
     ),
 }
 
@@ -1447,32 +1446,6 @@ def test_hiperlacze_w_pustym_wierszu_pod_dniem_to_zatrzymanie_do_maksa_bez_zapis
         stop = _stop(_run(tmp_path))
 
     assert (stop.message.code, stop.stop_kind) == ("NIEOBSLUGIWANY_UKLAD_INTERMAX", "for_maks")
-
-
-def test_hiperlacze_za_uwagi_w_surowym_zleceniu_to_zatrzymanie_do_maksa_bez_zapisu(tmp_path: Path) -> None:
-    path, layout = _register(tmp_path)
-    raw_link = rb'(<hyperlink [^>]*?ref=")I%d(")' % (layout.first_raw + 1)
-    beyond = rb"\g<1>%s%d\g<2>" % (get_column_letter(LAST + 1).encode("ascii"), layout.first_raw + 1)
-    rewrite_parts(path, lambda name, data: re.sub(raw_link, beyond, data, count=1) if name == _SHEET else data)
-
-    with _nothing_written(tmp_path, path):
-        stop = _stop(_run(tmp_path))
-
-    assert (stop.message.code, stop.stop_kind) == ("NIEOBSLUGIWANY_UKLAD_INTERMAX", "for_maks")
-
-
-def test_hiperlacze_w_uwagach_surowego_zlecenia_idzie_ze_zleceniem(tmp_path: Path) -> None:
-    path, layout = _register(tmp_path)
-    raw_link = rb'(<hyperlink [^>]*?ref=")I%d(")' % (layout.first_raw + 1)
-    in_notes = rb"\g<1>%s%d\g<2>" % (get_column_letter(LAST).encode("ascii"), layout.first_raw + 1)
-    rewrite_parts(path, lambda name, data: re.sub(raw_link, in_notes, data, count=1) if name == _SHEET else data)
-
-    _ordered(_run(tmp_path))
-
-    assert layout.yellow is not None
-    sheet = load_workbook(path).worksheets[1]
-    notes = [row for row in range(layout.yellow, sheet.max_row + 1) if sheet.cell(row, LAST).hyperlink is not None]
-    assert len(notes) == 1
 
 
 def test_arkusz_bez_dimension_dostaje_dzien_bez_dimension(tmp_path: Path) -> None:

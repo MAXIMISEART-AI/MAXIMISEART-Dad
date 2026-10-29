@@ -39,9 +39,8 @@ Proces, który tata uruchamia w Centrum rozliczeń po wklejeniu Surowych
 zleceń dnia. Przesuwa pierwszy wiersz na miejsce, gdy przyszedł przesunięty,
 dzieli zlecenia na segmenty Wykonawców w kolejności alfabetycznej, oddzielone
 jednym pustym wierszem, w segmencie układa je od najwcześniejszej godziny do
-najpóźniejszej i nadaje im od kolumny A do `UWAGI` wygląd reszty Rejestru
-zleceń z cienką ramką i pogrubionym tylko `WYKONAWCA`, Kolory operatora i Wpisy
-urządzenia i czynności INTERMAX, a kolumny z aplikacji za `UWAGI` usuwa. Dzień stawia jeden pusty wiersz pod żółtym wierszem, którym
+najpóźniejszej i nadaje im wygląd reszty Rejestru zleceń bez pogrubienia,
+Kolory operatora i Wpisy urządzenia i czynności INTERMAX. Dzień stawia jeden pusty wiersz pod żółtym wierszem, którym
 tata oddziela dni, a bez niego 10 pustych wierszy pod ostatnim uporządkowanym
 zleceniem. Po nim Rejestr otwiera się na dzisiejszym dniu z kalendarza, a gdy
 dziś nie ma zleceń, na ostatnim wcześniejszym dniu ze zleceniami. Zmienia tylko
