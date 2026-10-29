@@ -292,6 +292,8 @@ WORDS = st.one_of(
     st.sampled_from(("2>/dev/null", ">&2", "&>/dev/null", ">|plik", "<&0")),
     # Znaki w ``${…}`` nie kończą polecenia ani nie otwierają nowego, a ``}`` poza nim nie zamyka ``$(`` (runda 3 #636).
     st.sampled_from(("${x:-)}", "${x:-(}", "${x:-a;b}", "${x:-a|b}", "$(echo {a,b})")),
+    # ``${…}`` w ``${…}`` i za ``$(…)`` albo `` `…` `` w nim, a ``}`` poza ``${…}`` niczego nie zamyka (runda 1 #648).
+    st.sampled_from(("${x:-${y})}", "${x-${y:=a|b}}", "${x:-$(echo -l)|b}", "${x:+`echo -l`;b}", "{a,b}")),
 )
 SCRIPT_OPTIONS = st.builds(
     lambda before, after: f"-{before}c{after}",
@@ -315,12 +317,29 @@ def _shell_script(draw: st.DrawFn) -> Callable[[str], str]:
     return lambda member: f"{prefix} {_single_quoted(member)}"
 
 
+# Bash wykonuje ``$(…)`` i `` `…` `` w słowie ``${…}``, także zagnieżdżonego, więc skrypt ``-c`` w nim to polecenie
+# (runda 1 #648: ``echo ${x:-$(bash -c '…')}`` przechodziło).
+PARAMETER_OPERATORS = (":-", ":=", ":+", "-")
+PARAMETER_WORDS = ("$( {} )", "`{}`", "${{y:-$( {} )}}", "${{y:+`{}`}}", "a;b$( {} )")
+
+
+@st.composite
+def _parameter_default(draw: st.DrawFn) -> Callable[[str], str]:
+    """Skrypt ``-c`` powłoki w podstawieniu w wartości ``${…}``: ``echo ${x:-$(bash -c '…')}``, ``X=${x:=`…`}``."""
+
+    script = draw(_shell_script())
+    assignment = draw(st.sampled_from(("echo ", "X=")))
+    operator = draw(st.sampled_from(PARAMETER_OPERATORS))
+    word = draw(st.sampled_from(PARAMETER_WORDS))
+    return lambda member: f"{assignment}${{x{operator}{word.format(script(member))}}}"
+
+
 @st.composite
 def _compound(draw: st.DrawFn) -> Case:
     """Polecenie złożone z członów (``;``, ``&&``, ``||``, ``|``, nowa linia, podpowłoka, ``$(…)``, ``-c`` powłoki)."""
 
     members = draw(st.lists(_cases(), min_size=1, max_size=4))
-    wrappers = st.one_of(st.sampled_from(WRAPPERS), _shell_script())
+    wrappers = st.one_of(st.sampled_from(WRAPPERS), _shell_script(), _parameter_default())
     wrapped = [
         Case(draw(wrappers)(member.text), member.refusals) if draw(st.booleans()) else member for member in members
     ]
@@ -508,6 +527,21 @@ def test_przekierowanie_za_petla_to_nie_tlo_a_pętla_puszczona_ampersandem_przec
 @example(case=Case("cd x\n  until ! gh pr checks 1 | grep -q pending; do sleep 30; done", frozenset({"ci"})))
 # ``done`` jako argument za ``do`` nie kończy pętli, więc jej ``sleep`` zostaje w ciele (runda 3 #636).
 @example(case=Case("while gh pr checks 1 | grep -q pending; do echo do done; sleep 30; done", frozenset({"ci"})))
+# Skrypt ``-c`` w podstawieniu w ``${…}`` (runda 1 #648), a separator w tym podstawieniu kończy polecenie powłoki.
+@example(case=Case("echo ${x:-$(bash -c 'until ! gh pr checks 1 | grep -q pending; do sleep 30; done')}", frozenset({"ci"})))
+@example(case=Case("X=${X:-$(bash -c 'until ! gh pr checks 1 | grep -q pending; do sleep 30; done')}", frozenset({"ci"})))
+@example(case=Case("echo ${x:-`bash -c 'until ! gh pr checks 1 | grep -q pending; do sleep 30; done'`}", frozenset({"ci"})))
+@example(
+    case=Case(
+        "for l in ${(@f)$(bash -c 'until ! gh pr checks 1 | grep -q pending; do sleep 30; done')}; do echo $l; done",
+        frozenset({"ci"}),
+    )
+)
+@example(
+    case=Case(
+        "echo ${x:-$(bash x.sh; grep -c 'until ! gh pr checks 1 | grep -q pending; do sleep 30; done' f)}", frozenset()
+    )
+)
 @example(case=Case("until gh pr view 1; do gh auth refresh; done; sleep 1", frozenset()))
 @example(case=Case("for id in 1 2; do sleep 1; gh run view $id; done; gh pr checks 1 || exit 1", frozenset()))
 @example(case=Case("until gh api pulls/1 | grep -q true; do sleep 2; tail -1 actions/runs.log; done", frozenset()))
@@ -550,6 +584,10 @@ LOOP = Template("until ! gh pr checks {} | grep -q pending; do sleep 30; done", 
 # Runda 3 #636: ukośnik przed nazwą powłoki i ``)`` w ``${…}``.
 @example(prefix="\\bash -c", wait=LOOP)
 @example(prefix="bash ${x:-)} -c", wait=LOOP)
+# Runda 1 #648: ``)`` za zagnieżdżonym ``${…}``, ``|`` za ``$(…)`` w ``${…}`` i `` ` `` zamyka niedomknięte w nim ``${``.
+@example(prefix="bash ${x:-${y})} -c", wait=LOOP)
+@example(prefix="bash ${x:-$(echo -l)|b} -c", wait=LOOP)
+@example(prefix="bash `echo ${x` -c", wait=LOOP)
 @given(prefix=_script_prefix(), wait=_waits())
 def test_skrypt_c_powloki_z_dowolnymi_slowami_przed_c_to_polecenie(prefix: str, wait: Template) -> None:
     command = f"{prefix} {_single_quoted(wait.text())}"
@@ -586,6 +624,29 @@ def test_slowo_powloki_przyklejone_do_separatora_zaczyna_skrypt_c(
     assert _judged(command) == wait.refusals, command
 
 
+# Bash nie czyta ``${`` w komentarzu, a hook zamyka niedomknięte ``${`` z końcem linii, więc nie przestaje widzieć
+# następnych linii: ani skryptu ``-c`` w nich, ani ``)``, która za komentarzem zamyka ``$(`` (runda 1 #648).
+COMMENTS = ("echo hi # ${", "# uwaga: ${PR", "# ${a ${b:-(", "cd x # ${y:-)")
+IN_SUBSTITUTION = st.sampled_from((False, True))
+
+
+@PROPERTY
+@example(comment="echo hi # ${", prefix="bash -c", in_substitution=False, wait=LOOP)
+@example(comment="# uwaga: ${PR", prefix="bash -c", in_substitution=False, wait=LOOP)
+@example(comment="# ${", prefix="bash -l -c", in_substitution=True, wait=LOOP)
+@given(comment=st.sampled_from(COMMENTS), prefix=_script_prefix(), in_substitution=IN_SUBSTITUTION, wait=_waits())
+def test_dolar_klamra_w_komentarzu_nie_ukrywa_skryptu_c_w_nastepnej_linii(
+    comment: str, prefix: str, in_substitution: bool, wait: Template
+) -> None:
+    if in_substitution:
+        words, option = prefix.rsplit(" ", 1)
+        command = f"{words} $(echo {comment}\n) {option} {_single_quoted(wait.text())}"
+    else:
+        command = f"{comment}\n{prefix} {_single_quoted(wait.text())}"
+
+    assert _judged(command) == wait.refusals, command
+
+
 # Separator kończy polecenie proste powłoki, a ``$(…)`` i `` `…` `` zaczynają w nim osobne.
 SEPARATORS = (
     ("; ", ""),
@@ -594,6 +655,7 @@ SEPARATORS = (
     (" | ", ""),
     (" & ", ""),
     ("\n", ""),
+    (" # ${x:-(\n", ""),
     (" $(", ")"),
     (" `", "`"),
 )
@@ -603,6 +665,10 @@ SEPARATORS = (
 @example(prefix="bash -l x.sh", separator=("; ", ""), program="grep -c", wait=LOOP)
 @example(prefix="su - root", separator=(" | ", ""), program="python3 -c", wait=LOOP)
 @example(prefix="sh", separator=(" $(", ")"), program="python3 -c", wait=LOOP)
+# ``}`` poza ``${…}`` niczego nie otwiera, więc ``;`` za ``{a,b}`` kończy polecenie (runda 1 #648).
+@example(prefix="bash {a,b}", separator=("; ", ""), program="grep -c", wait=LOOP)
+# Komentarz z niedomkniętym ``${`` kończy się z linią, a z nim polecenie powłoki (runda 1 #648).
+@example(prefix="bash x.sh", separator=(" # ${x:-(\n", ""), program="grep -c", wait=LOOP)
 @given(
     prefix=st.builds(
         lambda runner, words: " ".join([runner, *words]), st.sampled_from(SCRIPT_RUNNERS), st.lists(WORDS, max_size=6)
@@ -674,6 +740,9 @@ FRAGMENTS = (
     "}",
     "{ ",
     " }",
+    "${",
+    "${x:-$(",
+    "# ${",
     " ",
     "\n",
     ";",
