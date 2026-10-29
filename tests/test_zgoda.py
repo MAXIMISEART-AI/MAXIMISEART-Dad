@@ -116,7 +116,11 @@ def test_pytanie_o_zgode_poza_trybem_bypass_idzie_do_czlowieka(
     assert (hooked.returncode, hooked.stdout, hooked.stderr) == (0, b"", b"")
 
 
-@pytest.mark.parametrize("stdin", [b"", b"nie json", b"[]", b"null", b'"bypassPermissions"', b"\xff\xfe{"])
+@pytest.mark.parametrize(
+    "stdin",
+    [b"", b"nie json", b"[]", b"null", b'"bypassPermissions"', b"\xff\xfe{", b"[" * 100000],
+    ids=["pusto", "nie-json", "lista", "null", "napis", "nie-utf8", "gleboki-json"],
+)
 def test_nieczytelne_wejscie_hooka_idzie_do_czlowieka(stdin: bytes) -> None:
     hooked = _hook(stdin)
 

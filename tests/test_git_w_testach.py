@@ -16,6 +16,7 @@ from collections.abc import Callable
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 
@@ -123,6 +124,21 @@ def test_git_z_posix_spawn_ze_srodowiskiem_bez_konfiguracji_testow_wywraca_test(
 
     with pytest.raises(AssertionError, match=FOREIGN_CONFIG):
         getattr(os, spawn)(git_program, [git_program, "--version"], os.environ | {"GIT_CONFIG_GLOBAL": "/dev/null"})
+
+
+@POSIX_ONLY
+@pytest.mark.parametrize("spawn", ["posix_spawn", "posix_spawnp"])
+@pytest.mark.parametrize("command", [["git", "--version"], ["sh", "-c", "cd . && git --version"]], ids=["git", "sh -c"])
+def test_posix_spawn_bez_env_sprawdza_srodowisko_procesu(
+    spawn: str, command: list[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Python 3.14 na Linuksie uruchamia tak ``subprocess.run([bash, "-c", …])``; brak env to środowisko procesu.
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", "/dev/null")
+    program = shutil.which(command[0])
+    assert program is not None
+
+    with pytest.raises(AssertionError, match=FOREIGN_CONFIG):
+        getattr(os, spawn)(program, command, None)
 
 
 @pytest.mark.parametrize(

@@ -64,6 +64,20 @@ CI_LOOPS = (
     "until ! gh pr checks 1 | grep -q pending; do sleep 30; done && gh pr checks 1",
     's="$(for i in $(seq 1 20); do gh pr checks 1 | grep -q pending || break; sleep 30; done; gh pr checks 1)"',
     "if gh pr view 1 --json state >/dev/null; then until ! gh pr checks 1 | grep -q pending; do sleep 30; done; fi",
+    # Skrypt ``-c`` powłoki podanej ścieżką, z opcjami przed ``-c`` i w ``su``.
+    "/bin/sh -c 'until ! gh pr checks 1 | grep -q pending; do sleep 30; done'",
+    "bash -l -c 'until ! gh pr checks 1 | grep -q pending; do sleep 30; done'",
+    "bash -lc 'until ! gh pr checks 1 | grep -q pending; do sleep 30; done'",
+    "bash -o pipefail -c 'until ! gh pr checks 1 | grep -q pending; do sleep 30; done'",
+    "su -c 'until ! gh pr checks 1 | grep -q pending; do sleep 30; done'",
+    "runuser -l x -c 'until ! gh pr checks 1 | grep -q pending; do sleep 30; done'",
+    "/bin/bash --noprofile --norc -o pipefail -c 'until ! gh pr checks 1 | grep -q pending; do sleep 30; done'",
+    "bash -ce 'until ! gh pr checks 1 | grep -q pending; do sleep 30; done'",
+    "fish -c 'while true; sleep 30; gh pr checks 1; end'",
+    # Słowa przed ``-c`` mogą być dowolne, więc ``-c`` za nazwą skryptu też dostaje odmowę (fałszywą, ale tańszą).
+    "bash skrypt.sh -c 'until ! gh pr checks 1 | grep -q pending; do sleep 30; done'",
+    # Powłoka tuż za separatorem albo nawiasem.
+    "cd x;bash -c 'until ! gh pr checks 1 | grep -q pending; do sleep 30; done'",
     "for i in $(seq 20); do gh pr checks 1 | grep -c pending; sleep 30; done",
     "until [ $(for n in 1 2; do gh pr checks $n; done | grep -c pending) = 0 ]; do sleep 30; done",
     # Wyjście z pętli przez ``exit`` i ``return`` zamiast ``break``.
@@ -75,9 +89,18 @@ CI_LOOPS = (
     "until ! gh pr checks 446 | grep -q pending; do sleep 30; done >&2",
     "until ! gh pr checks 446 | grep -q pending; do sleep 30; done > ci.log 2>&1 && gh pr checks 446",
     "until ! gh pr checks 446 | grep -q pending; do sleep 30; done <&0",
+    "until ! gh pr checks 446 | grep -q pending; do sleep 30; done |& tee ci.log",
     # ``&`` za ``;`` albo nową linią puszcza w tło tylko następne polecenie.
     "until ! gh pr checks 446 | grep -q pending; do sleep 30; done; afplay /System/Library/Sounds/Glass.aiff &",
     "until ! gh pr checks 446 | grep -q pending; do sleep 30; done\nafplay /System/Library/Sounds/Glass.aiff &",
+    # ``&`` w grupie za potokiem puszcza w tło tylko tę grupę.
+    "until ! gh pr checks 446 | grep -q pending; do sleep 30; done | (cat & wait)",
+    "until ! gh pr checks 446 | grep -q pending; do sleep 30; done | { tee ci.log & wait; }",
+    "until ! gh pr checks 446 | grep -q pending; do sleep 30; done | tee >(cat &)",
+    # ``{`` bez zamknięcia jest argumentem, więc ``&`` na końcu nie puszcza w tło pętli za ``;``.
+    "echo { a; until ! gh pr checks 446 | grep -q pending; do sleep 30; done; echo koniec &",
+    # ``\&`` to znak, a nie tło.
+    "until ! gh pr checks 446 | grep -q pending; do sleep 30; done | sed s/a/\\&/",
 )
 WATCHES = (
     "timeout 1500 gh pr checks 215 --watch > .audit/swarm-215/lane1-pr-checks.txt 2>&1; echo exit=$?",
@@ -167,11 +190,27 @@ PASSING = (
     # Syntetyczne: pętla w tle na końcu polecenia, pętla zakończona przed ``sleep`` i wzorce wyszukiwania ze słowem pętli.
     "until ! gh pr checks 446 | grep -q pending; do sleep 30; done &",
     "(until ! gh pr checks 446 | grep -q pending; do sleep 30; done) &",
+    # ``&`` za potokiem albo listą ``||`` puszcza w tło całą listę razem z pętlą.
+    "until ! gh pr checks 446 | grep -q pending; do sleep 30; done 2>&1 | tee ci.log &",
+    "until ! gh pr checks 446 | grep -q pending; do sleep 30; done |& tee ci.log & W=$!",
+    "until ! gh pr checks 446 | grep -q pending; do sleep 30; done || echo przerwane &",
+    # ``&`` za grupą puszcza w tło całą grupę z pętlą.
+    "{ until ! gh pr checks 446 | grep -q pending; do sleep 30; done; } &",
+    "( until ! gh pr checks 446 | grep -q pending; do sleep 30; done; echo koniec ) > ci.log &",
+    # Nawias wzorca ``case`` nie zamyka grupy.
+    "case $1 in a) echo a;; esac; until ! gh pr checks 1 | grep -q pending; do sleep 30; done | tee ${LOG} &",
     "for f in a b; do echo $f; done; sleep 10; gh pr checks 1",
     # Samotne ``done`` po zamkniętej pętli nie zamyka jej drugi raz.
     "until test -f x; do echo; done; sleep 5; gh pr checks 1; done",
     "rg -n 'while|until' tools/hooks/czekanie.py; sleep 1; gh pr checks 446",
     'grep -nw "until" tools/hooks/czekanie.py; sleep 1; gh pr checks 446',
+    "rg -n '(while)' tools/hooks/czekanie.py; sleep 1; gh pr checks 446",
+    'grep -E "^(until)$" tools/hooks/czekanie.py; sleep 1; gh pr checks 446',
+    # ``-c`` innego polecenia niż powłoka to nie skrypt: ``grep -c`` liczy wiersze z tym tekstem.
+    "grep -c 'until ! gh pr checks 1 | grep -q pending; do sleep 30; done' ~/.t3/notes/czekanie.log",
+    # Bez ``-c`` powłoka dostaje w napisie nazwę pliku skryptu albo jego argument.
+    "sh -e 'until ! gh pr checks 1 | grep -q pending; do sleep 30; done'",
+    "bash backup.sh 'until ! gh pr checks 1 | grep -q pending; do sleep 30; done'",
 )
 
 
@@ -237,8 +276,23 @@ def test_limit_hooka_w_ustawieniach_opoznia_polecenie_najwyzej_o_10_s() -> None:
         "until x; do " * 40000 + "sleep 1; gh pr checks 1",
         "until a& do b& done&" * 40000 + "while :; do sleep 1; gh pr checks 1; done",
         "(until x do done)" * 40000 + "(while :; do sleep 1; gh pr checks 1; done)",
+        # Ciało każdej pętli przeszukane osobno: pętle zagnieżdżone i niezamknięte razem rosną z kwadratem długości.
+        "until x; do " * 40000 + "done; " * 40000 + "while :; do sleep 1; gh pr checks 1; done",
+        # Wzorzec, który od każdego wiersza albo każdego ``gh pr checks`` czyta do końca polecenia.
+        "while :; do sleep 1; gh pr checks 1; done" + "\n" * 400000,
+        "gh pr checks 1 " * 40000 + "\nwhile :; do sleep 1; gh pr checks 1; done",
+        "until x; do sleep 1; " + "gh api x " * 40000 + "\ngh pr checks 1; done",
     ],
-    ids=["ogon-przekierowan", "petle-bez-done", "petle-w-tle-bez-srednika", "petle-bez-konca-listy"],
+    ids=[
+        "ogon-przekierowan",
+        "petle-bez-done",
+        "petle-w-tle-bez-srednika",
+        "petle-bez-konca-listy",
+        "zagniezdzone-bez-sleep",
+        "puste-wiersze",
+        "zapytania-bez-watch",
+        "gh-api-bez-adresu",
+    ],
 )
 def test_hook_ocenia_wejscie_bez_konca_przed_limitem_z_ustawien(command: str) -> None:
     tool_input = {"command": command, "run_in_background": False}
@@ -277,7 +331,18 @@ def test_hook_trzyma_w_pamieci_jedno_cialo_petli_naraz(monkeypatch: pytest.Monke
 
 @pytest.mark.parametrize(
     "stdin",
-    ["", "nie json", "[]", '{"tool_input": null}', '{"tool_input": {"command": 5}}', '{"tool_name": "Bash"}'],
+    [
+        "",
+        "nie json",
+        "[]",
+        '{"tool_input": null}',
+        '{"tool_input": {"command": 5}}',
+        '{"tool_name": "Bash"}',
+        # Zagnieżdżenie głębsze niż stos Pythona: w JSON-ie i w poleceniu (``"$(`` w ``"$(`` …).
+        "[" * 100000,
+        json.dumps({"tool_input": {"command": '"$(' * 1000 + "until ! gh pr checks 1; do sleep 30; done"}}),
+    ],
+    ids=["pusto", "nie-json", "lista", "null", "liczba", "bez-polecenia", "gleboki-json", "gleboki-cudzyslow"],
 )
 def test_nieczytelne_wejscie_hooka_przechodzi(stdin: str) -> None:
     hooked = _hook(stdin)

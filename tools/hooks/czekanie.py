@@ -12,12 +12,15 @@ pętlę z ``sleep``, której ciało pyta o CI (``gh pr checks``, ``gh pr view``,
 o check-runs, actions/runs albo status commitu) albo woła ``pgrep -f``, oraz ``gh pr checks --watch`` i ``gh run watch``.
 Pętla ``for`` i ``while read`` czeka tylko z ``break``, ``exit``, ``return`` albo licznikiem prób od 0 albo 1
 (``$(seq N)``, ``$(seq 1 N)``, ``{1..N}``, ``for ((``), bo bez nich to partia zapytań z ``sleep`` jako limitem API,
-a pętla puszczona ``&`` nie czeka.
+a pętla puszczona ``&`` nie czeka: sama, w liście z ``|``, ``&&`` albo ``||``, w grupie ``( … )`` albo ``{ …; }``.
+``&`` w grupie za pętlą (``done | (cat & wait)``) puszcza w tło tylko tę grupę.
 Wszystko inne, także te polecenia z ``run_in_background``, przechodzi bez słowa (kod 0).
 Wejście, którego nie da się odczytać, też przechodzi, bo hook nie może zatrzymać pracy.
 
 Ciała heredoców (skrypt Pythona, treść commitu) i napisy ze spacją w cudzysłowach (opis commitu, wiersz logu)
-hook pomija, bo to nie są polecenia powłoki; zostawia z nich ``$(…)`` i ciało ``bash -c '…'``.
+hook pomija, bo to nie są polecenia powłoki; zostawia z nich ``$(…)`` i ciało ``-c`` powłoki, ``su``, ``runuser``,
+``flock`` albo ``script`` z dowolnymi słowami przed ``-c`` (``bash -euo pipefail -c '…'``, ``bash -lc``,
+``su -l -s /bin/sh root -c``).
 
 Granica: inne harnessy niż Claude Code (Codex, opencode), pętlę w skrypcie uruchomionym z pliku, w Pythonie
 (``time.sleep``) albo z adresem ``gh api`` w cudzysłowie, czekanie na plik wyjścia zadania w tle i pętle, których
@@ -29,7 +32,7 @@ Uruchamia go systemowy Python (na Macu 3.9), więc ruff sprawdza ten plik pod 3.
 from __future__ import annotations
 
 from bisect import bisect_left
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 import json
 import re
@@ -37,30 +40,57 @@ import sys
 from typing import Optional
 
 _GH = r"\bgh(?:-axi)?\s+"
-ASKS_CI = re.compile(
-    _GH + r"(?:pr\s+(?:checks|view)|run\s+(?:view|list|watch)|api\b[^;&|\n]*(?:check-runs|actions/runs|/status\b))"
-)
-WATCH = re.compile(_GH + r"(?:pr\s+checks\b[^;&|\n]*--watch|run\s+watch)\b")
+ASKS_CI = re.compile(_GH + r"(?:pr\s+(?:checks|view)|run\s+(?:view|list|watch))")
+# `gh api` pyta o CI, gdy w tym samym poleceniu prostym (do `;`, `&`, `|` albo nowej linii) stoi adres CI. Pary szuka
+# `_in_one_command`, a nie wzorzec `api\b[^;&|\n]*adres`, bo ten od każdego `gh api` czyta do końca polecenia.
+GH_API = re.compile(_GH + r"api\b")
+CI_ADDRESS = re.compile(r"check-runs|actions/runs|/status\b")
+CHECKS = re.compile(_GH + r"pr\s+checks\b")
+WATCH_OPTION = re.compile(r"--watch\b")
+RUN_WATCH = re.compile(_GH + r"run\s+watch\b")
+SIMPLE_COMMAND_END = re.compile(r"[;&|\n]")
 PGREP = re.compile(r"\bpgrep\s+(?:-\w+\s+)*-\w*f")
-# Agenci śpią też przez `perl -e 'select(undef,undef,undef,N)'`, gdy harness blokuje sam `sleep`.
-SLEEP = re.compile(r"(?<![\w.$-])sleep\s+\S|\bselect\(undef\b")
+# Agenci śpią też przez `perl -e 'select(undef,undef,undef,N)'`, gdy harness blokuje sam `sleep`; w napisie bez
+# spacji nawias jest już podkreśleniem (`QUOTED_SEPARATOR`).
+SLEEP = re.compile(r"(?<![\w.$-])sleep\s+\S|\bselect[(_]undef\b")
 WHITESPACE = re.compile(r"\s")
-# W napisie bez spacji (`perl -e 'select(undef,…)'`, wzorzec `rg 'while|until'`) słowo pętli nie stoi na pozycji polecenia.
-QUOTED_SEPARATOR = re.compile(r"[;&|{!`]")
-# Słowo pętli liczy się na pozycji polecenia, więc „done” w `grep -q done` nie zamyka pętli.
-_STARTS = r"(?:^|(?<=[;&|({!`])|(?<=\bdo)|(?<=\bthen)|(?<=\belse))\s*"
-_ENDS = r"(?:(?<=[;&\n])|(?<=\bdo))\s*"
+# W napisie bez spacji (`perl -e 'select(undef,…)'`, wzorzec `rg '(while|until)'`) słowo pętli nie stoi na pozycji
+# polecenia, a nawias nie otwiera ani nie zamyka grupy.
+QUOTED_SEPARATOR = re.compile(r"[;&|(){}!`]")
+# Słowo pętli liczy się na pozycji polecenia, więc „done” w `grep -q done` nie zamyka pętli. Za początkiem wiersza
+# odstęp bez nowej linii: inaczej od każdego z tysięcy pustych wierszy wzorzec czytałby wszystkie następne.
+_STARTS = r"(?:^[^\S\n]*|(?:(?<=[;&|({!`])|(?<=\bdo)|(?<=\bthen)|(?<=\belse))\s*)"
+_ENDS = r"(?:(?<=\n)[^\S\n]*|(?:(?<=[;&])|(?<=\bdo))\s*)"
 LOOP_WORD = re.compile(rf"{_STARTS}(until|while|for)\b|{_ENDS}(done)\b", re.MULTILINE)
 # `for` i `while read` z `sleep` to zwykle partia zapytań z limitem API (`for id in …; do sleep 2; gh run view $id`),
 # a czekaniem są dopiero z wyjściem z pętli albo licznikiem prób od 0 albo 1 (`$(seq 247 264)` to numery PR).
 OVER_LIST = re.compile(r"(?:for|while\s+(?:IFS=\S*\s+)?read)\b")
-STOPS = re.compile(r"^for\s*\(\(|\b(?:break|exit|return)\b(?!=)|\$\(seq\s+(?:[01]\s+)?\d+\s*\)|\{[01]\.\.\d+\}")
-# Pętla puszczona `&` (próbnik obok pomiaru, ubijany potem `kill`) nie blokuje polecenia, a `&>`, `>&2` i `2>&1`
-# to przekierowania. Bez zagnieżdżonych kwantyfikatorów, bo cofanie po `2>1 2>1 …` nie miałoby końca.
-LIST_END = re.compile(r"[;|\n]")
-LONE_AMPERSAND = re.compile(r"(?<![<>&])&(?![&>])")
+FOR_ARITHMETIC = re.compile(r"for\s*\(\(")
+STOPS = re.compile(r"\b(?:break|exit|return)\b(?!=)|\$\(seq\s+(?:[01]\s+)?\d+\s*\)|\{[01]\.\.\d+\}")
+# Pętla puszczona `&` (próbnik obok pomiaru, ubijany potem `kill`) nie blokuje polecenia, a `&>`, `>&2`, `2>&1`
+# i `|&` to przekierowania, a `\&` to znak. `&` puszcza w tło całą listę do `;` albo nowej linii, także z `|` i `||`
+# (`done | tee log &`), a `&` za grupą `( … )` albo `{ …; }` także pętle w niej. Grupa za pętlą (`done | (cat & wait)`,
+# `>(cat &)`) to jedno polecenie listy, więc `&` w środku nie dotyczy pętli. `{` grupy ma za sobą odstęp, a `}` przed
+# sobą, w odróżnieniu od `${x}` i `{1..3}`. Bez zagnieżdżonych kwantyfikatorów, bo cofanie po `2>1 2>1 …` nie miałoby
+# końca.
+LIST_PART = re.compile(
+    r"(?P<open>\(|\{(?=\s))|(?P<close>\)|(?<=[\s;&])\})"
+    r"|(?P<end>[;\n])|(?P<background>(?<![<>&|\\])&(?![&>]))"
+)
 HEREDOC = re.compile(r"(?<!<)<<-?\s*(['\"]?)(\w+)\1")
-SHELL_ARGUMENT = re.compile(r"(?:^|\s)-c\s*$")
+# Skrypt powłoki to tylko argument `-c` (także złączonego: `-lc`, `-euc`) w poleceniu prostym, w którym stoi słowo
+# powłoki, `su`, `runuser`, `flock` albo `script`: `grep -c '…'` liczy wiersze, a `python3 -c '…'` to Python. Słowa
+# między nimi mogą być dowolne (`-euo pipefail`, `--rcfile x`, `-s /bin/sh root`), więc `bash skrypt.sh -c '…'` też
+# dostaje odmowę. Polecenie proste kończą `;`, `&`, `|` i nowa linia, a `(` i lewy `` ` `` zaczynają polecenie, po
+# którym `)` i prawy `` ` `` wracają do zewnętrznego (`bash $(echo -l) -c`). `fish` i `csh` mają inną składnię pętli,
+# ale pętla bez `done` sięga do końca polecenia.
+_SHELLS = r"(?:ba|da|k|z|mk|a|fi|c|tc)?sh|su|runuser|flock|script|\$\{?(?:SHELL|BASH)\}?"
+SHELL_NAME = re.compile(rf"(?:{_SHELLS})")
+COMMAND_PART = re.compile(
+    r"\\[\s\S]|(?P<end>[;\n]|(?<![<>])&(?!>)|(?<!>)\|)|(?P<open>\()|(?P<close>\))|(?P<tick>`)"
+    rf"|(?P<shell>(?<![^\s/;&|(`])(?:{_SHELLS})(?![^\s;&|()`]))"
+)
+SCRIPT_OPTION = re.compile(r"-[a-zA-Z]+")
 
 INSTEAD = (
     "Zamiast czekać: dziecko delegate_task kończy zadanie i zwraca URL PR i pełny SHA HEAD (rodzic ma "
@@ -108,17 +138,29 @@ def _code(command: str, start: int = 0, inside_substitution: bool = False) -> tu
     """
 
     kept: list[str] = []
-    depth, index = 0, start
+    scripts = _ShellScripts(command, start)
+    # Napis przyklejony do skryptu ``-c`` to jego dalszy ciąg: w ``bash -c '… perl -e '\''select(…)'\''; done'``
+    # ``done`` stoi w trzecim napisie.
+    depth, index, script_end = 0, start, -1
     while index < len(command):
         char = command[index]
         if char == "\\":
             kept.append(command[index : index + 2])
+            if index == script_end:
+                script_end += 2
             index += 2
             continue
         if char in "'\"":
             literal, end = _quoted(command, index)
-            shell_argument = SHELL_ARGUMENT.search("".join(kept[-12:]))
-            kept.append(";" + command[index + 1 : end] if shell_argument else literal)
+            script = scripts.is_script(index, end)
+            if index == script_end:
+                kept.append(command[index + 1 : end])
+                script_end = end
+            elif script:
+                kept.append(";" + command[index + 1 : end])
+                script_end = end
+            else:
+                kept.append(literal)
             index = end
             continue
         if inside_substitution and char == ")":
@@ -156,11 +198,76 @@ def _quoted(command: str, start: int) -> tuple[str, int]:
     return (kept if WHITESPACE.search(literal) else QUOTED_SEPARATOR.sub("_", literal)), end
 
 
-def _loop_bodies(command: str) -> Iterator[str]:
-    """Tekst każdej pętli na pierwszym planie od słowa ``until``/``while``/``for`` do jej ``done`` (albo do końca polecenia).
+class _ShellScripts:
+    """Napisy w cudzysłowach jednego polecenia po kolei: który z nich to skrypt ``-c`` powłoki.
 
-    Po jednej naraz: ciała zagnieżdżonych pętli razem rosną z kwadratem długości polecenia.
+    Każdy znak poza cudzysłowami czyta raz, więc czas zostaje liniowy przy dowolnie wielu słowach przed ``-c``.
     """
+
+    def __init__(self, command: str, start: int) -> None:
+        self.command, self.read_to = command, start
+        self.shell = False
+        self.outer: list[tuple[str, bool]] = []
+
+    def is_script(self, quote: int, end: int) -> bool:
+        """Czy napis od ``quote`` do ``end`` stoi za ``-c`` w poleceniu prostym ze słowem powłoki."""
+
+        for part in COMMAND_PART.finditer(self.command, self.read_to, quote):
+            kind = part.lastgroup
+            if kind == "shell":
+                self.shell = True
+            elif kind == "end":
+                self.shell = False
+            elif kind == "open" or (kind == "tick" and not (self.outer and self.outer[-1][0] == "`")):
+                self.outer.append((part.group(), self.shell))
+                self.shell = False
+            elif kind is not None:
+                self.shell = self.outer.pop()[1] if self.outer else False
+        words = self.command[self.read_to : quote].split()
+        option = words[-1] if words else ""
+        script = self.shell and "c" in option and SCRIPT_OPTION.fullmatch(option) is not None
+        self.read_to = end
+        # Nazwa powłoki w cudzysłowie (``"$SHELL" -c``) też jest słowem powłoki.
+        if SHELL_NAME.fullmatch(self.command[quote + 1 : end - 1].rsplit("/", 1)[-1]):
+            self.shell = True
+        return script
+
+
+class _Matches:
+    """Początki dopasowań wzorca w poleceniu, rosnąco.
+
+    Pytanie, czy jedno z nich zaczyna się w pętli, kosztuje bisekcję, a nie przeszukanie ciała pętli: ciała pętli
+    zagnieżdżonych albo niezamkniętych razem rosną z kwadratem długości polecenia. Koniec dopasowania się nie liczy,
+    bo ``done`` stoi za ``;``, ``&``, nową linią albo ``do``, a przez nie przechodzi tylko ``gh api … do done adres``.
+    """
+
+    def __init__(self, starts: Iterable[int]) -> None:
+        self.starts = list(starts)
+
+    def inside(self, start: int, end: int) -> bool:
+        index = bisect_left(self.starts, start)
+        return index < len(self.starts) and self.starts[index] < end
+
+
+def _found(pattern: re.Pattern[str], command: str) -> _Matches:
+    return _Matches(match.start() for match in pattern.finditer(command))
+
+
+def _in_one_command(command: str, head: re.Pattern[str], tail: re.Pattern[str]) -> _Matches:
+    """Każde ``head``, za którym w tym samym poleceniu prostym stoi ``tail``."""
+
+    tail_starts = [match.start() for match in tail.finditer(command)]
+    command_ends = [match.start() for match in SIMPLE_COMMAND_END.finditer(command)]
+    return _Matches(
+        match.start()
+        for match in head.finditer(command)
+        if _first_from(tail_starts, match.end(), len(command)) < _first_from(command_ends, match.end(), len(command))
+    )
+
+
+def _loop_bodies(command: str) -> Iterator[tuple[int, int]]:
+    """Początek i koniec każdej pętli na pierwszym planie od słowa ``until``/``while``/``for`` do jej ``done``
+    (albo do końca polecenia)."""
 
     loops: list[list[int]] = []
     unclosed: list[int] = []
@@ -170,13 +277,44 @@ def _loop_bodies(command: str) -> Iterator[str]:
             loops.append([word.start(1), len(command)])
         elif unclosed:
             loops[unclosed.pop()][1] = word.end()
-    # Pozycje policzone raz: szukanie od każdej pętli osobno kosztuje O(pętle × długość polecenia).
-    list_ends = [match.start() for match in LIST_END.finditer(command)]
-    ampersands = [match.start() for match in LONE_AMPERSAND.finditer(command)]
+    positions, in_background = _list_parts(command)
     for start, end in loops:
-        stop = _first_from(list_ends, end, len(command))
-        if _first_from(ampersands, end, stop) >= stop:
-            yield command[start:end]
+        if not in_background[bisect_left(positions, end)]:
+            yield start, end
+
+
+def _list_parts(command: str) -> tuple[list[int], list[bool]]:
+    """Pozycje nawiasów grup, ``;``, nowych linii i ``&`` tła, a dla każdej: czy lista, która biegnie od niej
+    dalej na jej poziomie, idzie w tło; na końcu polecenia ``False``.
+
+    Liczone raz od końca: szukanie od każdej pętli osobno kosztuje O(pętle × długość polecenia).
+    """
+
+    parts = list(LIST_PART.finditer(command))
+    closing = [len(parts)] * len(parts)
+    enclosing: list[Optional[int]] = [None] * len(parts)
+    opened: list[int] = []
+    for index, part in enumerate(parts):
+        if part.lastgroup == "open":
+            opened.append(index)
+        elif part.lastgroup == "close" and opened:
+            closing[opened.pop()] = index
+        elif part.lastgroup == "end" and opened:
+            enclosing[index] = opened[-1]
+    in_background = [False] * (len(parts) + 1)
+    for index in reversed(range(len(parts))):
+        kind = parts[index].lastgroup
+        if kind == "background":
+            in_background[index] = True
+        elif kind == "open":
+            in_background[index] = in_background[closing[index]]
+        elif kind == "close":
+            in_background[index] = in_background[index + 1]
+        else:
+            # Lista kończy się na `;`, ale grupa, w której stoi, biegnie dalej: `{ pętla; } &` idzie w tło cała.
+            group = enclosing[index]
+            in_background[index] = group is not None and in_background[closing[group]]
+    return [part.start() for part in parts], in_background
 
 
 def _first_from(positions: list[int], start: int, default: int) -> int:
@@ -187,15 +325,23 @@ def _first_from(positions: list[int], start: int, default: int) -> int:
 def judge(command: str, in_background: bool) -> Optional[Refusal]:
     if in_background:
         return None
-    shell, _ = _code(_without_heredocs(command))
-    if WATCH.search(shell):
+    try:
+        shell, _ = _code(_without_heredocs(command))
+    except RecursionError:  # setki zagnieżdżonych "$(…)": polecenia nie da się odczytać, więc przechodzi
+        return None
+    if RUN_WATCH.search(shell) or _in_one_command(shell, CHECKS, WATCH_OPTION).starts:
         return WATCHING
-    for body in _loop_bodies(shell):
-        if not SLEEP.search(body) or (OVER_LIST.match(body) and not STOPS.search(body)):
+    sleeps, stops, pgreps = _found(SLEEP, shell), _found(STOPS, shell), _found(PGREP, shell)
+    queries, api_queries = _found(ASKS_CI, shell), _in_one_command(shell, GH_API, CI_ADDRESS)
+    for start, end in _loop_bodies(shell):
+        if not sleeps.inside(start, end):
             continue
-        if ASKS_CI.search(body):
+        over_list = OVER_LIST.match(shell, start, end)
+        if over_list and not (FOR_ARITHMETIC.match(shell, start, end) or stops.inside(start, end)):
+            continue
+        if queries.inside(start, end) or api_queries.inside(start, end):
             return CI_LOOP
-        if PGREP.search(body):
+        if pgreps.inside(start, end):
             return PGREP_LOOP
     return None
 
@@ -205,7 +351,7 @@ def main() -> int:
         tool_input = json.load(sys.stdin)["tool_input"]
         command = tool_input["command"]
         in_background = tool_input.get("run_in_background") is True
-    except (ValueError, KeyError, TypeError, AttributeError):
+    except (ValueError, KeyError, TypeError, AttributeError, RecursionError):
         return 0
     if not isinstance(command, str):
         return 0

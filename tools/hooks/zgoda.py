@@ -52,7 +52,7 @@ def decision(event: object) -> dict[str, object] | None:
 def main() -> int:
     try:
         event = json.loads(sys.stdin.buffer.read())
-    except ValueError:  # także UnicodeDecodeError
+    except (ValueError, RecursionError):  # także UnicodeDecodeError i JSON zagnieżdżony głębiej niż stos Pythona
         return 0
     answer = decision(event)
     if answer is not None:
