@@ -159,7 +159,7 @@ class ToolUpdates:
             self._result_file.unlink(missing_ok=True)
         except OSError as failure:  # następny start zastaje ten wynik w dzienniku i go pomija, jeśli nie było nowego kliknięcia
             self._log.update_result_kept(failure)
-        self._view = _view_of(result) or self._failed(result)
+        self._view = _view_of(result) or self._failed(result, after_restart=True)
 
     def _update(self, clone: ToolClone, before: str | None, port: int) -> None:
         work = Path(tempfile.mkdtemp(prefix="centrum-aktualizacja-"))
@@ -186,7 +186,7 @@ class ToolUpdates:
                 if isinstance(view, contract.ToolUpdateUpToDate):
                     newest = self._release()
                 if view is None:
-                    failed = self._failed(result)
+                    failed = self._failed(result, after_restart=False)
                     # Po pierwszym „failed” karta nie czyta już stanu, więc dostaje go po odpowiedzi skrzynki.
                     failed.report.wait_for_box()
                     view = failed
@@ -241,7 +241,7 @@ class ToolUpdates:
             result=result.code, before=result.before, after=result.after, installed=result.installed
         )
 
-    def _failed(self, result: UpdateResult) -> _Failed:
+    def _failed(self, result: UpdateResult, *, after_restart: bool) -> _Failed:
         """Komunikat porażki z podglądem Zgłoszenia; ``aktualizacja-koniec`` jest już w dzienniku, więc podgląd go ma."""
 
         message = update_messages.message_of(result.code)
@@ -252,6 +252,7 @@ class ToolUpdates:
             "retry" if message.code in _RETRIED_BY_TATA else "report",
             report,
             report.prepare(source),
+            after_restart,
         )
 
     def send_report(self) -> contract.ReportState:
@@ -276,11 +277,17 @@ class _Failed:
     next_action: Literal["retry", "report"]
     report: ReportHandle
     draft: contract.ReportDraft
+    after_restart: bool
 
     @property
     def view(self) -> contract.ToolUpdateFailed:
         return contract.ToolUpdateFailed(
-            state="failed", message=self.message, next_action=self.next_action, report=self.report.state, draft=self.draft
+            state="failed",
+            message=self.message,
+            next_action=self.next_action,
+            report=self.report.state,
+            draft=self.draft,
+            after_restart=self.after_restart,
         )
 
 

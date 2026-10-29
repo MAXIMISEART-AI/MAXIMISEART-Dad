@@ -978,7 +978,8 @@ class ToolUpdateFailed(_Model):
 
     ``next_action`` ``retry``: tata klika „Zaktualizuj narzędzie” jeszcze raz (np. gdy wróci internet);
     ``report``: sprawę przejmuje Maks. ``draft`` to Zgłoszenie z faktami dziennika tej aktualizacji, które
-    wyśle „Wyślij do Maksa”, a ``report`` jego stan.
+    wyśle „Wyślij do Maksa”, a ``report`` jego stan. ``after_restart``: porażkę zastało to Centrum przy starcie, od
+    opiekuna ponownego startu (np. nowa wersja nie wystartowała), a nie z kliknięcia w tym Centrum.
     """
 
     state: Literal["failed"]
@@ -986,6 +987,7 @@ class ToolUpdateFailed(_Model):
     next_action: Literal["retry", "report"]
     report: ReportState
     draft: ReportDraft
+    after_restart: bool
 
 
 ToolUpdate = Annotated[

@@ -80,7 +80,8 @@ export function ToolUpdateStatus() {
 
 /**
  * Komunikat porażki z ponownego startu (np. nowa wersja nie wystartowała i wróciła poprzednia) pod tytułem każdej
- * strony, na której karta wylądowała po przeładowaniu, aż tata znów kliknie `Zaktualizuj narzędzie`.
+ * strony, na której tata ląduje po przeładowaniu karty albo po starcie ze skrótu, aż znów kliknie `Zaktualizuj
+ * narzędzie`.
  */
 export function ToolUpdateAfterRestart() {
   const { update, restarted } = useToolUpdate()

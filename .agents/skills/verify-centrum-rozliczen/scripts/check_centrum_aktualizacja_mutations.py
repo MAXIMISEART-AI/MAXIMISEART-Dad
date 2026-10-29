@@ -13,7 +13,7 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "tools"))
 sys.path.insert(0, str(Path(__file__).resolve().parents[4] / ".agents/skills/verify-centrum-rozliczen/scripts"))
 
-from cele_mutacji_centrum import AKTUALIZACJA, TOOL_UPDATES
+from cele_mutacji_centrum import AKTUALIZACJA, BUILD, TOOL_UPDATES
 from mutacje import Edit, Mutation, check_all
 
 MUTATIONS = (
@@ -40,6 +40,12 @@ MUTATIONS = (
         ),
         AKTUALIZACJA,
         "stara wersja po cofnięciu nie pokazuje porażki, gdy w pliku wyniku zostało „ok”",
+    ),
+    Mutation(
+        "stan aktualizacji czyta tylko karta przeładowana po ponownym starcie",
+        (Edit(BUILD, "Promise.all([eh(),e?$m():null])", "e&&Promise.all([eh(),e?$m():null])"),),
+        AKTUALIZACJA,
+        "po starcie ze skrótu Okresy nie mówią, że nowa wersja nie wystartowała",
     ),
 )
 
