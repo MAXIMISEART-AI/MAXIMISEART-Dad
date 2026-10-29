@@ -287,10 +287,12 @@ class Scheduler:
         mutating: bool,
         perform: Callable[[], Any],
         killable: bool = True,
+        seen: Callable[[], str] | None = None,
     ) -> Any:
         """Parks the calling Uruchomienie procesu until this step is picked, then performs it.
 
-        A step that is not ``killable`` may still fail, but the process is never killed right before it.
+        A step that is not ``killable`` may still fail, but the process is never killed right before it. A read step
+        records ``seen()``, what is on the disk at its path, instead of its answer.
         """
 
         if self.probe_calls is not None:
@@ -315,6 +317,9 @@ class Scheduler:
         if outcome == "fault":
             run.history.append(f"{call}!wstrzyknięty")
             raise PermissionError(errno.EACCES, "Plik jest używany przez inny proces (wstrzyknięty błąd)", pending.paths[-1])
+        if seen is not None:
+            run.history.append(f"{call}:{seen()}")
+            return perform()
         try:
             answer = perform()
         except OSError as error:
@@ -371,13 +376,20 @@ def intercepted(disk: VirtualDisk, scheduler: Scheduler) -> Iterator[None]:
         setattr(owner, name, replacement)
 
     def read_call(call: str, real: Callable[..., Any], answer: Callable[[object], Any]) -> Callable[..., Any]:
+        # The run records what is at the path, not the answer: pathlib asks os.stat on Python 3.11 and 3.12 but
+        # os.path.exists and os.path.islink on 3.14, whose answers say less. With the answer in the state, 3.14 merged
+        # states that 3.12 kept apart and explored 6640 schedules of dwa-uruchomienia instead of 9798.
         def wrapper(path: Any, *args: Any, **kwargs: Any) -> Any:
             if not disk.covers(path):
                 return real(path, *args, **kwargs)
             label = f"{call} bez dowiązań" if kwargs.get("follow_symlinks") is False else call
-            return scheduler.step(label, (path,), mutating=False, perform=lambda: answer(path))
+            return scheduler.step(label, (path,), mutating=False, perform=lambda: answer(path), seen=lambda: what_is_at(path))
 
         return wrapper
+
+    def what_is_at(path: object) -> str:
+        entry = disk.entry(path)
+        return "brak" if entry is None else "folder" if entry.is_dir else "plik"
 
     def write_call(call: str, real: Callable[..., Any], apply: Callable[..., None], path_count: int) -> Callable[..., Any]:
         def wrapper(*args: Any, **kwargs: Any) -> Any:

@@ -11,6 +11,8 @@ Zakres, znane ustalenia i postępowanie przy porażce opisuje
 from __future__ import annotations
 
 import importlib.util
+import os
+import stat
 import sys
 import threading
 from pathlib import Path
@@ -142,3 +144,41 @@ def test_limit_czasu_w_kodzie_publikacji_konczy_sprawdzenie_tym_limitem(
 
     with pytest.raises(_LimitCzasu):
         explorer.explore(explorer.SCOPES["dwa-uruchomienia"])
+
+
+def _istnieje_przez_os_stat(path: Path) -> bool:
+    try:
+        path.stat()
+    except OSError:
+        return False
+    return True
+
+
+def _dowiazanie_przez_os_lstat(path: Path) -> bool:
+    try:
+        return stat.S_ISLNK(path.lstat().st_mode)
+    except OSError:
+        return False
+
+
+def test_drzewo_harmonogramow_nie_zalezy_od_tego_czym_pathlib_pyta_o_plik(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Na każdej wersji Pythona sprawdzenie przechodzi te same harmonogramy.
+
+    Na Pythonie 3.11 i 3.12 `Path.exists` i `Path.is_symlink` pytają `Path.stat` i `Path.lstat`, a na 3.14
+    `os.path.exists` i `os.path.islink`, których odpowiedzi mówią mniej. Stan zapamiętywał odpowiedź, więc na 3.14
+    łączył stany, które 3.12 rozróżnia, i przechodził 6640 harmonogramów `dwa-uruchomienia` zamiast 9798.
+    """
+
+    explorer = _load_explorer()
+    trees = {}
+    for version, exists, is_symlink in (
+        ("3.11 i 3.12", _istnieje_przez_os_stat, _dowiazanie_przez_os_lstat),
+        # Przechwytywanie podmienia os.path.exists i os.path.islink, więc szukamy ich w chwili wywołania.
+        ("3.14", lambda path: os.path.exists(path), lambda path: os.path.islink(path)),
+    ):
+        monkeypatch.setattr(Path, "exists", lambda path, exists=exists, **_: exists(path))
+        monkeypatch.setattr(Path, "is_symlink", lambda path, is_symlink=is_symlink: is_symlink(path))
+        report = explorer.explore(explorer.SCOPES["jedno-uruchomienie"])
+        trees[version] = (report.schedules, report.states)
+
+    assert trees["3.11 i 3.12"] == trees["3.14"], trees

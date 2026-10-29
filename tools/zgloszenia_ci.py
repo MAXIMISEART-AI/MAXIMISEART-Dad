@@ -1,11 +1,11 @@
-"""Zgłoszenia CI (ADR 0020): issue dla flaków i dla czerwonego `main`, z workflow ``zgloszenia.yml`` po każdym runie CI.
+"""Zgłoszenia CI (ADR 0020): issue dla flaky testów i dla czerwonego `main`, z workflow ``zgloszenia.yml`` po każdym runie CI.
 
 Wejście to jeden zakończony run workflow ``CI``. Narzędzie najpierw ustala akcje (``Zaloz``, ``Skomentuj``, ``Zamknij``),
 potem je wykonuje; z ``--bez-zapisu`` tylko je drukuje.
 
-- **Flak.** Każdy test z artefaktów ``flaki-*`` runu (``tools/niestabilne_testy.py``) dostaje jedno otwarte issue
-  ``Flak: <test>`` z etykietą ``flak``: nowe albo komentarz do otwartego. Runu PR z forka narzędzie nie czyta, bo fork
-  pisze własny ``ci.yml``. Z artefaktu bierze tylko id testu, które da się zgłosić (``niestabilne_testy.zgloszalny``),
+- **Flaky test.** Każdy test z artefaktów ``flaky-testy-*`` runu (``tools/niestabilne_testy.py``) dostaje jedno
+  otwarte issue ``Flaky test: <test>`` z etykietą ``flaky-test``: nowe albo komentarz do otwartego. Runu PR z forka
+  narzędzie nie czyta, bo fork pisze własny ``ci.yml``. Z artefaktu bierze tylko id testu, które da się zgłosić (``niestabilne_testy.zgloszalny``),
   a wpis z innym odrzuca z linią w logu, nie ruszając reszty; id trafia do treści issue tylko w bloku kodu, przycięte.
   Commit, run i PR bierze z API runu.
 - **Czerwony `main`.** Push na `main` z ``Required CI status`` ``failure`` zakłada issue ``CzerwonyMain`` z etykietą
@@ -48,9 +48,11 @@ ROOT = Path(__file__).resolve().parents[1]
 REPO = "repos/{owner}/{repo}"
 MAIN = "main"
 REQUIRED = "Required CI status"
-FLAK, CZERWONY_MAIN, ZDERZENIE = "flak", "czerwony-main", "zderzenie"
-# Tyle flaków jednego runu trafia do issue; reszta to znak awarii, a nie flaków.
-NAJWIECEJ_FLAKOW = 10
+FLAKY_TEST, CZERWONY_MAIN, ZDERZENIE = "flaky-test", "czerwony-main", "zderzenie"
+# Początek nazwy artefaktu, w którym każde zadanie pytest z ``ci.yml`` wysyła ``niestabilne_testy.FLAKY_TESTY``.
+ARTEFAKT_FLAKY_TESTOW = "flaky-testy-"
+# Tyle flaky testów jednego runu trafia do issue; reszta to znak awarii, a nie flaky testów.
+NAJWIECEJ_FLAKY_TESTOW = 10
 # Tyle nowych porażek zderzenia wymienia issue.
 NAJWIECEJ_NOWYCH = 20
 # Id testu w tytule i w treści issue (GitHub przyjmuje tytuł do 256 znaków).
@@ -220,7 +222,7 @@ Akcja = Zaloz | Skomentuj | Zamknij
 
 def akcje(github: GitHub, root: Path, run_id: int, teraz: datetime) -> list[Akcja]:
     run = Run.z_api(github.json(f"{REPO}/actions/runs/{run_id}"))
-    return [*_flaki(github, run), *_main(github, root, run, teraz)]
+    return [*_flaky_testy(github, run), *_main(github, root, run, teraz)]
 
 
 def wykonaj(github: GitHub, wykonane: Sequence[Akcja], *, bez_zapisu: bool) -> list[str]:
@@ -253,7 +255,7 @@ def _opis(akcja: Akcja) -> str:
             return f"zamknij #{issue} z komentarzem"
 
 
-# --- flaki ---
+# --- flaky testy ---
 
 
 def _artefakty(github: GitHub, run_id: int, poczatek: str) -> list[tuple[str, bytes]]:
@@ -269,37 +271,37 @@ def _artefakty(github: GitHub, run_id: int, poczatek: str) -> list[tuple[str, by
     return pliki
 
 
-def _flaki(github: GitHub, run: Run) -> list[Akcja]:
+def _flaky_testy(github: GitHub, run: Run) -> list[Akcja]:
     if run.z_forka:
-        print(f"ZGŁOSZENIA | run {run.id} z forka: flaków nie zgłaszam")
+        print(f"ZGŁOSZENIA | run {run.id} z forka: flaky testów nie zgłaszam")
         return []
     testy: dict[str, None] = {}
-    for nazwa, plik in _artefakty(github, run.id, "flaki-"):
+    for nazwa, plik in _artefakty(github, run.id, ARTEFAKT_FLAKY_TESTOW):
         try:
-            flaki, odrzucone = niestabilne_testy.flaki_z_json(plik.decode("utf-8"))
+            flaky_testy, odrzucone = niestabilne_testy.flaky_testy_z_json(plik.decode("utf-8"))
         except (ValueError, UnicodeDecodeError) as blad:
             print(f"ZGŁOSZENIA | pominięty artefakt {nazwa}: {blad}")
             continue
         for powod in odrzucone:
             print(f"ZGŁOSZENIA | odrzucony wpis artefaktu {nazwa}: {powod}")
-        testy |= dict.fromkeys(flak.test for flak in flaki)
-    if len(testy) > NAJWIECEJ_FLAKOW:
-        print(f"ZGŁOSZENIA | {len(testy)} flaków w runie, zgłaszam pierwsze {NAJWIECEJ_FLAKOW}")
+        testy |= dict.fromkeys(flaky.test for flaky in flaky_testy)
+    if len(testy) > NAJWIECEJ_FLAKY_TESTOW:
+        print(f"ZGŁOSZENIA | {len(testy)} flaky testów w runie, zgłaszam pierwsze {NAJWIECEJ_FLAKY_TESTOW}")
     if not testy:
         return []
-    otwarte = {issue["title"]: issue["number"] for issue in _issues(github, FLAK, "open")}
+    otwarte = {issue["title"]: issue["number"] for issue in _issues(github, FLAKY_TEST, "open")}
     pr = f", PR {', '.join(f'#{numer}' for numer in run.pr)}" if run.pr else ""
     wynik: list[Akcja] = []
-    for test in list(testy)[:NAJWIECEJ_FLAKOW]:
+    for test in list(testy)[:NAJWIECEJ_FLAKY_TESTOW]:
         opis = f"padł w [runie {run.id}]({run.url}) ({run.zdarzenie}, commit {run.sha}{pr}) i przeszedł po jednym ponowieniu."
         izolacja = "Ponowienie uruchamia same testy, które padły, więc przechodzi też test, który pada tylko po innym teście."
         tresc = "\n".join(["Test", "", *blok_kodu([_przytnij(test, DLUGOSC_W_TRESCI)]), "", opis, izolacja])
-        tytul = f"Flak: {_przytnij(test, DLUGOSC_W_TYTULE)}"
+        tytul = f"Flaky test: {_przytnij(test, DLUGOSC_W_TYTULE)}"
         if tytul in otwarte:
             wynik.append(Skomentuj(otwarte[tytul], tresc))
         else:
             rada = "Napraw przyczynę albo wpisz test do `tests/fixtures/kwarantanna.py` z numerem tego issue, najwyżej na 7 dni (ADR 0020)."
-            wynik.append(Zaloz(tytul, f"{tresc}\n\n{rada}", (FLAK,)))
+            wynik.append(Zaloz(tytul, f"{tresc}\n\n{rada}", (FLAKY_TEST,)))
     return wynik
 
 

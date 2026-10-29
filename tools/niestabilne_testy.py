@@ -1,9 +1,10 @@
-"""Niestabilne testy (ADR 0020): ponowienie testu, który padł w bramce PR, zapis flaka i zapis testów z kwarantanny.
+"""Niestabilne testy (ADR 0020): ponowienie testu, który padł w bramce PR, zapis flaky testu i zapis testów z kwarantanny.
 
 Zadanie pytest (``tools/plan_ci.py wykonaj``) zapisuje dwa pliki, a dwa narzędzia je czytają z artefaktów runu:
 
-- ``Flak``: test, który w zadaniu pytest bramki padł, a po jednym ponowieniu przeszedł. Lista trafia do ``FLAKI``
-  (artefakt ``flaki-<zadanie>-<próba>``), a ``tools/zgloszenia_ci.py`` zakłada z niej issue ``Flak: <test>``.
+- ``FlakyTest``: test, który w zadaniu pytest bramki padł, a po jednym ponowieniu przeszedł. Lista trafia do
+  ``FLAKY_TESTY`` (artefakt ``flaky-testy-<zadanie>-<próba>``), a ``tools/zgloszenia_ci.py`` zakłada z niej issue
+  ``Flaky test: <test>``.
 - ``ZapisKwarantanny``: wynik każdego testu z kwarantanny, który biegł w zadaniu (artefakt ``kwarantanna-<zadanie>-<próba>``
   na pushu do `main`). Test z kwarantanny ma w junit własność ``WLASNOSC`` (``tests/conftest.py``). ``stan_kwarantanny``
   mówi ``tools/wydanie.py``, czy na commicie testy z kwarantanny przeszły.
@@ -23,7 +24,7 @@ import re
 from typing import Literal
 from xml.etree import ElementTree
 
-FLAKI = Path(".ci-niestabilne", "flaki.json")
+FLAKY_TESTY = Path(".ci-niestabilne", "flaky-testy.json")
 # Plik ze słownikiem ``KWARANTANNA`` (ścieżka w repozytorium, jak ją podaje ``git show <commit>:<ścieżka>``).
 PLIK_KWARANTANNY = "tests/fixtures/kwarantanna.py"
 KWARANTANNA = Path(".ci-niestabilne", "kwarantanna.json")
@@ -39,7 +40,7 @@ StanKwarantanny = Literal["przeszła", "padła", "bez zapisu"]
 
 
 @dataclass(frozen=True)
-class Flak:
+class FlakyTest:
     test: str
     zadanie: str  # nazwa zadania w runie
     sha: str
@@ -55,9 +56,9 @@ class ZapisKwarantanny:
     wyniki: Mapping[str, Wynik]  # testy z kwarantanny, które biegły w zadaniu
 
 
-def zapisz_flaki(flaki: Sequence[Flak], plik: Path = FLAKI) -> None:
+def zapisz_flaky_testy(flaky_testy: Sequence[FlakyTest], plik: Path = FLAKY_TESTY) -> None:
     plik.parent.mkdir(parents=True, exist_ok=True)
-    plik.write_text(json.dumps([asdict(flak) for flak in flaki], indent=1, ensure_ascii=False), encoding="utf-8")
+    plik.write_text(json.dumps([asdict(flaky) for flaky in flaky_testy], indent=1, ensure_ascii=False), encoding="utf-8")
 
 
 def zgloszalny(test: str) -> bool:
@@ -66,25 +67,25 @@ def zgloszalny(test: str) -> bool:
     return test.isprintable() and ID_TESTU.fullmatch(test) is not None
 
 
-def flaki_z_json(tekst: str) -> tuple[list[Flak], list[str]]:
-    """Flaki z artefaktu i powód odrzucenia każdego wpisu, którego kształt albo id testu się nie zgadza; ``ValueError``,
+def flaky_testy_z_json(tekst: str) -> tuple[list[FlakyTest], list[str]]:
+    """Flaky testy z artefaktu i powód odrzucenia każdego wpisu, którego kształt albo id testu się nie zgadza; ``ValueError``,
     gdy plik nie jest listą JSON. Zły wpis nie zabiera reszty artefaktu."""
 
     dane = json.loads(tekst)
     if not isinstance(dane, list):
-        raise ValueError("flaki to nie lista")
-    flaki, odrzucone = [], []
+        raise ValueError("flaky testy to nie lista")
+    flaky_testy, odrzucone = [], []
     for wpis in dane:
         try:
-            flak = Flak(**wpis)
+            flaky = FlakyTest(**wpis)
         except TypeError as blad:
             odrzucone.append(f"wpis o złym kształcie: {blad}")
             continue
-        if not isinstance(flak.test, str) or not zgloszalny(flak.test):
-            odrzucone.append(f"id testu poza wzorcem {ID_TESTU.pattern}: {str(flak.test)[:80]!r}")
+        if not isinstance(flaky.test, str) or not zgloszalny(flaky.test):
+            odrzucone.append(f"id testu poza wzorcem {ID_TESTU.pattern}: {str(flaky.test)[:80]!r}")
             continue
-        flaki.append(flak)
-    return flaki, odrzucone
+        flaky_testy.append(flaky)
+    return flaky_testy, odrzucone
 
 
 def zapisz_kwarantanne(zapis: ZapisKwarantanny, plik: Path = KWARANTANNA) -> None:
