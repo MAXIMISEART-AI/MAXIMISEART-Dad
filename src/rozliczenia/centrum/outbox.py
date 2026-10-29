@@ -14,7 +14,8 @@ issue i przyczyna czekania (decyzja 13).
 
 Issue okresu kolejka znajduje po wierszu rozpoznawczym przy każdej próbie wysyłki i dopisuje do niego części jako
 komentarze. Bez niego zakłada nowe issue: pierwsza część (albo nagłówek) jest jego treścią, kolejne komentarzami.
-``NewIssue`` zawsze zakłada nowe issue tak samo, bez wiersza rozpoznawczego. Kto czeka na wynik (Uwaga taty),
+``NewIssue`` zawsze zakłada nowe issue tak samo, bez wiersza rozpoznawczego; gdy skrzynka odrzuci treść komentarza
+do issue, które już założyła, plik zapamiętuje jego numer i następna próba dopisuje resztę do niego. Kto czeka na wynik (Uwaga taty),
 dostaje numer issue przez ``on_delivered`` i może poczekać na dostarczenie przez ``wait_delivered``.
 
 Adres pierwszego komentarza każdej dostarczonej wysyłki (np. Logów Uruchomienia, do których prowadzi przypięta
@@ -216,17 +217,22 @@ class Post:
 
 @dataclass(frozen=True)
 class _Queued:
-    """Plik kolejki: wysyłka i ile jej części skrzynka już przyjęła (wszystkie: plik czeka tylko na usunięcie)."""
+    """Plik kolejki: wysyłka i ile jej części skrzynka już przyjęła (wszystkie: plik czeka tylko na usunięcie).
+
+    ``issue``: numer issue, które założyła wcześniejsza próba tej wysyłki, zanim skrzynka odrzuciła treść jej
+    komentarza (``Opened``); następna próba dopisuje do niego komentarze zamiast zakładać drugie issue.
+    """
 
     post: Post
     delivered_parts: int
+    issue: int | None = None
 
     @property
     def delivered(self) -> bool:
         return self.delivered_parts == len(self.post.parts)
 
 
-def _queue_text(post: Post, *, delivered_parts: int) -> str:
+def _queue_text(post: Post, *, delivered_parts: int, issue: int | None = None) -> str:
     return json.dumps(
         {
             "schema_version": SCHEMA_VERSION,
@@ -236,6 +242,7 @@ def _queue_text(post: Post, *, delivered_parts: int) -> str:
             "header": post.header,
             "parts": list(post.parts),
             "delivered_parts": delivered_parts,
+            "issue": issue,
         },
         ensure_ascii=False,
         indent=2,
@@ -279,7 +286,10 @@ def _target(entry: dict[str, Any], kind: object) -> Target | None:
 
 
 def _parse(text: str) -> _Queued | None:
-    """Granica plików kolejki. ``delivered_parts`` jest opcjonalne: pliki z #273 go nie mają i nic nie dostarczyły."""
+    """Granica plików kolejki. ``delivered_parts`` jest opcjonalne: pliki z #273 go nie mają i nic nie dostarczyły.
+
+    ``issue`` też: pliki sprzed #665 go nie mają i żadna ich próba nie zostawiła założonego issue.
+    """
 
     try:
         document = json.loads(text)
@@ -300,11 +310,14 @@ def _parse(text: str) -> _Queued | None:
             tuple(_string(part) for part in document["parts"]),
         )
         delivered_parts = document.get("delivered_parts", 0)
+        issue = document.get("issue")
     except (ValueError, KeyError, TypeError):
         return None
     if type(delivered_parts) is not int or not 0 <= delivered_parts <= len(post.parts):
         return None
-    return _Queued(post, delivered_parts)
+    if issue is not None and type(issue) is not int:
+        return None
+    return _Queued(post, delivered_parts, issue)
 
 
 def _queued(path: Path) -> _Queued | None:
@@ -385,11 +398,25 @@ class Gone:
     number: int
 
 
+@dataclass(frozen=True)
+class Opened:
+    """Skrzynka założyła issue ``number`` nowej wysyłki (``NewIssue``), a potem odrzuciła treść jej komentarza.
+
+    Takiego issue następna próba nie znajdzie, bo nie ma wiersza rozpoznawczego, więc jego numer zapamiętuje plik.
+    """
+
+    number: int
+
+
 Failure = Refused | Rejected | Unreachable | NoKey
 """Porażka wysyłki: odmowa klucza, odmowa treści, brak sieci albo brak klucza."""
 
 
-def _deliver(post: Post, box: KeyedBox) -> Delivered | Gone | Failure:
+def _deliver(post: Post, box: KeyedBox, opened: int | None) -> Delivered | Gone | Opened | Failure:
+    """Wysyłka do jej celu; ``opened``: wcześniejsza próba założyła już to issue (``Opened``), więc tylko komentarze."""
+
+    if opened is not None:
+        return _deliver_to_known(post, KnownIssue(post.target.label, opened), box)
     match post.target:
         case PeriodThread() as thread:
             return _deliver_to_period(post, thread, box)
@@ -403,14 +430,15 @@ def _deliver(post: Post, box: KeyedBox) -> Delivered | Gone | Failure:
             assert_never(post.target)
 
 
-def _deliver_new_issue(post: Post, issue: NewIssue, box: KeyedBox) -> Delivered | Failure:
+def _deliver_new_issue(post: Post, issue: NewIssue, box: KeyedBox) -> Delivered | Opened | Failure:
     """Nowe issue z pierwszą częścią (albo nagłówkiem) i komentarze z resztą; porażka kończy wysyłkę."""
 
     body, comments = post.opening()
     opened = box.open_issue(issue.label, issue.title, body)
     if not isinstance(opened, Sent):
         return opened
-    return _comment_all(opened.number, comments, box)
+    outcome = _comment_all(opened.number, comments, box)
+    return Opened(opened.number) if isinstance(outcome, Rejected) else outcome
 
 
 def _deliver_report(post: Post, report: ReportIssue, box: KeyedBox) -> Delivered | Failure:
@@ -433,7 +461,9 @@ def _deliver_report(post: Post, report: ReportIssue, box: KeyedBox) -> Delivered
 
 
 def _deliver_to_known(post: Post, known: KnownIssue, box: KeyedBox) -> Delivered | Gone | Failure:
-    """Każda część jako komentarz do issue ``known.number``, jeśli skrzynka je ma (otwarte albo zamknięte).
+    """Komentarze wysyłki (``Post.opening``) do issue ``known.number``, jeśli skrzynka je ma (otwarte albo zamknięte).
+
+    Do ``KnownIssue`` to każda część, a do issue, które założyła wcześniejsza próba (``Opened``), części po jego treści.
 
     Komentarz do issue, które Maks usunął, to 404, czyli odmowa, która zatrzymałaby całą kolejkę, więc kolejka
     najpierw pyta o issue z etykietą. Gdy lista przyszła bez tego numeru, issue nie ma (``Gone``).
@@ -444,7 +474,7 @@ def _deliver_to_known(post: Post, known: KnownIssue, box: KeyedBox) -> Delivered
         return found
     if all(issue.number != known.number for issue in found):
         return Gone(known.number)
-    return _comment_all(known.number, post.parts, box)
+    return _comment_all(known.number, post.opening()[1], box)
 
 
 def _deliver_to_period(post: Post, thread: PeriodThread, box: KeyedBox) -> Delivered | Failure:
@@ -685,7 +715,13 @@ class Outbox:
             if post is None:
                 continue
             label, period = post.target.label, post.period
-            outcome = _deliver(post, self._box)
+            outcome = _deliver(post, self._box, queued.issue)
+            if isinstance(outcome, Opened):
+                # Bez numeru w pliku następny start założyłby drugie issue; chroni wtedy już tylko _rejected, do końca
+                # tej pracy Centrum.
+                with suppress(OSError):
+                    replace_atomically(path, _queue_text(post, delivered_parts=0, issue=outcome.number))
+                outcome = Rejected()
             if isinstance(outcome, Gone):
                 self._log.box_post_dropped(label=label, file=path.name, number=outcome.number)
                 self._remove(path)

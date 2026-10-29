@@ -63,8 +63,8 @@ MUTATIONS = (
         (
             Edit(
                 VERIFIED,
-                "    return _comment_all(known.number, post.parts, box)\n",
-                "    return _comment_all(known.number, post.parts[1:], box)\n",
+                "    return _comment_all(known.number, post.opening()[1], box)\n",
+                "    return _comment_all(known.number, post.opening()[1][1:], box)\n",
             ),
         ),
         (EXPLORER, "--scope", "znane-issue"),

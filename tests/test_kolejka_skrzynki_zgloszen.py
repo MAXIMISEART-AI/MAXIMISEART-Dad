@@ -16,7 +16,7 @@ import pytest
 
 from rozliczenia.centrum.keyed_box import KeyedBox
 from rozliczenia.centrum.log import CentrumLog
-from rozliczenia.centrum.outbox import RETRY_S, Frame, Outbox, PeriodThread, Post, ReportIssue
+from rozliczenia.centrum.outbox import RETRY_S, Frame, NewIssue, Outbox, PeriodThread, Post, ReportIssue
 from rozliczenia.centrum.report_box import COMMENT_LIMIT, Refused, Rejected, Unreachable
 
 from tests.fixtures.centrum import FakeIssue, FakeReportBox
@@ -447,6 +447,22 @@ def test_nieudany_komentarz_zostawia_wysylke_w_pliku(tmp_path: Path) -> None:
     assert len(queue.files()) == 1
 
 
+def test_uwaga_ktorej_komentarz_skrzynka_odrzucila_dostaje_reszte_czesci_w_swoim_issue_po_starcie(
+    tmp_path: Path,
+) -> None:
+    queue = Queue(tmp_path, FakeReportBox(comment_outcomes=[Rejected()]))
+    note = Post(NewIssue("uwaga-taty", "Uwaga taty"), None, RUN_ID, None, ("Część 1/2\n\na", "Część 2/2\n\nb"))
+
+    queue.outbox.post(note)
+    queue.passed()
+    queue.restarted().resume()
+
+    assert wait_for(lambda: queue.files() == [])
+    [issue] = queue.box.issues_with("uwaga-taty")
+    assert (issue.body, issue.comments) == ("Część 1/2\n\na", ["Część 2/2\n\nb"])
+    assert queue.delivered == [(RUN_ID, issue.number)]
+
+
 def test_wysylka_ktorej_nie_da_sie_zapisac_przepada_bez_wyjatku(tmp_path: Path) -> None:
     queue = Queue(tmp_path, FakeReportBox())
     queue.directory.parent.mkdir(parents=True)
@@ -517,8 +533,9 @@ def test_zapis_urwany_przez_utrate_zasilania_znika_przy_starcie_i_nie_jest_wysyl
         '{"schema_version": 2}',
         post(["x"]).to_json().replace('"schema_version": 2', '"schema_version": 3'),
         post(["x"]).to_json().replace('"kontrola-ilosci"', '"inna-etykieta"'),
+        post(["x"]).to_json().replace('"issue": null', '"issue": "7"'),
     ],
-    ids=["urwany", "nie-obiekt", "bez-celu", "nowszy-schemat", "nieznana-etykieta"],
+    ids=["urwany", "nie-obiekt", "bez-celu", "nowszy-schemat", "nieznana-etykieta", "numer-issue-napisem"],
 )
 def test_plik_kolejki_ktorego_nie_da_sie_odczytac_zostaje_z_jednym_wpisem_i_nie_wstrzymuje_innych(
     tmp_path: Path, text: str

@@ -33,9 +33,6 @@
     "wynik": "przechodzi"
   },
   "odmowa-tresci": {
-    "wynik": "narusza",
-    "obietnica": "JednoIssue",
-    "przyczyna": "odmowa_po_zalozeniu",
-    "znalezisko": "Skrzynka odrzuca komentarz (Rejected) po założeniu issue Uwagi taty, a następny start zakłada drugie issue z tą samą Uwagą"
+    "wynik": "przechodzi"
   }
 }
