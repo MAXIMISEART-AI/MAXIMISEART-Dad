@@ -30,10 +30,7 @@
     "znalezisko": "nowe Centrum startuje, gdy stare zamknęło port, a jego wątek kolejki jeszcze wysyła: oba nie znajdują issue okresu i oba je zakładają"
   },
   "odczyt": {
-    "wynik": "narusza",
-    "obietnica": "Zbieganie",
-    "przyczyna": "odczyt",
-    "znalezisko": "plik kolejki, którego raz nie da się odczytać (_queued), przejście pomija bez budzenia za RETRY_S, więc czeka do następnej wysyłki albo startu"
+    "wynik": "przechodzi"
   },
   "odmowa-tresci": {
     "wynik": "narusza",
