@@ -213,9 +213,6 @@ class VirtualDisk:
             self._remove(key, "usunął")
 
 
-# --- Scheduler: one Uruchomienie procesu moves at a time, one filesystem call per step --------------
-
-
 # --- Scheduler: one Uruchomienie procesu runs at a time, from one step to the next --------------------
 #
 # Each Uruchomienie procesu is a greenlet on the checker's own OS thread. With an OS thread each, every step was a
@@ -256,6 +253,17 @@ def _current_run() -> Run | None:
     return run
 
 
+def _escaping() -> BaseException | None:
+    """The exception that the run is unwinding from, unless it is the code's own stop (an ``Exception``).
+
+    pytest's time limit and Ctrl+C belong to whoever runs the check, so the cleanup they pass through takes no step
+    that the checker could pick, cut or kill: the check would go on exploring a tree that the exception has changed.
+    """
+
+    error = sys.exc_info()[1]
+    return None if isinstance(error, Exception) else error
+
+
 def _code_location() -> str:
     frame = sys._getframe(2)
     while frame is not None:
@@ -293,6 +301,8 @@ class Scheduler:
             raise ModelGap(f"{call} poza uruchomieniem procesu")
         if run.stopped_by is not None:
             raise run.stopped_by()
+        if (escaping := _escaping()) is not None:
+            raise escaping
         pending = Pending(call, tuple(self.disk.label(path) for path in paths), mutating, _code_location(), killable)
         run.pending = pending
         run.status = "parked"
@@ -697,7 +707,8 @@ def _run_body(run: Run, layout: Layout) -> None:
     except ModelGap as gap:
         run.gap = str(gap)
         run.result = "PRZERWANE"
-    except BaseException as error:  # noqa: BLE001 - every stop counts, whatever its type
+    # pytest's time limit and Ctrl+C are no stop of the code: they leave the greenlet for the checker.
+    except Exception as error:  # noqa: BLE001 - every stop of the code counts, whatever its type
         run.result = "ZATRZYMANE"
         message = getattr(error, "message", None)
         run.error = f"{type(error).__name__} {message.code}" if message is not None else type(error).__name__

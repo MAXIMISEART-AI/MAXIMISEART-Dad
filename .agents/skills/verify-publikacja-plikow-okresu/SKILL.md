@@ -70,6 +70,14 @@ Mac, needs nothing beyond the repo's `.venv`, and runs in CI as
 `tests/test_publikacja_plikow_okresu.py`. In a worktree the script checks the
 worktree's own `src`.
 
+The script has no step limit of its own, so a hang in the code under check (a
+loop that makes no filesystem call) leaves a manual run waiting until you press
+Ctrl+C. Under pytest the `timeout = 120` of `pyproject.toml` ends it: on Linux
+and macOS as `Failed: Timeout` of the test, on Windows by killing the xdist
+worker. The CI `pytest` job has no `timeout-minutes`, so that limit is the only
+one there. The check does not tell a hang from a slow runner and does not name
+the step that hung: look at the stack that pytest-timeout prints.
+
 The last line is the verdict:
 
 | Last line | Exit | Meaning |
