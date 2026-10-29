@@ -204,8 +204,10 @@ def _without_identity(environment: Mapping[str, str]) -> dict[str, str]:
 
 
 def _checked_spawn(original: Callable[..., int]) -> Callable[..., int]:
-    def spawn(path: Any, argv: Sequence[Any], env: Mapping[str, str], *rest: Any, **options: Any) -> int:
-        _refuse(_command_git([path, *argv[1:]], env))
+    # Od Pythona 3.13 ``env=None`` znaczy środowisko procesu, a ``subprocess`` na Linuksie przekazuje je tak przez
+    # ``os.posix_spawn``, gdy ``Popen`` dostał ``env=None``.
+    def spawn(path: Any, argv: Sequence[Any], env: Mapping[str, str] | None, *rest: Any, **options: Any) -> int:
+        _refuse(_command_git([path, *argv[1:]], os.environ if env is None else env))
         return original(path, argv, env, *rest, **options)
 
     return spawn

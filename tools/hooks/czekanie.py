@@ -12,12 +12,14 @@ pętlę z ``sleep``, której ciało pyta o CI (``gh pr checks``, ``gh pr view``,
 o check-runs, actions/runs albo status commitu) albo woła ``pgrep -f``, oraz ``gh pr checks --watch`` i ``gh run watch``.
 Pętla ``for`` i ``while read`` czeka tylko z ``break``, ``exit``, ``return`` albo licznikiem prób od 0 albo 1
 (``$(seq N)``, ``$(seq 1 N)``, ``{1..N}``, ``for ((``), bo bez nich to partia zapytań z ``sleep`` jako limitem API,
-a pętla puszczona ``&`` nie czeka.
+a pętla puszczona ``&`` nie czeka: sama, w liście z ``|``, ``&&`` albo ``||``, w grupie ``( … )`` albo ``{ …; }``.
+``&`` w grupie za pętlą (``done | (cat & wait)``) puszcza w tło tylko tę grupę.
 Wszystko inne, także te polecenia z ``run_in_background``, przechodzi bez słowa (kod 0).
 Wejście, którego nie da się odczytać, też przechodzi, bo hook nie może zatrzymać pracy.
 
 Ciała heredoców (skrypt Pythona, treść commitu) i napisy ze spacją w cudzysłowach (opis commitu, wiersz logu)
-hook pomija, bo to nie są polecenia powłoki; zostawia z nich ``$(…)`` i ciało ``bash -c '…'``.
+hook pomija, bo to nie są polecenia powłoki; zostawia z nich ``$(…)`` i ciało ``-c`` powłoki, także z opcjami
+przed nim (``bash -l -c '…'``, ``bash -lc``, ``zsh -i -c``, ``su - x -c``).
 
 Granica: inne harnessy niż Claude Code (Codex, opencode), pętlę w skrypcie uruchomionym z pliku, w Pythonie
 (``time.sleep``) albo z adresem ``gh api`` w cudzysłowie, czekanie na plik wyjścia zadania w tle i pętle, których
@@ -65,13 +67,22 @@ OVER_LIST = re.compile(r"(?:for|while\s+(?:IFS=\S*\s+)?read)\b")
 FOR_ARITHMETIC = re.compile(r"for\s*\(\(")
 STOPS = re.compile(r"\b(?:break|exit|return)\b(?!=)|\$\(seq\s+(?:[01]\s+)?\d+\s*\)|\{[01]\.\.\d+\}")
 # Pętla puszczona `&` (próbnik obok pomiaru, ubijany potem `kill`) nie blokuje polecenia, a `&>`, `>&2`, `2>&1`
-# i `|&` to przekierowania. `&` puszcza w tło całą listę do `;` albo nowej linii, także z `|` i `||` (`done | tee log &`).
-# Bez zagnieżdżonych kwantyfikatorów, bo cofanie po `2>1 2>1 …` nie miałoby końca.
-LIST_END = re.compile(r"[;\n]")
-LONE_AMPERSAND = re.compile(r"(?<![<>&|])&(?![&>])")
+# i `|&` to przekierowania. `&` puszcza w tło całą listę do `;` albo nowej linii, także z `|` i `||` (`done | tee log &`),
+# a `&` za grupą `( … )` albo `{ …; }` także pętle w niej. Grupa za pętlą (`done | (cat & wait)`, `>(cat &)`) to jedno
+# polecenie listy, więc `&` w środku nie dotyczy pętli. `{` grupy ma za sobą odstęp, a `}` przed sobą, w odróżnieniu
+# od `${x}` i `{1..3}`. Bez zagnieżdżonych kwantyfikatorów, bo cofanie po `2>1 2>1 …` nie miałoby końca.
+LIST_PART = re.compile(
+    r"(?P<open>\(|\{(?=\s))|(?P<close>\)|(?<=[\s;&])\})"
+    r"|(?P<end>[;\n])|(?P<background>(?<![<>&|])&(?![&>]))"
+)
 HEREDOC = re.compile(r"(?<!<)<<-?\s*(['\"]?)(\w+)\1")
-# Skrypt powłoki to tylko argument `-c` powłoki: `grep -c '…'` liczy wiersze, a `python3 -c '…'` to Python.
-SHELL_ARGUMENT = re.compile(r"(?:^|[\s/;&|(`])(?:ba|da|k|z)?sh\s+-c\s*$")
+# Skrypt powłoki to tylko argument `-c` powłoki: `grep -c '…'` liczy wiersze, a `python3 -c '…'` to Python. Przed
+# `-c` mogą stać opcje powłoki (`-l`, `--login`, `-o pipefail`, także złączone: `-lc`, `-ce`), a w `su` i `runuser`
+# też użytkownik; `bash skrypt.sh -c '…'` podaje tekst skryptowi. Liczba słów `su` jest ograniczona, żeby szukanie
+# było liniowe. `fish` i `csh` mają inną składnię pętli, ale pętla bez `done` sięga do końca polecenia.
+_SHELL_OPTIONS = r"(?:ba|da|k|z|mk|a|fi|c|tc)?sh(?:\s+(?:[-+][oO]\s+\w+|[-+][-\w]*))*"
+_SU_WORDS = r"(?:su|runuser)(?:\s+[^\s;&|()`]+){0,3}?"
+SHELL_ARGUMENT = re.compile(rf"(?:^|[\s/;&|(`])(?:{_SHELL_OPTIONS}|{_SU_WORDS})\s+-[a-zA-Z]*c[a-zA-Z]*\s*$")
 
 INSTEAD = (
     "Zamiast czekać: dziecko delegate_task kończy zadanie i zwraca URL PR i pełny SHA HEAD (rodzic ma "
@@ -119,17 +130,27 @@ def _code(command: str, start: int = 0, inside_substitution: bool = False) -> tu
     """
 
     kept: list[str] = []
-    depth, index = 0, start
+    # Napis przyklejony do skryptu ``-c`` to jego dalszy ciąg: w ``bash -c '… perl -e '\''select(…)'\''; done'``
+    # ``done`` stoi w trzecim napisie.
+    depth, index, script_end = 0, start, -1
     while index < len(command):
         char = command[index]
         if char == "\\":
             kept.append(command[index : index + 2])
+            if index == script_end:
+                script_end += 2
             index += 2
             continue
         if char in "'\"":
             literal, end = _quoted(command, index)
-            shell_argument = SHELL_ARGUMENT.search("".join(kept[-24:]))
-            kept.append(";" + command[index + 1 : end] if shell_argument else literal)
+            if index == script_end:
+                kept.append(command[index + 1 : end])
+                script_end = end
+            elif SHELL_ARGUMENT.search("".join(kept[-80:])):
+                kept.append(";" + command[index + 1 : end])
+                script_end = end
+            else:
+                kept.append(literal)
             index = end
             continue
         if inside_substitution and char == ")":
@@ -216,13 +237,44 @@ def _loop_bodies(command: str) -> Iterator[tuple[int, int]]:
             loops.append([word.start(1), len(command)])
         elif unclosed:
             loops[unclosed.pop()][1] = word.end()
-    # Pozycje policzone raz: szukanie od każdej pętli osobno kosztuje O(pętle × długość polecenia).
-    list_ends = [match.start() for match in LIST_END.finditer(command)]
-    ampersands = [match.start() for match in LONE_AMPERSAND.finditer(command)]
+    positions, in_background = _list_parts(command)
     for start, end in loops:
-        stop = _first_from(list_ends, end, len(command))
-        if _first_from(ampersands, end, stop) >= stop:
+        if not in_background[bisect_left(positions, end)]:
             yield start, end
+
+
+def _list_parts(command: str) -> tuple[list[int], list[bool]]:
+    """Pozycje nawiasów grup, ``;``, nowych linii i ``&`` tła, a dla każdej: czy lista, która biegnie od niej
+    dalej na jej poziomie, idzie w tło; na końcu polecenia ``False``.
+
+    Liczone raz od końca: szukanie od każdej pętli osobno kosztuje O(pętle × długość polecenia).
+    """
+
+    parts = list(LIST_PART.finditer(command))
+    closing = [len(parts)] * len(parts)
+    enclosing: list[Optional[int]] = [None] * len(parts)
+    opened: list[int] = []
+    for index, part in enumerate(parts):
+        if part.lastgroup == "open":
+            opened.append(index)
+        elif part.lastgroup == "close" and opened:
+            closing[opened.pop()] = index
+        elif part.lastgroup == "end" and opened:
+            enclosing[index] = opened[-1]
+    in_background = [False] * (len(parts) + 1)
+    for index in reversed(range(len(parts))):
+        kind = parts[index].lastgroup
+        if kind == "background":
+            in_background[index] = True
+        elif kind == "open":
+            in_background[index] = in_background[closing[index]]
+        elif kind == "close":
+            in_background[index] = in_background[index + 1]
+        else:
+            # Lista kończy się na `;`, ale grupa, w której stoi, biegnie dalej: `{ pętla; } &` idzie w tło cała.
+            group = enclosing[index]
+            in_background[index] = group is not None and in_background[closing[group]]
+    return [part.start() for part in parts], in_background
 
 
 def _first_from(positions: list[int], start: int, default: int) -> int:

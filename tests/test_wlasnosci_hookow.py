@@ -161,6 +161,8 @@ def _waits(draw: st.DrawFn) -> Template:
             (
                 (f"{condition}; do {sleep}; done", (*condition_arguments, *sleep_arguments)),
                 (f"{condition}\ndo\n  {sleep}\ndone", (*condition_arguments, *sleep_arguments)),
+                # Wcięcie przed słowem pętli i przed ``done`` (pętla w skrypcie wklejonym z edytora).
+                (f"cd .\n  {condition}\n  do\n    {sleep}\n  done", (*condition_arguments, *sleep_arguments)),
             )
         )
     )
@@ -199,6 +201,17 @@ def _quiet(draw: st.DrawFn) -> Template:
                 ),
                 ("pgrep -fl {}", (draw(NAMES),)),
                 ("git status --short", ()),
+                # ``sleep``, ``exit``, adres CI i ``--watch`` stoją poza pętlą albo w innym poleceniu prostym.
+                (f"until {query}; do gh auth refresh; done; {sleep}", (*query_arguments, *sleep_arguments)),
+                (
+                    f"for id in {{}} {{}}; do {sleep}; gh run view $id --json {{}}; done; {query} || exit 1",
+                    (first, second, *sleep_arguments, "jobs", *query_arguments),
+                ),
+                (
+                    f"until gh api {{}} --jq {{}} | grep -q {{}}; do {sleep}; tail -1 actions/runs.log; done",
+                    (f"repos/o/r/pulls/{first}", ".mergeable", "true", *sleep_arguments),
+                ),
+                ("gh pr checks {}; npx vitest run --watch=false", (first,)),
             )
         )
     )
@@ -227,7 +240,28 @@ WRAPPERS: tuple[Callable[[str], str], ...] = (
     lambda member: f"bash -c {_single_quoted(member)}",
     lambda member: f"timeout 600 sh -c {_single_quoted(member)}",
 )
-CONNECTORS = ("; ", " && ", " || ", " | ", "\n")
+CONNECTORS = ("; ", " && ", " || ", " | ", "\n", "\n  ")
+SHELLS = ("sh", "bash", "zsh", "dash", "ksh", "mksh", "fish", "tcsh", "/bin/sh", "/usr/bin/env bash", "timeout 600 bash")
+# Opcje powłoki przed ``-c``; jednoliterowa może się złączyć z ``-c`` (``-lc``, ``-cl``).
+SHELL_OPTIONS = ("-l", "-e", "-x", "-i", "--login", "--noprofile", "-o pipefail", "+o history")
+SU = ("su", "su -", "su - x", "su -l x", "su x", "runuser -l x")
+
+
+@st.composite
+def _shell_script(draw: st.DrawFn) -> Callable[[str], str]:
+    """Skrypt ``-c`` powłoki albo ``su`` z opcjami przed ``-c``, jak ``bash -l -c '…'``, ``bash -lc`` i ``su - x -c``.
+
+    ``main`` brał za skrypt powłoki argument każdego ``-c``, więc żadna z tych form nie może przejść.
+    """
+
+    if draw(st.booleans()):
+        words = [draw(st.sampled_from(SU)), "-c"]
+    else:
+        words = [draw(st.sampled_from(SHELLS)), *draw(st.lists(st.sampled_from(SHELL_OPTIONS), max_size=3)), "-c"]
+        if len(words) > 2 and len(words[-2]) == 2 and words[-2][0] == "-" and draw(st.booleans()):
+            words[-2:] = [draw(st.sampled_from((words[-2] + "c", "-c" + words[-2][1])))]
+    shell = " ".join(words)
+    return lambda member: f"{shell} {_single_quoted(member)}"
 
 
 @st.composite
@@ -235,9 +269,9 @@ def _compound(draw: st.DrawFn) -> Case:
     """Polecenie złożone z członów (``;``, ``&&``, ``||``, ``|``, nowa linia, podpowłoka, ``$(…)``, ``-c`` powłoki)."""
 
     members = draw(st.lists(_cases(), min_size=1, max_size=4))
+    wrappers = st.one_of(st.sampled_from(WRAPPERS), _shell_script())
     wrapped = [
-        Case(draw(st.sampled_from(WRAPPERS))(member.text), member.refusals) if draw(st.booleans()) else member
-        for member in members
+        Case(draw(wrappers)(member.text), member.refusals) if draw(st.booleans()) else member for member in members
     ]
     text = wrapped[0].text
     for member in wrapped[1:]:
@@ -257,6 +291,8 @@ PROGRAMS = (
     "jq -n --arg opis",
     "python3 -c",
     "perl -e",
+    # ``-c`` za skryptem to jego argument, a nie opcja powłoki.
+    "bash skrypt.sh -c",
 )
 LOOP_WORDS = ("until", "while", "for", "do", "done", "sleep", "gh", "pgrep")
 
@@ -328,6 +364,9 @@ REDIRECTIONS = (
 )
 
 
+GROUPS_AFTER = (" | (cat & wait)", " | { tee ci.log & wait; }", " | tee >(cat &)")
+
+
 @st.composite
 def _loops(draw: st.DrawFn) -> Template:
     return draw(_waits().filter(lambda template: "watch" not in template.refusals))
@@ -340,9 +379,24 @@ def _redirected(draw: st.DrawFn) -> tuple[Case, Case]:
     loop = draw(_loops())
     redirections = " ".join(draw(st.lists(st.sampled_from(REDIRECTIONS), max_size=3)))
     looped = f"{loop.text()} {redirections}".rstrip()
-    after = draw(st.sampled_from(("", "; gh pr checks 1", " && echo koniec", "\necho koniec")))
-    in_background = draw(st.sampled_from((" &", "&", " & W=$!", " &\necho w tle")))
-    return Case(looped + after, loop.refusals), Case(looped + in_background, frozenset())
+    # ``&`` w grupie za potokiem puszcza w tło tylko tę grupę, a nie pętlę.
+    after = draw(st.sampled_from(("", "; gh pr checks 1", " && echo koniec", "\necho koniec", *GROUPS_AFTER)))
+    in_background = draw(
+        st.sampled_from(
+            (
+                f"{looped} &",
+                f"{looped}&",
+                f"{looped} & W=$!",
+                f"{looped} &\necho w tle",
+                f"{{ {looped}; echo koniec ${{n}}; }} &",
+                f"( {looped}; echo koniec ) &",
+                f"( {{ {looped}; }} & echo w tle )",
+                f"{looped} | (cat; wait) &",
+                f"{looped} | tee ci-${{n}}.log &",
+            )
+        )
+    )
+    return Case(looped + after, loop.refusals), Case(in_background, frozenset())
 
 
 @PROPERTY
@@ -350,6 +404,18 @@ def _redirected(draw: st.DrawFn) -> tuple[Case, Case]:
     cases=(
         Case("until ! gh pr checks 1; do sleep 30; done &>/dev/null", frozenset({"ci"})),
         Case("until ! gh pr checks 1; do sleep 30; done &>/dev/null &", frozenset()),
+    )
+)
+@example(
+    cases=(
+        Case("until ! gh pr checks 1; do sleep 30; done | (cat & wait)", frozenset({"ci"})),
+        Case("{ until ! gh pr checks 1; do sleep 30; done; } &", frozenset()),
+    )
+)
+@example(
+    cases=(
+        Case("until ! gh pr checks 1; do sleep 30; done | tee >(cat &)", frozenset({"ci"})),
+        Case("until ! gh pr checks 1\n  do sleep 30\n  done &", frozenset()),
     )
 )
 @given(cases=_redirected())
@@ -364,6 +430,21 @@ def test_przekierowanie_za_petla_to_nie_tlo_a_pętla_puszczona_ampersandem_przec
 # Skrypt ``-c`` powłoki w apostrofach to polecenie, a nie literał (#496).
 @example(case=Case("bash -c 'until ! gh pr checks 1 | grep -q pending; do sleep 30; done'", frozenset({"ci"})))
 @example(case=Case("echo a; timeout 600 sh -c 'until ! pgrep -f bench.py; do sleep 5; done'", frozenset({"pgrep"})))
+# Napis przyklejony do skryptu ``-c`` (``'\\''``) to dalszy ciąg skryptu: bez tego ``done`` ginęło w literale.
+@example(
+    case=Case(
+        "bash -c 'until ! pgrep -f x; do perl -e '\\''select(undef,undef,undef,1)'\\''; done'; sleep 1; gh pr checks 1",
+        frozenset({"pgrep"}),
+    )
+)
+# Opcje powłoki przed ``-c`` (runda 2 #636): ``bash -l -c`` i ``su -c`` przechodziły.
+@example(case=Case("bash -l -c 'until ! gh pr checks 1 | grep -q pending; do sleep 30; done'", frozenset({"ci"})))
+@example(case=Case("su - x -c 'until ! gh pr checks 1 | grep -q pending; do sleep 30; done'", frozenset({"ci"})))
+@example(case=Case("cd x\n  until ! gh pr checks 1 | grep -q pending; do sleep 30; done", frozenset({"ci"})))
+@example(case=Case("until gh pr view 1; do gh auth refresh; done; sleep 1", frozenset()))
+@example(case=Case("for id in 1 2; do sleep 1; gh run view $id; done; gh pr checks 1 || exit 1", frozenset()))
+@example(case=Case("until gh api pulls/1 | grep -q true; do sleep 2; tail -1 actions/runs.log; done", frozenset()))
+@example(case=Case("gh pr checks 1; npx vitest run --watch=false", frozenset()))
 @given(case=_compound())
 def test_polecenie_zlozone_dostaje_werdykt_najgorszego_czlonu(case: Case) -> None:
     assert _verdict_matches(case), case.text
@@ -422,6 +503,8 @@ FRAGMENTS = (
     "\\",
     "{",
     "}",
+    "{ ",
+    " }",
     " ",
     "\n",
     ";",
@@ -444,6 +527,9 @@ FRAGMENTS = (
     "pgrep -a ",
     "pgrep -f x ",
     "bash -c ",
+    "bash -l -o x -c ",
+    "su - x -c ",
+    "-lc ",
     "-c ",
     "<<EOF\n",
     "EOF\n",

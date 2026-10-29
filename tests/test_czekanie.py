@@ -64,8 +64,14 @@ CI_LOOPS = (
     "until ! gh pr checks 1 | grep -q pending; do sleep 30; done && gh pr checks 1",
     's="$(for i in $(seq 1 20); do gh pr checks 1 | grep -q pending || break; sleep 30; done; gh pr checks 1)"',
     "if gh pr view 1 --json state >/dev/null; then until ! gh pr checks 1 | grep -q pending; do sleep 30; done; fi",
-    # Skrypt ``-c`` powłoki podanej ścieżką.
+    # Skrypt ``-c`` powłoki podanej ścieżką, z opcjami przed ``-c`` i w ``su``.
     "/bin/sh -c 'until ! gh pr checks 1 | grep -q pending; do sleep 30; done'",
+    "bash -l -c 'until ! gh pr checks 1 | grep -q pending; do sleep 30; done'",
+    "bash -lc 'until ! gh pr checks 1 | grep -q pending; do sleep 30; done'",
+    "bash -o pipefail -c 'until ! gh pr checks 1 | grep -q pending; do sleep 30; done'",
+    "su -c 'until ! gh pr checks 1 | grep -q pending; do sleep 30; done'",
+    "bash -ce 'until ! gh pr checks 1 | grep -q pending; do sleep 30; done'",
+    "fish -c 'while true; sleep 30; gh pr checks 1; end'",
     "for i in $(seq 20); do gh pr checks 1 | grep -c pending; sleep 30; done",
     "until [ $(for n in 1 2; do gh pr checks $n; done | grep -c pending) = 0 ]; do sleep 30; done",
     # Wyjście z pętli przez ``exit`` i ``return`` zamiast ``break``.
@@ -81,6 +87,10 @@ CI_LOOPS = (
     # ``&`` za ``;`` albo nową linią puszcza w tło tylko następne polecenie.
     "until ! gh pr checks 446 | grep -q pending; do sleep 30; done; afplay /System/Library/Sounds/Glass.aiff &",
     "until ! gh pr checks 446 | grep -q pending; do sleep 30; done\nafplay /System/Library/Sounds/Glass.aiff &",
+    # ``&`` w grupie za potokiem puszcza w tło tylko tę grupę.
+    "until ! gh pr checks 446 | grep -q pending; do sleep 30; done | (cat & wait)",
+    "until ! gh pr checks 446 | grep -q pending; do sleep 30; done | { tee ci.log & wait; }",
+    "until ! gh pr checks 446 | grep -q pending; do sleep 30; done | tee >(cat &)",
 )
 WATCHES = (
     "timeout 1500 gh pr checks 215 --watch > .audit/swarm-215/lane1-pr-checks.txt 2>&1; echo exit=$?",
@@ -174,6 +184,11 @@ PASSING = (
     "until ! gh pr checks 446 | grep -q pending; do sleep 30; done 2>&1 | tee ci.log &",
     "until ! gh pr checks 446 | grep -q pending; do sleep 30; done |& tee ci.log & W=$!",
     "until ! gh pr checks 446 | grep -q pending; do sleep 30; done || echo przerwane &",
+    # ``&`` za grupą puszcza w tło całą grupę z pętlą.
+    "{ until ! gh pr checks 446 | grep -q pending; do sleep 30; done; } &",
+    "( until ! gh pr checks 446 | grep -q pending; do sleep 30; done; echo koniec ) > ci.log &",
+    # Nawias wzorca ``case`` nie zamyka grupy.
+    "case $1 in a) echo a;; esac; until ! gh pr checks 1 | grep -q pending; do sleep 30; done | tee ${LOG} &",
     "for f in a b; do echo $f; done; sleep 10; gh pr checks 1",
     # Samotne ``done`` po zamkniętej pętli nie zamyka jej drugi raz.
     "until test -f x; do echo; done; sleep 5; gh pr checks 1; done",
