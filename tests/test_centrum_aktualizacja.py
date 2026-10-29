@@ -68,6 +68,11 @@ def updating_centrum(
     return preparing_centrum(tmp_path, rows, surroundings=surroundings), repository
 
 
+# Ile test czeka na każdy krok Aktualizacji narzędzia, także na pytanie do skrzynki po porażce: Git na przeciążonym
+# runnerze Windows potrafi zająć ponad 10 s (#573).
+UPDATE_WAIT_S = 30
+
+
 def update_until_done(centrum: PreparingCentrum) -> dict[str, Any]:
     """Klika „Zaktualizuj narzędzie” i czeka na wynik albo na ponowny start Centrum."""
 
@@ -85,7 +90,7 @@ def update_until_result(centrum: PreparingCentrum) -> dict[str, Any]:
 
 
 def tool_update_until(centrum: PreparingCentrum, reached: Callable[[dict[str, Any]], bool]) -> dict[str, Any]:
-    deadline = time.monotonic() + 30
+    deadline = time.monotonic() + UPDATE_WAIT_S
     while True:
         view = dict(centrum.client.get("/api/tool-update").json())
         if reached(view):
@@ -650,7 +655,7 @@ def update_with_slow_box(centrum: PreparingCentrum) -> dict[str, Any]:
     try:
         started = centrum.client.post("/api/tool-update")
         assert started.status_code == 202, started.json()
-        assert box.searching.wait(10)
+        assert box.searching.wait(UPDATE_WAIT_S)
         answer.start()
         return tool_update_until(centrum, lambda view: view["state"] != "running")
     finally:
