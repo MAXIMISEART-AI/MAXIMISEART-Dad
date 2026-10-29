@@ -7,6 +7,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import sys
+import zipfile
 
 import pytest
 
@@ -112,6 +113,17 @@ def test_maskowanie_ukrywa_folder_strony_podany_wzglednie_i_po_rozwiazaniu_dowia
     assert rownowaznosc.masked(note, (folder, Path("strona"))) == f"Plik {FOLDER}{os.sep}m.jsonl i {FOLDER}{os.sep}w.txt."
 
 
+def test_maskowanie_ukrywa_folder_strony_podany_przez_dowiazanie_symboliczne_w_postaci_po_jego_rozwiazaniu(tmp_path: Path) -> None:
+    (tmp_path / "prawdziwa" / "scenariusz").mkdir(parents=True)
+    try:
+        (tmp_path / "dowiazanie").symlink_to(tmp_path / "prawdziwa", target_is_directory=True)
+    except OSError as error:
+        pytest.skip(f"dowiązanie symboliczne wymaga uprawnień, których ten Windows nie daje: {error}")
+    note = f"Plik {tmp_path / 'prawdziwa' / 'scenariusz' / 'm.jsonl'}."
+
+    assert rownowaznosc.masked(note, (tmp_path / "dowiazanie" / "scenariusz",)) == f"Plik {FOLDER}{os.sep}m.jsonl."
+
+
 # --- JSON wyniku -------------------------------------------------------------------------------------------------
 
 
@@ -185,6 +197,19 @@ def test_inny_skoroszyt_rozni_sie_czescia_zipu_takze_samymi_stylami_a_inny_plik_
         "uwagi.txt: bajty",
         "zly.xlsx: bajty",
     ]
+
+
+def test_czesc_zipu_tylko_po_jednej_stronie_to_roznica_z_nazwa_czesci(tmp_path: Path) -> None:
+    base, head = _folders(tmp_path)
+    for folder in (base, head):
+        write_workbook(folder / "Nowa.xlsx", 1)
+        write_workbook(folder / "Brakujaca.xlsx", 1)
+    with zipfile.ZipFile(head / "Nowa.xlsx", "a") as archive:
+        archive.writestr("customXml/item1.xml", "<nowa/>")
+    with zipfile.ZipFile(base / "Brakujaca.xlsx", "a") as archive:
+        archive.writestr("customXml/item1.xml", "<stara/>")
+
+    assert rownowaznosc.file_differences(base, head) == ["Brakujaca.xlsx: części customXml/item1.xml", "Nowa.xlsx: części customXml/item1.xml"]
 
 
 def test_rozliczenie_pracownika_bez_ochrony_arkusza_rozni_sie_czescia_zipu(tmp_path: Path) -> None:
@@ -377,3 +402,22 @@ def test_domyslna_baza_to_merge_base_z_origin_main_commitu_glowy_a_bez_niego_hea
     _commit_file(repo, "head")
 
     assert (rownowaznosc.default_base(repo, head), rownowaznosc.default_base(repo, None)) == (root, main)
+
+
+class _BaseComputed(Exception):
+    pass
+
+
+@pytest.mark.parametrize(("arguments", "head"), [(["--glowa", "abc123"], "abc123"), ([], None)])
+def test_skrypt_bez_bazy_liczy_domyslna_baze_od_commitu_glowy_a_bez_niego_od_head(
+    monkeypatch: pytest.MonkeyPatch, arguments: list[str], head: str | None
+) -> None:
+    def default_base(repository: Path, given: str | None) -> str:
+        raise _BaseComputed(repository, given)
+
+    monkeypatch.setattr(rownowaznosc, "default_base", default_base)
+
+    with pytest.raises(_BaseComputed) as computed:
+        rownowaznosc.main(arguments)
+
+    assert computed.value.args == (rownowaznosc.ROOT, head)

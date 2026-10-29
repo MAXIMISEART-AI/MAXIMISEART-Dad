@@ -190,6 +190,11 @@ COLUMNS = OrderColumns(first=1, date=2, worker=3, last=8, devices=4, activities=
 OPERATORS = ("TMOBILE", "T-Mobile", "ORANGE", "Netia", "INEA", "P4", "Plus", "VECTRA", "SYSTEMIA")
 WHOLESALE_INSTALLATION = "Instalacja Hurt"
 OTHER_OPERATOR = "OXYLION"
+# GLOSSARY.md, Kolor operatora: kto ma w ``CZYNNOŚCI`` i ``NUMER UMOWY`` jasny niebieski każdego innego operatora.
+LIGHT_BLUE_ACTIVITIES = {"P4", "Plus", "VECTRA", "SYSTEMIA"}
+LIGHT_BLUE_CONTRACT_NUMBER = {*LIGHT_BLUE_ACTIVITIES, "Netia"}
+# GLOSSARY.md, Wpis urządzenia i czynności INTERMAX: jedyny z ``OPERATORS`` bez Wpisu.
+WITHOUT_ENTRY = {"INEA"}
 
 
 def _placement(activities: str, devices: str) -> Placement:
@@ -210,25 +215,34 @@ def _spaced(draw: st.DrawFn, name: str) -> str:
     return letters[0] + "".join(draw(st.sampled_from(("", "", " ", "-", " - ", "  "))) + letter for letter in letters[1:])
 
 
+# Każdy operator osobno: losowanie z listy nie trafiało na Netię (dwa różne Kolory) ani SYSTEMIA (recenzja #631),
+# a wynik dla zapisu kanonicznego ma kotwicę w GLOSSARY, bo zepsuty operator psuje też ten wynik.
+@pytest.mark.parametrize("name", OPERATORS)
 @PROPERTY
-@given(st.data(), st.sampled_from(OPERATORS))
+@given(data=st.data())
 def test_kolor_operatora_i_wpis_nie_zaleza_od_wielkosci_liter_spacji_myslnikow_ani_dopisku_sa(
     data: st.DataObject, name: str
 ) -> None:
     written = data.draw(_spaced(name))
-    suffix = data.draw(st.sampled_from(("", "S.A.", "SA", "S.A")))
+    suffix = data.draw(st.sampled_from(("", "S.A.", "SA", "S.A", "S. A.")))
     if suffix:
         written += data.draw(st.sampled_from((" ", "-", " - ", "  "))) + data.draw(_mixed_case(suffix))
     written = data.draw(st.sampled_from(("", " ", "  "))) + written + data.draw(st.sampled_from(("", " ", "  ")))
 
     placed = _placement(written, data.draw(_spaced(WHOLESALE_INSTALLATION)))
     canonical = _placement(name, WHOLESALE_INSTALLATION)
+    other = _placement(OTHER_OPERATOR, WHOLESALE_INSTALLATION).color
 
     assert placed.color == canonical.color, written
-    if canonical.entry is None:
+    assert (placed.color.activities == other.activities, placed.color.contract_number == other.contract_number) == (
+        name in LIGHT_BLUE_ACTIVITIES,
+        name in LIGHT_BLUE_CONTRACT_NUMBER,
+    ), written
+    if name in WITHOUT_ENTRY:
         assert placed.entry is None, written
     else:
         assert placed.entry is not None, written
+        assert canonical.entry is not None
         assert (placed.entry.operator, placed.entry.devices) == (canonical.entry.operator, canonical.entry.devices)
         assert placed.entry.activities == written.strip() + canonical.entry.activities.removeprefix(name)
 
