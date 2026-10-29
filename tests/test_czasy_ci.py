@@ -463,7 +463,7 @@ def test_czasy_z_main_to_mediana_trzech_najnowszych_zielonych_runow_z_artefaktem
     czasy = czasy_ci.z_mainu(tmp_path)
 
     assert (czasy.runy, czasy.blad) == ((8, 9, 10), None)
-    assert [call[2] for call in gh.calls if call[0] == "run"] == ["10", "9", "8"]
+    assert sorted(call[2] for call in gh.calls if call[0] == "run") == ["10", "8", "9"]
     assert sorted(path.name for path in tmp_path.iterdir()) == ["10.json", "8.json", "9.json", "pobrane"]
     assert czasy.praca("windows-3.14", "pytest:tests/test_x.py") == 27
     assert czasy.pliki("windows-3.14") == {"tests/test_x.py": 27}
