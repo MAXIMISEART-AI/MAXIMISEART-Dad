@@ -92,7 +92,7 @@ MUTATIONS = (
                 MODEL,
                 '          /\\ Stop(q, "comment: Unreachable przed skutkiem, przejscie staje")\n'
                 "          /\\ UNCHANGED <<issues, kom, rejected, zgubione, odmowy, odrzucone>>\n",
-                "          /\\ kom' = Ustaw(kom, q, Tail(kom[q])) /\\ UNCHANGED stopped\n"
+                "          /\\ kom' = Ustaw(kom, q, Tail(kom[q])) /\\ UNCHANGED <<stopped, nieczytany>>\n"
                 '          /\\ Idz(q, IF Tail(kom[q]) = <<>> THEN "dostarczona" ELSE "komentuj", "comment: pominiety")\n'
                 "          /\\ UNCHANGED <<issues, rejected, zgubione, odmowy, odrzucone>>\n",
             ),
@@ -153,7 +153,7 @@ MUTATIONS = (
                 MODEL,
                 '          /\\ Stop(q, "labelled_issues: Unreachable (brak sieci), przejscie staje")\n',
                 '          /\\ Odrzuc(q, biez[q], "labelled_issues: Unreachable, plik do nastepnego startu")\n'
-                "          /\\ UNCHANGED stopped\n",
+                "          /\\ UNCHANGED <<stopped, nieczytany>>\n",
             ),
             Edit(
                 MODEL,
