@@ -91,8 +91,8 @@ CEL_S = 225.0
 KROK_CELU_S = 5.0
 # Limit konta to 20 zadań naraz ze wszystkich workflowów; 20. slot zostaje dla scalenia.yml.
 ZADANIA_RUNU = 19
-# Zadania ci.yml o stałej liczbie (plan, szybkie, Required).
-STALE_ZADANIA = 3
+# Zadania ci.yml o stałej liczbie (plan, Frontend, Ruff i mypy, Required).
+STALE_ZADANIA = 4
 # Zadania bramki w ci.yml, które startują tylko z pracą od planu.
 Z_PLANU = ("pytest", "mutations")
 # Zdarzenie planu skryptów mutacji skilli w mutacje-nocne.yml.

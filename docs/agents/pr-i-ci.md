@@ -5,8 +5,8 @@ Dlaczego PR dostaje mniej sprawdzeń niż `main`, mówi [ADR 0020](../adr/0020-c
 
 ## Co biegnie na PR
 
-- `Required CI status` przechodzi, gdy przeszły `Ruff, mypy, Frontend`, `Plan CI` i każde zadanie pytest i Mutation checks z planu runu.
-- `Ruff, mypy, Frontend` biegnie na każdym PR.
+- `Required CI status` przechodzi, gdy przeszły `Frontend`, `Ruff, mypy`, `Plan CI` i każde zadanie pytest i Mutation checks z planu runu.
+- `Frontend` oraz `Ruff, mypy` biegną na każdym PR, obok siebie i obok planu.
 - pytest biegnie na torach Windows 3.11 i Linux 3.14.
   Każdy tor bierze pliki, które `tools/szybko.py` wybiera dla zmiany od bazy (bez jego budżetu czasu), i testy `szybko.STRUCTURE`.
   Lokalne `tools/szybko.py` uruchamia z tego wyboru zawsze pliki w odległości najwyżej 1 od zmiany, a dalsze tylko w swoim budżecie czasu, i resztę wypisuje jako „zostawione CI”.
