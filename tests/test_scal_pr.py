@@ -28,12 +28,13 @@ SUM = "def suma(a: int, b: int) -> int:\n    return a + b\n"
 PYPROJECT = '[tool.ruff]\ninclude = ["kod/**/*.py"]\n\n[tool.mypy]\nstrict = true\nfiles = ["kod"]\n'
 CLEANUP = 'import pathlib\n\npathlib.Path("posprzatane").write_text("tak")\nprint("SPRZĄTANIE OK | 0 usuniętych")\n'
 FAKE_GH = """\
-import json, os, pathlib, subprocess, sys
+import json, os, pathlib, subprocess, sys, time
 
 here = pathlib.Path(sys.argv[0]).parent
 arguments = sys.argv[1:]
 pulls = json.loads((here / "pulls.json").read_text())
 issues = json.loads((here / "issues.json").read_text())
+default_branch = (here / "default_branch").read_text()
 
 
 def git(*command):
@@ -44,6 +45,8 @@ def git(*command):
 
 if arguments[:2] == ["pr", "view"]:
     pull = pulls[arguments[2]]
+    if pull.get("poMergeu") == "błąd" and pull["state"] == "MERGED":
+        sys.exit("gh: HTTP 502")
     print(json.dumps({field: pull[field] for field in arguments[arguments.index("--json") + 1].split(",")}))
 elif arguments[:2] == ["pr", "merge"]:
     pull = pulls[arguments[2]]
@@ -53,7 +56,7 @@ elif arguments[:2] == ["pr", "merge"]:
     tree = git("merge-tree", "--write-tree", base, pull["headRefOid"])
     merge = git("commit-tree", tree, "-p", base, "-p", pull["headRefOid"], "-m", "Merge")
     git("update-ref", "refs/heads/main", merge)
-    pull.update(state="MERGED", mergeCommit={"oid": merge})
+    pull.update(state="MERGED", mergeCommit=None if pull.get("poMergeu") else {"oid": merge})
     (here / "pulls.json").write_text(json.dumps(pulls))
     with (here / "merges.jsonl").open("a") as log:
         log.write(json.dumps(arguments) + "\\n")
@@ -61,12 +64,16 @@ elif arguments[0] == "api" and arguments[1].startswith("repos/o/r/issues/"):
     number = arguments[1].rpartition("/")[2]
     if number in pulls:
         print(json.dumps({"state": "open", "pull_request": {}}))
+    elif issues.get(number) == "zawiesza":
+        time.sleep(60)
     elif number in issues:
-        print(json.dumps({"state": issues[number]}))
+        print(issues[number])
     else:
         sys.exit("gh: Not Found (HTTP 404)")
+elif arguments[:2] == ["repo", "view"]:
+    print(json.dumps({"defaultBranchRef": {"name": default_branch}}))
 elif arguments[:2] == ["issue", "close"]:
-    issues[arguments[2]] = "closed"
+    issues[arguments[2]] = json.dumps({"state": "closed"})
     (here / "issues.json").write_text(json.dumps(issues))
     with (here / "closed.jsonl").open("a") as log:
         log.write(json.dumps(arguments) + "\\n")
@@ -115,6 +122,7 @@ class FakeGitHub:
         gh.chmod(0o755)
         self.pulls: dict[str, dict[str, object]] = {}
         self.issues: dict[str, str] = {}
+        self.default_branch = "main"
         self.written = 0
 
     def open_pull(self, number: int, files: dict[str, str], *, parent: str = "") -> str:
@@ -190,7 +198,12 @@ class FakeGitHub:
         )
 
     def open_issues(self, *numbers: int, state: str = "open") -> None:
-        self.issues.update(dict.fromkeys(map(str, numbers), state))
+        self.answer_issue(*numbers, answer=json.dumps({"state": state}))
+
+    def answer_issue(self, *numbers: int, answer: str) -> None:
+        """``gh api`` issue ``numbers`` drukuje ``answer``, a ``zawiesza`` każe mu czekać minutę."""
+
+        self.issues.update(dict.fromkeys(map(str, numbers), answer))
         self._save()
 
     def merges(self) -> list[list[str]]:
@@ -206,6 +219,7 @@ class FakeGitHub:
     def _save(self) -> None:
         (self.bin / "pulls.json").write_text(json.dumps(self.pulls), encoding="utf-8")
         (self.bin / "issues.json").write_text(json.dumps(self.issues), encoding="utf-8")
+        (self.bin / "default_branch").write_text(self.default_branch, encoding="utf-8")
 
 
 def _last_line(answered: subprocess.CompletedProcess[str]) -> str:
@@ -487,11 +501,12 @@ def test_po_merge_zamyka_otwarte_issues_z_naprawia_z_komentarzem_a_bez_merge_tyl
     github = FakeGitHub(tmp_path, {"kod/__init__.py": SUM, "tools/sprzatanie.py": CLEANUP})
     head = github.open_pull(1, {"kod/inne.py": "INNE: int = 1\n"})
     github.open_pull(2, {"kod/drugie.py": "DRUGIE: int = 1\n"})
-    github.open_issues(3, 4, 7)
+    github.open_issues(3, 4, 6, 7)
     github.open_issues(5, state="closed")
-    body = "Naprawia #3, #4\nNaprawia #5\nNaprawia #2\nCloses #7\nNaprawia #7\nNaprawia inny/repo#8\n"
-    seven = {"number": 7, "repository": {"name": "r", "owner": {"login": "o"}}}
-    github.update(1, body=body, closingIssuesReferences=[seven])
+    body = "Naprawia #3, #4\nNaprawia #5\nNaprawia #2\nCloses #7\nNaprawia #7\nNaprawia inny/repo#8, #6\n"
+    seven = {"number": 7, "repository": {"name": "R", "owner": {"login": "O"}}}
+    four_elsewhere = {"number": 4, "repository": {"name": "repo", "owner": {"login": "inny"}}}
+    github.update(1, body=body, closingIssuesReferences=[seven, four_elsewhere])
     github.comment(1, f"WERDYKT: PASS {head}")
 
     checked = github.run("1", "--bez-merge")
@@ -508,64 +523,141 @@ def test_po_merge_zamyka_otwarte_issues_z_naprawia_z_komentarzem_a_bez_merge_tyl
     assert github.closed() == [["issue", "close", str(n), "--repo", "o/r", "--comment", comment] for n in (3, 4)]
 
 
+def test_merge_do_galezi_innej_niz_domyslna_niczego_nie_zamyka(tmp_path: Path) -> None:
+    github = FakeGitHub(tmp_path, {"kod/__init__.py": SUM})
+    github.default_branch = "trunk"
+    head = github.open_pull(1, {"kod/inne.py": "INNE: int = 1\n"})
+    github.open_issues(3, 4)
+    github.update(1, body="Naprawia #3, #4")
+    github.comment(1, f"WERDYKT: PASS {head}")
+
+    checked = github.run("1", "--bez-merge")
+    merged = github.run("1")
+
+    assert _last_line(checked).endswith("bez merge'a (--bez-merge) | bez zamykania #3, #4: baza main to nie trunk")
+    assert merged.returncode == 0, merged.stdout + merged.stderr
+    assert " | bez zamykania #3, #4: baza main to nie trunk | " in _last_line(merged)
+    assert len(github.merges()) == 1
+    assert github.closed() == []
+
+
 def test_porazka_zamykania_issue_nie_odwoluje_scalenia(tmp_path: Path) -> None:
     github = FakeGitHub(tmp_path, {"kod/__init__.py": SUM})
-    head = github.open_pull(1, {"kod/inne.py": "INNE: int = 1\n"})
+    scalenia = github.checkout / "tools" / "scalenia_pr.py"
+    scalenia.write_text(scalenia.read_text(encoding="utf-8").replace("GITHUB_TIMEOUT_S = 60", "GITHUB_TIMEOUT_S = 3"), encoding="utf-8")
+    git(github.checkout, "commit", "--quiet", "--all", "--message", "gh po 3 s")
+    git(github.checkout, "push", "--quiet", "origin", "main")
+    head = github.open_pull(1, {"kod/inne.py": "INNE: int = 1\n"}, parent=git(github.checkout, "rev-parse", "HEAD"))
     github.open_issues(3)
-    github.update(1, body="Naprawia #9, #3")
+    github.answer_issue(10, answer="")
+    github.answer_issue(11, answer="{}")
+    github.answer_issue(12, answer="[]")
+    github.answer_issue(13, answer="zawiesza")
+    github.update(1, body="Naprawia #9, #3, #10, #11, #12, #13")
     github.comment(1, f"WERDYKT: PASS {head}")
 
     checked = github.run("1", "--bez-merge")
     answered = github.run("1")
 
-    assert _last_line(checked).endswith(" | po merge'u zamknie: #3 | UWAGA: nie sprawdzono #9")
+    failed = "#9, #10, #11, #12, #13"
+    assert _last_line(checked).endswith(f" | po merge'u zamknie: #3 | UWAGA: nie sprawdzono {failed}")
     assert answered.returncode == 0, answered.stdout + answered.stderr
-    assert " | zamknięte: #3 | UWAGA: nie zamknięto #9, zamknij ręcznie | " in _last_line(answered)
+    assert f" | zamknięte: #3 | UWAGA: nie zamknięto {failed}, zamknij ręcznie | " in _last_line(answered)
     assert len(github.merges()) == 1
+
+
+@pytest.mark.parametrize("after_merge", ["brak", "błąd"], ids=["github-bez-commitu-merge", "gh-pr-view-z-bledem"])
+def test_bez_commitu_merge_od_githuba_issues_zostaja_otwarte_z_ostrzezeniem(tmp_path: Path, after_merge: str) -> None:
+    github = FakeGitHub(tmp_path, {"kod/__init__.py": SUM})
+    head = github.open_pull(1, {"kod/inne.py": "INNE: int = 1\n"})
+    github.open_issues(3)
+    github.open_issues(5, state="closed")
+    github.update(1, body="Naprawia #3, #5, #9", poMergeu=after_merge)
+    github.comment(1, f"WERDYKT: PASS {head}")
+
+    answered = github.run("1")
+
+    assert answered.returncode == 0, answered.stdout + answered.stderr
+    warning = "UWAGA: GitHub nie podał commitu merge'a, nie zamknięto #3, #9, zamknij ręcznie"
+    assert f"| scalony do main jako ? (baza {github.start[:7]}) | {warning} | " in _last_line(answered)
+    assert len(github.merges()) == 1
+    assert github.closed() == []
 
 
 @pytest.mark.parametrize(
     ("body", "fixes"),
     [
         ("Naprawia #490.", (490,)),
-        ("Ta zmiana naprawia #490, bo plan liczy limit od runu.", (490,)),
+        ("- Naprawia #490\n* Naprawia #491\n  Naprawia #492\n\tnaprawia #493", (490, 491, 492, 493)),
         ("Naprawia #490, #491 i #492 oraz #493", (490, 491, 492, 493)),
         ("## Why\n\nNaprawia #487\nNaprawia #493\nNaprawia #487", (487, 493)),
         ("Naprawia o/r#490", (490,)),
         ("Naprawia O/R#490", (490,)),
         ("Naprawia MAXIMISEART-AI/MAXIMISEART-Dad-zgloszenia#12", ()),
-        ("Naprawia MAXIMISEART-AI/MAXIMISEART-Dad-zgloszenia#12, #490", (490,)),
+        ("Naprawia MAXIMISEART-AI/MAXIMISEART-Dad-zgloszenia#12, #13", ()),
+        ("Naprawia MAXIMISEART-AI/MAXIMISEART-Dad-zgloszenia#12, o/r#490, #491", (490, 491)),
         ("Wprowadzone w #480, przeniesione na nowy main (po #564).", ()),
         ("Naprawia #490. Błąd wszedł w #480.", (490,)),
-        ("Nie naprawia #490, to osobny PR.", ()),
+        ("Naprawia #490. Naprawia #491", (490,)),
+        ("Ta zmiana naprawia #490, bo plan liczy limit od runu.", ()),
+        ("Ten PR nie do końca naprawia #490", ()),
+        ("Nie  naprawia #490", ()),
         ("Naprawia\n#490", ()),
-        ("Słowo `Naprawia #490` GitHub ignoruje.", ()),
+        ("> Naprawia #490", ()),
+        ("~~Naprawia #490~~", ()),
+        ("<!-- Naprawia #490 -->", ()),
+        ("<!--\nNaprawia #490\n-->\nNaprawia #491", (491,)),
+        ("<!-- niedomknięty\nNaprawia #490", ()),
+        ("`Naprawia #490`", ()),
+        ("``Naprawia #490``", ()),
+        ("``kod\nNaprawia #490``", ()),
+        ("``Naprawia ` #490``\nNaprawia #491", (491,)),
+        ("`kod` Naprawia #490", ()),
+        ("`kod\nNaprawia #490`", ()),
+        ("Zmienia 5` znaków.\n\nNaprawia #490\n\nI `kod`", (490,)),
         ("```\nNaprawia #490\n```\nNaprawia #491", (491,)),
+        ("   ```\nkod\n\nNaprawia #490\n   ```\nNaprawia #491", (491,)),
         ("~~~text\nNaprawia #490\n~~~", ()),
         ("```\nNaprawia #490 w niedomkniętym bloku", ()),
         ("Closes #490", ()),
     ],
     ids=[
         "linia-naprawia",
-        "w-srodku-zdania",
+        "znacznik-listy-i-wciecie",
         "kilka-numerow-w-linii",
         "kilka-linii-bez-powtorzen",
         "pelne-odwolanie-do-tego-repo",
         "pelne-odwolanie-innymi-literami",
         "zgloszenie-z-innego-repo",
-        "inne-repo-i-to-repo-w-jednej-linii",
+        "goly-numer-po-zgloszeniu-nalezy-do-zgloszen",
+        "odwolanie-do-tego-repo-po-zgloszeniu",
         "numer-bez-naprawia",
         "numer-w-innym-zdaniu",
-        "nie-naprawia",
+        "drugie-zdanie-w-linii",
+        "w-srodku-zdania",
+        "przeczenie-w-srodku-zdania",
+        "przeczenie-z-dwiema-spacjami",
         "numer-w-nastepnej-linii",
+        "cytat",
+        "przekreslenie",
+        "komentarz-html",
+        "komentarz-html-w-kilku-liniach",
+        "niedomkniety-komentarz-html",
         "fragment-kodu",
+        "fragment-kodu-z-dwoma-backtickami",
+        "fragment-kodu-z-dwoma-backtickami-w-dwoch-liniach",
+        "backtick-w-fragmencie-kodu",
+        "naprawia-za-fragmentem-kodu",
+        "fragment-kodu-w-dwoch-liniach",
+        "fragment-kodu-nie-przechodzi-przez-pusta-linie",
         "blok-kodu",
+        "wciety-plot-bloku-kodu",
         "blok-kodu-z-tyldami",
         "niedomkniety-blok-kodu",
         "slowo-githuba",
     ],
 )
-def test_naprawia_wskazuje_issues_tego_repo_tylko_w_prozie_opisu_pr(body: str, fixes: tuple[int, ...]) -> None:
+def test_naprawia_wskazuje_issues_tego_repo_tylko_na_poczatku_widocznej_linii_opisu_pr(body: str, fixes: tuple[int, ...]) -> None:
     assert scal_pr.fixed_issues(body, "o/r") == fixes
 
 
