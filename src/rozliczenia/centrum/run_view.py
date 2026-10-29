@@ -98,6 +98,14 @@ class ProcessView(ResultView[InputsT, SummaryT]):
 
         return ("RUN",)
 
+    def start_reminder(self, *, data_file_open: bool, template_open: bool) -> str | None:
+        """Przypomnienie w stopce karty startu; znika, gdy „Uruchom” blokuje tylko Wzorzec otwarty w Excelu.
+
+        Przypomnienie mówi o pliku danych procesu, a zdanie karty o Wzorcu mówi już, co zrobić.
+        """
+
+        return None if template_open and not data_file_open else self.reminder
+
 
 @dataclass(frozen=True, kw_only=True)
 class PeriodProcessView(ProcessView[InputsT, SummaryT]):

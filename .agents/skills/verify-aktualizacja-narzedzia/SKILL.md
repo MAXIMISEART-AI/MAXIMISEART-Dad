@@ -136,7 +136,13 @@ Covered files: `src/rozliczenia/centrum/tool_update.py`,
 `src/rozliczenia/centrum/restart_guardian.py`,
 `src/rozliczenia/centrum/launcher.py`.
 
-Sync commit: `06fefb63` (2026-10-26, `main` after #540 merged into #534). Since
+Sync commit: `9f7c2de9` (2026-10-29, #538). Since `06fefb63` the covered files
+changed only in `ToolUpdates._failed` and the `failed` view, which now carry
+`after_restart`: whether the failure came from the restart (a result found at
+start) or from a click. The model does not describe the view, so no action of
+the model changed.
+
+`06fefb63` (2026-10-26, `main` after #540 merged into #534). Since
 `7acf755b` the covered files changed only in `tool_update.GITHUB_REPOSITORY`,
 the repository address after the move to the `maximiseartai` organization
 (#540), which the model does not describe, and in the docstring and one comment

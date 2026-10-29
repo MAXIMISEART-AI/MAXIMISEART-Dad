@@ -511,7 +511,7 @@ def test_czerwona_podstawa_ci_daje_fail_takze_w_skillu_bez_skryptu_mutacji(tmp_p
     assert result.stdout.splitlines()[-1] == "MUTACJE SKILLI FAIL | PODSTAWA verify-d"
 
 
-@pytest.mark.parametrize(("parts", "chosen"), [("", 1), ("ci-czesci: 4\n", 4)], ids=["bez klucza", "cztery"])
+@pytest.mark.parametrize(("parts", "chosen"), [("", 1), ("ci-czesci: 1\n", 1), ("ci-czesci: 4\n", 4)], ids=["bez klucza", "jedna", "cztery"])
 def test_podstawa_dzieli_sie_najwyzej_na_tyle_czesci_ile_mowi_ci_czesci(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, parts: str, chosen: int) -> None:
     command = ".agents/skills/verify-d/scripts/sprawdz_d.py --feature all"
     _skill(tmp_path, "verify-a", {"check_a_mutations.py": "MUTATIONS = ()\n"})

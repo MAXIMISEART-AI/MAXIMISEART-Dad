@@ -425,6 +425,29 @@ def test_karta_startu_mowi_ktore_pliki_przebiegu_sa_otwarte_w_excelu_az_do_ich_z
     assert open_in_excel() == {PERIOD: [], "01_07_09_2026": []}
 
 
+@pytest.mark.parametrize(
+    ("workbooks", "reminder"),
+    [
+        ((), "Zapisz i zamknij Plik zbiorczy w Excelu"),
+        (("collective_file",), "Zapisz i zamknij Plik zbiorczy w Excelu"),
+        (("collective_file", "worker_template"), "Zapisz i zamknij Plik zbiorczy w Excelu"),
+        (("worker_template",), None),
+    ],
+)
+def test_stopka_karty_startu_nie_kaze_zamknac_pliku_zbiorczego_gdy_uruchom_blokuje_tylko_wzorzec(
+    tmp_path: Path, workbooks: tuple[str, ...], reminder: str | None
+) -> None:
+    centrum = settling_centrum(tmp_path)
+    paths = {"collective_file": centrum.collective_file, "worker_template": centrum.configuration.worker_template}
+    for workbook in workbooks:
+        path = paths[workbook]
+        path.with_name(f"~${path.name}").touch()
+
+    [choice] = settlement_setup(centrum.client)["periods"]
+
+    assert choice["reminder"] == reminder
+
+
 @pytest.mark.parametrize("workbook", ["collective_file", "worker_template"])
 def test_rada_karty_startu_i_zatrzymania_nazywa_ten_sam_pozostawiony_plik_blokady(tmp_path: Path, workbook: str) -> None:
     centrum = settling_centrum(tmp_path)

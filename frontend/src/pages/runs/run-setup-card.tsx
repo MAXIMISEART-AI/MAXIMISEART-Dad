@@ -83,6 +83,7 @@ export function RunSetupCard({ processes }: { processes: ReadonlyArray<ProcessSe
 
   const blocked = chosen.blocker !== null
   const openInExcel = chosenPeriod?.open_in_excel ?? []
+  const reminder = chosenPeriod === undefined ? chosen.reminder : chosenPeriod.reminder
 
   const choices = chosen.periods.map((choice) => ({ value: choice.token, label: <PeriodLabel choice={choice} /> }))
 
@@ -204,10 +205,12 @@ export function RunSetupCard({ processes }: { processes: ReadonlyArray<ProcessSe
         </FieldGroup>
       </CardContent>
       <CardFooter className="gap-2">
-        <span className="flex items-center gap-2 text-sm text-muted-foreground">
-          <InfoIcon className="size-4" aria-hidden />
-          {chosen.reminder}
-        </span>
+        {reminder === null ? null : (
+          <span className="flex items-center gap-2 text-sm text-muted-foreground">
+            <InfoIcon className="size-4" aria-hidden />
+            {reminder}
+          </span>
+        )}
         <Button
           variant="ghost"
           size="lg"

@@ -154,7 +154,14 @@ def test_przezyta_mutacja_trafia_do_issue_pr_ktory_ostatni_zmienil_jej_linie_a_d
     c, d = git(repo, "rev-parse", "HEAD^"), git(repo, "rev-parse", "HEAD")
     github = GitHubWPamieci(
         issues=[
-            {"number": 5, "title": "Przeżyte mutacje z #12", "state": "open", "body": f"```\nMUTACJA src/a.py:2 stała | klucz {_klucz('src/a.py:2 stała')}\n```", "comments": []},
+            # Issue i komentarz bez treści, a mutację issue zna z drugiego komentarza.
+            {
+                "number": 5,
+                "title": "Przeżyte mutacje z #12",
+                "state": "open",
+                "body": None,
+                "comments": [{"body": None}, {"body": f"```\nMUTACJA src/a.py:2 stała | klucz {_klucz('src/a.py:2 stała')}\n```"}],
+            },
             {
                 "number": 6,
                 "title": "Przeżyte mutacje z #14",
@@ -176,6 +183,7 @@ def test_przezyta_mutacja_trafia_do_issue_pr_ktory_ostatni_zmienil_jej_linie_a_d
     pierwsze_wyjscie = capsys.readouterr().out
     wyslane = list(github.wyslane)
     drugi = mutacje_nocne.zglos(github, repo, baza, zapisy, 3, RUN)
+    drugie_wyjscie = capsys.readouterr().out
 
     nowe = {issue["title"]: issue for issue in github.issues if issue["number"] >= 900}
     assert (pierwszy, drugi) == (0, 0), pierwsze_wyjscie
@@ -184,34 +192,70 @@ def test_przezyta_mutacja_trafia_do_issue_pr_ktory_ostatni_zmienil_jej_linie_a_d
     tresc_11 = nowe["Przeżyte mutacje z #11"]["body"]
     # Dwa commity PR #11 dają jedno issue.
     assert "\n".join(f"MUTACJA {nazwa} | klucz {_klucz(nazwa)}" for nazwa in (*przezyte[:2], przezyte[4])) + "\n" in tresc_11
-    assert RUN in tresc_11 and "nie warto, bo" in tresc_11
-    assert f"MUTACJA src/a.py:4 stała | klucz {_klucz('src/a.py:4 stała')}" in nowe[f"Przeżyte mutacje z commitu {d[:9]}"]["body"]
+    assert RUN in tresc_11 and "nie warto, bo" in tresc_11 and "które ostatnio zmienił #11:" in tresc_11
+    tresc_commitu = nowe[f"Przeżyte mutacje z commitu {d[:9]}"]["body"]
+    assert f"MUTACJA src/a.py:4 stała | klucz {_klucz('src/a.py:4 stała')}" in tresc_commitu and f"które ostatnio zmienił commit {d}:" in tresc_commitu
     # Issue #12 ma już mutację „stała”, a #14 zamknięte z powodem dla niej: dostają tylko nowe mutacje.
     komentarze = {issue["number"]: [komentarz["body"] for komentarz in issue["comments"]] for issue in github.issues if issue["number"] in (5, 6)}
-    assert [linia for tekst in komentarze[5] for linia in tekst.splitlines() if linia.startswith("MUTACJA")] == [f"MUTACJA src/a.py:2 `20` → `0` | klucz {_klucz('src/a.py:2 `20` → `0`')}"]
+    assert [linia for tekst in komentarze[5][2:] for linia in tekst.splitlines() if linia.startswith("MUTACJA")] == [f"MUTACJA src/a.py:2 `20` → `0` | klucz {_klucz('src/a.py:2 `20` → `0`')}"]
     assert [linia for tekst in komentarze[6] for linia in tekst.splitlines() if linia.startswith("MUTACJA")] == [
         "MUTACJA src/a.py:3 stała | nie warto, bo tylko log",
         f"MUTACJA src/a.py:3 inna | klucz {_klucz('src/a.py:3 inna')}",
     ]
     assert (github.issues[1]["state"], github.issues[1]["labels"]) == ("open", ["ready-for-agent"])
     assert github.wyslane == wyslane
-    assert pierwsze_wyjscie.splitlines()[-1] == "MUTACJE NOCNE OK | części 3 | przeżyło 8"
+    assert pierwsze_wyjscie.splitlines() == [
+        "MUTACJE NOCNE | założone #902 „Przeżyte mutacje z #11”",
+        "MUTACJE NOCNE | komentarz w #5",
+        "MUTACJE NOCNE | otwarte ponownie #6",
+        f"MUTACJE NOCNE | założone #903 „Przeżyte mutacje z commitu {d[:9]}”",
+        "MUTACJE NOCNE OK | części 3 | przeżyło 8",
+    ]
+    assert drugie_wyjscie.splitlines() == ["MUTACJE NOCNE | nic nowego do zgłoszenia", "MUTACJE NOCNE OK | części 3 | przeżyło 8"]
 
 
-def test_czesc_bez_zapisu_albo_z_porazka_bez_przezytych_czerwieni_przebieg_po_zgloszeniu_reszty(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+def test_czesc_bez_zapisu_z_uszkodzonym_zapisem_albo_z_porazka_bez_przezytych_czerwieni_przebieg_po_zgloszeniu_reszty(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     repo, baza = _historia(tmp_path)
     github = GitHubWPamieci()
     testy_padaja = "MUTACJE ZMIANY FAIL | testy dotknięte zmianą padają bez mutacji, więc mutacje niczego nie dowiodą"
     zapisy = _zapisy(tmp_path / "zapisy", {1: (PRZEZYLO, [_przezyta("src/a.py:1 stała")]), 3: (testy_padaja, [])})
+    (zapisy / "mutacje-nocne-4").mkdir()
+    (zapisy / "mutacje-nocne-4" / "czesc.json").write_text("", encoding="utf-8")
 
-    kod = mutacje_nocne.zglos(github, repo, baza, zapisy, 3, RUN)
+    kod = mutacje_nocne.zglos(github, repo, baza, zapisy, 4, RUN)
 
     wyjscie = capsys.readouterr().out.splitlines()
     assert kod == 1
     assert [issue["title"] for issue in github.issues] == ["Przeżyte mutacje z #11"]
-    assert wyjscie[-1].startswith("MUTACJE NOCNE FAIL | część 2/3 bez zapisu: ")
-    assert wyjscie[-1].endswith(f"; część 3/3: {testy_padaja}")
+    assert wyjscie[-1].startswith("MUTACJE NOCNE FAIL | część 2/4 bez zapisu: ")
+    assert wyjscie[-1].endswith(f"; część 3/4: {testy_padaja}; część 4/4 bez zapisu: Expecting value: line 1 column 1 (char 0)")
 
+
+
+@pytest.mark.parametrize(
+    ("polecenie", "przyczyna"),
+    [
+        (["plan", "--od", "nie-ma-takiego"], "fatal: Needed a single revision"),
+        (["plan"], "HEAD nie ma commitu sprzed 24 h; podaj --od"),
+        (["zglos", "--baza", "{baza}", "--zapisy", "{zapisy}", "--czesci", "1", "--run", RUN], "przeżyta mutacja bez postaci <plik>:<linia> <opis>: bez linii"),
+    ],
+    ids=["nieznane-od", "bez-commitu-sprzed-24-h", "zapis-bez-pliku-mutacji"],
+)
+def test_noc_bez_bazy_albo_z_zapisem_bez_pliku_mutacji_konczy_sie_fail_z_przyczyna(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], polecenie: list[str], przyczyna: str
+) -> None:
+    # Historia ma same dzisiejsze commity, a GitHub nie ma udanego przebiegu nocy.
+    repo, baza = _historia(tmp_path)
+    zapisy = _zapisy(tmp_path / "zapisy", {1: (PRZEZYLO, [{"id": "bez linii", "linie": [1], "klucz": _klucz("bez linii")}])})
+    for modul in (mutacje_nocne, mutacje_zmiany):
+        monkeypatch.setattr(modul, "ROOT", repo)
+    monkeypatch.setattr(mutacje_nocne, "GhApi", GitHubWPamieci)
+
+    kod = mutacje_nocne.main([argument.format(baza=baza, zapisy=zapisy) for argument in polecenie])
+
+    assert (kod, capsys.readouterr().out.splitlines()[-1]) == (1, f"MUTACJE NOCNE FAIL | {przyczyna}")
 
 WARUNEK = "def f(x: int, y: int) -> int:\n    if (\n        x > 1\n        and y > 2\n    ):\n        return 1\n    return 0\n"
 
@@ -537,6 +581,34 @@ def test_skrypt_mutacji_skilla_ktory_padl_noca_trafia_do_issue_pr_ktory_ostatni_
     assert wyjscie.splitlines()[-1] == "MUTACJE NOCNE OK | części 0 | przeżyło 0 | zadania skilli 2 | padło skryptów 2"
 
 
+
+def test_skrypt_ktory_padl_znowu_trafia_komentarzem_do_issue_bez_jego_linii_a_skrypt_z_odpowiedzia_nie_wraca(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    repo, baza = _historia_skilli(tmp_path)
+    monkeypatch.setattr(mutacje_skilli, "ROOT", repo)
+    monkeypatch.setattr(mutacje_skilli, "SKILLS", repo / ".agents" / "skills")
+    odpowiedz = {"body": "SKRYPT .agents/skills/verify-a/scripts/check_a_mutations.py | nie warto, bo mutacja psuje tylko log"}
+    github = GitHubWPamieci(
+        issues=[
+            # Issue założone ręcznie, bez treści, z odpowiedzią na skrypt verify-a.
+            {"number": 7, "title": "Przeżyte mutacje skilli z #21", "state": "closed", "body": None, "comments": [odpowiedz], "labels": []},
+            {"number": 8, "title": "Przeżyte mutacje skilli z #23", "state": "closed", "body": "```\nSKRYPT inny.py\n```", "comments": [{"body": None}], "labels": []},
+        ]
+    )
+    zapisy = _wykonania(tmp_path / "zapisy", {"mutacje-1": (PLAN_SKILLI.digest, {SKRYPT_A: "fail"}), "mutacje-2": (PLAN_SKILLI.digest, {SKRYPT_A: "ok", SKRYPT_B: "fail"})})
+
+    kod = mutacje_nocne.zglos(github, repo, baza, zapisy, 0, RUN, PLAN_SKILLI)
+
+    wyjscie = capsys.readouterr().out.splitlines()
+    assert kod == 0, wyjscie
+    assert (github.issues[0]["state"], github.issues[0]["comments"]) == ("closed", [odpowiedz])
+    assert [linia for komentarz in github.issues[1]["comments"][1:] for linia in komentarz["body"].splitlines() if linia.startswith("SKRYPT")] == [
+        "SKRYPT .agents/skills/verify-b/scripts/check_b_mutations.py"
+    ]
+    assert (github.issues[1]["state"], github.issues[1]["labels"]) == ("open", ["ready-for-agent"])
+    assert wyjscie[0] == "MUTACJE NOCNE | otwarte ponownie #8"
+
 def test_czesc_podstawy_ktora_padla_noca_obok_przechodzacej_w_tym_samym_zadaniu_trafia_do_pr_ktory_zmienil_pilnuje(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -561,6 +633,32 @@ def test_czesc_podstawy_ktora_padla_noca_obok_przechodzacej_w_tym_samym_zadaniu_
     assert f"SKRYPT {PODSTAWA_C}\n" in tresci["Przeżyte mutacje skilli z #22"]
 
 
+
+def test_czesc_podstawy_skilla_bez_pilnuje_ktorego_folder_sie_nie_zmienil_trafia_do_ostatniego_pr_nocy(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    repo, _ = _historia_skilli(tmp_path)
+    monkeypatch.setattr(mutacje_skilli, "ROOT", repo)
+    monkeypatch.setattr(mutacje_skilli, "SKILLS", repo / ".agents" / "skills")
+    podstawa = ".agents/skills/verify-d/scripts/sprawdz_d.py"
+    (repo / podstawa).parent.mkdir(parents=True)
+    (repo / podstawa).write_text("", encoding="utf-8")
+    (repo / ".agents/skills/verify-d/SKILL.md").write_text(f"---\nname: verify-d\nci: {podstawa}\nci-czesci: 2\n---\n", encoding="utf-8")
+    baza = commit(repo, "Dodaj verify-d (#24)")
+    (repo / "src" / "a.py").write_text("a = 3\n", encoding="utf-8")
+    commit(repo, "Zmień a (#25)")
+    (repo / "README.md").write_text("Opis.\n", encoding="utf-8")
+    commit(repo, "Opis repozytorium (#26)")
+    klucz = "skill:verify-d/ci"
+    plan = plan_ci.Plan(plan_ci.NOC, 225.0, (), (plan_ci.Zadanie("mutacje-1", "mutacje", "Mutation checks (1/1)", (f"{klucz}#1/2", f"{klucz}#2/2"), 100.0),))
+    github = GitHubWPamieci()
+
+    kod = mutacje_nocne.zglos(github, repo, baza, _wykonania(tmp_path / "zapisy", {"mutacje-1": (plan.digest, {klucz: "fail"})}), 0, RUN, plan)
+
+    assert kod == 0, capsys.readouterr().out
+    assert [issue["title"] for issue in github.issues] == ["Przeżyte mutacje skilli z #26"]
+    assert f"SKRYPT {podstawa}\n" in github.issues[0]["body"]
+
 def test_zadanie_skilli_bez_zapisu_tego_planu_albo_bez_wyniku_jednostki_czerwieni_przebieg(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -568,15 +666,60 @@ def test_zadanie_skilli_bez_zapisu_tego_planu_albo_bez_wyniku_jednostki_czerwien
     monkeypatch.setattr(mutacje_skilli, "ROOT", repo)
     monkeypatch.setattr(mutacje_skilli, "SKILLS", repo / ".agents" / "skills")
     zapisy = _wykonania(tmp_path / "zapisy", {"mutacje-2": (PLAN_SKILLI.digest, {SKRYPT_A: "ok"})})
+    uszkodzone = _wykonania(tmp_path / "uszkodzone", {"mutacje-1": (PLAN_SKILLI.digest, {}), "mutacje-2": (PLAN_SKILLI.digest, {SKRYPT_A: "ok", SKRYPT_B: "ok"})})
+    (uszkodzone / f"{mutacje_nocne.ARTEFAKT_SKILLI}mutacje-1" / plan_ci.WYKONANIE.name).write_text("", encoding="utf-8")
 
     kod = mutacje_nocne.zglos(GitHubWPamieci(), repo, baza, zapisy, 0, RUN, PLAN_SKILLI)
     inny_plan = mutacje_nocne.zglos(GitHubWPamieci(), repo, baza, _wykonania(tmp_path / "inne", {"mutacje-1": ("inny", {SKRYPT_A: "ok"})}), 0, RUN, PLAN_SKILLI)
+    uszkodzony = mutacje_nocne.zglos(GitHubWPamieci(), repo, baza, uszkodzone, 0, RUN, PLAN_SKILLI)
+
+    porazki = [linia for linia in capsys.readouterr().out.splitlines() if linia.startswith("MUTACJE NOCNE FAIL")]
+    assert (kod, inny_plan, uszkodzony) == (1, 1, 1)
+    assert porazki[0].startswith("MUTACJE NOCNE FAIL | Mutation checks (1/2) bez zapisu: ")
+    assert porazki[0].endswith(f"; Mutation checks (2/2): jednostki bez wyniku: {SKRYPT_B}")
+    assert porazki[1].startswith("MUTACJE NOCNE FAIL | Mutation checks (1/2): zapis innego planu niż ")
+    assert porazki[2] == "MUTACJE NOCNE FAIL | Mutation checks (1/2) bez zapisu: Expecting value: line 1 column 1 (char 0)"
+
+
+@pytest.mark.parametrize("ze_skryptami", [False, True], ids=["mutacje-zmiany", "z-planem-skilli"])
+def test_zgloszenie_z_polecenia_workflow_zaklada_issue_i_konczy_sie_ok(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], ze_skryptami: bool
+) -> None:
+    repo, baza = _historia_skilli(tmp_path)
+    for modul in (mutacje_nocne, mutacje_skilli):
+        monkeypatch.setattr(modul, "ROOT", repo)
+    monkeypatch.setattr(mutacje_skilli, "SKILLS", repo / ".agents" / "skills")
+    github = GitHubWPamieci()
+    monkeypatch.setattr(mutacje_nocne, "GhApi", lambda: github)
+    zapisy = _zapisy(tmp_path / "zapisy", {1: (PRZEZYLO, [_przezyta("src/a.py:1 stała")])})
+    _wykonania(zapisy, {"mutacje-1": (PLAN_SKILLI.digest, {SKRYPT_A: "fail"}), "mutacje-2": (PLAN_SKILLI.digest, {SKRYPT_A: "ok", SKRYPT_B: "ok"})})
+    plan = tmp_path / "plan-skilli" / "plan.json"
+    plan.parent.mkdir()
+    plan.write_text(PLAN_SKILLI.do_json(), encoding="utf-8")
+
+    kod = mutacje_nocne.main(["zglos", "--baza", baza, "--zapisy", str(zapisy), "--czesci", "1", "--run", RUN, *(["--plan-skilli", str(plan)] if ze_skryptami else [])])
 
     wyjscie = capsys.readouterr().out.splitlines()
-    assert (kod, inny_plan) == (1, 1)
-    assert wyjscie[-1].startswith("MUTACJE NOCNE FAIL | Mutation checks (1/2): zapis innego planu niż ")
-    porazka = next(linia for linia in wyjscie if linia.startswith("MUTACJE NOCNE FAIL | Mutation checks (1/2) bez zapisu: "))
-    assert porazka.endswith(f"; Mutation checks (2/2): jednostki bez wyniku: {SKRYPT_B}")
+    assert kod == 0, wyjscie
+    assert [issue["title"] for issue in github.issues] == ["Przeżyte mutacje z #22", *(["Przeżyte mutacje skilli z #21"] if ze_skryptami else [])]
+    assert wyjscie[-1] == "MUTACJE NOCNE OK | części 1 | przeżyło 1" + (" | zadania skilli 2 | padło skryptów 1" if ze_skryptami else "")
+
+
+@pytest.mark.parametrize("brak", ["polecenie", "--baza", "--zapisy", "--czesci", "--run"])
+def test_zgloszenie_bez_argumentu_z_planu_nocy_konczy_sie_bledem_uzycia(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], brak: str
+) -> None:
+    repo, baza = _historia(tmp_path)
+    monkeypatch.setattr(mutacje_nocne, "ROOT", repo)
+    monkeypatch.setattr(mutacje_nocne, "GhApi", GitHubWPamieci)
+    argumenty = {"--baza": baza, "--zapisy": str(_zapisy(tmp_path / "zapisy", {1: (OK, [])})), "--czesci": "1", "--run": RUN}
+    polecenie = [] if brak == "polecenie" else ["zglos", *(czesc for nazwa, wartosc in argumenty.items() if nazwa != brak for czesc in (nazwa, wartosc))]
+
+    with pytest.raises(SystemExit) as wyjscie:
+        mutacje_nocne.main(polecenie)
+
+    assert wyjscie.value.code == 2
+    assert capsys.readouterr().err.endswith(f"error: the following arguments are required: {brak}\n")
 
 
 def _kroki_do_planu(zadanie: dict[str, Any]) -> list[dict[str, Any]]:

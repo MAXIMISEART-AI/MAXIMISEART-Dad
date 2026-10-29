@@ -76,6 +76,8 @@ A rule that a check enforces sits in its section's table, one line per rule, bes
   `tools/szybko.py` selects tests from imports and such literals, so a path built at run time hides the dependency.
 - Use an expect test (`assert_expected` in `tests/fixtures/expect.py`) for behaviour a human reads, such as Komunikaty and traces: it compares the text with a file in `tests/expected/`, named by a literal path.
   Write the new file with `ZAPISZ_EXPECT=1 .venv/bin/python -m pytest <test>`, which the failing test prints, and commit it with the change; CI never writes it.
+- Test a rule that matches text from Dad's files (a word or phrase in `URZĄDZENIA` or `CZYNNOŚCI`, an operator name, a period token) with a Hypothesis property, not only with examples: the text anywhere in the cell, glued to punctuation, in any letter case and with Polish letters, two words of the rule in one cell, and the word inside a longer word.
+  Take the expected result from `GLOSSARY.md`, the ADR or the docstring, and keep the examples deterministic with `derandomize=True` and `database=None`, as `tests/test_wlasnosci_dopasowania_tekstu.py` does.
 - Expect the error a test is about, not any error of its class: `pytest.raises` of a broad exception (`ValueError`, `OSError`) takes `match=` on its message, and the block holds the one statement that raises (ruff PT011, PT012).
 - Prove that a new test or check fails on the broken code it guards with `tools/mutacje.py`, the repository's one mutation engine: use it rather than writing another; to check every commit of a branch use `tools/ci_lokalnie.py --kazdy-commit`, not `git rebase --exec`.
   Run it once for each test or check added or changed in a round of work.

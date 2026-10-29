@@ -35,8 +35,10 @@ GITIGNORE = (REPOSITORY_ROOT / ".gitignore").read_text(encoding="utf-8")
 MAPPING = "config/worker_mapping.yaml"
 
 
-def _get(port: int, path: str) -> dict[str, Any]:
-    with urllib.request.urlopen(f"http://127.0.0.1:{port}{path}", timeout=1) as response:
+def _get(port: int, path: str, *, timeout_s: float = 30) -> dict[str, Any]:
+    """Jeden odczyt API Centrum ze skrótu; karta też nie ma limitu 1 s, a przeciążony runner Windows stoi dłużej (#584)."""
+
+    with urllib.request.urlopen(f"http://127.0.0.1:{port}{path}", timeout=timeout_s) as response:
         body = json.load(response)
         assert isinstance(body, dict)
         return body
@@ -71,7 +73,7 @@ def _health(process: subprocess.Popen[str], port: int) -> dict[str, Any]:
     deadline = time.monotonic() + 60
     while True:
         try:
-            return _get(port, "/api/health")
+            return _get(port, "/api/health", timeout_s=1)
         except OSError:
             pass
         if process.poll() is not None:
