@@ -103,7 +103,7 @@ def test_kazdy_plik_testow_biegnie_raz_na_kazdym_torze_a_udzialy_dlugiego_pliku_
     assert [job.id for job in plan.zadania if "krok:timing" in job.jednostki] != [] == [job for job in plan.zadania if "krok:timing" in job.jednostki and job.tor != "windows-3.14"]
 
 
-@pytest.mark.parametrize(("skills", "event", "limit"), [(False, "pull_request", "ZADANIA_RUNU"), (True, "pull_request", "ZADANIA_RUNU"), (True, "push", "ZADANIA_RUNU_MAIN")])
+@pytest.mark.parametrize(("skills", "event", "limit"), [(False, "pull_request", "ZADANIA_RUNU"), (True, "pull_request", "ZADANIA_RUNU"), (True, "push", "ZADANIA_RUNU_MAIN"), (True, plan_ci.NOC, "ZADANIA_RUNU_MAIN")])
 def test_run_miesci_sie_w_limicie_zadan_zdarzenia_bo_cel_sciany_rosnie_o_krok(skills: bool, event: str, limit: str, monkeypatch: pytest.MonkeyPatch) -> None:
     czasy = _with_skill_times(_times(per_file_s=150.0))
     steps = _skill_steps(list(SKILL_STEPS)) if skills else None
