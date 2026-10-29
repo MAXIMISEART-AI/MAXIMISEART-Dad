@@ -77,6 +77,7 @@ CI_LOOPS = (
     "until ! gh pr checks 446 | grep -q pending; do sleep 30; done >&2",
     "until ! gh pr checks 446 | grep -q pending; do sleep 30; done > ci.log 2>&1 && gh pr checks 446",
     "until ! gh pr checks 446 | grep -q pending; do sleep 30; done <&0",
+    "until ! gh pr checks 446 | grep -q pending; do sleep 30; done |& tee ci.log",
     # ``&`` za ``;`` albo nową linią puszcza w tło tylko następne polecenie.
     "until ! gh pr checks 446 | grep -q pending; do sleep 30; done; afplay /System/Library/Sounds/Glass.aiff &",
     "until ! gh pr checks 446 | grep -q pending; do sleep 30; done\nafplay /System/Library/Sounds/Glass.aiff &",
@@ -169,6 +170,10 @@ PASSING = (
     # Syntetyczne: pętla w tle na końcu polecenia, pętla zakończona przed ``sleep`` i wzorce wyszukiwania ze słowem pętli.
     "until ! gh pr checks 446 | grep -q pending; do sleep 30; done &",
     "(until ! gh pr checks 446 | grep -q pending; do sleep 30; done) &",
+    # ``&`` za potokiem albo listą ``||`` puszcza w tło całą listę razem z pętlą.
+    "until ! gh pr checks 446 | grep -q pending; do sleep 30; done 2>&1 | tee ci.log &",
+    "until ! gh pr checks 446 | grep -q pending; do sleep 30; done |& tee ci.log & W=$!",
+    "until ! gh pr checks 446 | grep -q pending; do sleep 30; done || echo przerwane &",
     "for f in a b; do echo $f; done; sleep 10; gh pr checks 1",
     # Samotne ``done`` po zamkniętej pętli nie zamyka jej drugi raz.
     "until test -f x; do echo; done; sleep 5; gh pr checks 1; done",

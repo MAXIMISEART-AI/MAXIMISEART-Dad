@@ -57,10 +57,11 @@ LOOP_WORD = re.compile(rf"{_STARTS}(until|while|for)\b|{_ENDS}(done)\b", re.MULT
 # a czekaniem są dopiero z wyjściem z pętli albo licznikiem prób od 0 albo 1 (`$(seq 247 264)` to numery PR).
 OVER_LIST = re.compile(r"(?:for|while\s+(?:IFS=\S*\s+)?read)\b")
 STOPS = re.compile(r"^for\s*\(\(|\b(?:break|exit|return)\b(?!=)|\$\(seq\s+(?:[01]\s+)?\d+\s*\)|\{[01]\.\.\d+\}")
-# Pętla puszczona `&` (próbnik obok pomiaru, ubijany potem `kill`) nie blokuje polecenia, a `&>`, `>&2` i `2>&1`
-# to przekierowania. Bez zagnieżdżonych kwantyfikatorów, bo cofanie po `2>1 2>1 …` nie miałoby końca.
-LIST_END = re.compile(r"[;|\n]")
-LONE_AMPERSAND = re.compile(r"(?<![<>&])&(?![&>])")
+# Pętla puszczona `&` (próbnik obok pomiaru, ubijany potem `kill`) nie blokuje polecenia, a `&>`, `>&2`, `2>&1`
+# i `|&` to przekierowania. `&` puszcza w tło całą listę do `;` albo nowej linii, także z `|` i `||` (`done | tee log &`).
+# Bez zagnieżdżonych kwantyfikatorów, bo cofanie po `2>1 2>1 …` nie miałoby końca.
+LIST_END = re.compile(r"[;\n]")
+LONE_AMPERSAND = re.compile(r"(?<![<>&|])&(?![&>])")
 HEREDOC = re.compile(r"(?<!<)<<-?\s*(['\"]?)(\w+)\1")
 # Skrypt powłoki to tylko argument `-c` powłoki: `grep -c '…'` liczy wiersze, a `python3 -c '…'` to Python.
 SHELL_ARGUMENT = re.compile(r"(?:^|[\s/;&|(`])(?:ba|da|k|z)?sh\s+-c\s*$")
