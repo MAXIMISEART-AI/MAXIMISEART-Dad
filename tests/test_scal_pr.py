@@ -34,7 +34,7 @@ here = pathlib.Path(sys.argv[0]).parent
 arguments = sys.argv[1:]
 pulls = json.loads((here / "pulls.json").read_text())
 issues = json.loads((here / "issues.json").read_text())
-default_branch = (here / "default_branch").read_text()
+repo_view = (here / "repo_view").read_text()
 
 
 def git(*command):
@@ -71,7 +71,11 @@ elif arguments[0] == "api" and arguments[1].startswith("repos/o/r/issues/"):
     else:
         sys.exit("gh: Not Found (HTTP 404)")
 elif arguments[:2] == ["repo", "view"]:
-    print(json.dumps({"defaultBranchRef": {"name": default_branch}}))
+    with (here / "repo_views.jsonl").open("a") as log:
+        log.write(json.dumps(arguments) + "\\n")
+    if repo_view.startswith("gh: "):
+        sys.exit(repo_view)
+    print(repo_view)
 elif arguments[:2] == ["issue", "close"]:
     issues[arguments[2]] = json.dumps({"state": "closed"})
     (here / "issues.json").write_text(json.dumps(issues))
@@ -122,7 +126,7 @@ class FakeGitHub:
         gh.chmod(0o755)
         self.pulls: dict[str, dict[str, object]] = {}
         self.issues: dict[str, str] = {}
-        self.default_branch = "main"
+        self.repo_view = _repo_view("main")  # zaczęte od „gh: ” to błąd ``gh repo view``
         self.written = 0
 
     def open_pull(self, number: int, files: dict[str, str], *, parent: str = "") -> str:
@@ -212,6 +216,9 @@ class FakeGitHub:
     def closed(self) -> list[list[str]]:
         return self._log("closed.jsonl")
 
+    def repo_views(self) -> list[list[str]]:
+        return self._log("repo_views.jsonl")
+
     def _log(self, name: str) -> list[list[str]]:
         log = self.bin / name
         return [json.loads(line) for line in log.read_text(encoding="utf-8").splitlines()] if log.exists() else []
@@ -219,7 +226,11 @@ class FakeGitHub:
     def _save(self) -> None:
         (self.bin / "pulls.json").write_text(json.dumps(self.pulls), encoding="utf-8")
         (self.bin / "issues.json").write_text(json.dumps(self.issues), encoding="utf-8")
-        (self.bin / "default_branch").write_text(self.default_branch, encoding="utf-8")
+        (self.bin / "repo_view").write_text(self.repo_view, encoding="utf-8")
+
+
+def _repo_view(default_branch: str) -> str:
+    return json.dumps({"defaultBranchRef": {"name": default_branch}})
 
 
 def _last_line(answered: subprocess.CompletedProcess[str]) -> str:
@@ -525,7 +536,7 @@ def test_po_merge_zamyka_otwarte_issues_z_naprawia_z_komentarzem_a_bez_merge_tyl
 
 def test_merge_do_galezi_innej_niz_domyslna_niczego_nie_zamyka(tmp_path: Path) -> None:
     github = FakeGitHub(tmp_path, {"kod/__init__.py": SUM})
-    github.default_branch = "trunk"
+    github.repo_view = _repo_view("trunk")
     head = github.open_pull(1, {"kod/inne.py": "INNE: int = 1\n"})
     github.open_issues(3, 4)
     github.update(1, body="Naprawia #3, #4")
@@ -537,6 +548,44 @@ def test_merge_do_galezi_innej_niz_domyslna_niczego_nie_zamyka(tmp_path: Path) -
     assert _last_line(checked).endswith("bez merge'a (--bez-merge) | bez zamykania #3, #4: baza main to nie trunk")
     assert merged.returncode == 0, merged.stdout + merged.stderr
     assert " | bez zamykania #3, #4: baza main to nie trunk | " in _last_line(merged)
+    assert len(github.merges()) == 1
+    assert github.closed() == []
+
+
+def test_pr_bez_naprawia_nie_pyta_o_domyslna_galaz_i_nie_podaje_bazy(tmp_path: Path) -> None:
+    github = FakeGitHub(tmp_path, {"kod/__init__.py": SUM})
+    github.repo_view = _repo_view("trunk")
+    head = github.open_pull(1, {"kod/inne.py": "INNE: int = 1\n"})
+    github.comment(1, f"WERDYKT: PASS {head}")
+
+    checked = github.run("1", "--bez-merge")
+    merged = github.run("1")
+
+    assert _last_line(checked).endswith("bez merge'a (--bez-merge)")
+    merge_commit = git(github.origin, "rev-parse", "refs/heads/main")
+    assert f"jako {merge_commit[:7]} (baza {github.start[:7]}) | sprzątanie pominięte" in _last_line(merged)
+    assert github.repo_views() == []
+
+
+@pytest.mark.parametrize("answer", ["gh: HTTP 502", "", "{}"], ids=["blad-http", "pusta-odpowiedz", "bez-defaultBranchRef"])
+def test_bez_domyslnej_galezi_od_githuba_merge_sie_odbywa_a_issues_zostaja_otwarte_z_ostrzezeniem(
+    tmp_path: Path, answer: str
+) -> None:
+    github = FakeGitHub(tmp_path, {"kod/__init__.py": SUM})
+    github.repo_view = answer
+    head = github.open_pull(1, {"kod/inne.py": "INNE: int = 1\n"})
+    github.open_issues(3)
+    github.update(1, body="Naprawia #3")
+    github.comment(1, f"WERDYKT: PASS {head}")
+
+    checked = github.run("1", "--bez-merge")
+    merged = github.run("1")
+
+    assert checked.returncode == 0, checked.stdout + checked.stderr
+    assert _last_line(checked).endswith("(--bez-merge) | UWAGA: GitHub nie podał domyślnej gałęzi, nie sprawdzono #3")
+    assert merged.returncode == 0, merged.stdout + merged.stderr
+    assert " | UWAGA: GitHub nie podał domyślnej gałęzi, nie zamknięto #3, zamknij ręcznie | " in _last_line(merged)
+    assert "Traceback" not in merged.stderr
     assert len(github.merges()) == 1
     assert github.closed() == []
 
@@ -588,7 +637,12 @@ def test_bez_commitu_merge_od_githuba_issues_zostaja_otwarte_z_ostrzezeniem(tmp_
     ("body", "fixes"),
     [
         ("Naprawia #490.", (490,)),
-        ("- Naprawia #490\n* Naprawia #491\n  Naprawia #492\n\tnaprawia #493", (490, 491, 492, 493)),
+        ("- Naprawia #490\n* Naprawia #491\n  Naprawia #492\n   naprawia #493", (490, 491, 492, 493)),
+        ("-    Naprawia #490\n-     Naprawia #491\n-\tNaprawia #492", (490, 492)),
+        ("*Naprawia #490*\n-Naprawia #491", ()),
+        ("   - Naprawia #490\n    - Naprawia #491", (490,)),
+        ("Przykład opisu:\n\n    Naprawia #490\n", ()),
+        ("Przykład:\n\n\tNaprawia #490\n", ()),
         ("Naprawia #490, #491 i #492 oraz #493", (490, 491, 492, 493)),
         ("## Why\n\nNaprawia #487\nNaprawia #493\nNaprawia #487", (487, 493)),
         ("Naprawia o/r#490", (490,)),
@@ -614,16 +668,29 @@ def test_bez_commitu_merge_od_githuba_issues_zostaja_otwarte_z_ostrzezeniem(tmp_
         ("``Naprawia ` #490``\nNaprawia #491", (491,)),
         ("`kod` Naprawia #490", ()),
         ("`kod\nNaprawia #490`", ()),
-        ("Zmienia 5` znaków.\n\nNaprawia #490\n\nI `kod`", (490,)),
+        ("`x``\nNaprawia #490\n`", ()),
+        ("``x`\nNaprawia #490\n`", ()),
+        ("Zmienia 5` znaków.\n \nNaprawia #490\nI `kod`", (490,)),
         ("```\nNaprawia #490\n```\nNaprawia #491", (491,)),
         ("   ```\nkod\n\nNaprawia #490\n   ```\nNaprawia #491", (491,)),
         ("~~~text\nNaprawia #490\n~~~", ()),
+        ("```\n```python\nNaprawia #490\n```\n~~~\n~~~text\nNaprawia #491\n~~~\nNaprawia #492", (492,)),
+        ("````\nkod\n```\nNaprawia #490\n````\nNaprawia #491", (491,)),
+        ("~~~\n```\nNaprawia #490\n~~~\nNaprawia #491", (491,)),
+        ("```\nkod\n```~\nNaprawia #490\n```\nNaprawia #491", (491,)),
+        ("```\nkod\n````  \nNaprawia #490\n~~~\nkod\n~~~~\nNaprawia #491", (490, 491)),
+        ("```\r\nkod\r\n```\r\nNaprawia #490\r\n", (490,)),
         ("```\nNaprawia #490 w niedomkniętym bloku", ()),
         ("Closes #490", ()),
     ],
     ids=[
         "linia-naprawia",
         "znacznik-listy-i-wciecie",
+        "wciecie-po-znaczniku-listy",
+        "znacznik-listy-bez-spacji",
+        "lista-wcieta-o-cztery-spacje",
+        "wciety-blok-kodu",
+        "blok-kodu-wciety-tabulatorem",
         "kilka-numerow-w-linii",
         "kilka-linii-bez-powtorzen",
         "pelne-odwolanie-do-tego-repo",
@@ -649,10 +716,18 @@ def test_bez_commitu_merge_od_githuba_issues_zostaja_otwarte_z_ostrzezeniem(tmp_
         "backtick-w-fragmencie-kodu",
         "naprawia-za-fragmentem-kodu",
         "fragment-kodu-w-dwoch-liniach",
-        "fragment-kodu-nie-przechodzi-przez-pusta-linie",
+        "dluzszy-ciag-backtickow-nie-zamyka-fragmentu-kodu",
+        "fragment-kodu-po-niedomknietych-backtickach",
+        "fragment-kodu-nie-przechodzi-przez-linie-ze-spacjami",
         "blok-kodu",
         "wciety-plot-bloku-kodu",
         "blok-kodu-z-tyldami",
+        "plot-z-tekstem-nie-zamyka-bloku-kodu",
+        "krotszy-plot-nie-zamyka-bloku-kodu",
+        "plot-z-innym-znakiem-nie-zamyka-bloku-kodu",
+        "plot-z-dopisanym-innym-znakiem-nie-zamyka-bloku-kodu",
+        "dluzszy-plot-ze-spacjami-zamyka-blok-kodu",
+        "plot-z-crlf-zamyka-blok-kodu",
         "niedomkniety-blok-kodu",
         "slowo-githuba",
     ],

@@ -32,14 +32,18 @@ usuwa, tylko mówi, które lokalne gałęzie i worktree można usunąć. Sprząt
 ostrzeżeniem w linii ``SCAL OK``, bo PR jest już scalony.
 
 Po merge'u do domyślnej gałęzi repozytorium, przed sprzątaniem, zamyka jego otwarte issues, które opis PR wskazuje
-słowem „Naprawia” na początku linii, po spacjach i znaczniku listy ``-`` albo ``*``: ``Naprawia #490``, kilka numerów
-(``Naprawia #490, #491``, ``#490 i #491``, ``oraz``) i kilka linii. GitHub tego słowa nie zna, więc bez narzędzia
-takie issues zostawały otwarte. Każde dostaje komentarz z numerem PR i pełnym SHA commitu merge'a, a linia ``SCAL OK``
-podaje ``zamknięte: #N``. Nie zamyka: „naprawia” w środku zdania (także „nie naprawia #N”), ``#N`` bez „Naprawia”,
-tekstu w bloku albo fragmencie kodu, cytatu ani komentarza HTML, numeru PR, issue już zamkniętego, issues, które GitHub
-zamyka sam (``closingIssuesReferences``: ``Closes``, ``Fixes``, ``Resolves``), ani odwołań do innego repozytorium, np.
-``Naprawia MAXIMISEART-AI/MAXIMISEART-Dad-zgloszenia#12, #13``, w którym ``#13`` też należy do Zgłoszeń: zamknięte
-Zgłoszenie mówi Centrum taty, że poprawka czeka na aktualizację, a merge do ``main`` to jeszcze nie Wydanie.
+słowem „Naprawia” na początku linii, po najwyżej trzech spacjach i znaczniku listy ``-`` albo ``*`` ze spacją:
+``Naprawia #490``, kilka numerów (``Naprawia #490, #491``, ``#490 i #491``, ``oraz``) i kilka linii. GitHub tego słowa
+nie zna, więc bez narzędzia takie issues zostawały otwarte. Każde dostaje komentarz z numerem PR i pełnym SHA commitu
+merge'a, a linia ``SCAL OK`` podaje ``zamknięte: #N``. Nie zamyka: „naprawia” w środku zdania (także „nie naprawia
+#N”), ``#N`` bez „Naprawia”, tekstu w bloku albo fragmencie kodu, cytatu ani komentarza HTML, numeru PR, issue już
+zamkniętego, issues, które GitHub zamyka sam (``closingIssuesReferences``: ``Closes``, ``Fixes``, ``Resolves``), ani
+odwołań do innego repozytorium, np. ``Naprawia MAXIMISEART-AI/MAXIMISEART-Dad-zgloszenia#12, #13``, w którym ``#13``
+też należy do Zgłoszeń: zamknięte Zgłoszenie mówi Centrum taty, że poprawka czeka na aktualizację, a merge do ``main``
+to jeszcze nie Wydanie. Jak w CommonMark, linia wcięta o cztery spacje albo tabulatorem (także po znaczniku listy o
+pięć spacji) to blok kodu, a blok z płotem kończy tylko płot z tym samym znakiem, nie krótszy i bez tekstu po nim.
+O domyślną gałąź pyta GitHuba (``gh repo view``) tylko wtedy, gdy opis ma takie numery; gdy jej nie poda, narzędzie
+niczego nie zamyka, tylko ostrzega ``UWAGA: GitHub nie podał domyślnej gałęzi, nie zamknięto #N, zamknij ręcznie``.
 Jak GitHub przy ``Closes``, merge do innej gałęzi (stos PR-ów) niczego nie zamyka, a linia podaje ``bez zamykania #N:
 baza <gałąź> to nie <domyślna>``. Gdy GitHub po merge'u nie poda commitu merge'a, narzędzie nie zamyka, bo nie wie,
 czy PR wszedł do gałęzi (np. czeka w kolejce merge'a), tylko ostrzega ``UWAGA: GitHub nie podał commitu merge'a, nie
@@ -78,12 +82,13 @@ CLEANUP = ROOT / "tools" / "sprzatanie.py"
 CLEANUP_TIMEOUT_S = 300
 _REFERENCE = r"(?:[\w.-]+/[\w.-]+)?#\d+"
 FIXES = re.compile(
-    rf"^[ \t]*(?:[-*][ \t]+)?naprawia[ \t]+({_REFERENCE}(?:[ \t]*(?:,|\bi\b|\boraz\b)[ \t]*{_REFERENCE})*)",
+    rf"^ {{0,3}}(?:[-*](?: {{1,4}}|\t))?naprawia[ \t]+({_REFERENCE}(?:[ \t]*(?:,|\bi\b|\boraz\b)[ \t]*{_REFERENCE})*)",
     re.IGNORECASE | re.MULTILINE,
 )
 REFERENCE = re.compile(r"(?:([\w.-]+/[\w.-]+))?#(\d+)")
 HIDDEN = re.compile(
-    r"^ {0,3}(`{3,}|~{3,}).*?(?:^ {0,3}\1|\Z)|<!--.*?(?:-->|\Z)|(?<!`)(`+)(?!`)(?:(?!\n[ \t]*\n).)*?(?<!`)\2(?!`)",
+    r"^ {0,3}(`{3,}).*?(?:^ {0,3}\1`*[ \t]*\r?$|\Z)|^ {0,3}(~{3,}).*?(?:^ {0,3}\2~*[ \t]*\r?$|\Z)|<!--.*?(?:-->|\Z)"
+    r"|(?<!`)(`+)(?!`)(?:(?!\n[ \t]*\n).)*?(?<!`)\3(?!`)",
     re.MULTILINE | re.DOTALL,
 )
 
@@ -97,7 +102,6 @@ class Pull:
     problems: tuple[str, ...]
     verdicts: tuple[dict[str, object], ...]
     repository: str
-    default_branch: str
     fixes: tuple[int, ...]
 
 
@@ -190,7 +194,6 @@ def _pull(number: int) -> Pull:
         if f"{issue['repository']['owner']['login']}/{issue['repository']['name']}".casefold() == repository.casefold()
     }
     fixes = tuple(issue for issue in fixed_issues(pull["body"], repository) if issue not in closed_by_github)
-    default_branch = json.loads(_gh("repo", "view", repository, "--json", "defaultBranchRef"))["defaultBranchRef"]["name"]
     return Pull(
         number,
         pull["title"],
@@ -199,7 +202,6 @@ def _pull(number: int) -> Pull:
         tuple(problems),
         tuple(verdicts),
         repository,
-        default_branch,
         fixes,
     )
 
@@ -230,9 +232,16 @@ def _check(pull: Pull) -> str:
 def _close_fixed(pull: Pull, *, merged: bool, merge_commit: str | None) -> str:
     """Zamyka otwarte issues z ``pull.fixes`` z komentarzem o merge'u, a przed merge'em tylko je podaje."""
 
-    if pull.fixes and pull.base != pull.default_branch:
-        listed = ", ".join(f"#{number}" for number in pull.fixes)
-        return f" | bez zamykania {listed}: baza {pull.base} to nie {pull.default_branch}"
+    if not pull.fixes:
+        return ""
+    listed = ", ".join(f"#{number}" for number in pull.fixes)
+    try:
+        default_branch = str(json.loads(_gh("repo", "view", pull.repository, "--json", "defaultBranchRef"))["defaultBranchRef"]["name"])
+    except Exception:  # noqa: BLE001 - po merge'u każdy błąd to tylko ostrzeżenie w linii SCAL OK, bo PR jest już scalony
+        unread = f"nie zamknięto {listed}, zamknij ręcznie" if merged else f"nie sprawdzono {listed}"
+        return f" | UWAGA: GitHub nie podał domyślnej gałęzi, {unread}"
+    if pull.base != default_branch:
+        return f" | bez zamykania {listed}: baza {pull.base} to nie {default_branch}"
     closes = merged and merge_commit is not None
     open_issues, failed = [], []
     for number in pull.fixes:
