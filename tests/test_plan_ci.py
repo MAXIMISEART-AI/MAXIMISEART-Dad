@@ -76,10 +76,10 @@ def _with_skill_times(czasy: czasy_ci.Czasy) -> czasy_ci.Czasy:
     return czasy_ci.Czasy(czasy.runy, {**czasy.tory, lane: {**czasy.tory.get(lane, {}), **keys}})
 
 
-def _plan(czasy: czasy_ci.Czasy, files: list[str], steps: list[mutacje_skilli.Step] | None = None) -> plan_ci.Plan:
+def _plan(czasy: czasy_ci.Czasy, files: list[str], steps: list[mutacje_skilli.Step] | None = None, event: str = "pull_request") -> plan_ci.Plan:
     lanes = [plan_ci.wycen(lane, files, czasy) for lane in plan_ci.TORY]
     skills = [] if steps is None else [plan_ci.wycen_mutacje(steps, czasy)]
-    return plan_ci.rozplanuj([*lanes, *skills], "pull_request", czasy.runy)
+    return plan_ci.rozplanuj([*lanes, *skills], event, czasy.runy)
 
 
 def _run_jobs(plan: plan_ci.Plan) -> int:
@@ -103,23 +103,29 @@ def test_kazdy_plik_testow_biegnie_raz_na_kazdym_torze_a_udzialy_dlugiego_pliku_
     assert [job.id for job in plan.zadania if "krok:timing" in job.jednostki] != [] == [job for job in plan.zadania if "krok:timing" in job.jednostki and job.tor != "windows-3.14"]
 
 
-@pytest.mark.parametrize("skills", [False, True])
-def test_run_miesci_sie_w_limicie_zadan_konta_bo_cel_sciany_rosnie_co_5_s(skills: bool, monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize(("skills", "event", "limit"), [(False, "pull_request", "ZADANIA_RUNU"), (True, "pull_request", "ZADANIA_RUNU"), (True, "push", "ZADANIA_RUNU_MAIN")])
+def test_run_miesci_sie_w_limicie_zadan_zdarzenia_bo_cel_sciany_rosnie_o_krok(skills: bool, event: str, limit: str, monkeypatch: pytest.MonkeyPatch) -> None:
     czasy = _with_skill_times(_times(per_file_s=150.0))
     steps = _skill_steps(list(SKILL_STEPS)) if skills else None
-    plan = _plan(czasy, [*FILES, LONG], steps)
-    limit = plan_ci.ZADANIA_RUNU
-    monkeypatch.setattr(plan_ci, "ZADANIA_RUNU", 100)
-    unlimited = _plan(czasy, [*FILES, LONG], steps)
+    for name in ("ZADANIA_RUNU", "ZADANIA_RUNU_MAIN"):
+        monkeypatch.setattr(plan_ci, name, 1000)
+    unlimited = _plan(czasy, [*FILES, LONG], steps, event)
+    # Limit tego zdarzenia mieści połowę zadań runu bez limitu, a limit drugiego zdarzenia zostaje 1000.
+    jobs = plan_ci.STALE_ZADANIA + len(unlimited.zadania) // 2
+    monkeypatch.setattr(plan_ci, limit, jobs)
+    plan = _plan(czasy, [*FILES, LONG], steps, event)
+    monkeypatch.setattr(plan_ci, limit, 1000)
+    monkeypatch.setattr(plan_ci, "CEL_S", plan.cel_s - plan_ci.KROK_CELU_S)
+    step_less = _plan(czasy, [*FILES, LONG], steps, event)
 
-    assert _run_jobs(plan) <= plan_ci.ZADANIA_RUNU == 100
-    assert _run_jobs(plan) <= limit < _run_jobs(unlimited)
-    assert unlimited.cel_s == plan_ci.CEL_S < plan.cel_s
-    assert (plan.cel_s - plan_ci.CEL_S) % plan_ci.KROK_CELU_S == 0
+    assert unlimited.cel_s < plan.cel_s
+    assert (plan.cel_s - unlimited.cel_s) % plan_ci.KROK_CELU_S == 0
+    # Cel rośnie tylko tyle, ile trzeba: o krok mniej run nie mieści się w limicie.
+    assert _run_jobs(plan) <= jobs < _run_jobs(step_less)
     # Jeden cel dla wszystkich torów: Mutation checks dzielą limit zadań z pytest, a nie biorą go przed nimi. Dłużej
     # trwa tylko zadanie z jedną jednostką, której nie da się podzielić (podstawa, skrypt z dwiema mutacjami).
     assert all(job.sciana_s <= plan.cel_s or len(job.jednostki) == 1 for job in plan.zadania)
-    assert all(job.sciana_s <= plan_ci.CEL_S or len(job.jednostki) == 1 for job in unlimited.zadania)
+    assert all(job.sciana_s <= unlimited.cel_s or len(job.jednostki) == 1 for job in unlimited.zadania)
     assert bool(plan.macierz("mutations")) == skills
 
 
@@ -148,9 +154,11 @@ def test_kazdy_wybrany_krok_skilla_biegnie_raz_a_skrypt_dluzszy_od_zadania_w_cze
     assert all(job.sciana_s <= plan.cel_s or len(job.jednostki) == 1 for job in jobs)
 
 
-def _base_in_parts(seconds: float, key: str = "verify-e/ci") -> plan_ci.Plan:
-    """Plan pull requestu z jedną podstawą z ``ci-czesci: 4``, która trwa w CI ``seconds``."""
+def _base_in_parts(capacities: float, key: str = "verify-e/ci") -> plan_ci.Plan:
+    """Plan pull requestu z jedną podstawą z ``ci-czesci: 4``, która trwa w CI ``capacities`` razy tyle, ile mieści
+    zadanie Mutation checks przy ``CEL_S`` (narzut 43 s z ``_with_skill_times``)."""
 
+    seconds = capacities * (plan_ci.CEL_S - 43.0 - plan_ci.DOMYSLNIE.koniec_s)
     steps = [mutacje_skilli.Step(ROOT / ".agents" / "skills" / key.split("/")[0], key, key, (key,), None, 4, True)]
     czasy = _with_skill_times(_times())
     lane = czasy.tory[plan_ci.MUTACJE.pomiary]
@@ -158,10 +166,10 @@ def _base_in_parts(seconds: float, key: str = "verify-e/ci") -> plan_ci.Plan:
     return plan_ci.rozplanuj([plan_ci.wycen_mutacje(steps, czasy)], "pull_request", czasy.runy)
 
 
-@pytest.mark.parametrize(("seconds", "parts"), [(300.0, 2), (3000.0, 4)], ids=["dwie części mieszczą się w zadaniu", "do limitu ci-czesci"])
-def test_podstawa_z_ci_czesci_dluzsza_od_zadania_biegnie_w_czesciach_ktore_skladaja_sie_na_cala(seconds: float, parts: int) -> None:
+@pytest.mark.parametrize(("capacities", "parts"), [(1.5, 2), (10.0, 4)], ids=["dwie części mieszczą się w zadaniu", "do limitu ci-czesci"])
+def test_podstawa_z_ci_czesci_dluzsza_od_zadania_biegnie_w_czesciach_ktore_skladaja_sie_na_cala(capacities: float, parts: int) -> None:
     key = "verify-e/ci"
-    plan = _base_in_parts(seconds, key)
+    plan = _base_in_parts(capacities, key)
     units = sorted(unit for job in plan.zadania for unit in job.jednostki)
     complete = [_record(plan, job, _reported(job)) for job in plan.zadania]
     lost = dataclasses.replace(plan, zadania=plan.zadania[1:])
@@ -202,7 +210,7 @@ def _incomplete(case: str) -> tuple[plan_ci.Plan, str]:
         broken = _with_units(plan, {job.id: tuple(unit for unit in job.jednostki if unit != share)})
         rest = ", ".join(f"{share}/{count}" for share in range(2, int(count) + 1))
         return broken, f"plan CI: części {rest} jednostki pytest:{LONG} na torze windows-3.11 nie są całością 1..{count}"
-    plan, key = _base_in_parts(300.0), "skill:verify-e/ci"
+    plan, key = _base_in_parts(1.5), "skill:verify-e/ci"
     [first, second] = plan.zadania
     if case == "zdublowana":
         broken = _with_units(plan, {"mutacje-3": first.jednostki})
@@ -220,7 +228,9 @@ def test_required_czerwienieje_gdy_czesci_jednostki_nie_sa_kazda_z_1_do_n_doklad
     assert plan_ci.werdykt(plan, results, [_record(plan, job, _reported(job)) for job in plan.zadania]) == [reason]
 
 
-def test_w_zadaniu_podstawa_skilla_biegnie_przed_jego_skryptami_mutacji() -> None:
+def test_w_zadaniu_podstawa_skilla_biegnie_przed_jego_skryptami_mutacji(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Cel, przy którym podstawa (30 s) i skrypt (60 s) mieszczą się w jednym zadaniu z narzutem Mutation checks.
+    monkeypatch.setattr(plan_ci, "CEL_S", 150.0)
     plan = _plan(_with_skill_times(_times()), FILES, steps=_skill_steps(["verify-c/check_c_mutations.py", "verify-c/ci"]))
 
     assert [job.jednostki for job in plan.zadania if job.tor == plan_ci.MUTACJE.nazwa] == [("skill:verify-c/ci", "skill:verify-c/check_c_mutations.py")]
@@ -323,7 +333,7 @@ def test_bez_czasow_z_main_plan_wazy_prace_domyslnie_mowi_to_i_daje_macierz(
 
     assert code == 0
     assert out[0] == "CZASY CI | pobranie czasy-ci z GitHuba: gh: not logged in; plan waży pracę bez pomiaru domyślnie"
-    assert re.fullmatch(rf"PLAN CI \| push \| wszystkie pliki \| cel \d+ s \| (\d+) zadań runu \(limit {plan_ci.ZADANIA_RUNU}\) \| czasy z runów main: brak \(wagi domyślne\)", out[1]), out[1]
+    assert re.fullmatch(rf"PLAN CI \| push \| wszystkie pliki \| cel \d+ s \| (\d+) zadań runu \(limit {plan_ci.ZADANIA_RUNU_MAIN}\) \| czasy z runów main: brak \(wagi domyślne\)", out[1]), out[1]
     assert out[-1] == f"PLAN CI DIGEST | {plan.digest}"
     assert {unit for job in plan.zadania if job.tor == "linux-3.14" for unit in job.jednostki} == {f"pytest:{name}" for name in plan_ci.pliki_testow()}
     # Push biegnie każdy krok każdego skilla repozytorium.
@@ -643,7 +653,9 @@ def test_noca_podstawa_z_ci_czesci_biegnie_kazda_czescia_kazdego_n_a_pull_reques
         # Część, która pada tylko przy innym n niż dzisiejszy plan pull requestu, wychodzi w nocy.
         assert base == Counter(f"skill:verify-a/ci#{k}/{n}" for n in range(1, 4) for k in range(1, n + 1))
     else:
-        assert base == Counter(["skill:verify-a/ci"])
+        # Pull request: części jednego n, które zależy od celu ściany, każda dokładnie raz.
+        n = len(base)
+        assert base == (Counter(["skill:verify-a/ci"]) if n == 1 else Counter(f"skill:verify-a/ci#{k}/{n}" for k in range(1, n + 1))), base
 
 
 @pytest.mark.parametrize(
