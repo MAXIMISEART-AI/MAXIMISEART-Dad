@@ -26,7 +26,7 @@ from pathlib import Path
 import shutil
 import tempfile
 import threading
-from typing import Final, Literal
+from typing import Final
 
 from fastapi import APIRouter, Request
 
@@ -38,8 +38,6 @@ from rozliczenia.centrum.runs import RunHost
 from rozliczenia.centrum.shutdown import Shutdown
 from rozliczenia.centrum.tool_freshness import CommitSource, GitHubReleases, ReleaseSource
 from rozliczenia.centrum.tool_update import (
-    LIBRARIES_FAILED,
-    NO_CONNECTION,
     UNEXPECTED,
     UP_TO_DATE,
     ROLLBACK_FAILED,
@@ -50,8 +48,6 @@ from rozliczenia.centrum.tool_update import (
     read_result,
 )
 
-# Porażki, po których tata sam klika „Zaktualizuj narzędzie” jeszcze raz; każdą inną przejmuje Maks.
-_RETRIED_BY_TATA = frozenset({NO_CONNECTION, LIBRARIES_FAILED, UNEXPECTED, ROLLBACK_FAILED})
 # Odmowa „Wyślij do Maksa”, gdy ostatnia Aktualizacja narzędzia nie zawiodła.
 _NO_FAILED_UPDATE: Final = "Zgłoszenie powstaje po nieudanej aktualizacji narzędzia."
 
@@ -244,12 +240,12 @@ class ToolUpdates:
     def _failed(self, result: UpdateResult, *, after_restart: bool) -> _Failed:
         """Komunikat porażki z podglądem Zgłoszenia; ``aktualizacja-koniec`` jest już w dzienniku, więc podgląd go ma."""
 
-        message = update_messages.message_of(result.code)
-        source = UpdateReport.of(result, message, self._log)
+        failure = update_messages.UpdateFailure.of(result.code)
+        source = UpdateReport.of(result, failure.message, self._log)
         report = self._reports.handle(source.fingerprint)
         return _Failed(
-            contract.Message.of(message),
-            "retry" if message.code in _RETRIED_BY_TATA else "report",
+            contract.Message.of(failure.message),
+            failure.next_action,
             report,
             report.prepare(source),
             after_restart,
@@ -274,7 +270,7 @@ class _Failed:
     """Nieudana Aktualizacja narzędzia: Komunikat, co dalej i jej Zgłoszenie z zamrożonym podglądem ``draft``."""
 
     message: contract.Message
-    next_action: Literal["retry", "report"]
+    next_action: update_messages.NextAction
     report: ReportHandle
     draft: contract.ReportDraft
     after_restart: bool

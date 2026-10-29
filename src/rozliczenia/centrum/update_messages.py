@@ -1,9 +1,11 @@
 """Katalog Komunikatów Aktualizacji narzędzia: aktualizacja się nie udała.
 
 Kody porażek zwraca moduł ``tool_update``; treść dla taty jest tylko tutaj
-(``message_of``). Każdy Komunikat mówi, że narzędzie działa dalej w wersji
+(``UpdateFailure.of``). Każdy Komunikat mówi, że narzędzie działa dalej w wersji
 sprzed kliknięcia, a „Co zrobić” wprost, czy spróbować ponownie, czy przekazać
 sprawę Maksowi przyciskiem „Wyślij do Maksa” (Zgłoszenie przy Komunikacie).
+Ten sam wpis katalogu daje karcie ten dalszy krok, więc przycisk i „Co zrobić”
+mówią to samo.
 Wyjątkiem jest nieudane cofnięcie (``rollback_failed``): wtedy narzędzie może
 nie działać.
 „Gdzie” nie ma ścieżek. Instrukcja taty
@@ -13,7 +15,8 @@ cytuje „Co się stało” każdego Komunikatu (``tests/test_instrukcja_taty.py
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
-from typing import Final
+from dataclasses import dataclass
+from typing import Final, Literal
 
 from rozliczenia.centrum.tool_update import (
     LIBRARIES_FAILED,
@@ -124,20 +127,38 @@ def rollback_failed() -> Message:
     )
 
 
-_BY_CODE: Final[Mapping[str, Callable[[], Message]]] = {
-    NO_GIT: no_git,
-    NO_CONNECTION: no_connection,
-    LOGIN: login_required,
-    OTHER_BRANCH: other_branch,
-    LOCAL_CHANGES: local_changes,
-    UNEXPECTED: unexpected_failure,
-    LIBRARIES_FAILED: libraries_failed,
-    NEW_VERSION_FAILED: new_version_failed,
-    ROLLBACK_FAILED: rollback_failed,
+NextAction = Literal["retry", "report"]
+"""Co tata robi po porażce: ``retry`` klika „Zaktualizuj narzędzie” jeszcze raz, ``report`` przekazuje sprawę Maksowi."""
+
+_BY_CODE: Final[Mapping[str, tuple[Callable[[], Message], NextAction]]] = {
+    NO_GIT: (no_git, "report"),
+    NO_CONNECTION: (no_connection, "retry"),
+    LOGIN: (login_required, "report"),
+    OTHER_BRANCH: (other_branch, "report"),
+    LOCAL_CHANGES: (local_changes, "report"),
+    UNEXPECTED: (unexpected_failure, "retry"),
+    LIBRARIES_FAILED: (libraries_failed, "retry"),
+    NEW_VERSION_FAILED: (new_version_failed, "report"),
+    ROLLBACK_FAILED: (rollback_failed, "retry"),
 }
 
 
-def message_of(code: str) -> Message:
-    """Komunikat porażki o kodzie ``code`` z ``tool_update``; nieznany kod to porażka nieoczekiwana."""
+@dataclass(frozen=True)
+class UpdateFailure:
+    """Porażka Aktualizacji narzędzia dla karty: Komunikat i dalszy krok taty z tego samego wpisu katalogu."""
 
-    return _BY_CODE.get(code, unexpected_failure)()
+    message: Message
+    next_action: NextAction
+
+    @classmethod
+    def of(cls, code: str) -> UpdateFailure:
+        """Porażka o kodzie ``code`` z ``tool_update``; nieznany kod to porażka nieoczekiwana."""
+
+        factory, next_action = _BY_CODE.get(code, _BY_CODE[UNEXPECTED])
+        return cls(factory(), next_action)
+
+
+def message_of(code: str) -> Message:
+    """Komunikat porażki o kodzie ``code`` z ``tool_update``, bez dalszego kroku (``UpdateFailure.of``)."""
+
+    return UpdateFailure.of(code).message
