@@ -1,0 +1,135 @@
+name: Mutacje nocne
+
+# Once a day, one mutation per line of src/ and tools/ that changed on main since the last successful night, as
+# tools/mutacje_zmiany.py mutates it. Each surviving mutation goes to the issue "Przeżyte mutacje z #N" of the PR that
+# last changed its line (tools/mutacje_nocne.py, ADR 0021). Pull requests neither run nor wait for it.
+on:
+  schedule:
+    - cron: '30 1 * * *'
+  workflow_dispatch:
+    inputs:
+      od:
+        description: 'Mutate the changes since this commit (default: the last successful run, or 24 h back)'
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+concurrency:
+  # Two runs at once would file the same surviving mutations; a later run waits.
+  group: mutacje-nocne
+  cancel-in-progress: false
+
+jobs:
+  plan:
+    name: Plan mutacji nocnych
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      # The base is the head commit of the last successful run of this workflow.
+      actions: read
+    outputs:
+      baza: ${{ steps.plan.outputs.baza }}
+      czesci: ${{ steps.plan.outputs.czesci }}
+      liczba: ${{ steps.plan.outputs.liczba }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      # Standard library only, so the runner's python3 runs it as is.
+      - name: Find the base and split its mutations into parts
+        id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+          OD: ${{ inputs.od }}
+        run: python3 tools/mutacje_nocne.py plan --od "$OD"
+
+  change-mutations:
+    name: Change mutations (${{ matrix.czesc }}/${{ needs.plan.outputs.liczba }})
+    needs: plan
+    if: ${{ needs.plan.outputs.czesci != '[]' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        czesc: ${{ fromJSON(needs.plan.outputs.czesci) }}
+    env:
+      PYTHONUTF8: '1'
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - id: python
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.14'
+
+      - uses: astral-sh/setup-uv@v10.3.2
+        with:
+          enable-cache: false
+
+      - name: Install dependencies
+        # The same as the Linux pytest parts of ci.yml: the tests of tools/ it runs call the real ruff and mypy. The
+        # editable install does not hide a mutation: tools/mutacje.py puts the copy's src first.
+        run: uv pip install --system --python "${{ steps.python.outputs.python-path }}" -e ".[dev]"
+
+      # A surviving mutation ends the tool with code 1, and that is a result to file, not a broken part: the last job
+      # judges each part by its record and turns the run red for a part without a result.
+      - name: Mutate the part's changed lines of src/ and tools/
+        continue-on-error: true
+        env:
+          BAZA: ${{ needs.plan.outputs.baza }}
+          CZESC: ${{ matrix.czesc }}/${{ needs.plan.outputs.liczba }}
+        run: python tools/mutacje_zmiany.py --baza "$BAZA" --czesc "$CZESC" --zapis .ci-mutacje/czesc.json
+
+      - name: Upload the surviving mutations
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: mutacje-nocne-${{ matrix.czesc }}
+          path: .ci-mutacje/czesc.json
+          retention-days: 30
+          if-no-files-found: warn
+          include-hidden-files: true
+          overwrite: true
+
+  zgloszenie:
+    name: Zgłoszenie przeżytych mutacji
+    needs:
+      - plan
+      - change-mutations
+    # Also after a failed part: the mutations that survived in the other parts still get their issues.
+    if: ${{ !cancelled() && needs.plan.result == 'success' && needs.plan.outputs.czesci != '[]' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      issues: write
+      # gh api repos/{owner}/{repo}/commits/<sha>/pulls, when the merge commit does not name its PR.
+      pull-requests: read
+    steps:
+      # git blame and the first-parent history of main find the PR that last changed each line.
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      # A missing record is the verdict's to judge, not a failed download.
+      - uses: actions/download-artifact@v8
+        continue-on-error: true
+        with:
+          pattern: mutacje-nocne-*
+          path: .ci-mutacje/zapisy
+
+      - name: File each surviving mutation in the issue of the PR that last changed its line
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BAZA: ${{ needs.plan.outputs.baza }}
+          LICZBA: ${{ needs.plan.outputs.liczba }}
+          RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: python3 tools/mutacje_nocne.py zglos --baza "$BAZA" --zapisy .ci-mutacje/zapisy --czesci "$LICZBA" --run "$RUN"

@@ -15,12 +15,10 @@
 
 - Dziecko `delegate_task` kończy zadanie na pushu i utworzeniu PR, a zwraca URL PR i pełny SHA HEAD. Rodzic wywołuje `watch_pull_request` i kończy turę, a T3 budzi go po końcu CI.
 - Przegląd PR zlecaj zaraz po pushu, równolegle z CI.
-  Change mutations startują dopiero po zielonym `Required CI status`, więc recenzent pisze werdykt po ich końcu, a gdy dał `PASS` wcześniej i mutacje przeżyły, uzupełnia go nowym `PASS` z liniami `MUTACJA`.
-- PR jest gotowy do merge'a, gdy na HEAD PR zielony jest `Required CI status` (i każdy inny workflow niż `CI`, który biegnie na PR), Change mutations się skończyły, przeszły skille `verify-*` z linii `SKILLE VERIFY` narzędzia `tools/skille_dla_zmiany.py` i jest `PASS` niezależnego recenzenta.
+- PR jest gotowy do merge'a, gdy na HEAD PR zielony jest `Required CI status` (i każdy inny workflow niż `CI`, który biegnie na PR), przeszły skille `verify-*` z linii `SKILLE VERIFY` narzędzia `tools/skille_dla_zmiany.py` i jest `PASS` niezależnego recenzenta.
   Skille `verify-*` przeszły, gdy ich polecenia z linii `LICZY CI` przechodzą w zielonym CI, a resztę ich workflow agent wykonał i skończył bez FAIL.
-  `PASS` ma dla każdej przeżytej mutacji linię `MUTACJA <id> | test dodany` albo `MUTACJA <id> | nie warto, bo <powód>`, a `<id>` to `<plik>:<linia> <opis>` z linii `NIEWYKRYTA` zadania Change mutations.
-  Czerwone Change mutations z omówionymi przeżytymi mutacjami gotowości nie odbierają, a pilnuje tego `tools/scal_pr.py`.
   `SZYBKO OK` i `CI LOKALNIE OK` gotowości nie dają.
+- Mutacje zmienionych linii biegną nocą na `main` (ADR 0021), a każda przeżyta trafia do issue `Przeżyte mutacje z #N` (`ready-for-agent`) PR-u, który ostatni zmienił jej linię.
 - Merge PR: tylko `.venv/bin/python tools/scal_pr.py N` (Windows: `py -3 tools/scal_pr.py N`), nigdy gołe `gh pr merge`; warunki scalenia i postać werdyktów podaje jego `--help`. Zgoda to komentarz albo recenzja niezależnego recenzenta, której pierwsza linia to `WERDYKT: PASS <pełny SHA HEAD>`.
 - CI i gałąź: przeczytaj [`docs/agents/pr-i-ci.md`](docs/agents/pr-i-ci.md), zanim uruchomisz lokalnie zadanie CI albo zrobisz rebase lub merge `main` do gałęzi, i gdy zadanie CI padło, status `scalenie z main` nie jest zielony, `main` jest czerwony albo chcesz sprawdzić każdy commit gałęzi.
 

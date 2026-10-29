@@ -1,4 +1,4 @@
-"""Psuje zmienione linie ``src/`` i ``tools/`` i sprawdza, że test to zauważa, jak zadanie CI ``Change mutations``.
+"""Psuje zmienione linie ``src/`` i ``tools/`` i sprawdza, że test to zauważa, jak nocne mutacje ``main`` (ADR 0021).
 
 Zmiana to linie plików ``src/**/*.py`` i ``tools/**/*.py``, którymi checkout (z niezacommitowanymi i nieśledzonymi
 plikami) różni się od ``merge-base`` HEAD z ``--baza`` (domyślnie ``origin/main``). Na każdej zmienionej linii narzędzie
@@ -65,10 +65,10 @@ fragmentu ma linię początku fragmentu, więc obejmuje je komentarz nad nim alb
 terminie nie obowiązuje, ale narzędzie widzi go dopiero przy
 następnej zmianie jego pliku, a komentarz ``mutacje-zmiany:`` w innej postaci kończy narzędzie błędem.
 
-Kończy się ``MUTACJE ZMIANY OK | …`` albo ``MUTACJE ZMIANY FAIL | …``. W CI biegnie na Linuksie w trzech częściach
-zadania ``Change mutations``, które startuje dopiero po zielonym ``Required CI status`` i go nie blokuje. Z ``--zapis``
-każda część zapisuje swoją ostatnią linię i nazwy przeżytych mutacji (``<plik>:<linia> <opis>``, jak w linii
-``NIEWYKRYTA``), a ``tools/scal_pr.py`` każe recenzentowi omówić każdą z nich w ``PASS``.
+Kończy się ``MUTACJE ZMIANY OK | …`` albo ``MUTACJE ZMIANY FAIL | …``. W CI biegnie nocą na Linuksie, na ``main``, od
+bazy z ``tools/mutacje_nocne.py``, w częściach workflow ``mutacje-nocne.yml``. Z ``--zapis`` każda część zapisuje swoją
+ostatnią linię i nazwy przeżytych mutacji (``<plik>:<linia> <opis>``, jak w linii ``NIEWYKRYTA``), a
+``tools/mutacje_nocne.py`` zakłada z nich issue PR-u, który ostatni zmienił linię.
 
 Granica: nie zastępuje mutacji z opisu PR. Obietnicę, której żadna z tych mutacji nie psuje (inny klucz
 wyszukiwania, kolejność kroków), samo usunięcie linii, dekoratory, argument pozycyjny, kod poza ``src/`` i ``tools/``
@@ -79,12 +79,13 @@ Pod ``tools/na_scalonych_pr.py`` pliki ``tools/``, które ten podmienił narzęd
 commitu w takim pliku narzędzie zgłasza linią ``NIESPRAWDZONA``: zmianę ``tools/`` z historii sprawdza tylko próba
 z ``--narzedzia`` wskazującym commit, który do narzędzi tego commitu dokłada samo nowe ``tools/mutacje_zmiany.py``.
 
-Poza CI biegnie tylko do odtworzenia porażki zadania z runu Actions tej gałęzi (``tools/ciezkie_ci.py``):
+Poza CI biegnie tylko do odtworzenia części, która padła w runie Actions bieżącej gałęzi (``tools/ciezkie_ci.py``).
+Run nocny dotyczy ``main``, więc odtwarza się go na ``main``, z bazą i częścią z jego planu:
 
-    .venv/bin/python tools/mutacje_zmiany.py --odtwarzam <id albo URL runu>
-    .venv/bin/python tools/mutacje_zmiany.py --baza feat/galaz-rodzica --odtwarzam <id albo URL runu>
+    .venv/bin/python tools/mutacje_zmiany.py --baza <baza z planu> --czesc K/N --odtwarzam <id albo URL runu>
 
-Z ``--czesc K/N`` biegnie co N-ta mutacja od K-tej, więc N zadań CI dzieli mutacje bez listy w ``ci.yml``.
+Z ``--czesc K/N`` biegnie K-ty z N kolejnych kawałków listy mutacji, posortowanej po plikach i liniach, więc N zadań
+CI dzieli mutacje bez listy w workflow, a każde liczy pokrycie tylko na testach swoich kilku plików.
 """
 
 from __future__ import annotations
@@ -749,7 +750,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--baza", default=BASE, help=f"Gałąź, od której liczy się zmiana (domyślnie {BASE}).")
     parser.add_argument("--rownolegle", type=int, default=WORKERS, help="Ile mutacji biegnie naraz, każda w swojej kopii.")
     parser.add_argument("--limit-s", type=float, default=900, help="Limit czasu testów jednej mutacji w sekundach.")
-    parser.add_argument("--czesc", metavar="K/N", type=_part, default=(1, 1), help="Tylko co N-ta mutacja, od K-tej.")
+    parser.add_argument("--czesc", metavar="K/N", type=_part, default=(1, 1), help="Tylko K-ty z N kolejnych kawałków listy mutacji.")
     parser.add_argument("--zapis", type=Path, help="Plik JSON z ostatnią linią i nazwami przeżytych mutacji (artefakt CI).")
     ciezkie_ci.argument(parser)
     args = parser.parse_args(argv)
@@ -784,7 +785,7 @@ def _mutate(args: argparse.Namespace, survived: list[str]) -> tuple[int, str]:
     except ValueError as error:
         return 1, f"MUTACJE ZMIANY FAIL | {error}"
     every = [mutant for path, text in texts.items() for mutant in selected(path, text, hunks[path])]
-    found = every[number - 1 :: count]
+    found = every[len(every) * (number - 1) // count : len(every) * number // count]
     if not found:
         where = f" w części {number}/{count}" if every else ""
         return 0, f"MUTACJE ZMIANY OK | brak mutacji zmienionych linii src/ i tools/ od {args.baza}{where}"

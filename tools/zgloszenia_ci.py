@@ -58,8 +58,8 @@ DLUGOSC_W_TYTULE, DLUGOSC_W_TRESCI = 200, 2000
 # Tyle commitów `main` wstecz szuka ostatniego zielonego.
 HISTORIA = 50
 OKNO_ZDERZEN = timedelta(days=7)
-_MERGE = re.compile(r"Merge pull request #(?P<numer>[1-9][0-9]*) from \S+")
-_SQUASH = re.compile(r"(?P<tytul>.+) \(#(?P<numer>[1-9][0-9]*)\)")
+MERGE = re.compile(r"Merge pull request #(?P<numer>[1-9][0-9]*) from \S+")
+SQUASH = re.compile(r"(?P<tytul>.+) \(#(?P<numer>[1-9][0-9]*)\)")
 _ZNACZNIK = re.compile(r"<!-- czerwony-main (?P<sha>[0-9a-f]{40}) -->")
 _RUN = re.compile(r"/actions/runs/(?P<run>[0-9]+)")
 _PLIK_PYTEST = re.compile(r"pytest:(tests/[\w/]+\.py)")
@@ -170,7 +170,7 @@ class CzerwonyMain:
             if self.zderzenie.nowe:
                 nowe = self.zderzenie.nowe
                 reszta = [f"… i {len(nowe) - NAJWIECEJ_NOWYCH} więcej"] if len(nowe) > NAJWIECEJ_NOWYCH else []
-                linie += ["Porażki, których nie było na czerwonym rodzicu:", "", *_kod([*nowe[:NAJWIECEJ_NOWYCH], *reszta]), ""]
+                linie += ["Porażki, których nie było na czerwonym rodzicu:", "", *blok_kodu([*nowe[:NAJWIECEJ_NOWYCH], *reszta]), ""]
         if self.przyczyny:
             linie += ["Przyczyny z `Required CI status`:", "", "```", *self.przyczyny, "```", ""]
         if self.zielony is not None:
@@ -185,7 +185,7 @@ def _numery(pr: Sequence[PR]) -> str:
     return ", ".join(f"#{p.numer}" for p in pr)
 
 
-def _kod(linie: Sequence[str]) -> list[str]:
+def blok_kodu(linie: Sequence[str]) -> list[str]:
     """Blok kodu z ``linie``: płot dłuższy od każdego ciągu backticków w nich, więc treść nie wyjdzie z bloku."""
 
     plot = "`" * max([3, *(len(ciag) + 1 for linia in linie for ciag in re.findall("`+", linia))])
@@ -293,7 +293,7 @@ def _flaki(github: GitHub, run: Run) -> list[Akcja]:
     for test in list(testy)[:NAJWIECEJ_FLAKOW]:
         opis = f"padł w [runie {run.id}]({run.url}) ({run.zdarzenie}, commit {run.sha}{pr}) i przeszedł po jednym ponowieniu."
         izolacja = "Ponowienie uruchamia same testy, które padły, więc przechodzi też test, który pada tylko po innym teście."
-        tresc = "\n".join(["Test", "", *_kod([_przytnij(test, DLUGOSC_W_TRESCI)]), "", opis, izolacja])
+        tresc = "\n".join(["Test", "", *blok_kodu([_przytnij(test, DLUGOSC_W_TRESCI)]), "", opis, izolacja])
         tytul = f"Flak: {_przytnij(test, DLUGOSC_W_TYTULE)}"
         if tytul in otwarte:
             wynik.append(Skomentuj(otwarte[tytul], tresc))
@@ -399,10 +399,10 @@ def _scalenia(root: Path, *zakres: str) -> list[tuple[datetime, PR]]:
     znalezione = []
     for zapis in reversed(zapisy):
         czas, temat, tresc = zapis.lstrip("\n").split("\x1f", 2)
-        if (scalenie := _MERGE.fullmatch(temat)) is not None:
+        if (scalenie := MERGE.fullmatch(temat)) is not None:
             tytul = next((linia.strip() for linia in tresc.splitlines() if linia.strip()), temat)
             znalezione.append((_chwila(czas), PR(int(scalenie["numer"]), tytul)))
-        elif (squash := _SQUASH.fullmatch(temat)) is not None:
+        elif (squash := SQUASH.fullmatch(temat)) is not None:
             znalezione.append((_chwila(czas), PR(int(squash["numer"]), squash["tytul"])))
     return znalezione
 

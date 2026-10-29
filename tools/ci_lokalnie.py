@@ -1,5 +1,5 @@
-"""Lokalnie te same sprawdzenia co CI: zadania ruff, mypy i frontend (w CI jedno zadanie ``szybkie``), pytest,
-mutations i change-mutations.
+"""Lokalnie te same sprawdzenia co CI: zadania ruff, mypy i frontend (w CI jedno zadanie ``szybkie``), pytest i
+mutations.
 
 Uruchamia każdy krok po kolei Pythonem, który uruchomił skrypt (w worktree: jego ``.venv``,
 patrz ``tools/setup_worktree.py``), i drukuje wynik kroku jedną linią; wyjście pokazuje tylko
@@ -9,8 +9,9 @@ w toku (``tools/praca_w_toku.py --nakladania``). Kroki pytest i mutacji skilli b
 (``tools/plan_ci.py``) dzieli je między zadania i dokłada do zadań Windows E2E i Timing guard, które mają swoje
 narzędzia (skill verify-rozliczenia, ``tools/benchmark_przebiegu.py``), bo trwają kilka minut.
 
-Ciężkie zadania (``change-mutations``, ``mutations``), także w przebiegu wszystkich zadań, liczy CI na GitHubie:
-poza CI biegną tylko z ``--odtwarzam <id albo URL runu>``, w którym padły na tej gałęzi (``tools/ciezkie_ci.py``).
+Ciężkie zadanie ``mutations``, także w przebiegu wszystkich zadań, liczy CI na GitHubie: poza CI biegnie tylko z
+``--odtwarzam <id albo URL runu>``, w którym padło na tej gałęzi (``tools/ciezkie_ci.py``). Mutacje zmienionych linii
+nie biegną w ``ci.yml``, tylko nocą na ``main`` (``mutacje-nocne.yml``, ADR 0021), więc narzędzie ich nie odtwarza.
 
 ``--kazdy-commit`` sprawdza każdy commit gałęzi od bazy (domyślnie ``origin/main``) we własnym
 tymczasowym worktree, domyślnie krokami ruff, mypy i pytest, i nie dotyka checkoutu: zastępuje
@@ -20,7 +21,7 @@ Kroki i kopie commitów nie przeżywają ``ci_lokalnie``, także zabitego przez 
 
     py -3 tools/ci_lokalnie.py --tylko pytest               # Windows
     .venv/bin/python tools/ci_lokalnie.py --tylko pytest    # macOS i Linux
-    .venv/bin/python tools/ci_lokalnie.py --tylko change-mutations --odtwarzam <id albo URL runu>
+    .venv/bin/python tools/ci_lokalnie.py --tylko mutations --odtwarzam <id albo URL runu>
     .venv/bin/python tools/ci_lokalnie.py --kazdy-commit
     .venv/bin/python tools/ci_lokalnie.py --tylko ruff,mypy
 """
@@ -30,7 +31,6 @@ from __future__ import annotations
 import argparse
 from dataclasses import dataclass
 import json
-import os
 from pathlib import Path
 import shutil
 import subprocess
@@ -84,7 +84,6 @@ def _steps(root: Path) -> list[Step]:
         Step("pytest", "pytest", "tools/plan_ci.py wykonaj", (python, "-m", "pytest", "-q", "-n", "auto"), root),
         # W CI kroki skilli biegną z planu, w zadaniach Mutation checks; tu wszystkie po kolei.
         Step("mutacje skilli", "mutations", "tools/plan_ci.py wykonaj", (python, "tools/mutacje_skilli.py"), root),
-        Step("mutacje zmiany", "change-mutations", "tools/mutacje_zmiany.py", (python, "tools/mutacje_zmiany.py"), root),
         Step("npm ci", "frontend", "npm ci", (npm, "ci"), frontend),
         *(
             Step(f"npm run {script}", "frontend", f"npm run {script}", (npm, "run", script), frontend)
@@ -201,9 +200,6 @@ def main(argv: list[str] | None = None) -> int:
     if refusal := ciezkie_ci.refusal(jobs, args.odtwarzam, root=ROOT):
         print(refusal)
         return 2
-    if args.odtwarzam:
-        # Krok ``mutacje zmiany`` to osobny proces ze strażnikiem, a run sprawdził już ten.
-        os.environ[ciezkie_ci.REPRODUCING] = args.odtwarzam
     if args.kazdy_commit:
         return _check_every_commit(args.kazdy_commit, jobs, fail_fast=args.do_pierwszego_bledu)
     complete = jobs == known

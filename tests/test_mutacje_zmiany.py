@@ -119,6 +119,17 @@ def test_czesci_dziela_mutacje_miedzy_siebie(tmp_path: Path) -> None:
     assert not names[0] & names[1]
 
 
+def test_czesc_bierze_kolejne_mutacje_wiec_pokrycie_biegnie_na_testach_mniejszej_liczby_plikow(tmp_path: Path) -> None:
+    # Noc mutuje zmiany wielu PR-ów; co N-ta mutacja dałaby każdej części testy wszystkich zmienionych plików.
+    repo = _repo(tmp_path, ONE_CASE, other="def inny(a: bool, b: bool) -> bool:\n    return a\n")
+    (repo / "src" / "rozliczenia" / "inny.py").write_text("def inny(a: bool, b: bool) -> bool:\n    return a or b\n", encoding="utf-8")
+
+    parts = [_run(repo, "--czesc", f"{number}/2") for number in (1, 2)]
+
+    counted = [next(line for line in done.stdout.splitlines() if line.startswith("Mutacje: ")) for done in parts]
+    assert [line.partition(" od ")[0] for line in counted] == [f"Mutacje: 2 (część {number}/2 z 4) w 1 plikach src/ i tools/" for number in (1, 2)]
+
+
 def test_wyjatek_w_linii_mutacji_ja_pomija_a_wygasly_juz_nie(tmp_path: Path) -> None:
     allowed = CHANGED.replace("a and b\n", "a and b  # mutacje-zmiany: tylko na próbę | do 2999-01-01 | zgoda Maks\n")
     expired = CHANGED.replace("a and b\n", "a and b  # mutacje-zmiany: tylko na próbę | do 2000-01-01 | zgoda Maks\n")

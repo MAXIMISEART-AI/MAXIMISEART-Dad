@@ -430,6 +430,7 @@ FAST_PROGRAMS = frozenset({"git", "gh", "ps"})
 # Lokalne podpolecenia gita, które kończą się w ułamku sekundy i nie uruchamiają pomocników (sieć, hooki).
 FAST_GIT = frozenset(
     {
+        "blame",
         "branch",
         "commit-tree",
         "config",
