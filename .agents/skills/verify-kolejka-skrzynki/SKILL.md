@@ -86,15 +86,17 @@ cover three definitions in files that Centrum changes often: `lifespan` in
 rest of their files, is drift. Name these three files here without their
 `src/…` path in backticks: such a path makes the whole file covered.
 
-**Sync commit: `6f94edb8`** (2026-10-29, `main` before the TLA+ model). The
-checker and the model share it: at this commit both were confirmed to
-describe the code above. Since the checker's earlier sync `8122ab4c` only
-`15362856` changed a covered file: `Outbox` calls `on_rejected` after a
-refused content, which neither the checker nor the model describes. To see
-whether they need another look:
+**Sync commit: `0ab6ff1b`** (2026-10-30, #665: after a refused comment the
+queue file keeps the number of the Uwaga's issue). The checker and the model
+share it: at this commit both were confirmed to describe the code above. The
+checker leaves `Rejected` out, so #665 changed only the model. Before it,
+`6f94edb8` was the sync of both, and since the checker's earlier sync
+`8122ab4c` only `15362856` changed a covered file: `Outbox` calls
+`on_rejected` after a refused content, which neither the checker nor the
+model describes. To see whether they need another look:
 
 ```bash
-git log --oneline 6f94edb8..HEAD -- src/rozliczenia/centrum/outbox.py src/rozliczenia/centrum/keyed_box.py src/rozliczenia/centrum/report_box.py src/rozliczenia/centrum/atomic_file.py
+git log --oneline 0ab6ff1b..HEAD -- src/rozliczenia/centrum/outbox.py src/rozliczenia/centrum/keyed_box.py src/rozliczenia/centrum/report_box.py src/rozliczenia/centrum/atomic_file.py
 ```
 
 A change to the three definitions above shows as a `UWAGA:` line of
