@@ -17,7 +17,10 @@ import sys
 
 import pytest
 
+from tests.fixtures import opisy_pr
 from tests.fixtures.git_repo import commit, git, repository
+
+import scal_pr
 
 pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="Atrapa gh to skrypt sh.")
 
@@ -26,11 +29,14 @@ SUM = "def suma(a: int, b: int) -> int:\n    return a + b\n"
 PYPROJECT = '[tool.ruff]\ninclude = ["kod/**/*.py"]\n\n[tool.mypy]\nstrict = true\nfiles = ["kod"]\n'
 CLEANUP = 'import pathlib\n\npathlib.Path("posprzatane").write_text("tak")\nprint("SPRZĄTANIE OK | 0 usuniętych")\n'
 FAKE_GH = """\
-import json, os, pathlib, subprocess, sys
+import json, os, pathlib, subprocess, sys, time
 
 here = pathlib.Path(sys.argv[0]).parent
 arguments = sys.argv[1:]
 pulls = json.loads((here / "pulls.json").read_text())
+issues = json.loads((here / "issues.json").read_text())
+repo_view = (here / "repo_view").read_text()
+markdown = json.loads((here / "markdown.json").read_text())
 
 
 def git(*command):
@@ -39,8 +45,13 @@ def git(*command):
     return done.stdout.strip()
 
 
+REPO = "maximiseartai/MAXIMISEART-Dad"
+
+
 if arguments[:2] == ["pr", "view"]:
     pull = pulls[arguments[2]]
+    if pull.get("poMergeu") == "błąd" and pull["state"] == "MERGED":
+        sys.exit("gh: HTTP 502")
     print(json.dumps({field: pull[field] for field in arguments[arguments.index("--json") + 1].split(",")}))
 elif arguments[:2] == ["pr", "merge"]:
     pull = pulls[arguments[2]]
@@ -50,9 +61,40 @@ elif arguments[:2] == ["pr", "merge"]:
     tree = git("merge-tree", "--write-tree", base, pull["headRefOid"])
     merge = git("commit-tree", tree, "-p", base, "-p", pull["headRefOid"], "-m", "Merge")
     git("update-ref", "refs/heads/main", merge)
-    pull.update(state="MERGED", mergeCommit={"oid": merge})
+    pull.update(state="MERGED", mergeCommit=None if pull.get("poMergeu") else {"oid": merge})
     (here / "pulls.json").write_text(json.dumps(pulls))
     with (here / "merges.jsonl").open("a") as log:
+        log.write(json.dumps(arguments) + "\\n")
+elif arguments == ["api", "markdown", "--input", "-"]:
+    request = json.loads(sys.stdin.read())
+    with (here / "renders.jsonl").open("a") as log:
+        log.write(json.dumps(request) + "\\n")
+    if request.keys() != {"text", "mode", "context"} or request["mode"] != "gfm" or request["context"].casefold() != REPO.casefold():
+        sys.exit(f"atrapa gh nie zna renderowania: {request}")
+    html = markdown.get(request["text"], "gh: atrapa gh nie zna opisu")
+    if html == "zawiesza":
+        time.sleep(60)
+    elif html.startswith("gh: "):
+        sys.exit(html)
+    print(html, end="")
+elif arguments[0] == "api" and arguments[1].startswith(f"repos/{REPO}/issues/"):
+    number = arguments[1].rpartition("/")[2]
+    if issues.get(number) == "zawiesza":
+        time.sleep(60)
+    elif number in issues:
+        print(issues[number])
+    else:
+        sys.exit("gh: Not Found (HTTP 404)")
+elif arguments[:2] == ["repo", "view"]:
+    with (here / "repo_views.jsonl").open("a") as log:
+        log.write(json.dumps(arguments) + "\\n")
+    if repo_view.startswith("gh: "):
+        sys.exit(repo_view)
+    print(repo_view)
+elif arguments[:2] == ["issue", "close"]:
+    issues[arguments[2]] = json.dumps({"state": "closed"})
+    (here / "issues.json").write_text(json.dumps(issues))
+    with (here / "closed.jsonl").open("a") as log:
         log.write(json.dumps(arguments) + "\\n")
 else:
     sys.exit(f"atrapa gh nie zna: {arguments}")
@@ -91,13 +133,11 @@ class FakeGitHub:
         self.start = commit(self.checkout, "start")
         git(self.checkout, "remote", "add", "origin", str(origin))
         git(self.checkout, "push", "--quiet", "origin", "main")
-        self.bin = tmp_path / "bin"
-        self.bin.mkdir()
-        (self.bin / "gh.py").write_text(FAKE_GH, encoding="utf-8")
-        gh = self.bin / "gh"
-        gh.write_text(f'#!/bin/sh\nexec "{sys.executable}" "{self.bin / "gh.py"}" "$@"\n', encoding="utf-8")
-        gh.chmod(0o755)
+        self.bin = _fake_gh(tmp_path)
         self.pulls: dict[str, dict[str, object]] = {}
+        self.issues: dict[str, str] = {}
+        self.repo_view = _repo_view("main")  # zaczęte od „gh: ” to błąd ``gh repo view``
+        self.markdown = opisy_pr.rendered()  # HTML opisu, a jak w ``answer_issue`` błąd albo ``zawiesza``
         self.written = 0
 
     def open_pull(self, number: int, files: dict[str, str], *, parent: str = "") -> str:
@@ -117,6 +157,9 @@ class FakeGitHub:
             "comments": [],
             "reviews": [],
             "mergeCommit": None,
+            "url": f"https://github.com/{opisy_pr.REPO}/pull/{number}",
+            "body": "",
+            "closingIssuesReferences": [],
         }
         self._save()
         return head
@@ -169,12 +212,64 @@ class FakeGitHub:
             check=False,
         )
 
+    def open_issues(self, *numbers: int, state: str = "open") -> None:
+        self.answer_issue(*numbers, answer=json.dumps({"state": state}))
+
+    def answer_issue(self, *numbers: int, answer: str) -> None:
+        """``gh api`` issue ``numbers`` drukuje ``answer``, a ``zawiesza`` każe mu czekać minutę."""
+
+        self.issues.update(dict.fromkeys(map(str, numbers), answer))
+        self._save()
+
     def merges(self) -> list[list[str]]:
-        log = self.bin / "merges.jsonl"
+        return self._log("merges.jsonl")
+
+    def closed(self) -> list[list[str]]:
+        return self._log("closed.jsonl")
+
+    def repo_views(self) -> list[list[str]]:
+        return self._log("repo_views.jsonl")
+
+    def renders(self) -> list[list[str]]:
+        return self._log("renders.jsonl")
+
+    def _log(self, name: str) -> list[list[str]]:
+        log = self.bin / name
         return [json.loads(line) for line in log.read_text(encoding="utf-8").splitlines()] if log.exists() else []
 
     def _save(self) -> None:
         (self.bin / "pulls.json").write_text(json.dumps(self.pulls), encoding="utf-8")
+        (self.bin / "issues.json").write_text(json.dumps(self.issues), encoding="utf-8")
+        (self.bin / "repo_view").write_text(self.repo_view, encoding="utf-8")
+        (self.bin / "markdown.json").write_text(json.dumps(self.markdown), encoding="utf-8")
+
+
+def _fake_gh(tmp_path: Path) -> Path:
+    """Katalog atrapy ``gh`` bez PR-ów i issues, która renderuje opisy z ``tests/fixtures/opisy_pr.json``."""
+
+    directory = tmp_path / "bin"
+    directory.mkdir()
+    (directory / "gh.py").write_text(FAKE_GH, encoding="utf-8")
+    gh = directory / "gh"
+    gh.write_text(f'#!/bin/sh\nexec "{sys.executable}" "{directory / "gh.py"}" "$@"\n', encoding="utf-8")
+    gh.chmod(0o755)
+    for name, empty in (("pulls.json", "{}"), ("issues.json", "{}"), ("repo_view", ""), ("markdown.json", json.dumps(opisy_pr.rendered()))):
+        (directory / name).write_text(empty, encoding="utf-8")
+    return directory
+
+
+def _short_github_timeout(github: FakeGitHub) -> str:
+    """Commit na ``main`` z ``scalenia_pr.GITHUB_TIMEOUT_S`` równym 3 s, żeby ``gh``, które zawiesza, kończyło się szybko."""
+
+    scalenia = github.checkout / "tools" / "scalenia_pr.py"
+    scalenia.write_text(scalenia.read_text(encoding="utf-8").replace("GITHUB_TIMEOUT_S = 60", "GITHUB_TIMEOUT_S = 3"), encoding="utf-8")
+    git(github.checkout, "commit", "--quiet", "--all", "--message", "gh po 3 s")
+    git(github.checkout, "push", "--quiet", "origin", "main")
+    return git(github.checkout, "rev-parse", "HEAD")
+
+
+def _repo_view(default_branch: str) -> str:
+    return json.dumps({"defaultBranchRef": {"name": default_branch}})
 
 
 def _last_line(answered: subprocess.CompletedProcess[str]) -> str:
@@ -450,6 +545,180 @@ def test_baza_przesunieta_z_innego_klonu_przed_sprawdzeniem_jest_baza_scalenia(t
     assert answered.returncode == 0, answered.stdout + answered.stderr
     assert f"| scalony do main jako {git(github.origin, 'rev-parse', 'refs/heads/main')[:7]} (baza {moved[:7]}) |" in _last_line(answered)
     assert len(github.merges()) == 1
+
+
+def test_po_merge_zamyka_otwarte_issues_z_naprawia_z_komentarzem_a_bez_merge_tylko_je_podaje(tmp_path: Path) -> None:
+    github = FakeGitHub(tmp_path, {"kod/__init__.py": SUM, "tools/sprzatanie.py": CLEANUP})
+    head = github.open_pull(1, {"kod/inne.py": "INNE: int = 1\n"})
+    github.open_issues(3, 4, 6, 7)
+    github.open_issues(5, state="closed")
+    seven = {"number": 7, "repository": {"name": "maximiseart-dad", "owner": {"login": "MAXIMISEARTAI"}}}
+    four_elsewhere = {"number": 4, "repository": {"name": "repo", "owner": {"login": "inny"}}}
+    github.update(1, body=opisy_pr.SCALENIE["zamyka"], closingIssuesReferences=[seven, four_elsewhere])
+    github.comment(1, f"WERDYKT: PASS {head}")
+
+    checked = github.run("1", "--bez-merge")
+    closed_before_merge = github.closed()
+    merged = github.run("1")
+
+    assert checked.returncode == 0, checked.stdout + checked.stderr
+    assert _last_line(checked).endswith("bez merge'a (--bez-merge) | po merge'u zamknie: #3, #4")
+    assert closed_before_merge == []
+    merge_commit = git(github.origin, "rev-parse", "refs/heads/main")
+    assert merged.returncode == 0, merged.stdout + merged.stderr
+    assert _last_line(merged).endswith(f"jako {merge_commit[:7]} (baza {github.start[:7]}) | zamknięte: #3, #4 | sprzątanie: SPRZĄTANIE OK | 0 usuniętych")
+    comment = f"Naprawione przez #1, scalone jako {merge_commit}."
+    assert github.closed() == [["issue", "close", str(n), "--repo", opisy_pr.REPO, "--comment", comment] for n in (3, 4)]
+
+
+def test_merge_do_galezi_innej_niz_domyslna_niczego_nie_zamyka_ani_nie_renderuje_opisu(tmp_path: Path) -> None:
+    github = FakeGitHub(tmp_path, {"kod/__init__.py": SUM})
+    github.repo_view = _repo_view("trunk")
+    head = github.open_pull(1, {"kod/inne.py": "INNE: int = 1\n"})
+    github.open_issues(3, 4)
+    github.update(1, body=opisy_pr.SCALENIE["dwa"])
+    github.comment(1, f"WERDYKT: PASS {head}")
+
+    checked = github.run("1", "--bez-merge")
+    merged = github.run("1")
+
+    assert _last_line(checked).endswith("bez merge'a (--bez-merge) | bez zamykania „Naprawia”: baza main to nie trunk")
+    assert merged.returncode == 0, merged.stdout + merged.stderr
+    assert " | bez zamykania „Naprawia”: baza main to nie trunk | " in _last_line(merged)
+    assert len(github.merges()) == 1
+    assert github.closed() == []
+    assert github.renders() == []
+
+
+@pytest.mark.parametrize("body", ["Closes #3", "Ten PR\nnaprawia #3"], ids=["closes", "naprawia-mala-litera"])
+def test_pr_bez_slowa_naprawia_nie_pyta_o_domyslna_galaz_ani_nie_renderuje_opisu(tmp_path: Path, body: str) -> None:
+    github = FakeGitHub(tmp_path, {"kod/__init__.py": SUM})
+    github.repo_view = _repo_view("trunk")
+    head = github.open_pull(1, {"kod/inne.py": "INNE: int = 1\n"})
+    github.update(1, body=body)
+    github.comment(1, f"WERDYKT: PASS {head}")
+
+    checked = github.run("1", "--bez-merge")
+    merged = github.run("1")
+
+    assert _last_line(checked).endswith("bez merge'a (--bez-merge)")
+    merge_commit = git(github.origin, "rev-parse", "refs/heads/main")
+    assert f"jako {merge_commit[:7]} (baza {github.start[:7]}) | sprzątanie pominięte" in _last_line(merged)
+    assert github.repo_views() == []
+    assert github.renders() == []
+
+
+@pytest.mark.parametrize("answer", ["gh: HTTP 502", "", "{}"], ids=["blad-http", "pusta-odpowiedz", "bez-defaultBranchRef"])
+def test_bez_domyslnej_galezi_od_githuba_merge_sie_odbywa_a_issues_zostaja_otwarte_z_ostrzezeniem(
+    tmp_path: Path, answer: str
+) -> None:
+    github = FakeGitHub(tmp_path, {"kod/__init__.py": SUM})
+    github.repo_view = answer
+    head = github.open_pull(1, {"kod/inne.py": "INNE: int = 1\n"})
+    github.open_issues(3)
+    github.update(1, body=opisy_pr.SCALENIE["jedno"])
+    github.comment(1, f"WERDYKT: PASS {head}")
+
+    checked = github.run("1", "--bez-merge")
+    merged = github.run("1")
+
+    assert checked.returncode == 0, checked.stdout + checked.stderr
+    assert _last_line(checked).endswith("(--bez-merge) | UWAGA: GitHub nie podał domyślnej gałęzi, nie sprawdzono „Naprawia”")
+    assert merged.returncode == 0, merged.stdout + merged.stderr
+    warning = "UWAGA: GitHub nie podał domyślnej gałęzi, nie zamknięto issues z „Naprawia”, zamknij je ręcznie"
+    assert f" | {warning} | " in _last_line(merged)
+    assert "Traceback" not in merged.stderr
+    assert len(github.merges()) == 1
+    assert github.closed() == []
+
+
+@pytest.mark.parametrize("answer", ["gh: HTTP 502", "\n", "zawiesza"], ids=["blad-http", "pusta-odpowiedz", "gh-po-czasie"])
+def test_bez_html_opisu_od_githuba_merge_sie_odbywa_a_issues_zostaja_otwarte_z_ostrzezeniem(tmp_path: Path, answer: str) -> None:
+    github = FakeGitHub(tmp_path, {"kod/__init__.py": SUM})
+    head = github.open_pull(1, {"kod/inne.py": "INNE: int = 1\n"}, parent=_short_github_timeout(github))
+    github.open_issues(3)
+    github.markdown[opisy_pr.SCALENIE["jedno"]] = answer
+    github.update(1, body=opisy_pr.SCALENIE["jedno"])
+    github.comment(1, f"WERDYKT: PASS {head}")
+
+    checked = github.run("1", "--bez-merge")
+    merged = github.run("1")
+
+    assert checked.returncode == 0, checked.stdout + checked.stderr
+    assert _last_line(checked).endswith("(--bez-merge) | UWAGA: GitHub nie wyrenderował opisu PR, nie sprawdzono „Naprawia”")
+    assert merged.returncode == 0, merged.stdout + merged.stderr
+    warning = "UWAGA: GitHub nie wyrenderował opisu PR, nie zamknięto issues z „Naprawia”, zamknij je ręcznie"
+    assert f" | {warning} | " in _last_line(merged)
+    assert "Traceback" not in merged.stderr
+    assert len(github.merges()) == 1
+    assert github.closed() == []
+
+
+def test_porazka_zamykania_issue_nie_odwoluje_scalenia(tmp_path: Path) -> None:
+    github = FakeGitHub(tmp_path, {"kod/__init__.py": SUM})
+    head = github.open_pull(1, {"kod/inne.py": "INNE: int = 1\n"}, parent=_short_github_timeout(github))
+    github.open_issues(3)
+    github.answer_issue(10, answer="")
+    github.answer_issue(11, answer="{}")
+    github.answer_issue(12, answer="[]")
+    github.answer_issue(13, answer="zawiesza")
+    github.update(1, body=opisy_pr.SCALENIE["porazki"])
+    github.comment(1, f"WERDYKT: PASS {head}")
+
+    checked = github.run("1", "--bez-merge")
+    answered = github.run("1")
+
+    failed = "#14, #10, #11, #12, #13"
+    assert _last_line(checked).endswith(f" | po merge'u zamknie: #3 | UWAGA: nie sprawdzono {failed}")
+    assert answered.returncode == 0, answered.stdout + answered.stderr
+    assert f" | zamknięte: #3 | UWAGA: nie zamknięto {failed}, zamknij ręcznie | " in _last_line(answered)
+    assert len(github.merges()) == 1
+
+
+@pytest.mark.parametrize("after_merge", ["brak", "błąd"], ids=["github-bez-commitu-merge", "gh-pr-view-z-bledem"])
+def test_bez_commitu_merge_od_githuba_issues_zostaja_otwarte_z_ostrzezeniem(tmp_path: Path, after_merge: str) -> None:
+    github = FakeGitHub(tmp_path, {"kod/__init__.py": SUM})
+    head = github.open_pull(1, {"kod/inne.py": "INNE: int = 1\n"})
+    github.open_issues(3)
+    github.open_issues(5, state="closed")
+    github.update(1, body=opisy_pr.SCALENIE["bez-commitu-merge"], poMergeu=after_merge)
+    github.comment(1, f"WERDYKT: PASS {head}")
+
+    answered = github.run("1")
+
+    assert answered.returncode == 0, answered.stdout + answered.stderr
+    warning = "UWAGA: GitHub nie podał commitu merge'a, nie zamknięto #3, #15, zamknij ręcznie"
+    assert f"| scalony do main jako ? (baza {github.start[:7]}) | {warning} | " in _last_line(answered)
+    assert len(github.merges()) == 1
+    assert github.closed() == []
+
+
+@pytest.mark.parametrize(("body", "fixes"), [case[1:] for case in opisy_pr.PRZYPADKI], ids=[case[0] for case in opisy_pr.PRZYPADKI])
+def test_naprawia_wskazuje_issues_tego_repo_tylko_na_poczatku_linii_tekstu_ktory_github_pokazuje(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, body: str, fixes: tuple[int, ...]
+) -> None:
+    monkeypatch.setenv("PATH", f"{_fake_gh(tmp_path)}{os.pathsep}{os.environ['PATH']}")
+
+    assert scal_pr.fixed_issues(body, opisy_pr.REPO) == fixes
+
+
+def test_naprawia_wskazuje_issues_tego_repo_bez_wzgledu_na_wielkosc_liter_jego_nazwy(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("PATH", f"{_fake_gh(tmp_path)}{os.pathsep}{os.environ['PATH']}")
+
+    assert scal_pr.fixed_issues(opisy_pr.SCALENIE["dwa"], opisy_pr.REPO.swapcase()) == (3, 4)
+
+
+@pytest.mark.parametrize(("number", "fixes"), opisy_pr.PRAWDZIWE.items(), ids=[f"pr-{number}" for number in opisy_pr.PRAWDZIWE])
+def test_opisy_scalonych_pr_wskazuja_issues_ktore_github_zostawil_otwarte(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, number: int, fixes: tuple[int, ...]
+) -> None:
+    monkeypatch.setenv("PATH", f"{_fake_gh(tmp_path)}{os.pathsep}{os.environ['PATH']}")
+
+    assert scal_pr.fixed_issues(opisy_pr.real_body(number), opisy_pr.REPO) == fixes
+
+
+def test_kazdy_opis_testow_ma_html_z_renderera_githuba() -> None:
+    assert sorted(opisy_pr.rendered()) == sorted(set(opisy_pr.bodies())), "odśwież: .venv/bin/python tests/fixtures/opisy_pr.py"
 
 
 def test_sprzatanie_po_czasie_nie_odwoluje_scalenia(tmp_path: Path) -> None:
