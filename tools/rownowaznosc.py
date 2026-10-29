@@ -20,14 +20,18 @@ Porównanie:
 - kod wyjścia i JSON wyniku (``result``, ``summary``, ``warnings`` i ``stop`` z kodem i trzema częściami Komunikatu,
   ``progress``, ``technical_notes``, ``metrics_saved``) z zamaskowanymi polami zmiennymi: czasy (klucze ``*_ms`` i
   liczby z jednostką ``ms``), chwile z zegara (``RRRR-MM-DD GG-MM-SS`` i ISO 8601) i ścieżki folderów strony;
-- pliki folderu scenariusza po uruchomieniu, z chwilą w nazwie zamaskowaną: Folder rozliczeń pracowników przez
-  ``tools/porownanie_rozliczen.py``, inny skoroszyt część po części zipu bez ``docProps/core.xml`` (czas zapisu),
-  inny plik bajtowo. Plik metryk leży poza folderem scenariusza i nie jest porównywany.
+- pliki folderu scenariusza po uruchomieniu, z chwilą w nazwie zamaskowaną (pliki, których nazwy różnią się tylko
+  chwilą, dostają numer kolejny, więc dodatkowa kopia jest różnicą): każdy skoroszyt, także Rozliczenie pracownika,
+  część po części zipu bez ``docProps/core.xml`` (czas zapisu), inny plik bajtowo. Dwa uruchomienia tego samego kodu
+  dają te same części, a porównanie znaczeniowe (``tools/porownanie_rozliczen.py``) nie widzi ochrony arkusza,
+  autofiltra ani komentarzy. Ceną jest RÓŻNICA także przy zmianie zapisu bez zmiany znaczenia. Plik metryk leży poza
+  folderem scenariusza i nie jest porównywany.
 
 Wynik to tekst bez wartości komórek i pól: jedna linia na scenariusz, ``<scenariusz> | TAK SAMO | <kod i wynik>``
 albo ``<scenariusz> | RÓŻNICA | <co się różni>``, a na końcu ``RÓWNOWAŻNOŚĆ OK | <n> scenariuszy`` (kod 0) albo
 ``RÓWNOWAŻNOŚĆ RÓŻNICA | <scenariusze>`` (kod 1). Scenariusz, którego fixture nie ma w tym checkoucie (checkout
-starszy od procesu), daje linię ``BEZ FIXTURE`` i nie wchodzi do wyniku.
+starszy od procesu), daje linię ``BEZ FIXTURE`` i nie wchodzi do wyniku, a gdy żaden scenariusz nie został porównany,
+wynik to ``RÓWNOWAŻNOŚĆ NIESPRAWDZONA | 0 scenariuszy`` (kod 2).
 
 W kopii ``tools/na_scalonych_pr.py`` drzewo robocze ma ``tools/`` z innego checkoutu, więc tam podaj obie strony:
 
@@ -43,7 +47,7 @@ from contextlib import nullcontext
 from dataclasses import dataclass
 import io
 import json
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 import re
 import shutil
 import subprocess
@@ -66,7 +70,6 @@ TIMEOUT = 600
 TIME = "<CZAS>"
 MOMENT = "<CHWILA>"
 FOLDER = "<FOLDER>"
-SETTLEMENTS = "Rozliczenie pracowników "
 _MOMENT = re.compile(r"\d{4}-\d{2}-\d{2}[T ]\d{2}[:-]\d{2}[:-]\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?")
 _WRITE_TIME = "docProps/core.xml"
 # Tyle różnych pól JSON nazywa linia scenariusza, a resztę liczy.
@@ -119,7 +122,7 @@ def _synthetic_worker_template(source: Path) -> None:
 
 
 def _existing_settlements(source: Path) -> None:
-    folder = source.parent / f"{SETTLEMENTS}{source.parent.name}"
+    folder = source.parent / f"Rozliczenie pracowników {source.parent.name}"
     folder.mkdir()
     (folder / "zostaje.txt").write_text("plik sprzed uruchomienia\n", encoding="utf-8")
 
@@ -264,7 +267,9 @@ def masked(value: object, folders: Sequence[Path]) -> object:
         return [masked(item, folders) for item in value]
     if isinstance(value, str):
         for folder in folders:
-            for form in dict.fromkeys([str(folder), str(folder.resolve())]):
+            # Najpierw postać bez dowiązań: ścieżka względna albo przez dowiązanie (``/var`` → ``/private/var`` na
+            # Macu, krótka nazwa ``RUNNER~1`` na Windows) jest końcówką postaci po ``resolve()``.
+            for form in dict.fromkeys([str(folder.resolve()), str(folder)]):
                 value = value.replace(form, FOLDER)
         return _MOMENT.sub(MOMENT, value)
     return value
@@ -287,7 +292,13 @@ def json_differences(base: object, head: object, path: str = "") -> list[str]:
 
 
 def _files(folder: Path) -> dict[str, Path]:
-    return {_MOMENT.sub(MOMENT, path.relative_to(folder).as_posix()): path for path in sorted(folder.rglob("*")) if path.is_file()}
+    """Pliki folderu według nazwy z zamaskowaną chwilą; drugi i dalszy plik tej samej nazwy dostaje numer ``(2)``."""
+
+    named: dict[str, list[Path]] = {}
+    for path in sorted(folder.rglob("*")):
+        if path.is_file():
+            named.setdefault(_MOMENT.sub(MOMENT, path.relative_to(folder).as_posix()), []).append(path)
+    return {f"{name} ({number})" if number > 1 else name: path for name, paths in named.items() for number, path in enumerate(paths, 1)}
 
 
 def _zip_parts(path: Path) -> dict[str, bytes] | None:
@@ -306,44 +317,19 @@ def _workbook_difference(base: Path, head: Path) -> str | None:
     return f"części {', '.join(differing)}" if differing else None
 
 
-def _settlements_difference(pairs: Sequence[tuple[Path, Path]]) -> str | None:
-    """Rozliczenia pracowników jednego folderu przez ``tools/porownanie_rozliczen.py``; ono czyta każdy plik folderu
-    jako skoroszyt, więc dostaje foldery z kopiami samych skoroszytów."""
-
-    with tempfile.TemporaryDirectory(prefix="rozliczenia-") as temporary:
-        folders = Path(temporary) / "baza", Path(temporary) / "head"
-        for pair in pairs:
-            for folder, path in zip(folders, pair, strict=True):
-                folder.mkdir(exist_ok=True)
-                shutil.copy2(path, folder / path.name)
-        command = [sys.executable, str(ROOT / "tools" / "porownanie_rozliczen.py"), *map(str, folders)]
-        done = potomne.run(command, cwd=ROOT, timeout=TIMEOUT)
-    counts: dict[str, int] = json.loads(done.stdout)
-    return ", ".join(f"{category} {count}" for category, count in counts.items() if count) or None
-
-
 def file_differences(base: Path, head: Path) -> list[str]:
-    """Różnice plików dwóch folderów scenariusza po uruchomieniu: nazwy, kategorie i części, bez treści."""
+    """Różnice plików dwóch folderów scenariusza po uruchomieniu: nazwy i części, bez treści."""
 
     base_files, head_files = _files(base), _files(head)
     found = []
     for side, names in (("bazie", base_files.keys() - head_files.keys()), ("HEAD", head_files.keys() - base_files.keys())):
         if names:
             found.append(f"pliki tylko w {side}: {', '.join(sorted(names))}")
-    settlements: dict[PurePosixPath, list[tuple[Path, Path]]] = {}
     for name in sorted(base_files.keys() & head_files.keys()):
         pair = base_files[name], head_files[name]
-        parent = PurePosixPath(name).parent
-        if parent.name.startswith(SETTLEMENTS) and name.endswith(".xlsx"):
-            settlements.setdefault(parent, []).append(pair)
-            continue
         difference = _workbook_difference(*pair) if name.endswith(".xlsx") else None if pair[0].read_bytes() == pair[1].read_bytes() else "bajty"
         if difference:
             found.append(f"{name}: {difference}")
-    for parent, pairs in settlements.items():
-        difference = _settlements_difference(pairs)
-        if difference:
-            found.append(f"{parent}: {difference}")
     return found
 
 
@@ -417,12 +403,21 @@ def equivalence(base_tree: Path, head_tree: Path, scenarios: Sequence[Scenario],
         print(line, flush=True)
         if not same:
             differing.append(scenario.name)
-    print(f"RÓWNOWAŻNOŚĆ RÓŻNICA | {', '.join(differing)}" if differing else f"RÓWNOWAŻNOŚĆ OK | {len(chosen)} scenariuszy")
-    return 1 if differing else 0
+    if differing:
+        print(f"RÓWNOWAŻNOŚĆ RÓŻNICA | {', '.join(differing)}")
+        return 1
+    if not chosen:
+        print("RÓWNOWAŻNOŚĆ NIESPRAWDZONA | 0 scenariuszy")
+        return 2
+    print(f"RÓWNOWAŻNOŚĆ OK | {len(chosen)} scenariuszy")
+    return 0
 
 
-def _git(*arguments: str) -> str:
-    return subprocess.run(["git", *arguments], cwd=ROOT, capture_output=True, text=True, encoding="utf-8", check=True).stdout.strip()
+def default_base(repository: Path, head: str | None) -> str:
+    """Merge-base ``head`` (bez niego HEAD checkoutu) z ``origin/main``."""
+
+    merge_base = subprocess.run(["git", "merge-base", head or "HEAD", "origin/main"], cwd=repository, capture_output=True, text=True, encoding="utf-8", check=True)
+    return merge_base.stdout.strip()
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -435,7 +430,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--scenariusz", action="append", choices=names, metavar="NAZWA", help=f"Tylko ten scenariusz; powtórz dla kilku: {', '.join(names)}.")
     args = parser.parse_args(argv)
     scenarios = [scenario for scenario in SCENARIOS if not args.scenariusz or scenario.name in args.scenariusz]
-    base = args.baza or _git("merge-base", args.glowa or "HEAD", "origin/main")
+    base = args.baza or default_base(ROOT, args.glowa)
     head = nullcontext(ROOT) if args.glowa is None else potomne.commit_copy(ROOT, args.glowa)
     with tempfile.TemporaryDirectory(prefix="rownowaznosc-") as work, potomne.commit_copy(ROOT, base) as base_tree, head as head_tree:
         return equivalence(base_tree, head_tree, scenarios, Path(work))

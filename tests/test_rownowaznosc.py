@@ -10,6 +10,7 @@ import sys
 
 import pytest
 
+from tests.fixtures.git_repo import commit, git
 from tests.fixtures.potomne import potomne
 from tests.fixtures.rownowaznosc import rownowaznosc, stub_tree, write_workbook
 from tests.fixtures.workbooks import rewrite_parts
@@ -72,6 +73,8 @@ def test_maskowanie_ukrywa_czasy_chwile_zegara_i_folder_strony_a_reszte_wyniku_z
         "result": "OK",
         "total_duration_ms": 1234,
         "progress": {"phases": [{"phase": "Odczyt", "state": "completed", "duration_ms": 12}]},
+        "stop": {"kind": "stop", "message": {"code": "ZLY_PLIK_ZBIORCZY", "what": "Plik jest uszkodzony.", "where": "Plik zbiorczy", "action": "Otwórz go w Excelu."}},
+        "warnings": [{"code": "PUSTY_WIERSZ", "what": "Wiersz 7 jest pusty.", "where": "Rejestr, wiersz 7", "action": "Usuń wiersz."}],
         "summary": {
             "figures": [{"label": "Czas", "value": 812, "unit": "ms"}, {"label": "Zlecenia", "value": 6, "unit": "count"}],
             "intermax_copy": "INTERMAX przed uporządkowaniem 2026-10-29 15-12-01.xlsx",
@@ -87,6 +90,8 @@ def test_maskowanie_ukrywa_czasy_chwile_zegara_i_folder_strony_a_reszte_wyniku_z
         "result": "OK",
         "total_duration_ms": TIME,
         "progress": {"phases": [{"phase": "Odczyt", "state": "completed", "duration_ms": TIME}]},
+        "stop": {"kind": "stop", "message": {"code": "ZLY_PLIK_ZBIORCZY", "what": "Plik jest uszkodzony.", "where": "Plik zbiorczy", "action": "Otwórz go w Excelu."}},
+        "warnings": [{"code": "PUSTY_WIERSZ", "what": "Wiersz 7 jest pusty.", "where": "Rejestr, wiersz 7", "action": "Usuń wiersz."}],
         "summary": {
             "figures": [{"label": "Czas", "value": TIME, "unit": "ms"}, {"label": "Zlecenia", "value": 6, "unit": "count"}],
             "intermax_copy": f"INTERMAX przed uporządkowaniem {MOMENT}.xlsx",
@@ -97,6 +102,14 @@ def test_maskowanie_ukrywa_czasy_chwile_zegara_i_folder_strony_a_reszte_wyniku_z
         ],
         "metrics_saved": False,
     }
+
+
+def test_maskowanie_ukrywa_folder_strony_podany_wzglednie_i_po_rozwiazaniu_dowiazan(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    folder = Path("strona") / "scenariusz"
+    note = f"Plik {(tmp_path / 'strona' / 'scenariusz').resolve() / 'm.jsonl'} i {folder / 'w.txt'}."
+
+    assert rownowaznosc.masked(note, (folder, Path("strona"))) == f"Plik {FOLDER}{os.sep}m.jsonl i {FOLDER}{os.sep}w.txt."
 
 
 # --- JSON wyniku -------------------------------------------------------------------------------------------------
@@ -145,10 +158,22 @@ def test_plik_tylko_po_jednej_stronie_to_roznica_z_nazwa_pliku(tmp_path: Path) -
     assert rownowaznosc.file_differences(base, head) == ["pliki tylko w bazie: okres/stary.txt", "pliki tylko w HEAD: nowy.txt"]
 
 
-def test_inny_skoroszyt_rozni_sie_czescia_zipu_a_inny_plik_bajtami(tmp_path: Path) -> None:
+def test_druga_kopia_z_inna_tylko_chwila_w_nazwie_to_plik_tylko_po_jednej_stronie(tmp_path: Path) -> None:
+    base, head = _folders(tmp_path)
+    write_workbook(base / "Kopie INTERMAX" / "INTERMAX przed uporządkowaniem 2026-10-29 15-12-01.xlsx", "zlecenie")
+    for moment in ("15-12-01", "15-12-02"):
+        write_workbook(head / "Kopie INTERMAX" / f"INTERMAX przed uporządkowaniem 2026-10-29 {moment}.xlsx", "zlecenie")
+
+    assert rownowaznosc.file_differences(base, head) == [f"pliki tylko w HEAD: Kopie INTERMAX/INTERMAX przed uporządkowaniem {MOMENT}.xlsx (2)"]
+
+
+def test_inny_skoroszyt_rozni_sie_czescia_zipu_takze_samymi_stylami_a_inny_plik_bajtami(tmp_path: Path) -> None:
     base, head = _folders(tmp_path)
     write_workbook(base / "okres" / "Plik zbiorczy.xlsx", 1)
     write_workbook(head / "okres" / "Plik zbiorczy.xlsx", 2)
+    for folder in (base, head):
+        write_workbook(folder / "okres" / "Style.xlsx", 1)
+    rewrite_parts(head / "okres" / "Style.xlsx", lambda name, data: data.replace(b"<sz val=\"11\" />", b"<sz val=\"12\" />") if name == "xl/styles.xml" else data)
     (base / "uwagi.txt").write_text("przed\n", encoding="utf-8")
     (head / "uwagi.txt").write_text("po\n", encoding="utf-8")
     (base / "zly.xlsx").write_bytes(b"przed")
@@ -156,20 +181,22 @@ def test_inny_skoroszyt_rozni_sie_czescia_zipu_a_inny_plik_bajtami(tmp_path: Pat
 
     assert rownowaznosc.file_differences(base, head) == [
         "okres/Plik zbiorczy.xlsx: części xl/worksheets/sheet1.xml",
+        "okres/Style.xlsx: części xl/styles.xml",
         "uwagi.txt: bajty",
         "zly.xlsx: bajty",
     ]
 
 
-def test_rozliczenia_pracownikow_porownuje_porownanie_rozliczen_znaczeniowo_bez_plikow_innych_niz_skoroszyty(tmp_path: Path) -> None:
+def test_rozliczenie_pracownika_bez_ochrony_arkusza_rozni_sie_czescia_zipu(tmp_path: Path) -> None:
     base, head = _folders(tmp_path)
-    for folder, value in ((base, 1), (head, 2)):
-        write_workbook(folder / "okres" / SETTLEMENTS / "Adrian Testowy.xlsx", value)
+    for folder in (base, head):
+        write_workbook(folder / "okres" / SETTLEMENTS / "Adrian Testowy.xlsx", "to samo")
         write_workbook(folder / "okres" / SETTLEMENTS / "Darek Fikcyjny.xlsx", "to samo")
         (folder / "okres" / SETTLEMENTS / "zostaje.txt").write_text("plik sprzed uruchomienia\n", encoding="utf-8")
-    rewrite_parts(head / "okres" / SETTLEMENTS / "Darek Fikcyjny.xlsx", lambda name, data: data + b"\n" if name == "xl/worksheets/sheet1.xml" else data)
+    protected = b'<sheetProtection sheet="1" selectLockedCells="1"/><pageMargins'
+    rewrite_parts(base / "okres" / SETTLEMENTS / "Darek Fikcyjny.xlsx", lambda name, data: data.replace(b"<pageMargins", protected) if name == "xl/worksheets/sheet1.xml" else data)
 
-    assert rownowaznosc.file_differences(base, head) == [f"okres/{SETTLEMENTS}: wartosci 1"]
+    assert rownowaznosc.file_differences(base, head) == [f"okres/{SETTLEMENTS}/Darek Fikcyjny.xlsx: części xl/worksheets/sheet1.xml"]
 
 
 # --- linia scenariusza -------------------------------------------------------------------------------------------
@@ -260,6 +287,17 @@ def test_scenariusz_bez_fixture_w_checkoucie_ma_linie_bez_fixture_i_nie_liczy_si
     )
 
 
+def test_bez_zadnego_porownanego_scenariusza_wynik_jest_niesprawdzony_z_kodem_2(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    def missing(folder: Path) -> list[str | Path]:
+        raise ModuleNotFoundError("No module named 'tests.fixtures.intermax'", name="tests.fixtures.intermax")
+
+    tree = stub_tree(tmp_path / "drzewo", {"result": "OK"})
+
+    code = _equivalence(tmp_path, tree, tree, rownowaznosc.Scenario("stary", "intermax", missing))
+
+    assert (code, capsys.readouterr().out.splitlines()) == (2, ["stary | BEZ FIXTURE | tests.fixtures.intermax", "RÓWNOWAŻNOŚĆ NIESPRAWDZONA | 0 scenariuszy"])
+
+
 def test_brak_modulu_spoza_fixtures_to_blad_narzedzia_a_nie_pominiety_scenariusz(tmp_path: Path) -> None:
     def broken(folder: Path) -> list[str | Path]:
         raise ModuleNotFoundError("No module named 'openpyxl_nowy'", name="openpyxl_nowy")
@@ -319,3 +357,23 @@ def test_skrypt_porownuje_baze_z_drzewem_roboczym_z_niezacommitowana_zmiana_a_z_
 
     assert changed == (1, ["przebieg | RÓŻNICA | kod 0→5", "RÓWNOWAŻNOŚĆ RÓŻNICA | przebieg"])
     assert committed == (0, ["przebieg | TAK SAMO | kod 0, OK", "RÓWNOWAŻNOŚĆ OK | 1 scenariuszy"])
+
+
+def _commit_file(repo: Path, name: str) -> str:
+    (repo / f"{name}.txt").write_text(name, encoding="utf-8")
+    return commit(repo, name)
+
+
+def test_domyslna_baza_to_merge_base_z_origin_main_commitu_glowy_a_bez_niego_head(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    git(repo, "init", "--quiet")
+    root = _commit_file(repo, "korzen")
+    git(repo, "checkout", "--quiet", "-b", "glowa")
+    head = _commit_file(repo, "glowa")
+    git(repo, "checkout", "--quiet", "--detach", root)
+    main = _commit_file(repo, "main")
+    git(repo, "update-ref", "refs/remotes/origin/main", main)
+    _commit_file(repo, "head")
+
+    assert (rownowaznosc.default_base(repo, head), rownowaznosc.default_base(repo, None)) == (root, main)
