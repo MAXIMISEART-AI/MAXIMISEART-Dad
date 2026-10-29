@@ -27,8 +27,8 @@ BY_CHANGE_ONLY = {
         "sprawdza gita sesji testów, a nie całe repozytorium"
     ),
     "tests/test_komunikaty_expect.py": (
-        "porównuje próbki katalogów Komunikatów z plikiem expect, a nie całe repozytorium; graf wybiera go przy zmianie "
-        "katalogu (import message_samples) i pliku tests/expected/komunikaty.txt (literał)"
+        "skanuje cały src/, ale globem (rglob) na src, który graf widzi, więc wybiera go przy zmianie każdego modułu "
+        "src/, katalogu (import message_samples) i pliku tests/expected/komunikaty.txt (literał)"
     ),
     "tests/test_mutacje.py": "sprawdza silnik mutacji na repozytoriach testu, a nie całe repozytorium",
     "tests/test_mutacje_nocne.py": (

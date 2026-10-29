@@ -22,6 +22,7 @@ Rozliczenie pracownika: Darek Fikcyjny | Rozliczenie 08_14_09_2026 - Darek Fikcy
 Rozliczenie pracownika: Kamil Syntetyczny | Rozliczenie 08_14_09_2026 - Kamil Syntetyczny.xlsx | zlecenia 0, pusty
 Ostrzeżenia: brak
 Zatrzymanie: brak
+Uwagi techniczne: brak
 Pliki wynikowe:
   nowy: 08_14_09_2026/Rozliczenie pracowników 08_14_09_2026/Rozliczenie 08_14_09_2026 - Adrian Testowy.xlsx
   nowy: 08_14_09_2026/Rozliczenie pracowników 08_14_09_2026/Rozliczenie 08_14_09_2026 - Darek Fikcyjny.xlsx
@@ -49,6 +50,7 @@ Rozliczenie pracownika: Darek Fikcyjny | Rozliczenie 08_14_09_2026 - Darek Fikcy
 Rozliczenie pracownika: Kamil Syntetyczny | Rozliczenie 08_14_09_2026 - Kamil Syntetyczny.xlsx | zlecenia 0, pusty
 Ostrzeżenia: brak
 Zatrzymanie: brak
+Uwagi techniczne: brak
 Pliki wynikowe: brak
 
 === przebieg-ilosci ===
@@ -72,6 +74,7 @@ Rozliczenie pracownika: Darek Fikcyjny | Rozliczenie 08_14_09_2026 - Darek Fikcy
 Rozliczenie pracownika: Kamil Syntetyczny | Rozliczenie 08_14_09_2026 - Kamil Syntetyczny.xlsx | zlecenia 0, pusty
 Ostrzeżenia: brak
 Zatrzymanie: brak
+Uwagi techniczne: brak
 Pliki wynikowe:
   nowy: 08_14_09_2026/Rozliczenie pracowników 08_14_09_2026/Rozliczenie 08_14_09_2026 - Adrian Testowy.xlsx
   nowy: 08_14_09_2026/Rozliczenie pracowników 08_14_09_2026/Rozliczenie 08_14_09_2026 - Darek Fikcyjny.xlsx
@@ -98,6 +101,7 @@ Rozliczenie pracownika: Darek Fikcyjny | Rozliczenie 08_14_09_2026 - Darek Fikcy
 Rozliczenie pracownika: Kamil Syntetyczny | Rozliczenie 08_14_09_2026 - Kamil Syntetyczny.xlsx | zlecenia 0, pusty
 Ostrzeżenia: brak
 Zatrzymanie: brak
+Uwagi techniczne: brak
 Pliki wynikowe:
   nowy: 08_14_09_2026/Rozliczenie pracowników 08_14_09_2026/Rozliczenie 08_14_09_2026 - Adrian Testowy.xlsx
   nowy: 08_14_09_2026/Rozliczenie pracowników 08_14_09_2026/Rozliczenie 08_14_09_2026 - Darek Fikcyjny.xlsx
@@ -129,6 +133,7 @@ Ostrzeżenia:
     Gdzie: plik Rozliczenie 08_14_09_2026 - zbiorcze.xlsx, folder 08_14_09_2026
     Co zrobić: Popraw WYKONAWCĘ w kolumnie H albo poproś osobę utrzymującą narzędzie o dopisanie Wykonawcy do konfiguracji wykonawców. Potem zapisz i zamknij Plik zbiorczy w Excelu i uruchom ponownie.
 Zatrzymanie: brak
+Uwagi techniczne: brak
 Pliki wynikowe: brak
 
 === przebieg-nieznany-wykonawca ===
@@ -149,6 +154,7 @@ Zatrzymanie (stop): NIEZNANY_WYKONAWCA
   Co się stało: W Pliku zbiorczym jest WYKONAWCA spoza konfiguracji wykonawców: andrzej.nieznany2. Nie utworzono żadnego pliku pracownika.
   Gdzie: plik Rozliczenie 08_14_09_2026 - zbiorcze.xlsx, folder 08_14_09_2026, kolumna H
   Co zrobić: Popraw WYKONAWCĘ w kolumnie H albo poproś osobę utrzymującą narzędzie o dopisanie Wykonawcy do konfiguracji wykonawców. Potem zapisz i zamknij Plik zbiorczy w Excelu i uruchom ponownie.
+Uwagi techniczne: brak
 Pliki wynikowe: brak
 
 === przebieg-folder-rozliczen-istnieje ===
@@ -169,6 +175,7 @@ Zatrzymanie (stop): FOLDER_ROZLICZEN_ISTNIEJE
   Co się stało: Folder rozliczeń pracowników tego okresu już istnieje, więc nie został nadpisany. Nie utworzono żadnego pliku pracownika.
   Gdzie: folder 08_14_09_2026\Rozliczenie pracowników 08_14_09_2026
   Co zrobić: Sprawdź, czy wybrano właściwy okres. Rozliczenia pracowników tego okresu już są w Folderze okresu. Jeśli trzeba je utworzyć od nowa, najpierw przenieś Folder rozliczeń pracowników poza Folder okresu i uruchom ponownie.
+Uwagi techniczne: brak
 Pliki wynikowe: brak
 
 === przebieg-plik-zbiorczy-nie-skoroszyt ===
@@ -189,6 +196,7 @@ Zatrzymanie (stop): ZLY_PLIK_ZBIORCZY
   Co się stało: Plik zbiorczy nie nadaje się do Przebiegu rozliczeń. Nie można odczytać Pliku zbiorczego Rozliczenie 08_14_09_2026 - zbiorcze.xlsx. Sprawdź, czy plik otwiera się w Excelu i nie jest uszkodzony.
   Gdzie: plik Rozliczenie 08_14_09_2026 - zbiorcze.xlsx, folder 08_14_09_2026
   Co zrobić: Popraw Plik zbiorczy w Excelu. Potem zapisz i zamknij Plik zbiorczy w Excelu i uruchom ponownie. Jeśli błąd wraca, przekaż ten komunikat osobie utrzymującej narzędzie.
+Uwagi techniczne: brak
 Pliki wynikowe: brak
 
 === przebieg-plik-zbiorczy-uciety ===
@@ -209,6 +217,7 @@ Zatrzymanie (stop): ZLY_PLIK_ZBIORCZY
   Co się stało: Plik zbiorczy nie nadaje się do Przebiegu rozliczeń. Nie można odczytać Pliku zbiorczego Rozliczenie 08_14_09_2026 - zbiorcze.xlsx. Sprawdź, czy plik otwiera się w Excelu i nie jest uszkodzony.
   Gdzie: plik Rozliczenie 08_14_09_2026 - zbiorcze.xlsx, folder 08_14_09_2026
   Co zrobić: Popraw Plik zbiorczy w Excelu. Potem zapisz i zamknij Plik zbiorczy w Excelu i uruchom ponownie. Jeśli błąd wraca, przekaż ten komunikat osobie utrzymującej narzędzie.
+Uwagi techniczne: brak
 Pliki wynikowe: brak
 
 === przebieg-format-bez-definicji-L18 ===
@@ -229,6 +238,7 @@ Zatrzymanie (stop): ZLY_PLIK_ZBIORCZY
   Co się stało: Plik zbiorczy nie nadaje się do Przebiegu rozliczeń. Nie można odczytać Pliku zbiorczego Rozliczenie 08_14_09_2026 - zbiorcze.xlsx. Sprawdź, czy plik otwiera się w Excelu i nie jest uszkodzony.
   Gdzie: plik Rozliczenie 08_14_09_2026 - zbiorcze.xlsx, folder 08_14_09_2026
   Co zrobić: Popraw Plik zbiorczy w Excelu. Potem zapisz i zamknij Plik zbiorczy w Excelu i uruchom ponownie. Jeśli błąd wraca, przekaż ten komunikat osobie utrzymującej narzędzie.
+Uwagi techniczne: brak
 Pliki wynikowe: brak
 
 === przebieg-format-bez-definicji-M18 ===
@@ -252,6 +262,7 @@ Rozliczenie pracownika: Darek Fikcyjny | Rozliczenie 08_14_09_2026 - Darek Fikcy
 Rozliczenie pracownika: Kamil Syntetyczny | Rozliczenie 08_14_09_2026 - Kamil Syntetyczny.xlsx | zlecenia 0, pusty
 Ostrzeżenia: brak
 Zatrzymanie: brak
+Uwagi techniczne: brak
 Pliki wynikowe:
   nowy: 08_14_09_2026/Rozliczenie pracowników 08_14_09_2026/Rozliczenie 08_14_09_2026 - Adrian Testowy.xlsx
   nowy: 08_14_09_2026/Rozliczenie pracowników 08_14_09_2026/Rozliczenie 08_14_09_2026 - Darek Fikcyjny.xlsx
@@ -278,6 +289,7 @@ Rozliczenie pracownika: Darek Fikcyjny | Rozliczenie 08_14_09_2026 - Darek Fikcy
 Rozliczenie pracownika: Kamil Syntetyczny | Rozliczenie 08_14_09_2026 - Kamil Syntetyczny.xlsx | zlecenia 0, pusty
 Ostrzeżenia: brak
 Zatrzymanie: brak
+Uwagi techniczne: brak
 Pliki wynikowe:
   nowy: 08_14_09_2026/Rozliczenie pracowników 08_14_09_2026/Rozliczenie 08_14_09_2026 - Adrian Testowy.xlsx
   nowy: 08_14_09_2026/Rozliczenie pracowników 08_14_09_2026/Rozliczenie 08_14_09_2026 - Darek Fikcyjny.xlsx

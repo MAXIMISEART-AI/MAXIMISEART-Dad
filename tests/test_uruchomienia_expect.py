@@ -3,13 +3,16 @@
 Każdy scenariusz syntetyczny weryfikacji różnicowej (``tools/rownowaznosc.py``) biegnie raz, tym samym sposobem i z tą
 samą maską czasów, chwil i folderów co tam, skryptem dla maszyn ``tools/uruchom_proces.py``. Plik procesu ma na
 scenariusz: wynik, etapy postępu w kolejności, liczby postępu i podsumowania, ostrzeżenia, Zatrzymanie z kodem i
-trzema częściami Komunikatu oraz pliki, które Uruchomienie utworzyło albo zmieniło (nazwy względne). Zmiana
-zachowania procesu zmienia ten plik w tym samym PR, więc diff PR pokazuje ją obok zmiany kodu. Treść skoroszytów
-porównuje ``tools/rownowaznosc.py`` i testy zapisu, nie ten plik.
+trzema częściami Komunikatu, uwagi techniczne oraz pliki, które Uruchomienie utworzyło albo zmieniło (nazwy względne).
+Zmiana zachowania procesu zmienia ten plik w tym samym PR, więc diff PR pokazuje ją obok zmiany kodu. Nowe pole wyniku,
+także w obiekcie zagnieżdżonym (Zatrzymanie, Komunikat, ``contract.Progress``), daje porażkę, dopóki nie trafi do
+``SHOWN`` i pliku albo do ``HIDDEN``. Treść skoroszytów porównuje ``tools/rownowaznosc.py`` i testy zapisu, nie ten
+plik.
 """
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
@@ -25,10 +28,54 @@ EXPECTED: dict[rownowaznosc.Process, tuple[str, Path]] = {
     "preparation": ("Przygotowanie pliku zbiorczego", ROOT / "tests" / "expected" / "uruchomienia" / "przygotowanie-pliku-zbiorczego.txt"),
     "intermax": ("Uporządkowanie INTERMAX", ROOT / "tests" / "expected" / "uruchomienia" / "uporzadkowanie-intermax.txt"),
 }
-# Pola wyniku skryptu dla maszyn, których karta Uruchomienia nie pokazuje; każde inne pole trafia do pliku.
-HIDDEN = {"total_duration_ms", "technical_notes", "metrics_saved"}
-SHOWN = {"result", "summary", "warnings", "stop", "progress"}
+# Pola każdego obiektu wyniku skryptu dla maszyn po jego ścieżce (``[]``: element listy), które plik pokazuje.
+SHOWN = {
+    "": {"result", "summary", "warnings", "stop", "progress", "technical_notes"},
+    "progress": {"phases", "template_total", "templates_completed", "current_worker", "figures"},
+    "progress.phases[]": {"phase", "state"},
+    "progress.figures[]": {"label", "value"},
+    "summary": {"figures", "counts", "files", "worker_settlements", "intermax_copy"},
+    "summary.figures[]": {"label", "value"},
+    "summary.counts": {"title", "counts"},
+    "summary.counts.counts[]": {"label", "count"},
+    "summary.files[]": {"name", "kind"},
+    "summary.worker_settlements[]": {"worker", "file", "orders", "empty"},
+    "warnings[]": {"code", "what", "where", "action"},
+    "stop": {"kind", "message"},
+    "stop.message": {"code", "what", "where", "action"},
+}
+# Pola, których plik nie pokazuje: czas Uruchomienia widać tylko na stronie Metryki, zapisu metryk nie ma w kontrakcie
+# Centrum, czas etapu zmienia się między przebiegami, a jednostką liczby karta tylko formatuje wartość (czas ma w
+# pliku maskę <CZAS>).
+HIDDEN = {
+    "": {"total_duration_ms", "metrics_saved"},
+    "progress.phases[]": {"duration_ms"},
+    "progress.figures[]": {"unit"},
+    "summary.figures[]": {"unit"},
+}
 PARTS = (("what", "Co się stało"), ("where", "Gdzie"), ("action", "Co zrobić"))
+
+
+def _objects(value: object, path: str = "") -> Iterator[tuple[str, dict[str, Any]]]:
+    """Każdy obiekt wyniku z jego ścieżką (``stop.message``, ``progress.phases[]``), także zagnieżdżony."""
+
+    if isinstance(value, dict):
+        yield path, value
+        for key, inner in value.items():
+            yield from _objects(inner, f"{path}.{key}" if path else key)
+    elif isinstance(value, list):
+        for inner in value:
+            yield from _objects(inner, f"{path}[]")
+
+
+def _new_fields(result: dict[str, Any]) -> list[str]:
+    """Pola obiektów wyniku spoza ``SHOWN`` i ``HIDDEN`` oraz pola ``SHOWN`` i ``HIDDEN``, których obiekt nie ma."""
+
+    return sorted(
+        f"{path}.{field}" if path else field
+        for path, fields in _objects(result)
+        for field in set(fields) ^ (SHOWN.get(path, set()) | HIDDEN.get(path, set()))
+    )
 
 
 def _message(message: dict[str, str], indent: str) -> list[str]:
@@ -42,7 +89,6 @@ def _figures(title: str, figures: list[dict[str, Any]]) -> list[str]:
 def _summary(summary: dict[str, Any] | None) -> list[str]:
     if summary is None:
         return ["Podsumowanie: brak"]
-    assert set(summary) == {"figures", "counts", "files", "worker_settlements", "intermax_copy"}, sorted(summary)
     lines = _figures("Podsumowanie", summary["figures"])
     counts = summary["counts"]
     if counts is not None:
@@ -73,7 +119,7 @@ def _card(name: str, outcome: rownowaznosc.Outcome, inputs: Path) -> str:
 
     result = outcome.result
     assert isinstance(result, dict), f"{name}: skrypt dla maszyn nie dał JSON (kod {outcome.code})"
-    assert set(result) == SHOWN | HIDDEN, f"{name}: nowe pole wyniku {sorted(set(result) - SHOWN - HIDDEN)} trafia do pliku albo do HIDDEN"
+    assert not (fields := _new_fields(result)), f"{name}: pola wyniku {fields} trafiają do SHOWN i pliku albo do HIDDEN"
     progress = result["progress"]
     lines = [f"=== {name} ===", f"Wynik: {result['result']}", "Etapy:"]
     lines += [f"  {phase['phase']}: {phase['state']}" for phase in progress["phases"]] or ["  brak"]
@@ -87,6 +133,8 @@ def _card(name: str, outcome: rownowaznosc.Outcome, inputs: Path) -> str:
         lines += [f"  {warning['code']}", *_message(warning, "    ")]
     stop = result["stop"]
     lines += ["Zatrzymanie: brak"] if stop is None else [f"Zatrzymanie ({stop['kind']}): {stop['message']['code']}", *_message(stop["message"], "  ")]
+    notes = result["technical_notes"]
+    lines += ["Uwagi techniczne:", *(f"  {note}" for note in notes)] if notes else ["Uwagi techniczne: brak"]
     return "\n".join([*lines, *_files(outcome, inputs)]) + "\n"
 
 

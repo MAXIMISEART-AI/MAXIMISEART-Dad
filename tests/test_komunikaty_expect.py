@@ -40,6 +40,7 @@ from rozliczenia.centrum import (
 from rozliczenia.message import Message, StopError
 from rozliczenia.period_folder import PeriodFolderError, PeriodFolderInaccessible, PeriodFolderLookupError
 from rozliczenia.workbook_files import WorkbookError
+from rozliczenia.workbook_save import WorkbookSaveError
 from rozliczenia.worker_config import WorkerConfigError
 
 from tests.fixtures import message_samples
@@ -110,7 +111,7 @@ _PARTS = frozenset({"what", "where", "action"})
 def _copies(call: ast.Call, module_names: Set[str]) -> bool:
     """``Message(what=message.what, where=message.where, …)``: każde pole z tego samego pola jednego obiektu funkcji.
 
-    Obiekt to parametr albo zmienna funkcji; nazwa modułu (stała, import) ma własny tekst, więc kopią nie jest.
+    Obiekt to parametr albo zmienna funkcji; nazwa modułu (stała, klasa, import) ma własny tekst, więc kopią nie jest.
     """
 
     owners = [
@@ -128,19 +129,25 @@ def _copies(call: ast.Call, module_names: Set[str]) -> bool:
     )
 
 
+def _names_part(node: ast.expr) -> bool:
+    """Literał słownika z kluczem ``what``, ``where`` albo ``action``."""
+
+    return isinstance(node, ast.Dict) and any(isinstance(key, ast.Constant) and key.value in _PARTS for key in node.keys)
+
+
 def _rewrites(call: ast.Call) -> bool:
-    """``komunikat.model_copy(update={"action": …})`` albo ``replace(komunikat, action=…)``: nowy tekst w kopii."""
+    """``komunikat.model_copy(update={"action": …})`` albo ``replace(komunikat, action=…)``: nowy tekst w kopii.
+
+    ``replace`` liczy się także z rozpakowanym literałem słownika (``replace(komunikat, **{"action": …})``).
+    """
 
     match call.func:
         case ast.Attribute(attr="model_copy"):
-            return any(
-                keyword.arg == "update"
-                and isinstance(keyword.value, ast.Dict)
-                and any(isinstance(key, ast.Constant) and key.value in _PARTS for key in keyword.value.keys)
-                for keyword in call.keywords
-            )
+            return any(keyword.arg == "update" and _names_part(keyword.value) for keyword in call.keywords)
         case ast.Name(id="replace") | ast.Attribute(attr="replace"):
-            return any(keyword.arg in _PARTS for keyword in call.keywords)
+            return any(
+                keyword.arg in _PARTS or (keyword.arg is None and _names_part(keyword.value)) for keyword in call.keywords
+            )
         case _:
             return False
 
@@ -149,11 +156,13 @@ def _creating(path: Path) -> set[str]:
     """Miejsca modułu (``_places``), które tworzą Komunikat.
 
     Tworzy go wywołanie, którego nazwa po rozwiązaniu importów (``Message as M``) albo atrybut (``message.Message``,
-    ``contract.Message``) kończy się na ``Message``, i kopia z nowym tekstem części (``_rewrites``). Wywołanie, które
-    tylko przepisuje pola innego Komunikatu (``_copies``), nowego tekstu nie tworzy.
+    ``contract.Message``) kończy się na ``Message``, budowa modelu z danych (``contract.Message.model_validate(…)``,
+    ``model_construct``) i kopia z nowym tekstem części (``_rewrites``). Wywołanie, które tylko przepisuje pola innego
+    Komunikatu (``_copies``), nowego tekstu nie tworzy.
 
-    Granica: ``model_copy`` ze słownikiem ``update`` spoza literału (``update=zmiany``, ``update=dict(...)``) i
-    przepisanie pól obiektu z tekstem, który powstał w funkcji (``t = SimpleNamespace(what="…")``), łapie tylko
+    Granica: ``model_copy`` ze słownikiem ``update`` spoza literału (``update=zmiany``, ``update=dict(...)``),
+    ``replace`` z rozpakowaną zmienną (``**zmiany``), budowa modelu przez zmienną klasy (``typ = contract.Message``)
+    i przepisanie pól obiektu z tekstem, który powstał w funkcji (``t = SimpleNamespace(what="…")``), łapie tylko
     przegląd.
     """
 
@@ -164,13 +173,17 @@ def _creating(path: Path) -> set[str]:
         if isinstance(node, ast.Import | ast.ImportFrom)
         for alias in node.names
     }
-    module_names = set(imported) | {
-        node.id
-        for statement in tree.body
-        if isinstance(statement, ast.Assign | ast.AnnAssign)
-        for node in ast.walk(statement)
-        if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store)
-    }
+    module_names = (
+        set(imported)
+        | {statement.name for statement in tree.body if isinstance(statement, ast.ClassDef)}
+        | {
+            node.id
+            for statement in tree.body
+            if isinstance(statement, ast.Assign | ast.AnnAssign)
+            for node in ast.walk(statement)
+            if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store)
+        }
+    )
 
     def creates(node: ast.AST) -> bool:
         if not isinstance(node, ast.Call) or _copies(node, module_names):
@@ -178,6 +191,10 @@ def _creating(path: Path) -> set[str]:
         if _rewrites(node):
             return True
         match node.func:
+            case ast.Attribute(value=ast.Name(id=name), attr="model_validate" | "model_construct"):
+                return imported.get(name, name).endswith("Message")
+            case ast.Attribute(value=ast.Attribute(attr=attr), attr="model_validate" | "model_construct"):
+                return attr.endswith("Message")
             case ast.Name(id=name):
                 return imported.get(name, name).endswith("Message")
             case ast.Attribute(attr=attr):
@@ -285,9 +302,10 @@ def test_blad_ktory_proces_tlumaczy_na_komunikat_niesie_fakty_a_nie_tekst() -> N
     ``StopError``. Sprawdzenie widzi parametry ``__init__`` z adnotacją ``str`` (także w unii) w klasach
     ``src/rozliczenia``, a błąd bez własnego ``__init__`` przyjmuje każdy tekst w ``args``, więc nie stoi w sygnaturze
     fabryki. Granica: pole ustawione bez parametru, parametr bez adnotacji, ``except`` na zmiennej (``except errors``),
-    tekst w dataclass faktu (``SameWorkerFile`` niesie nazwy z konfiguracji) i błąd bez własnego ``__init__`` tylko
-    w ``except``, którego obsługa przekaże fabryce jego tekst (``str(error)``); dziś obsługa ``WorkbookSaveError``
-    (rzucany ze zdaniem) i ``HeldByOneDrive`` woła fabrykę bez błędu.
+    ``match`` na złapanym błędzie w obsłudze ``except BaseException`` (``case WorkbookSaveError()`` w
+    ``intermax_copies.restore``), tekst w dataclass faktu (``SameWorkerFile`` niesie nazwy z konfiguracji) i błąd bez
+    własnego ``__init__`` tylko w ``except``, którego obsługa przekaże fabryce jego tekst (``str(error)``); dziś
+    obsługa ``HeldByOneDrive`` woła fabrykę bez błędu.
     """
 
     modules = _engine_modules()
@@ -311,7 +329,7 @@ def test_blad_ktory_proces_tlumaczy_na_komunikat_niesie_fakty_a_nie_tekst() -> N
 
     assert with_text == set()
     assert {WorkbookError, WorkerConfigError, PeriodFolderError, PeriodFolderLookupError} <= in_signatures
-    assert PeriodFolderInaccessible in caught
+    assert {PeriodFolderInaccessible, WorkbookSaveError} <= caught
 
 
 def test_komunikaty_ktore_widzi_tata_odpowiadaja_plikowi_expect() -> None:

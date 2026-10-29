@@ -8,11 +8,13 @@ metryk albo tekstu wyjątku decyzją nie jest.
 W silniku (``src/rozliczenia/*.py``) decyzją jest każde porównanie z ``.code`` w wyrażeniu. W całym ``src/``, także
 w Centrum, gdzie wyniki Aktualizacji narzędzia też mają pole ``code``, a nie są Komunikatami, decyzją jest porównanie
 albo ``case`` z kodem Komunikatu: literałem, stałą modułu (także zaimportowaną, ``moduł.STAŁA``) albo klasy
-(``Klasa.STAŁA``) albo zbiorem, krotką, listą lub słownikiem, który go zawiera, także w wyrażeniu
-(``frozenset({...})``, ``{KOD: …}``). Kody to kody próbek katalogów z ``tests/fixtures/message_samples.py``.
+(``Klasa.STAŁA``, a w jej metodzie ``self.STAŁA`` i ``cls.STAŁA``) albo zbiorem, krotką, listą lub słownikiem, który
+go zawiera, także w wyrażeniu (``frozenset({...})``, ``{KOD: …}``, ``{…} | {…}``, ``(…) + (…)``). Kody to kody
+próbek katalogów z ``tests/fixtures/message_samples.py``.
 
-Granica: kod tylko w zmiennej lokalnej, wyszukanie w słowniku po kodzie (``tabela[message.code]``) i ``getattr``
-łapie tylko przegląd.
+Granica: kod tylko w zmiennej lokalnej, ``self.STAŁA`` klasy zagnieżdżonej albo zdefiniowanej w funkcji, stała
+klasy bazowej spoza modułu przez ``self``, kod sklejony z części (``"BRAK_" + "POLACZENIA"``), wyszukanie w słowniku
+po kodzie (``tabela[message.code]``) i ``getattr`` łapie tylko przegląd.
 """
 
 from __future__ import annotations
@@ -85,6 +87,8 @@ def _value(node: ast.AST, names: Mapping[str, object]) -> object:
             return tuple(_UNKNOWN if key is None else _value(key, names) for key in keys)
         case ast.Call(func=ast.Name(id="frozenset" | "set" | "tuple" | "list" | "dict"), args=[collection], keywords=[]):
             return _value(collection, names)
+        case ast.BinOp(left=left, op=ast.BitOr() | ast.Add(), right=right):
+            return (_value(left, names), _value(right, names))
         case _:
             return _UNKNOWN
 
@@ -104,9 +108,21 @@ def _module(path: Path) -> ModuleType:
     return importlib.import_module(".".join(("rozliczenia", *(part for part in parts if part != "__init__"))))
 
 
+def _scoped(node: ast.AST, names: Mapping[str, object]) -> Iterator[tuple[ast.AST, Mapping[str, object]]]:
+    """Węzły drzewa z nazwami, które w nich widać: w ciele klasy modułu ``self`` i ``cls`` to ta klasa."""
+
+    for child in ast.iter_child_nodes(node):
+        if isinstance(child, ast.ClassDef):
+            owner = names.get(child.name, _UNKNOWN) if isinstance(node, ast.Module) else _UNKNOWN
+            yield from _scoped(child, {**names, "self": owner, "cls": owner})
+        else:
+            yield child, names
+            yield from _scoped(child, names)
+
+
 def _decisions_on_message_code(path: Path, codes: frozenset[str]) -> Iterator[str]:
-    names = vars(_module(path))
-    for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"), filename=str(path))):
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    for node, names in _scoped(tree, vars(_module(path))):
         match node:
             case ast.Compare(left=left, comparators=comparators):
                 operands = [left, *comparators]
