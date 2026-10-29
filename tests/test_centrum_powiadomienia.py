@@ -119,12 +119,12 @@ def test_powod_zamkniecia_issue_rozstrzyga_stan_sprawy(
     assert rows(centrum) == [("uwaga", NOTE_TITLE, state, True)]
 
 
-def test_uwaga_bez_klucza_czeka_na_internet_bez_kropki_a_skrzynka_nie_jest_pytana(tmp_path: Path) -> None:
+def test_uwaga_bez_tokenu_czeka_na_token_bez_kropki_a_skrzynka_nie_jest_pytana(tmp_path: Path) -> None:
     centrum = preparing_centrum(tmp_path)
 
-    assert sent_note(centrum) == {"state": "waiting"}
+    assert sent_note(centrum) == {"state": "waiting", "waits_for": "key"}
 
-    assert rows(centrum) == [("uwaga", NOTE_TITLE, "czeka_na_internet", False)]
+    assert rows(centrum) == [("uwaga", NOTE_TITLE, "czeka_na_token", False)]
     assert notifications(centrum)["unread"] == 0
     assert centrum.surroundings.report_box.listed == []
 
@@ -519,7 +519,7 @@ def test_github_jest_pytany_o_wydania_przy_starcie_i_najwyzej_raz_na_10_minut_ws
 
 
 def queued_report(centrum: PreparingCentrum) -> str:
-    """Zgłoszenie „do Maksa”, które czeka w kolejce Skrzynki (bez klucza); zwraca jego „Co się stało”."""
+    """Zgłoszenie „do Maksa”, które czeka w kolejce Skrzynki (bez Tokenu do Zgłoszeń); zwraca jego „Co się stało”."""
 
     run_id = stopped_for_maks(centrum)
     diagnosis = centrum.client.post(f"/api/runs/{run_id}/diagnosis").json()
@@ -540,7 +540,7 @@ def delivered_from_queue(centrum: PreparingCentrum) -> int:
     return number
 
 
-def test_zgloszenie_w_kolejce_czeka_na_internet_a_po_dostarczeniu_jest_wyslane_bez_kropki(tmp_path: Path) -> None:
+def test_zgloszenie_w_kolejce_bez_tokenu_czeka_na_token_a_po_dostarczeniu_jest_wyslane_bez_kropki(tmp_path: Path) -> None:
     centrum = preparing_centrum(tmp_path)
     what = queued_report(centrum)
     waiting = notifications(centrum)
@@ -548,7 +548,7 @@ def test_zgloszenie_w_kolejce_czeka_na_internet_a_po_dostarczeniu_jest_wyslane_b
     number = delivered_from_queue(centrum)
 
     assert [(item["what"], item["state"], item["unread"]) for item in waiting["items"]] == [
-        (what, "czeka_na_internet", False)
+        (what, "czeka_na_token", False)
     ]
     [item] = notifications(centrum)["items"]
     assert (item["id"], item["state"], item["unread"]) == (f"zgloszenie-{number}-wyslana", "wyslana", False)
@@ -619,7 +619,7 @@ def test_dwa_zgloszenia_w_kolejce_to_dwa_powiadomienia_o_roznych_id(tmp_path: Pa
     items = plain_centrum(tmp_path).client.get("/api/notifications").json()["items"]
 
     assert sorted((item["what"], item["state"]) for item in items) == [
-        ("Brak folderu.", "czeka_na_internet"),
-        ("Nie znaleziono wzorca.", "czeka_na_internet"),
+        ("Brak folderu.", "czeka_na_token"),
+        ("Nie znaleziono wzorca.", "czeka_na_token"),
     ]
     assert len({item["id"] for item in items}) == 2
