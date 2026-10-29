@@ -18,6 +18,12 @@ from types import ModuleType
 
 import pytest
 
+# Harmonogramy i różne stany każdego zakresu zmierzone na 890c9e7d. Drzewo mniejsze niż to gubi wybory kroków, a
+# sprawdzenie dalej kończy się OK: sprzątanie po Zatrzymaniu bez wyboru kroku daje w ``dwa-uruchomienia`` 4718
+# harmonogramów i przestaje łapać wycofanie, które usuwa plik taty. Granica schodzi tylko ze zmianą modelu, która
+# naprawdę zmniejsza drzewo.
+SMALLEST_TREE = {"jedno-uruchomienie": (377, 231), "dwa-uruchomienia": (9798, 7015)}
+
 EXPLORER = (
     Path(__file__).resolve().parents[1]
     / ".agents"
@@ -58,9 +64,16 @@ def test_publikacja_plikow_okresu_zachowuje_nienadpisywanie_i_razem_albo_zaden_w
     monkeypatch.setattr(explorer.preparation_files, "write_period_files", counted)
 
     assert explorer.probe_interception() == []
-    outcome = explorer.summarize([explorer.explore(scope) for scope in explorer.SCOPES.values()])
+    reports = [explorer.explore(scope) for scope in explorer.SCOPES.values()]
+    outcome = explorer.summarize(reports)
 
     assert outcome.exit_code == 0, "\n".join(outcome.lines)
+    smaller = {
+        report.scope.name: (report.schedules, report.states)
+        for report in reports
+        if report.schedules < SMALLEST_TREE[report.scope.name][0] or report.states < SMALLEST_TREE[report.scope.name][1]
+    }
+    assert smaller == {}, f"drzewo harmonogramów mniejsze niż {SMALLEST_TREE}"
     # Drugie Uruchomienie procesu musi wejść między kroki pierwszego, inaczej zakres dwóch Uruchomień sprawdza tylko
     # jedno po drugim i OK niczego nie mówi o wyścigu.
     assert interleaved, "w żadnym harmonogramie drugie Uruchomienie procesu nie ruszyło przed końcem pierwszego"
