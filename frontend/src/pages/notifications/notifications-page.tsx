@@ -15,7 +15,6 @@ import {
 import type { Notification } from "@/api/centrum"
 import { LoadFailure } from "@/components/load-failure"
 import { PageHeader } from "@/components/page-header"
-import { SendProblem, type SendCause } from "@/components/send-problem"
 import { ThreePartMessage } from "@/components/three-part-message"
 import { ToolUpdateButton, ToolUpdateStatus } from "@/components/tool-update"
 import { Card } from "@/components/ui/card"
@@ -41,20 +40,8 @@ const KINDS: Record<Kind, { tag: string; color: string; icon: LucideIcon }> = {
 
 const SOLVED: Record<Release["solved"][number]["kind"], string> = { uwaga: "Uwaga", zgloszenie: "Zgłoszenie" }
 
-// Stany, przy których tata musi skontaktować się z Maksem, mówi wspólny `SendProblem`.
-const PROBLEMS = { czeka_na_token: "key", odrzucona: "rejected" } as const satisfies Partial<Record<CaseState, SendCause>>
-
-type ProblemState = keyof typeof PROBLEMS
-
-function isProblem(state: CaseState): state is ProblemState {
-  return state in PROBLEMS
-}
-
 // Uwaga jest rodzaju żeńskiego, Zgłoszenie nijakiego.
-const STATES: Record<
-  Exclude<CaseState, ProblemState>,
-  { text: Record<Case["kind"], string>; icon: LucideIcon; tone: string }
-> = {
+const STATES: Record<CaseState, { text: Record<Case["kind"], string>; icon: LucideIcon; tone: string }> = {
   wyslana: {
     text: { uwaga: "Wysłana do Maksa.", zgloszenie: "Wysłane do Maksa." },
     icon: SendIcon,
@@ -192,13 +179,7 @@ function Row({ notification, fresh, listed }: { notification: Notification; fres
 }
 
 function CaseState({ notification }: { notification: Case }) {
-  const shown = notification.state
-
-  if (isProblem(shown)) {
-    return <SendProblem cause={PROBLEMS[shown]} kind={notification.kind} className="gap-1.5" iconClassName="size-3.5" />
-  }
-
-  const state = STATES[shown]
+  const state = STATES[notification.state]
 
   return (
     <p className="flex items-center gap-1.5 text-sm text-muted-foreground">

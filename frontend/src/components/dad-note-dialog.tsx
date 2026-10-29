@@ -15,7 +15,6 @@ import {
 import { zDadNoteRequest } from "@/api/generated/zod.gen"
 import { DadNoteRuns } from "@/components/dad-note-runs"
 import { SegmentedFilter, type FilterOption } from "@/components/segmented-filter"
-import { SendProblem } from "@/components/send-problem"
 import { Button } from "@/components/ui/button"
 import { DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Field, FieldLabel, FieldTitle } from "@/components/ui/field"
@@ -35,10 +34,9 @@ const DRAFT_PAUSE_MS = 150
 // Nieudane zapytanie o szkic wraca po tej przerwie, żeby „Wyślij” nie czekał na następny klawisz taty.
 const DRAFT_RETRY_MS = 1000
 
-// Odpowiedzi, które tata usłyszy bez Maksa; brak Tokenu do Zgłoszeń i odrzuconą treść mówi `SendProblem`.
-const ANSWERS: Record<"sent" | "internet", { icon: LucideIcon; tone: string; text: string }> = {
+const ANSWERS: Record<DadNoteState["state"], { icon: LucideIcon; tone: string; text: string }> = {
   sent: { icon: CircleCheckIcon, tone: "text-success", text: "Uwaga wysłana do Maksa." },
-  internet: { icon: ClockIcon, tone: "text-muted-foreground", text: "Wyślę do Maksa, gdy będzie internet." },
+  waiting: { icon: ClockIcon, tone: "text-muted-foreground", text: "Wyślę do Maksa, gdy będzie internet." },
 }
 
 const MARKDOWN_LINK = /\[([^\]\n]+)\]\([^)\s]+\)/g
@@ -286,40 +284,22 @@ function Preview({ shown }: { shown: Shown | null }) {
   )
 }
 
-function Reply({ answer: { icon: Icon, tone, text } }: { answer: (typeof ANSWERS)[keyof typeof ANSWERS] }) {
-  return (
-    <>
-      <Icon className={cn("size-8", tone)} aria-hidden />
-      <p role="status" className="text-base font-medium">
-        {text}
-      </p>
-    </>
-  )
-}
-
 /** Link Markdown `[napis](adres)` jako sam napis, jak na GitHubie, bez odnośnika: tata nie otworzy prywatnej Skrzynki. */
 function linkTexts(body: string): string {
   return body.replace(MARKDOWN_LINK, "$1")
 }
 
 function Answer({ state, close }: { state: DadNoteState; close: () => void }) {
-  const problem = state.state === "rejected" ? "rejected" : state.state === "waiting" ? state.waits_for : null
+  const { icon: Icon, tone, text } = ANSWERS[state.state]
 
   return (
     <>
       <DialogTitle className="sr-only">Napisz do Maksa</DialogTitle>
       <div className="wejscie flex flex-col items-center gap-3 py-6 text-center">
-        {problem === "rejected" || problem === "key" ? (
-          <SendProblem
-            role="status"
-            cause={problem}
-            kind="uwaga"
-            className="flex-col gap-3 text-base font-medium"
-            iconClassName="size-8"
-          />
-        ) : (
-          <Reply answer={ANSWERS[problem ?? "sent"]} />
-        )}
+        <Icon className={cn("size-8", tone)} aria-hidden />
+        <p role="status" className="text-base font-medium">
+          {text}
+        </p>
         <Button variant="outline" className="mt-2" onClick={close}>
           Zamknij
         </Button>

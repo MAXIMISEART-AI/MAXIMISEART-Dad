@@ -4,11 +4,8 @@ Sprawa ma rodzaj (``NOTE``, ``REPORT``), który mówi, pod jaką etykietą leży
 słownik, numer issue i ostatnie znane zamknięcie przez Maksa. Uwaga taty jest sprawą od „Wyślij” i bez numeru czeka
 w kolejce Skrzynki, dopóki ``delivered`` nie dopisze numeru. Zgłoszenie też idzie kolejką (ADR 0007), ale jego
 ``id`` to odcisk problemu, który wraca po zamknięciu, więc numer dopisuje ``numbered`` tylko czekającej sprawie.
-Stan sprawy (``DadCases.state``) wynika tylko z tabeli ``_STATES``, a sprawy, która czeka w Kolejce wysyłki, także
-z tego, na co czeka (``DadCases.hold``): na internet, na Token do Zgłoszeń (brak albo odmowa Skrzynki) albo na nic, bo
-Skrzynka odrzuciła jej treść. Odrzuconą treść kolejka ponawia dopiero przy następnym starcie Centrum, więc Sprawy taty
-pamiętają ją tylko w pamięci tej pracy Centrum. ``ask_box`` pyta skrzynkę o zamknięcie otwartych spraw, raz na
-rodzaj, który je ma.
+Stan sprawy (``Case.state``) wynika tylko z tabeli ``_STATES``. ``ask_box`` pyta skrzynkę o zamknięcie otwartych
+spraw, raz na rodzaj, który je ma.
 
 Stan leży w ``config/sprawy-taty.json`` poza Gitem. Dopóki tego pliku nie ma, Sprawy taty czytają pliki sprzed
 jednego magazynu (``OLD_FILES``), które mogą leżeć u taty, a pierwszy zapis przenosi ich wpisy do nowego pliku;
@@ -65,20 +62,15 @@ NOTE: Final = CaseKind("uwaga", "uwaga-taty", "Uwaga taty")
 KINDS: Final = (REPORT, NOTE)
 _BY_KEY: Final[Mapping[str, CaseKind]] = {kind.key: kind for kind in KINDS}
 
-Hold = Literal["internet", "key", "rejected"]
-"""Na co czeka sprawa w Kolejce wysyłki: ``contract.WaitsFor`` albo ``rejected``, gdy Skrzynka odrzuciła jej treść."""
-
-# (na co czeka w kolejce, issue zamknięte, state_reason) → stan sprawy; ``None``: sprawa ma numer issue. GitHub zamyka
-# issue bez powodu jako ``completed``, a duplikat to sprawa przeczytana bez zmian.
-_STATES: Final[Mapping[tuple[Hold | None, bool, CloseReason | None], contract.CaseState]] = {
-    ("internet", False, None): "czeka_na_internet",
-    ("key", False, None): "czeka_na_token",
-    ("rejected", False, None): "odrzucona",
-    (None, False, None): "wyslana",
-    (None, True, "completed"): "rozwiazana",
-    (None, True, None): "rozwiazana",
-    (None, True, "not_planned"): "przeczytana",
-    (None, True, "duplicate"): "przeczytana",
+# (czeka w kolejce, issue zamknięte, state_reason) → stan sprawy. GitHub zamyka issue bez powodu jako ``completed``,
+# a duplikat to sprawa przeczytana bez zmian.
+_STATES: Final[Mapping[tuple[bool, bool, CloseReason | None], contract.CaseState]] = {
+    (True, False, None): "czeka_na_internet",
+    (False, False, None): "wyslana",
+    (False, True, "completed"): "rozwiazana",
+    (False, True, None): "rozwiazana",
+    (False, True, "not_planned"): "przeczytana",
+    (False, True, "duplicate"): "przeczytana",
 }
 
 
@@ -103,6 +95,11 @@ class Case:
     run_id: str | None = None
 
     @property
+    def state(self) -> contract.CaseState:
+        closure = self.closure
+        return _STATES[(self.number is None, closure is not None, None if closure is None else closure.reason)]
+
+    @property
     def open(self) -> bool:
         """Wysłana, a Maks jeszcze jej nie zamknął."""
 
@@ -116,7 +113,6 @@ class DadCases:
         self.file = StateFile(config_directory / DAD_CASES_FILE, log, where="stan Spraw taty", pause=pause)
         self._lock = threading.Lock()
         self._cases = _load(config_directory)
-        self._rejected: set[str] = set()  # ``id`` spraw, których treść Skrzynka odrzuciła w tej pracy Centrum
 
     def all(self) -> list[Case]:
         with self._lock:
@@ -173,35 +169,6 @@ class DadCases:
             return replace(case, number=number) if ours else case
 
         self._change(lambda cases: [numbered(case) for case in cases])
-
-    def rejected(self, case_id: str) -> None:
-        """Skrzynka odrzuciła w tej pracy Centrum treść wysyłki sprawy o ``case_id`` (``Outbox.on_rejected``).
-
-        ``id`` Uwagi to identyfikator jej wysyłki, a odcisk Zgłoszenia podaje ``Reports.rejected``. Identyfikator
-        wysyłki, która nie jest sprawą (Logi Uruchomienia), żadnej sprawy nie zmienia.
-        """
-
-        with self._lock:
-            self._rejected.add(case_id)
-
-    def hold(self, case_id: str, box: KeyedBox) -> Hold:
-        """Na co czeka sprawa o ``case_id`` w Kolejce wysyłki; nie pyta Skrzynki o token, gdy werdykt jest znany.
-
-        Odrzucona treść nie czeka na nic. Bez tokenu albo z odrzuconym kolejka nie wyśle niczego, a z tokenem, którego
-        Skrzynka nie odrzuciła (także jeszcze niesprawdzonym), czeka tylko na internet.
-        """
-
-        with self._lock:
-            if case_id in self._rejected:
-                return "rejected"
-        return "key" if box.judge(wait_s=0) in ("missing", "refused") else "internet"
-
-    def state(self, case: Case, box: KeyedBox) -> contract.CaseState:
-        """Stan sprawy w Powiadomieniu, a sprawy bez numeru issue z tym, na co czeka w Kolejce wysyłki."""
-
-        hold = None if case.number is not None else self.hold(case.id, box)
-        closure = case.closure
-        return _STATES[(hold, closure is not None, None if closure is None else closure.reason)]
 
     def ask_box(self, box: KeyedBox) -> None:
         """Pyta skrzynkę o zamknięcie spraw, raz na rodzaj z otwartymi sprawami; bez odpowiedzi zostaje, co wiadomo.
