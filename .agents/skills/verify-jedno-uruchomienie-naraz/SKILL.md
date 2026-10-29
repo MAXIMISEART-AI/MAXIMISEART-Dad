@@ -124,7 +124,10 @@ in a thread pool, so tabs really do run in parallel. Each modelled thread is a
 greenlet on one OS thread of the script, so a busy CI runner slows the check only by
 its share of a CPU, not by a kernel thread switch at every step (#565). The script watches that
 thread from outside: 10 s without a step means a modelled thread that waits outside the model,
-because a busy runner stretches the gap between two steps only to a fraction of a second. Inside `runs.py` and
+because a busy runner stretches the gap between two steps only to a fraction of a second. That thread stays
+blocked, with every lock it holds, until its process ends: the script's process ends by itself after the report (the
+thread is a daemon), and the test runs the check of the real code in a process of its own, because in the pytest
+worker the held lock stopped every later test of Centrum (#651). Inside `runs.py` and
 `shutdown.py`, `threading` is replaced by model primitives: entering
 `RunHost._lock`, each `Event.set`/`clear`/`wait` and starting the Uruchomienie
 thread is one indivisible step, as is each Centrum log entry and

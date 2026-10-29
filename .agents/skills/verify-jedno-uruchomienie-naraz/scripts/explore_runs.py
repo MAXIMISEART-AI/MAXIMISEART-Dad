@@ -996,7 +996,11 @@ class ScopeReport:
 
 
 def explore(scope: Scope) -> ScopeReport:
-    """Tries every schedule of ``scope`` on a thread of its own; a modelled thread that waits for real is a LUKA MODELU."""
+    """Tries every schedule of ``scope`` on a thread of its own; a modelled thread that waits for real is a LUKA MODELU.
+
+    That thread stays blocked, with every lock it holds, until the process ends, so check the real code in a process
+    of its own (#651); the script's process ends after the report, because the thread is a daemon.
+    """
 
     report = ScopeReport(scope)
     progress = Progress()
