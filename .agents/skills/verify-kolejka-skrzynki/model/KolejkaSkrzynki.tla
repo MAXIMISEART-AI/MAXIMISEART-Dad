@@ -158,8 +158,8 @@ JednoIssue ==
             \/ \A w \in W : Cardinality({i \in 1..Len(issues) : issues[i].tresc[1] = Cialo(w)}) <= 1
             \/ slady \cap Ryzyka /= {}
 
-\* Plik znika z kolejki albo dostaje znacznik dopiero, gdy Skrzynka ma każdą jego część.
-WszystkieCzesci == \A w \in zakolejkowane : plik[w] \in {"oznaczony", "usuniety"} => Dostarczona(w)
+\* Plik znika z kolejki, przepada albo dostaje znacznik dopiero, gdy Skrzynka ma każdą jego część.
+WszystkieCzesci == \A w \in zakolejkowane : plik[w] \in {"oznaczony", "usuniety", "przepadl"} => Dostarczona(w)
 
 \* Część k > 1 w issue ma przed sobą część k-1 tej samej wysyłki: issue czyta się po kolei.
 CzesciWKolejnosci ==

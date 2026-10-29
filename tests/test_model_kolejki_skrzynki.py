@@ -233,11 +233,14 @@ def _no_change(text: str) -> str:
         (APP, lambda text: text.replace("        outbox.resume()\n", "        pass\n"), "src/rozliczenia/centrum/app.py lifespan"),
         (LAUNCHER, lambda text: text.replace("def _listen_when_released(", "def _listen_later("), "src/rozliczenia/centrum/launcher.py _listen_when_released"),
         (SERVER, lambda text: text.replace("_GRACEFUL_SHUTDOWN_S = 5", "_GRACEFUL_SHUTDOWN_S = 0"), "src/rozliczenia/centrum/server.py _GRACEFUL_SHUTDOWN_S"),
+        (LAUNCHER, lambda text: text.replace("def listen_locally(port: int) -> socket.socket:\n", "def listen_locally(port: int) -> socket.socket:\n    _ = 0\n"), "src/rozliczenia/centrum/launcher.py listen_locally"),
+        (SERVER, lambda text: text.replace("def serve(", "def serve_later("), "src/rozliczenia/centrum/server.py serve"),
+        (SERVER, lambda text: text.replace("class _Server(uvicorn.Server):\n", "class _Server(uvicorn.Server):\n    DODANE = 1\n"), "src/rozliczenia/centrum/server.py _Server"),
         (APP, lambda text: "POZA = 1\n" + text, None),
         (APP, lambda text: text.replace("        outbox.resume()\n", "        outbox.resume()  # komentarz\n"), None),
         (SERVER, _no_change, None),
     ],
-    ids=["lifespan", "listen-when-released", "graceful-shutdown", "poza-definicjami", "komentarz", "bez-zmian"],
+    ids=["lifespan", "listen-when-released", "graceful-shutdown", "listen-locally", "serve", "server", "poza-definicjami", "komentarz", "bez-zmian"],
 )
 def test_rozjazd_liczy_w_plikach_procesu_centrum_tylko_definicje_znaleziska_dwa_procesy(
     tmp_path: Path, path: Path, edit: Callable[[str], str], moved: str | None

@@ -314,8 +314,8 @@ that cannot be read, and two file errors in a row.
   is left of a wysyłka that `post` wrote to the queue, except a file whose
   content the Skrzynka refused (`Rejected`, waits for the next start) or a
   sent file `_remove` could not delete (`_undeleted`, every part in the
-  Skrzynka). A file that disappeared or got its marker without every part
-  breaks WszystkieCzesci, so Zbieganie looks only at files without a marker,
+  Skrzynka). A file that was deleted, lost after `post` accepted it, or got
+  its marker without every part breaks WszystkieCzesci, so Zbieganie looks only at files without a marker,
   and every known finding breaks one promise. Harm as KOLEJKA_PUSTA.
 
 A second issue of an Uwaga taty is possible, and nothing in the code detects
