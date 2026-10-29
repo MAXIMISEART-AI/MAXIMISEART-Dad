@@ -29,7 +29,7 @@ Uruchamia go systemowy Python (na Macu 3.9), więc ruff sprawdza ten plik pod 3.
 from __future__ import annotations
 
 from bisect import bisect_left
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 import json
 import re
@@ -37,10 +37,15 @@ import sys
 from typing import Optional
 
 _GH = r"\bgh(?:-axi)?\s+"
-ASKS_CI = re.compile(
-    _GH + r"(?:pr\s+(?:checks|view)|run\s+(?:view|list|watch)|api\b[^;&|\n]*(?:check-runs|actions/runs|/status\b))"
-)
-WATCH = re.compile(_GH + r"(?:pr\s+checks\b[^;&|\n]*--watch|run\s+watch)\b")
+ASKS_CI = re.compile(_GH + r"(?:pr\s+(?:checks|view)|run\s+(?:view|list|watch))")
+# `gh api` pyta o CI, gdy w tym samym poleceniu prostym (do `;`, `&`, `|` albo nowej linii) stoi adres CI. Pary szuka
+# `_in_one_command`, a nie wzorzec `api\b[^;&|\n]*adres`, bo ten od każdego `gh api` czyta do końca polecenia.
+GH_API = re.compile(_GH + r"api\b")
+CI_ADDRESS = re.compile(r"check-runs|actions/runs|/status\b")
+CHECKS = re.compile(_GH + r"pr\s+checks\b")
+WATCH_OPTION = re.compile(r"--watch\b")
+RUN_WATCH = re.compile(_GH + r"run\s+watch\b")
+SIMPLE_COMMAND_END = re.compile(r"[;&|\n]")
 PGREP = re.compile(r"\bpgrep\s+(?:-\w+\s+)*-\w*f")
 # Agenci śpią też przez `perl -e 'select(undef,undef,undef,N)'`, gdy harness blokuje sam `sleep`; w napisie bez
 # spacji nawias jest już podkreśleniem (`QUOTED_SEPARATOR`).
@@ -49,14 +54,16 @@ WHITESPACE = re.compile(r"\s")
 # W napisie bez spacji (`perl -e 'select(undef,…)'`, wzorzec `rg '(while|until)'`) słowo pętli nie stoi na pozycji
 # polecenia, a nawias nie otwiera ani nie zamyka grupy.
 QUOTED_SEPARATOR = re.compile(r"[;&|(){}!`]")
-# Słowo pętli liczy się na pozycji polecenia, więc „done” w `grep -q done` nie zamyka pętli.
-_STARTS = r"(?:^|(?<=[;&|({!`])|(?<=\bdo)|(?<=\bthen)|(?<=\belse))\s*"
-_ENDS = r"(?:(?<=[;&\n])|(?<=\bdo))\s*"
+# Słowo pętli liczy się na pozycji polecenia, więc „done” w `grep -q done` nie zamyka pętli. Za początkiem wiersza
+# odstęp bez nowej linii: inaczej od każdego z tysięcy pustych wierszy wzorzec czytałby wszystkie następne.
+_STARTS = r"(?:^[^\S\n]*|(?:(?<=[;&|({!`])|(?<=\bdo)|(?<=\bthen)|(?<=\belse))\s*)"
+_ENDS = r"(?:(?<=\n)[^\S\n]*|(?:(?<=[;&])|(?<=\bdo))\s*)"
 LOOP_WORD = re.compile(rf"{_STARTS}(until|while|for)\b|{_ENDS}(done)\b", re.MULTILINE)
 # `for` i `while read` z `sleep` to zwykle partia zapytań z limitem API (`for id in …; do sleep 2; gh run view $id`),
 # a czekaniem są dopiero z wyjściem z pętli albo licznikiem prób od 0 albo 1 (`$(seq 247 264)` to numery PR).
 OVER_LIST = re.compile(r"(?:for|while\s+(?:IFS=\S*\s+)?read)\b")
-STOPS = re.compile(r"^for\s*\(\(|\b(?:break|exit|return)\b(?!=)|\$\(seq\s+(?:[01]\s+)?\d+\s*\)|\{[01]\.\.\d+\}")
+FOR_ARITHMETIC = re.compile(r"for\s*\(\(")
+STOPS = re.compile(r"\b(?:break|exit|return)\b(?!=)|\$\(seq\s+(?:[01]\s+)?\d+\s*\)|\{[01]\.\.\d+\}")
 # Pętla puszczona `&` (próbnik obok pomiaru, ubijany potem `kill`) nie blokuje polecenia, a `&>`, `>&2`, `2>&1`
 # i `|&` to przekierowania. `&` puszcza w tło całą listę do `;` albo nowej linii, także z `|` i `||` (`done | tee log &`).
 # Bez zagnieżdżonych kwantyfikatorów, bo cofanie po `2>1 2>1 …` nie miałoby końca.
@@ -160,11 +167,46 @@ def _quoted(command: str, start: int) -> tuple[str, int]:
     return (kept if WHITESPACE.search(literal) else QUOTED_SEPARATOR.sub("_", literal)), end
 
 
-def _loop_bodies(command: str) -> Iterator[str]:
-    """Tekst każdej pętli na pierwszym planie od słowa ``until``/``while``/``for`` do jej ``done`` (albo do końca polecenia).
+class _Matches:
+    """Dopasowania wzorca w poleceniu, posortowane, z końcami rosnącymi razem z początkami.
 
-    Po jednej naraz: ciała zagnieżdżonych pętli razem rosną z kwadratem długości polecenia.
+    Pytanie, czy jedno z nich leży całe w pętli, kosztuje bisekcję, a nie przeszukanie ciała pętli: ciała pętli
+    zagnieżdżonych albo niezamkniętych razem rosną z kwadratem długości polecenia.
     """
+
+    def __init__(self, spans: Iterable[tuple[int, int]]) -> None:
+        self.starts: list[int] = []
+        self.ends: list[int] = []
+        for start, end in spans:
+            self.starts.append(start)
+            self.ends.append(end)
+
+    def inside(self, start: int, end: int) -> bool:
+        index = bisect_left(self.starts, start)
+        return index < len(self.starts) and self.ends[index] <= end
+
+
+def _found(pattern: re.Pattern[str], command: str) -> _Matches:
+    return _Matches(match.span() for match in pattern.finditer(command))
+
+
+def _in_one_command(command: str, head: re.Pattern[str], tail: re.Pattern[str]) -> _Matches:
+    """Od ``head`` do pierwszego za nim ``tail``, gdy oba stoją w jednym poleceniu prostym."""
+
+    tails = [match.span() for match in tail.finditer(command)]
+    tail_starts = [start for start, _ in tails]
+    command_ends = [match.start() for match in SIMPLE_COMMAND_END.finditer(command)]
+    spans: list[tuple[int, int]] = []
+    for match in head.finditer(command):
+        index = bisect_left(tail_starts, match.end())
+        if index < len(tails) and tails[index][0] < _first_from(command_ends, match.end(), len(command)):
+            spans.append((match.start(), tails[index][1]))
+    return _Matches(spans)
+
+
+def _loop_bodies(command: str) -> Iterator[tuple[int, int]]:
+    """Początek i koniec każdej pętli na pierwszym planie od słowa ``until``/``while``/``for`` do jej ``done``
+    (albo do końca polecenia)."""
 
     loops: list[list[int]] = []
     unclosed: list[int] = []
@@ -180,7 +222,7 @@ def _loop_bodies(command: str) -> Iterator[str]:
     for start, end in loops:
         stop = _first_from(list_ends, end, len(command))
         if _first_from(ampersands, end, stop) >= stop:
-            yield command[start:end]
+            yield start, end
 
 
 def _first_from(positions: list[int], start: int, default: int) -> int:
@@ -192,14 +234,19 @@ def judge(command: str, in_background: bool) -> Optional[Refusal]:
     if in_background:
         return None
     shell, _ = _code(_without_heredocs(command))
-    if WATCH.search(shell):
+    if RUN_WATCH.search(shell) or _in_one_command(shell, CHECKS, WATCH_OPTION).starts:
         return WATCHING
-    for body in _loop_bodies(shell):
-        if not SLEEP.search(body) or (OVER_LIST.match(body) and not STOPS.search(body)):
+    sleeps, stops, pgreps = _found(SLEEP, shell), _found(STOPS, shell), _found(PGREP, shell)
+    queries, api_queries = _found(ASKS_CI, shell), _in_one_command(shell, GH_API, CI_ADDRESS)
+    for start, end in _loop_bodies(shell):
+        if not sleeps.inside(start, end):
             continue
-        if ASKS_CI.search(body):
+        over_list = OVER_LIST.match(shell, start, end)
+        if over_list and not (FOR_ARITHMETIC.match(shell, start, end) or stops.inside(start, end)):
+            continue
+        if queries.inside(start, end) or api_queries.inside(start, end):
             return CI_LOOP
-        if PGREP.search(body):
+        if pgreps.inside(start, end):
             return PGREP_LOOP
     return None
 

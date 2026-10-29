@@ -248,8 +248,23 @@ def test_limit_hooka_w_ustawieniach_opoznia_polecenie_najwyzej_o_10_s() -> None:
         "until x; do " * 40000 + "sleep 1; gh pr checks 1",
         "until a& do b& done&" * 40000 + "while :; do sleep 1; gh pr checks 1; done",
         "(until x do done)" * 40000 + "(while :; do sleep 1; gh pr checks 1; done)",
+        # Ciało każdej pętli przeszukane osobno: pętle zagnieżdżone i niezamknięte razem rosną z kwadratem długości.
+        "until x; do " * 40000 + "done; " * 40000 + "while :; do sleep 1; gh pr checks 1; done",
+        # Wzorzec, który od każdego wiersza albo każdego ``gh pr checks`` czyta do końca polecenia.
+        "while :; do sleep 1; gh pr checks 1; done" + "\n" * 400000,
+        "gh pr checks 1 " * 40000 + "\nwhile :; do sleep 1; gh pr checks 1; done",
+        "until x; do sleep 1; " + "gh api x " * 40000 + "\ngh pr checks 1; done",
     ],
-    ids=["ogon-przekierowan", "petle-bez-done", "petle-w-tle-bez-srednika", "petle-bez-konca-listy"],
+    ids=[
+        "ogon-przekierowan",
+        "petle-bez-done",
+        "petle-w-tle-bez-srednika",
+        "petle-bez-konca-listy",
+        "zagniezdzone-bez-sleep",
+        "puste-wiersze",
+        "zapytania-bez-watch",
+        "gh-api-bez-adresu",
+    ],
 )
 def test_hook_ocenia_wejscie_bez_konca_przed_limitem_z_ustawien(command: str) -> None:
     tool_input = {"command": command, "run_in_background": False}
@@ -288,7 +303,14 @@ def test_hook_trzyma_w_pamieci_jedno_cialo_petli_naraz(monkeypatch: pytest.Monke
 
 @pytest.mark.parametrize(
     "stdin",
-    ["", "nie json", "[]", '{"tool_input": null}', '{"tool_input": {"command": 5}}', '{"tool_name": "Bash"}'],
+    [
+        "",
+        "nie json",
+        "[]",
+        '{"tool_input": null}',
+        '{"tool_input": {"command": 5}}',
+        '{"tool_name": "Bash"}',
+    ],
 )
 def test_nieczytelne_wejscie_hooka_przechodzi(stdin: str) -> None:
     hooked = _hook(stdin)
