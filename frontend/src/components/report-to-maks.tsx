@@ -4,7 +4,6 @@ import { CircleCheckIcon, ClockIcon, HourglassIcon, RotateCcwIcon, SendIcon } fr
 import { failureMessage } from "@/api/client"
 import type { ReportDraft, RunOutcome } from "@/api/centrum"
 import { Disclosure } from "@/components/disclosure"
-import { SendProblem } from "@/components/send-problem"
 import { Button } from "@/components/ui/button"
 import { Spinner } from "@/components/ui/spinner"
 import { ThreePartMessage } from "@/components/three-part-message"
@@ -14,9 +13,8 @@ type ReportState = NonNullable<RunOutcome["report"]>
 
 /**
  * Zgłoszenie do Maksa (przy Zatrzymaniu albo nieudanej Aktualizacji narzędzia): podgląd i „Wyślij do Maksa”,
- * potwierdzenie po wysłaniu, „czeka na internet”, gdy Zgłoszenie jest w kolejce i wyjdzie samo, „skontaktuj się z
- * Maksem”, gdy nie działa Token do Zgłoszeń albo Skrzynka odrzuciła treść, albo Komunikat z „Spróbuj ponownie”, gdy
- * nie dało się go zapisać. Gdy ten problem ma już otwarte Zgłoszenie, zamiast
+ * potwierdzenie po wysłaniu, „czeka” na internet albo klucz, gdy Zgłoszenie jest w kolejce i wyjdzie samo, albo
+ * Komunikat z „Spróbuj ponownie”, gdy nie dało się go zapisać. Gdy ten problem ma już otwarte Zgłoszenie, zamiast
  * przycisku jest „już wysłane i czeka na naprawę”. Stan liczy serwer, a `send` prosi go o wysyłkę; `draft` przy
  * Zatrzymaniu jest dopiero po Diagnozie, więc przed nią widać tylko stan.
  */
@@ -65,22 +63,13 @@ export function ReportToMaks({
     )
   }
 
-  if (state.state === "queued" || state.state === "rejected") {
+  if (state.state === "queued") {
     return (
       <div className="flex flex-col items-start gap-1">
-        {state.state === "queued" && state.waits_for === "internet" ? (
-          <p role="status" className="wejscie flex items-center gap-2 text-sm">
-            <HourglassIcon className="size-4 text-muted-foreground" aria-hidden />
-            Zgłoszenie czeka na internet. Wyśle się samo.
-          </p>
-        ) : (
-          <SendProblem
-            role="status"
-            className="wejscie"
-            cause={state.state === "rejected" ? "rejected" : "key"}
-            kind="zgloszenie"
-          />
-        )}
+        <p role="status" className="wejscie flex items-center gap-2 text-sm">
+          <HourglassIcon className="size-4 text-muted-foreground" aria-hidden />
+          {QUEUED_TEXT[state.waits_for]}
+        </p>
         {draft === null ? null : <Preview draft={draft} />}
       </div>
     )
@@ -117,6 +106,12 @@ export function ReportToMaks({
       <Preview draft={draft} />
     </div>
   )
+}
+
+/** Na co czeka Zgłoszenie w kolejce: bez klucza albo z odrzuconym nic nie wyjdzie, dopóki tata nie powie Maksowi. */
+const QUEUED_TEXT: Record<Extract<ReportState, { state: "queued" }>["waits_for"], string> = {
+  internet: "Zgłoszenie czeka na internet. Wyśle się samo.",
+  key: "Zgłoszenie czeka na klucz do Zgłoszeń. Daj znać Maksowi.",
 }
 
 /** Dokładna treść Zgłoszenia, zwinięta: tata widzi przed wysłaniem, co dostanie Maks. */

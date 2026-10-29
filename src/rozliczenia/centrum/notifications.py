@@ -1,7 +1,7 @@
 """Powiadomienia (ADR 0015): co stało się z Uwagami taty i Zgłoszeniami wysłanymi z tego komputera i nowe Wydania.
 
 Sprawa taty to Uwaga taty albo Zgłoszenie (``DadCases``); bez numeru issue czeka w kolejce Skrzynki, a jej stan w
-Powiadomieniu to ``DadCases.state``, przy sprawie w kolejce z tym, na co czeka. Powiadomienie to sprawa w jednym stanie, więc nowy stan to nowe Powiadomienie. Nowe są tylko stany, które dał Maks (rozwiązana, przeczytana); wysłanie i czekanie w kolejce
+Powiadomieniu to ``Case.state``. Powiadomienie to sprawa w jednym stanie, więc nowy stan to nowe Powiadomienie. Nowe są tylko stany, które dał Maks (rozwiązana, przeczytana); wysłanie i czekanie w kolejce
 to czynność taty i kropki na dzwonku nie zapala.
 
 Powiadomienie o nowej wersji to opublikowane Wydanie (GitHub Release) o numerze nie wyższym od najnowszego Wydania na
@@ -255,7 +255,7 @@ class Notifications:
 
         if case.title is None or case.sent_at is None:
             return None
-        state, at = self._cases.state(case, self._box), _moment(case.closure, case.sent_at)
+        state, at = case.state, _moment(case.closure, case.sent_at)
         if case.kind == NOTE:
             notification_id = f"uwaga-{case.id}-{state}"
             unread = self._unread(notification_id, state)

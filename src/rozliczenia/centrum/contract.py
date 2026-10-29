@@ -600,26 +600,12 @@ class ReportWaiting(_Model):
     state: Literal["waiting"]
 
 
-# Na co czeka wysyłka taty w Kolejce wysyłki: ``internet`` albo ``key``, czyli Token do Zgłoszeń od Maksa (brak
-# tokenu albo token, którego Skrzynka Zgłoszeń odmówiła).
-WaitsFor = Literal["internet", "key"]
-
-
 class ReportQueued(_Model):
-    """Zgłoszenie czeka w Kolejce wysyłki na tym komputerze i wyjdzie samo, gdy będzie to, na co czeka."""
+    """Zgłoszenie czeka w kolejce Skrzynki na tym komputerze i wyjdzie samo; ``waits_for``: na internet albo na klucz
+    do Zgłoszeń od Maksa (brak klucza albo klucz, którego Skrzynka odmówiła)."""
 
     state: Literal["queued"]
-    waits_for: WaitsFor
-
-
-class ReportRejected(_Model):
-    """Skrzynka Zgłoszeń odrzuciła treść tego Zgłoszenia: ani internet, ani Token do Zgłoszeń tego nie naprawią.
-
-    Plik zostaje w Kolejce wysyłki, która spróbuje go dopiero przy następnym starcie Centrum, więc Centrum niczego nie
-    obiecuje, tylko każe skontaktować się z Maksem.
-    """
-
-    state: Literal["rejected"]
+    waits_for: Literal["internet", "key"]
 
 
 class ReportNotQueued(_Model):
@@ -630,8 +616,7 @@ class ReportNotQueued(_Model):
 
 
 ReportState = Annotated[
-    ReportReady | ReportSent | ReportWaiting | ReportQueued | ReportRejected | ReportNotQueued,
-    Field(discriminator="state"),
+    ReportReady | ReportSent | ReportWaiting | ReportQueued | ReportNotQueued, Field(discriminator="state")
 ]
 
 
@@ -913,8 +898,8 @@ class WorkersUnreadable(_Model):
 Workers = Annotated[WorkersReady | WorkersUnreadable, Field(discriminator="state")]
 
 
-# Token do Zgłoszeń na tym komputerze: ``ready`` („Zgłoszenia: gotowe”: jest, a Skrzynka go nie odrzuciła, także
-# bez sieci), ``missing_key`` albo ``refused_key`` (Skrzynka Zgłoszeń odmówiła tego tokenu); nigdy jego wartość.
+# Klucz do Zgłoszeń na tym komputerze: ``ready`` („Zgłoszenia: gotowe”: jest, a Skrzynka go nie odrzuciła, także bez
+# sieci), ``missing_key`` albo ``refused_key`` (Skrzynka Zgłoszeń odmówiła tego klucza); nigdy jego wartość.
 ReportKeyState = Literal["ready", "missing_key", "refused_key"]
 
 
@@ -1039,25 +1024,17 @@ class DadNoteSent(_Model):
 
 
 class DadNoteWaiting(_Model):
-    """Uwaga taty czeka w Kolejce wysyłki i wyjdzie sama, także po następnym starcie, gdy będzie to, na co czeka."""
+    """Uwaga taty czeka w kolejce (brak internetu, klucza albo odmowa) i wyjdzie sama, także po następnym starcie."""
 
     state: Literal["waiting"]
-    waits_for: WaitsFor
 
 
-class DadNoteRejected(_Model):
-    """Skrzynka Zgłoszeń odrzuciła treść Uwagi taty; jak ``ReportRejected``, Centrum niczego nie obiecuje."""
-
-    state: Literal["rejected"]
+DadNoteState = Annotated[DadNoteSent | DadNoteWaiting, Field(discriminator="state")]
 
 
-DadNoteState = Annotated[DadNoteSent | DadNoteWaiting | DadNoteRejected, Field(discriminator="state")]
-
-
-# Stan sprawy taty (Uwagi albo Zgłoszenia) w Powiadomieniu: wysłana, czeka w Kolejce wysyłki na internet albo na
-# Token do Zgłoszeń, odrzucona (Skrzynka odrzuciła jej treść), rozwiązana (Maks zamknął issue jako ``completed``:
-# będzie w następnej wersji) albo przeczytana (``not_planned``: bez zmian).
-CaseState = Literal["wyslana", "czeka_na_internet", "czeka_na_token", "odrzucona", "rozwiazana", "przeczytana"]
+# Stan sprawy taty (Uwagi albo Zgłoszenia) w Powiadomieniu: wysłana, czeka w kolejce na internet, rozwiązana
+# (Maks zamknął issue jako ``completed``: będzie w następnej wersji) albo przeczytana (``not_planned``: bez zmian).
+CaseState = Literal["wyslana", "czeka_na_internet", "rozwiazana", "przeczytana"]
 
 
 class _Notification(_Model):
