@@ -21,7 +21,7 @@ from tests.fixtures.git_repo import commit, git, repository
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
 
-from mutacje_zmiany import Hunk, exceptions, mutants, selected  # noqa: E402
+from mutacje_zmiany import Hunk, exceptions, fingerprint, mutants, selected  # noqa: E402
 import pokrycie_procesu  # noqa: E402
 
 MODULE = "src/rozliczenia/warunek.py"
@@ -87,7 +87,37 @@ def test_zmiana_bez_testu_ktory_ja_widzi_konczy_sie_fail_z_nazwa_mutacji_takze_w
     assert sorted(survived) == ["src/rozliczenia/warunek.py:2 bez `b` w `and`", "src/rozliczenia/warunek.py:2 zmiana linii 2 cofnięta do bazy"]
     assert done.stdout.splitlines()[-1].startswith("MUTACJE ZMIANY FAIL | przeżyło 2")
     written = json.loads(record.read_text(encoding="utf-8"))
-    assert (written["czesc"], written["wynik"], sorted(written["przezyte"])) == ("1/1", done.stdout.splitlines()[-1], sorted(survived))
+    assert (written["czesc"], written["wynik"]) == ("1/1", done.stdout.splitlines()[-1])
+    assert sorted((entry["id"], entry["linie"]) for entry in written["przezyte"]) == [(name, [2]) for name in sorted(survived)]
+    assert len({entry["klucz"] for entry in written["przezyte"]}) == 2
+
+
+@pytest.mark.parametrize(
+    ("changed", "arguments", "verdict"),
+    [
+        (CHANGED.replace("and b", "and b  # mutacje-zmiany: bez terminu"), (), "MUTACJE ZMIANY FAIL | src/rozliczenia/warunek.py:2: wyjątek musi mieć postać"),
+        (CHANGED, ("--baza", "nie-ma-takiej"), "MUTACJE ZMIANY FAIL | nieznana baza nie-ma-takiej"),
+    ],
+    ids=["zly-wyjatek", "nieznana-baza"],
+)
+def test_porazka_bez_wyniku_mutacji_ma_inny_kod_niz_przezyte_mutacje(tmp_path: Path, changed: str, arguments: tuple[str, ...], verdict: str) -> None:
+    # Nocna część zostawia kod 1 przeżytych mutacji zgłoszeniu, a każdą inną porażką czerwieni się (mutacje-nocne.yml).
+    done = _run(_repo(tmp_path, ONE_CASE, changed), *arguments)
+
+    assert done.returncode == 2, done.stdout + done.stderr
+    assert done.stdout.splitlines()[-1].startswith(verdict)
+
+
+def test_klucz_mutacji_nie_zalezy_od_jej_linii_a_rozroznia_mutacje() -> None:
+    hunk = Hunk(2, 1, ("    return a",))
+    found = selected(MODULE, CHANGED, [hunk])
+    shifted = "# opis\n\n" + CHANGED
+    moved = selected(MODULE, shifted, [Hunk(4, 1, ("    return a",))])
+
+    assert [mutant.line for mutant in moved] == [mutant.line + 2 for mutant in found]
+    keys = [fingerprint(mutant, CHANGED) for mutant in found]
+    assert [fingerprint(mutant, shifted) for mutant in moved] == keys
+    assert len(set(keys)) == len(keys) == 2
 
 
 def test_zmiana_z_testami_ktore_widza_kazda_mutacje_konczy_sie_ok(tmp_path: Path) -> None:

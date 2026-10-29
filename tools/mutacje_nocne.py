@@ -9,21 +9,25 @@ Workflow ``mutacje-nocne.yml`` biegnie raz na dobę na ``main`` i ręcznie (``wo
   najwyżej ``NAJWIECEJ_CZESCI`` części, i pisze do ``GITHUB_OUTPUT`` ``baza``, ``czesci`` (macierz numerów) i ``liczba``.
 - Część k z n to ``tools/mutacje_zmiany.py --baza <baza> --czesc k/n --zapis …``: kolejne mutacje z listy
   posortowanej po plikach, więc pokrycie biegnie na testach kilku plików, nie całej zmiany dnia.
-- ``zglos`` czyta zapisy części. Każdą przeżytą mutację przypisuje PR-owi, który ostatni zmienił jej linię: ``git blame``
-  linii na HEAD daje commit, a numer PR podaje temat commitu linii pierwszych rodziców HEAD, który go wniósł
+- ``zglos`` czyta zapisy części. Każdą przeżytą mutację przypisuje PR-owi, który ostatni zmienił jej linie: zmienione
+  linie, które mutacja psuje, a nie linię jej nazwy, bo nazwę daje początek węzła, a w wielowierszowym ``if (`` zmienia
+  się często tylko linia w środku. ``git blame`` tych linii daje commity nocy, bo to linie zmienione od bazy, a z nich
+  liczy się ten, który linia pierwszych rodziców HEAD wniosła ostatni. Numer PR podaje temat commitu tej linii, który go wniósł
   (``Merge pull request #N`` albo squash ``… (#N)``); gałąź zbudowana na innej wnosi swoje commity do kilku PR-ów, a
   temat scalenia mówi, który z nich je scalił. Bez numeru w temacie PR podaje ``gh api …/commits/<sha>/pulls``. Na PR
-  przypada jedno issue ``Przeżyte mutacje z #N`` z etykietami ``ETYKIETY``, a w nim linie ``MUTACJA <plik>:<linia> <opis>``
-  (id jak w ``NIEWYKRYTA``). Linii, którą issue już ma w treści albo komentarzu, nie dostaje drugi raz; nowe linie idą
-  do istniejącego issue komentarzem, a zamknięte issue z nowymi liniami wraca otwarte z ``ready-for-agent``.
+  przypada jedno issue ``Przeżyte mutacje z #N`` z etykietami ``ETYKIETY``, a w nim linie
+  ``MUTACJA <plik>:<linia> <opis> | klucz <klucz>`` (id jak w ``NIEWYKRYTA``, klucz z ``mutacje_zmiany.fingerprint``).
+  Mutacji, której klucz issue już ma w treści albo komentarzu, nie dostaje drugi raz; nowe idą do istniejącego issue
+  komentarzem, a zamknięte issue z nowymi wraca otwarte z ``ready-for-agent``.
   Część bez zapisu albo z porażką inną niż przeżyte mutacje (testy padają bez mutacji, zły wyjątek) czerwieni run po
-  zgłoszeniu reszty, więc następna noc liczy od tej samej bazy, a zgłoszone linie się nie powtórzą.
+  zgłoszeniu reszty, więc następna noc liczy od tej samej bazy. Zgłoszone mutacje się nie powtórzą, także gdy PR z
+  następnego dnia przesunie ich linie, bo klucz nie ma numerów linii.
 - Skrypty mutacji skilli nocy planuje ``tools/plan_ci.py plan --zdarzenie noc --baza <baza>`` (skrypty skilli, których
   folder, runner mutacji albo sprawdzenie zmieniło się od bazy), a zadanie planu wgrywa swój zapis wykonania jako
   artefakt ``mutacje-skilli-<id zadania>``. ``zglos --plan-skilli`` daje każdy skrypt, który padł, linią
   ``SKRYPT <skrypt>`` do issue ``Przeżyte mutacje skilli z #N`` PR-u, który ostatni zmienił folder skilla od bazy (bez
-  takiej zmiany: inną ścieżkę z ``mutacje_skilli.watched``, a bez niej ostatni PR nocy), na tych samych zasadach co
-  przeżyte mutacje zmiany. Zadanie bez zapisu tego planu albo bez wyniku jednostki czerwieni run.
+  takiej zmiany: inną ścieżkę z ``mutacje_skilli.watched``, a bez niej ostatni PR nocy); linii, którą issue już ma, nie
+  dostaje drugi raz. Zadanie bez zapisu tego planu albo bez wyniku jednostki czerwieni run.
 
 Bazę i liczbę części nocy drukuje lokalnie bez testów:
 
@@ -66,7 +70,8 @@ ZAPIS = "czesc.json"
 # Artefakt zadania skryptów mutacji skilli: ``mutacje-skilli-<id zadania planu>`` z zapisem ``plan_ci.WYKONANIE``.
 ARTEFAKT_SKILLI = "mutacje-skilli-"
 STRONA = 100
-_ID = re.compile(r"(?P<plik>[^:\s]+):(?P<linia>[1-9][0-9]*) \S.*")
+_ID = re.compile(r"(?P<plik>[^:\s]+):[1-9][0-9]* \S.*")
+_KLUCZ = re.compile(r"\| klucz (?P<klucz>[0-9a-f]{12})\b")
 
 
 def _git(root: Path, *argumenty: str) -> str:
@@ -127,10 +132,27 @@ def _plan(od: str) -> int:
 # --- zgłoszenie ---
 
 
-def zapisy(katalog: Path, liczba: int) -> tuple[list[str], list[str]]:
+@dataclass(frozen=True)
+class Przezyta:
+    """Przeżyta mutacja z zapisu części: nazwa ``<plik>:<linia> <opis>``, zmienione linie, które psuje, i jej klucz."""
+
+    id: str
+    linie: tuple[int, ...]
+    klucz: str
+
+    @property
+    def plik(self) -> str:
+        znalezione = _ID.fullmatch(self.id)
+        if znalezione is None:
+            raise ValueError(f"przeżyta mutacja bez postaci <plik>:<linia> <opis>: {self.id}")
+        return znalezione["plik"]
+
+
+def zapisy(katalog: Path, liczba: int) -> tuple[list[Przezyta], list[str]]:
     """Przeżyte mutacje wszystkich części i przyczyny porażki części, które nie dały wyniku."""
 
-    przezyte, problemy = [], []
+    przezyte: list[Przezyta] = []
+    problemy: list[str] = []
     for numer in range(1, liczba + 1):
         try:
             zapis = json.loads((katalog / f"{ARTEFAKT}{numer}" / ZAPIS).read_text(encoding="utf-8"))
@@ -138,7 +160,7 @@ def zapisy(katalog: Path, liczba: int) -> tuple[list[str], list[str]]:
             problemy.append(f"część {numer}/{liczba} bez zapisu: {blad}")
             continue
         if zapis.get("przezyte"):
-            przezyte += zapis["przezyte"]
+            przezyte += [Przezyta(wpis["id"], tuple(wpis["linie"]), wpis["klucz"]) for wpis in zapis["przezyte"]]
         elif not str(zapis.get("wynik")).startswith("MUTACJE ZMIANY OK"):
             problemy.append(f"część {numer}/{liczba}: {zapis.get('wynik')}")
     return przezyte, problemy
@@ -150,6 +172,10 @@ class Autor:
 
     numer: int | None
     commit: str | None = None
+
+    @property
+    def tytul(self) -> str:
+        return f"Przeżyte mutacje z {self.w_tytule}"
 
     @property
     def w_tytule(self) -> str:
@@ -165,34 +191,46 @@ def _pr_z_tematu(temat: str) -> int | None:
     return int(znalezione["numer"]) if znalezione else None
 
 
-def autor(github: GitHub, root: Path, od: str, commit: str) -> Autor:
-    """PR, który wniósł ``commit`` na linię pierwszych rodziców HEAD po ``od``."""
+def _wniesienie(root: Path, linia_main: Sequence[str], commit: str) -> int:
+    """Pozycja na ``linia_main`` commitu, który wniósł ``commit`` na linię pierwszych rodziców HEAD."""
+
+    potomkowie = {commit, *_git(root, "rev-list", "--ancestry-path", f"{commit}..HEAD").split()}
+    return next(numer for numer, kandydat in enumerate(linia_main) if kandydat in potomkowie)
+
+
+def _commity_linii(root: Path, plik: str, linie: Sequence[int]) -> set[str]:
+    """Commity, które ostatnie zmieniły ``linie`` pliku na HEAD; wiersz ``blame -l -s`` zaczyna pełny SHA commitu."""
+
+    zakresy = [argument for linia in linie for argument in ("-L", f"{linia},{linia}")]
+    return {wiersz.split(maxsplit=1)[0] for wiersz in _git(root, "blame", "-l", "-s", *zakresy, "HEAD", "--", plik).splitlines()}
+
+
+def przypisz(github: GitHub, root: Path, od: str, przezyte: Sequence[Przezyta]) -> dict[Autor, list[Przezyta]]:
+    """Przeżyte mutacje według PR-u, który ostatni zmienił ich zmienione linie."""
 
     linia_main = _git(root, "rev-list", "--first-parent", "--reverse", f"{od}..HEAD").split()
-    potomkowie = {commit, *_git(root, "rev-list", "--ancestry-path", f"{commit}..HEAD").split()}
-    scalenie = next((kandydat for kandydat in linia_main if kandydat in potomkowie), None)
-    if scalenie is not None and (numer := _pr_z_tematu(_git(root, "log", "-1", "--format=%s", scalenie))):
+    wniesione: dict[str, int] = {}
+    autorzy: dict[str, Autor] = {}
+    wynik: dict[Autor, list[Przezyta]] = {}
+    for mutacja in przezyte:
+        # Linie mutacji to linie zmienione od ``od``, więc blame daje tylko commity nocy.
+        commity = _commity_linii(root, mutacja.plik, mutacja.linie)
+        for commit in commity - wniesione.keys():
+            wniesione[commit] = _wniesienie(root, linia_main, commit)
+        commit = max(sorted(commity), key=wniesione.__getitem__)
+        if commit not in autorzy:
+            autorzy[commit] = autor(github, root, linia_main[wniesione[commit]], commit)
+        wynik.setdefault(autorzy[commit], []).append(mutacja)
+    return wynik
+
+
+def autor(github: GitHub, root: Path, scalenie: str, commit: str) -> Autor:
+    """PR, który wniósł ``commit`` commitem ``scalenie`` linii pierwszych rodziców HEAD."""
+
+    if numer := _pr_z_tematu(_git(root, "log", "-1", "--format=%s", scalenie)):
         return Autor(numer)
     scalone = [pr for pr in github.json(f"{REPO}/commits/{commit}/pulls") if pr.get("merged_at")]
     return Autor(int(scalone[0]["number"])) if scalone else Autor(None, commit)
-
-
-def przypisz(github: GitHub, root: Path, od: str, przezyte: Sequence[str]) -> dict[Autor, list[str]]:
-    """Przeżyte mutacje według PR-u, który ostatni zmienił ich linię."""
-
-    commity: dict[str, Autor] = {}
-    wynik: dict[Autor, list[str]] = {}
-    for mutacja in przezyte:
-        znalezione = _ID.fullmatch(mutacja)
-        if znalezione is None:
-            raise ValueError(f"przeżyta mutacja bez postaci <plik>:<linia> <opis>: {mutacja}")
-        linia = znalezione["linia"]
-        blame = _git(root, "blame", "--porcelain", "-L", f"{linia},{linia}", "HEAD", "--", znalezione["plik"])
-        commit = blame.split(maxsplit=1)[0]
-        if commit not in commity:
-            commity[commit] = autor(github, root, od, commit)
-        wynik.setdefault(commity[commit], []).append(mutacja)
-    return wynik
 
 
 def wyniki_skilli(plan: plan_ci.Plan, katalog: Path) -> tuple[list[str], list[str]]:
@@ -220,6 +258,7 @@ def przypisz_skrypty(github: GitHub, root: Path, od: str, padly: Sequence[str]) 
     """Skrypty mutacji skilli, które padły, według PR-u, który ostatni zmienił folder skilla od ``od``."""
 
     kroki = {f"skill:{krok.key}": krok for krok in mutacje_skilli.steps({})}
+    linia_main = _git(root, "rev-list", "--first-parent", "--reverse", f"{od}..HEAD").split()
     wynik: dict[Autor, list[str]] = {}
     for klucz in padly:
         krok = kroki[klucz]
@@ -230,41 +269,9 @@ def przypisz_skrypty(github: GitHub, root: Path, od: str, padly: Sequence[str]) 
         for grupa in ((sciezki[0],), (*sciezki[1:], *mutacje_skilli.INFRASTRUCTURE), ()):
             if commit := _git(root, "log", "-1", "--format=%H", f"{od}..HEAD", "--", *grupa):
                 break
-        wynik.setdefault(autor(github, root, od, commit or _git(root, "rev-parse", "HEAD")), []).append(krok.command[0])
+        commit = commit or _git(root, "rev-parse", "HEAD")
+        wynik.setdefault(autor(github, root, linia_main[_wniesienie(root, linia_main, commit)], commit), []).append(krok.command[0])
     return wynik
-
-
-@dataclass(frozen=True)
-class Rodzaj:
-    """Issue nocy jednego rodzaju: tytuł z ``{kto}`` (``#N`` albo ``commitu <sha>``), początek linii i treść issue."""
-
-    tytul: str
-    linia: str
-    wstep: str  # z ``{run}`` i ``{kto}``: PR albo commit, który ostatni zmienił linie
-    rada: tuple[str, ...]
-
-
-PRZEZYTE = Rodzaj(
-    "Przeżyte mutacje z {kto}",
-    "MUTACJA",
-    "Nocne mutacje `main` ([run]({run})) przeżyły testy na liniach, które ostatnio zmienił {kto}:",
-    (
-        "Dla każdej linii `MUTACJA` dodaj test, który zabija tę mutację (dowód: `tools/mutacje.py`), albo napisz w komentarzu "
-        "`MUTACJA <plik>:<linia> <opis> | nie warto, bo <powód>`.",
-        "Gdy każda linia ma test albo powód, zamknij issue (ADR 0021).",
-    ),
-)
-SKRYPTY = Rodzaj(
-    "Przeżyte mutacje skilli z {kto}",
-    "SKRYPT",
-    "Nocne skrypty mutacji skilli `main` ([run]({run})) padły po zmianie folderu skilla, którą ostatnio wniósł {kto}:",
-    (
-        "Log runu pokazuje, która mutacja przeżyła sprawdzenie skilla (`NIEWYKRYTA`), straciła kotwicę (`NIEAKTUALNA`) "
-        "albo czy padła podstawa; część z planu odtwarzasz z `MUTACJE_CZESC=<k>/<n>`.",
-        "Dla każdej linii `SKRYPT` popraw sprawdzenie skilla albo tabelę mutacji, albo napisz w komentarzu "
-        "`SKRYPT <skrypt> | nie warto, bo <powód>`, a potem zamknij issue (ADR 0021).",
-    ),
-)
 
 
 @dataclass(frozen=True)
@@ -292,29 +299,69 @@ def _strony(github: GitHub, sciezka: str) -> Iterator[dict[str, Any]]:
             return
 
 
-def _ma(tekst: str, linia: str) -> bool:
-    return any(obecna.strip() == linia or obecna.strip().startswith(f"{linia} |") for obecna in tekst.splitlines())
-
-
-def akcje(github: GitHub, przypisane: dict[Autor, list[str]], run: str, rodzaj: Rodzaj = PRZEZYTE) -> list[Akcja]:
-    """Nowe issue dla PR bez issue, a komentarz z nowymi liniami dla PR, którego issue ich jeszcze nie ma."""
+def akcje(github: GitHub, przypisane: dict[Autor, list[Przezyta]], run: str) -> list[Akcja]:
+    """Nowe issue dla PR bez issue, a komentarz z nowymi mutacjami dla PR, którego issue nie ma jeszcze ich kluczy."""
 
     istniejace: dict[str, dict[str, Any]] = {}
     for znalezione in _strony(github, f"{REPO}/issues?labels={ETYKIETY[1]}&state=all"):
         if "pull_request" not in znalezione:
             istniejace.setdefault(znalezione["title"], znalezione)
     wynik: list[Akcja] = []
-    for kto, wpisy in przypisane.items():
-        tytul = rodzaj.tytul.format(kto=kto.w_tytule)
-        linie = [f"{rodzaj.linia} {wpis}" for wpis in wpisy]
+    for kto, mutacje in przypisane.items():
+        linie = [f"MUTACJA {mutacja.id} | klucz {mutacja.klucz}" for mutacja in mutacje]
+        issue = istniejace.get(kto.tytul)
+        if issue is None:
+            tresc = [
+                f"Nocne mutacje `main` ([run]({run})) przeżyły testy na liniach, które ostatnio zmienił {kto.nazwa}:",
+                "",
+                *blok_kodu(linie),
+                "",
+                "Dla każdej linii `MUTACJA` dodaj test, który zabija tę mutację (dowód: `tools/mutacje.py`), albo napisz w komentarzu "
+                "`MUTACJA <plik>:<linia> <opis> | nie warto, bo <powód>`.",
+                "Gdy każda linia ma test albo powód, zamknij issue (ADR 0021).",
+            ]
+            wynik.append(Zaloz(kto.tytul, "\n".join(tresc)))
+            continue
+        znane = "\n".join([issue.get("body") or "", *(komentarz["body"] or "" for komentarz in _strony(github, f"{REPO}/issues/{issue['number']}/comments"))])
+        klucze = {znalezione["klucz"] for znalezione in _KLUCZ.finditer(znane)}
+        if nowe := [linia for linia, mutacja in zip(linie, mutacje, strict=True) if mutacja.klucz not in klucze]:
+            tresc = [f"Nowe przeżyte mutacje z [runu]({run}):", "", *blok_kodu(nowe)]
+            wynik.append(Uzupelnij(issue["number"], "\n".join(tresc), issue["state"] == "closed"))
+    return wynik
+
+
+def _ma(tekst: str, linia: str) -> bool:
+    return any(obecna.strip() == linia or obecna.strip().startswith(f"{linia} |") for obecna in tekst.splitlines())
+
+
+def akcje_skryptow(github: GitHub, przypisane: dict[Autor, list[str]], run: str) -> list[Akcja]:
+    """Issue ``Przeżyte mutacje skilli z #N`` dla PR bez niego, a komentarz z liniami ``SKRYPT``, których jego issue nie ma."""
+
+    istniejace: dict[str, dict[str, Any]] = {}
+    for znalezione in _strony(github, f"{REPO}/issues?labels={ETYKIETY[1]}&state=all"):
+        if "pull_request" not in znalezione:
+            istniejace.setdefault(znalezione["title"], znalezione)
+    wynik: list[Akcja] = []
+    for kto, skrypty in przypisane.items():
+        tytul = f"Przeżyte mutacje skilli z {kto.w_tytule}"
+        linie = [f"SKRYPT {skrypt}" for skrypt in skrypty]
         issue = istniejace.get(tytul)
         if issue is None:
-            tresc = [rodzaj.wstep.format(run=run, kto=kto.nazwa), "", *blok_kodu(linie), "", *rodzaj.rada]
+            tresc = [
+                f"Nocne skrypty mutacji skilli `main` ([run]({run})) padły po zmianie folderu skilla, którą ostatnio wniósł {kto.nazwa}:",
+                "",
+                *blok_kodu(linie),
+                "",
+                "Log runu pokazuje, która mutacja przeżyła sprawdzenie skilla (`NIEWYKRYTA`), straciła kotwicę (`NIEAKTUALNA`) "
+                "albo czy padła podstawa; część z planu odtwarzasz z `MUTACJE_CZESC=<k>/<n>`.",
+                "Dla każdej linii `SKRYPT` popraw sprawdzenie skilla albo tabelę mutacji, albo napisz w komentarzu "
+                "`SKRYPT <skrypt> | nie warto, bo <powód>`, a potem zamknij issue (ADR 0021).",
+            ]
             wynik.append(Zaloz(tytul, "\n".join(tresc)))
             continue
         znane = "\n".join([issue.get("body") or "", *(komentarz["body"] or "" for komentarz in _strony(github, f"{REPO}/issues/{issue['number']}/comments"))])
         if nowe := [linia for linia in linie if not _ma(znane, linia)]:
-            tresc = [f"Nowe linie z [runu]({run}):", "", *blok_kodu(nowe)]
+            tresc = [f"Nowe skrypty, które padły w [runie]({run}):", "", *blok_kodu(nowe)]
             wynik.append(Uzupelnij(issue["number"], "\n".join(tresc), issue["state"] == "closed"))
     return wynik
 
@@ -342,7 +389,7 @@ def zglos(github: GitHub, root: Path, od: str, katalog: Path, liczba: int, run: 
     if plan_skilli is not None:
         padly, problemy_skilli = wyniki_skilli(plan_skilli, katalog)
         problemy += problemy_skilli
-        linie += wykonaj(github, akcje(github, przypisz_skrypty(github, root, od, padly), run, SKRYPTY))
+        linie += wykonaj(github, akcje_skryptow(github, przypisz_skrypty(github, root, od, padly), run))
     print("\n".join(linie) or "MUTACJE NOCNE | nic nowego do zgłoszenia")
     if problemy:
         print(f"MUTACJE NOCNE FAIL | {'; '.join(problemy)}")

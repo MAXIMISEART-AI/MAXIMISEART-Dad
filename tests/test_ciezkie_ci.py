@@ -25,7 +25,7 @@ from tests.fixtures.git_repo import commit, git, repository
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
 
-from ciezkie_ci import HEAVY, mutations_refusal, refusal  # noqa: E402
+from ciezkie_ci import HEAVY, NIGHTLY, mutations_refusal, refusal  # noqa: E402
 import plan_ci  # noqa: E402
 
 PASSES = ("GITHUB_ACTIONS", "MAXIMISEART_NA_SCALONYCH_PR")
@@ -46,11 +46,11 @@ def _repo(tmp_path: Path) -> Path:
     return repo
 
 
-def _gh(head_branch: str, head_sha: str, jobs: Jobs, asked: list[Sequence[str]] | None = None) -> Callable[[Sequence[str]], str]:
+def _gh(head_branch: str, head_sha: str, jobs: Jobs, asked: list[Sequence[str]] | None = None, workflow: str = "CI") -> Callable[[Sequence[str]], str]:
     def gh(arguments: Sequence[str]) -> str:
         if asked is not None:
             asked.append(arguments)
-        return json.dumps({"headBranch": head_branch, "headSha": head_sha, "jobs": jobs})
+        return json.dumps({"headBranch": head_branch, "headSha": head_sha, "jobs": jobs, "workflowName": workflow})
 
     return gh
 
@@ -137,7 +137,7 @@ def test_odtworzenie_czerwonego_runu_tej_galezi_biegnie(tmp_path: Path) -> None:
     gh = _gh("praca", "0" * 40, RED_MUTATIONS, asked)
 
     assert refusal({"change-mutations"}, "https://github.com/MAXIMISEART-AI/MAXIMISEART-Dad/actions/runs/123/job/9", root=repo, env={}, gh=gh) is None
-    assert asked == [["run", "view", "123", "--json", "headBranch,headSha,jobs"]]
+    assert asked == [["run", "view", "123", "--json", "headBranch,headSha,jobs,workflowName"]]
 
 
 def test_odtworzenie_runu_przodka_head_z_innej_galezi_biegnie(tmp_path: Path) -> None:
@@ -173,6 +173,30 @@ def test_odtworzenie_runu_commitu_z_main_odmawia(tmp_path: Path) -> None:
     refused = refusal({"change-mutations"}, "123", root=repo, env={}, gh=_gh("scalony-pr", merged, RED_MUTATIONS))
 
     assert refused is not None and "dotyczy gałęzi scalony-pr" in refused
+
+
+def test_odtworzenie_czerwonej_czesci_nocnej_biegnie_na_jej_commicie_z_main(tmp_path: Path) -> None:
+    """Run nocny dotyczy ``main``, a worktree agenta nie ma tej gałęzi: odtwarza się go na odłączonym commicie runu."""
+
+    repo = _repo(tmp_path)
+    night = git(repo, "rev-parse", "HEAD")
+    git(repo, "update-ref", "refs/remotes/origin/main", night)
+    git(repo, "checkout", "--quiet", "--detach", night)
+
+    assert refusal({"change-mutations"}, "123", root=repo, env={}, gh=_gh("main", night, RED_MUTATIONS, workflow=NIGHTLY)) is None
+
+
+def test_odtworzenie_czesci_nocnej_poza_jej_commitem_odmawia_i_podaje_checkout(tmp_path: Path) -> None:
+    """Stary czerwony run nocny nie otwiera mutacji gałęzi, która tylko ma jego commit w historii."""
+
+    repo = _repo(tmp_path)
+    night = git(repo, "rev-parse", "HEAD")
+    (repo / "plik.txt").write_text("dalej\n", encoding="utf-8")
+    commit(repo, "dalej")
+
+    refused = refusal({"change-mutations"}, "123", root=repo, env={}, gh=_gh("praca", night, RED_MUTATIONS, workflow=NIGHTLY))
+
+    assert refused == f"CIĘŻKIE CI ODMOWA | --odtwarzam 123: run nocny odtwarza się na jego commicie: git checkout --detach {night}"
 
 
 @pytest.mark.parametrize(
@@ -267,7 +291,7 @@ def test_mutacje_z_lista_ponad_100_poza_ci_odmawiaja_zanim_policza_podstawe(
     tmp_path: Path, count: int, extra: tuple[str, ...], refused: str
 ) -> None:
     repo = _repo(tmp_path)
-    env = _with_fake_gh(tmp_path, {"headBranch": "inna", "headSha": "0" * 40, "jobs": RED_MUTATIONS})
+    env = _with_fake_gh(tmp_path, {"headBranch": "inna", "headSha": "0" * 40, "jobs": RED_MUTATIONS, "workflowName": "CI"})
 
     done = _tool(repo, "tools/mutacje.py", "--plik", str(_mutation_list(tmp_path, count)), *extra, *RED_BASELINE, env=env)
 
@@ -289,7 +313,7 @@ def test_mutacje_licza_celowany_dowod_i_dluga_liste_w_ci_i_przy_odtwarzaniu(
     tmp_path: Path, count: int, passes: dict[str, str], reproduces: tuple[str, ...]
 ) -> None:
     repo = _repo(tmp_path)
-    env = {**_with_fake_gh(tmp_path, {"headBranch": "praca", "headSha": "0" * 40, "jobs": RED_MUTATIONS}), **passes}
+    env = {**_with_fake_gh(tmp_path, {"headBranch": "praca", "headSha": "0" * 40, "jobs": RED_MUTATIONS, "workflowName": "CI"}), **passes}
 
     done = _tool(repo, "tools/mutacje.py", "--plik", str(_mutation_list(tmp_path, count)), *reproduces, *RED_BASELINE, env=env)
 
@@ -359,3 +383,4 @@ def test_nazwy_ciezkich_zadan_zgadzaja_sie_z_ci() -> None:
     names = {job: planned[job] if jobs[job]["name"] == "${{ matrix.nazwa }}" else jobs[job]["name"] for job in HEAVY}
 
     assert {job: re.sub(r" \((\$\{\{|\{numer\}).*", "", name) for job, name in names.items()} == HEAVY
+    assert yaml.safe_load((ROOT / ".github" / "workflows" / "mutacje-nocne.yml").read_text(encoding="utf-8"))["name"] == NIGHTLY

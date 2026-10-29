@@ -9,7 +9,8 @@ mutacji to ręczne ``change-mutations``. Poza CI odmawiają (kod 2 i linia ``CI�
 
 - biegną w CI (``GITHUB_ACTIONS=true``);
 - ``--odtwarzam <id runu Actions albo URL>`` wskazuje run, w którym każde z tych zadań padło i który dotyczy bieżącej
-  gałęzi (``headBranch`` to ona albo ``headSha`` jest przodkiem HEAD spoza ``origin/main``); ``gh run view`` to sprawdza;
+  gałęzi (``headBranch`` to ona albo ``headSha`` jest przodkiem HEAD spoza ``origin/main``), a run ``NIGHTLY`` swojego
+  commitu: jego ``headSha`` to HEAD (``git checkout --detach <headSha>``); ``gh run view`` to sprawdza;
 - uruchamia je ``tools/na_scalonych_pr.py`` (``MAXIMISEART_NA_SCALONYCH_PR=1``): próba narzędzia na commicie scalenia
   cudzego PR-u, nie sprawdzenie przed pushem.
 
@@ -36,6 +37,8 @@ import subprocess
 ROOT = Path(__file__).resolve().parents[1]
 # Zadanie z ``tools/ci_lokalnie.py`` i początek nazwy jego zadań w ``ci.yml`` albo ``mutacje-nocne.yml``.
 HEAVY = {"change-mutations": "Change mutations", "mutations": "Mutation checks"}
+# Workflow ``mutacje-nocne.yml``: biegnie na ``main``, więc jego run nie dotyczy gałęzi, na której się go odtwarza.
+NIGHTLY = "Mutacje nocne"
 FROM_MERGED_PRS = "MAXIMISEART_NA_SCALONYCH_PR"
 # Do 26.10 dowody nowych testów z 300 PR-ów miały najwyżej 32 mutacje (p99 21), ręczne listy przeglądów najwyżej 100,
 # a lista z generatora Change mutations 335.
@@ -110,9 +113,12 @@ def _not_reproducing(heavy: list[str], reproduces: str, root: Path, gh: Gh) -> s
     if not found:
         return "to nie jest id ani URL runu Actions"
     run_id = found.group(1) or found.group(2)
-    run = json.loads(gh(["run", "view", run_id, "--json", "headBranch,headSha,jobs"]))
+    run = json.loads(gh(["run", "view", run_id, "--json", "headBranch,headSha,jobs,workflowName"]))
     branch = _git(root, "branch", "--show-current", check=True).stdout.strip()
-    if run["headBranch"] != branch and not _own_commit(root, run["headSha"]):
+    if run["workflowName"] == NIGHTLY:
+        if run["headSha"] != _git(root, "rev-parse", "HEAD", check=True).stdout.strip():
+            return f"run nocny odtwarza się na jego commicie: git checkout --detach {run['headSha']}"
+    elif run["headBranch"] != branch and not _own_commit(root, run["headSha"]):
         return f"run dotyczy gałęzi {run['headBranch']} ({run['headSha'][:8]}), a nie bieżącej {branch or 'HEAD'}"
     failed = {job["name"] for job in run["jobs"] if job["conclusion"] == "failure"}
     if missing := [job for job in heavy if not any(name.startswith(HEAVY[job]) for name in failed)]:

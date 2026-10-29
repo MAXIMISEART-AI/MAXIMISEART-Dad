@@ -98,14 +98,14 @@ jobs:
         # editable install does not hide a mutation: tools/mutacje.py puts the copy's src first.
         run: uv pip install --system --python "${{ steps.python.outputs.python-path }}" -e ".[dev]"
 
-      # A surviving mutation ends the tool with code 1, and that is a result to file, not a broken part: the last job
-      # judges each part by its record and turns the run red for a part without a result.
+      # Code 1 is surviving mutations, a result the last job files, so the part stays green. Any other failure (code 2:
+      # the tests fail without mutations, a bad exception) turns the part red, and tools/mutacje_zmiany.py --odtwarzam
+      # reproduces it.
       - name: Mutate the part's changed lines of src/ and tools/
-        continue-on-error: true
         env:
           BAZA: ${{ needs.plan.outputs.baza }}
           CZESC: ${{ matrix.czesc }}/${{ needs.plan.outputs.liczba }}
-        run: python tools/mutacje_zmiany.py --baza "$BAZA" --czesc "$CZESC" --zapis .ci-mutacje/czesc.json
+        run: python tools/mutacje_zmiany.py --baza "$BAZA" --czesc "$CZESC" --zapis .ci-mutacje/czesc.json || test $? -eq 1
 
       - name: Upload the surviving mutations
         if: ${{ !cancelled() }}
