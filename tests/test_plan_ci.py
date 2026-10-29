@@ -196,9 +196,9 @@ def _incomplete(case: str) -> tuple[plan_ci.Plan, str]:
 
     if case == "pytest":
         plan = _plan(_times(), [*FILES, LONG])
-        job, first = _long_shares(plan)
-        count = first.rpartition("/")[2]
-        broken = _with_units(plan, {job.id: tuple(unit for unit in job.jednostki if unit != first)})
+        job, share = _long_shares(plan)
+        count = share.rpartition("/")[2]
+        broken = _with_units(plan, {job.id: tuple(unit for unit in job.jednostki if unit != share)})
         rest = ", ".join(f"{share}/{count}" for share in range(2, int(count) + 1))
         return broken, f"plan CI: części {rest} jednostki pytest:{LONG} na torze windows-3.11 nie są całością 1..{count}"
     plan, key = _base_in_parts(300.0), "skill:verify-e/ci"
