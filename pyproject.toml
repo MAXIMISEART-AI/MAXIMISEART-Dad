@@ -17,6 +17,8 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "fastapi==0.146.0",
+    # explore_runs.py of verify-jedno-uruchomienie-naraz runs its modelled threads as greenlets (#565).
+    "greenlet==3.5.6",
     "httpx2==2.14.0",
     "hypothesis==6.170.5",
     "mypy==2.0.0",
