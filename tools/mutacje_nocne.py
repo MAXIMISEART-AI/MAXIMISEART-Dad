@@ -27,7 +27,8 @@ Workflow ``mutacje-nocne.yml`` biegnie raz na dobę na ``main`` i ręcznie (``wo
   planu wgrywa swój zapis wykonania jako artefakt ``mutacje-skilli-<id zadania>``. ``zglos --plan-skilli`` daje każdy
   skrypt, który padł, linią ``SKRYPT <skrypt>`` do issue ``Przeżyte mutacje skilli z #N`` PR-u, który ostatni zmienił
   folder skilla od bazy (bez takiej zmiany: inną ścieżkę z ``mutacje_skilli.watched``, a dla podstawy z ``pilnuje``,
-  a bez niej ostatni PR nocy); linii, którą issue już ma, nie dostaje drugi raz. Zadanie bez zapisu tego planu albo bez wyniku jednostki czerwieni run.
+  a bez niej ostatni PR nocy); linii, którą issue już ma, nie dostaje drugi raz. Zadanie bez zapisu tego planu albo bez wyniku jednostki czerwieni run,
+  tak jak skrypt, który padł w nocy bez commitu od bazy, bo nie ma PR-u, który by go dostał.
 
 Bazę i liczbę części nocy drukuje lokalnie bez testów:
 
@@ -254,12 +255,14 @@ def wyniki_skilli(plan: plan_ci.Plan, katalog: Path) -> tuple[list[str], list[st
     return sorted(padly), problemy
 
 
-def przypisz_skrypty(github: GitHub, root: Path, od: str, padly: Sequence[str]) -> dict[Autor, list[str]]:
-    """Skrypty mutacji skilli, które padły, według PR-u, który ostatni zmienił folder skilla od ``od``."""
+def przypisz_skrypty(github: GitHub, root: Path, od: str, padly: Sequence[str]) -> tuple[dict[Autor, list[str]], list[str]]:
+    """Skrypty mutacji skilli, które padły, według PR-u, który ostatni zmienił folder skilla od ``od``, i przyczyny
+    porażki skryptów, których nie ma komu przypisać, bo ``main`` nie ma commitu od ``od``."""
 
     kroki = {f"skill:{krok.key}": krok for krok in mutacje_skilli.steps({})}
     linia_main = _git(root, "rev-list", "--first-parent", "--reverse", f"{od}..HEAD").split()
     wynik: dict[Autor, list[str]] = {}
+    problemy: list[str] = []
     for klucz in padly:
         krok = kroki[klucz]
         folder = f"{krok.skill.relative_to(mutacje_skilli.ROOT).as_posix()}/"
@@ -272,8 +275,12 @@ def przypisz_skrypty(github: GitHub, root: Path, od: str, padly: Sequence[str]) 
         for grupa in ((sciezki[0],), (*sciezki[1:], *mutacje_skilli.INFRASTRUCTURE), ()):
             if commit := _git(root, "log", "-1", "--format=%H", f"{od}..HEAD", "--", *grupa):
                 break
+        else:
+            # Skill bez pilnuje biegnie także w nocy bez commitu od bazy, a wtedy jego porażka nie ma PR ani issue.
+            problemy.append(f"skrypt {krok.command[0]} padł, a od bazy {od} main nie ma commitu, którego PR by go dostał")
+            continue
         wynik.setdefault(autor(github, root, linia_main[_wniesienie(root, linia_main, commit)], commit), []).append(krok.command[0])
-    return wynik
+    return wynik, problemy
 
 
 @dataclass(frozen=True)
@@ -390,8 +397,9 @@ def zglos(github: GitHub, root: Path, od: str, katalog: Path, liczba: int, run: 
     padly: list[str] = []
     if plan_skilli is not None:
         padly, problemy_skilli = wyniki_skilli(plan_skilli, katalog)
-        problemy += problemy_skilli
-        linie += wykonaj(github, akcje_skryptow(github, przypisz_skrypty(github, root, od, padly), run))
+        przypisane, bez_pr = przypisz_skrypty(github, root, od, padly)
+        problemy += problemy_skilli + bez_pr
+        linie += wykonaj(github, akcje_skryptow(github, przypisane, run))
     print("\n".join(linie) or "MUTACJE NOCNE | nic nowego do zgłoszenia")
     if problemy:
         print(f"MUTACJE NOCNE FAIL | {'; '.join(problemy)}")
