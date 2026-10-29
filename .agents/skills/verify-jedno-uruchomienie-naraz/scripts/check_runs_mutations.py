@@ -117,6 +117,20 @@ MUTATIONS = (
         "model nie zna tej blokady, więc nie może nic orzec",
         "URUCHOMIENIA: LUKA MODELU",
     ),
+    Mutation(
+        "prawdziwa blokada spoza threading w RunHost.start",
+        (
+            Edit(RUNS, "import uuid\n", "import uuid\n\n_REAL = __import__('_thread').allocate_lock()\n"),
+            Edit(
+                RUNS,
+                "    def start(self, prepared: PreparedRun[Any, Any]) -> contract.RunView:\n        with self._lock:\n",
+                "    def start(self, prepared: PreparedRun[Any, Any]) -> contract.RunView:\n        with _REAL, self._lock:\n",
+            ),
+        ),
+        (EXPLORER, "--scope", "dwie-karty"),
+        "druga karta „Uruchom” czeka na blokadę, której model nie widzi, więc sprawdzenie wisiałoby do limitu pytest",
+        "URUCHOMIENIA: LUKA MODELU",
+    ),
 )
 
 

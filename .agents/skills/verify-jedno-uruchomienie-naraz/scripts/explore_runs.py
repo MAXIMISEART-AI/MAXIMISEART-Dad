@@ -32,7 +32,9 @@ nothing, with no Uruchomienie before Centrum's start; the actions after the resu
 new version (or with a failure) or with the guardian started. Modelled by hand:
 ``stop_when_asked`` in ``server.py`` and uvicorn's graceful shutdown. After ``Shutdown.wait`` returns,
 the server may end at any moment when no HTTP request is in flight; a request that arrived before
-that is served to the end. Any other ``threading`` use in the two files stops the check as LUKA MODELU.
+that is served to the end. Any other ``threading`` use in the two files stops the check as LUKA MODELU, and so does
+a modelled thread that waits on something outside the model (a real lock or Event, ``time.sleep``) for
+``STALL_SECONDS`` without a step.
 
 Schedules that reach a state already explored are cut short: the code is deterministic, so a state
 (each thread's steps so far, every Uruchomienie's flags, the lock and the Events) has the same
@@ -42,13 +44,15 @@ futures every time.
 from __future__ import annotations
 
 import argparse
+import linecache
 import sys
+import threading
 import time
 from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
-from types import SimpleNamespace
+from types import FrameType, ModuleType, SimpleNamespace
 from typing import Any, Literal
 
 from greenlet import getcurrent, greenlet  # type: ignore[import-untyped]  # greenlet ships no type hints
@@ -93,6 +97,13 @@ class ModelGap(BaseException):
 # Each modelled thread is a greenlet on the checker's own OS thread. With an OS thread each, every step was a
 # hand-over through the kernel, several hundred thousand per check, and on a CI runner busy with other xdist workers
 # each one waited for a free CPU until the check hit pytest's 120 s limit (#565). A greenlet switch does not wait.
+#
+# A modelled thread that waits on a real lock, Event or sleep outside the model stops that one OS thread with it, and
+# no code of the thread runs again: no hub and no trace hook can see it. So ``explore`` runs the check on a thread of
+# its own and watches its steps from outside. A step costs microseconds of CPU and no hand-over, so a busy runner
+# stretches the gap between two steps, not their number (the longest gap of a whole check on a 16-core Mac with 32
+# processes burning CPU: 0.17 s). STALL_SECONDS without a step therefore means a thread that waits for real.
+STALL_SECONDS = 10.0
 
 
 @dataclass
@@ -125,22 +136,34 @@ def _current_actor() -> Actor:
     return actor
 
 
-def _code_location() -> str:
-    frame = sys._getframe(2)
+def _code_location(frame: FrameType | None = None) -> str:
+    frame = sys._getframe(2) if frame is None else frame
     while frame is not None:
         name = Path(frame.f_code.co_filename).name
         if name in VERIFIED_FILES and Path(frame.f_code.co_filename).parent.name == "centrum":
             return f"{name}:{frame.f_lineno} {frame.f_code.co_name}"
-        frame = frame.f_back  # type: ignore[assignment]
+        frame = frame.f_back
     return "model"
 
 
+@dataclass
+class Progress:
+    """The checker's thread as ``explore`` watches it from outside: the schedule it runs and its steps so far."""
+
+    scheduler: Scheduler | None = None
+    steps: int = 0
+    abandoned: bool = False  # explore gave up on it: a thread that wakes up later stops at its next step
+
+
 class Scheduler:
-    def __init__(self, trace: list[str]) -> None:
+    def __init__(self, trace: list[str], progress: Progress) -> None:
         self.home = getcurrent()  # the checker, which picks every step
         self.actors: list[Actor] = []
         self.trace = trace
         self.gaps: list[str] = []
+        self.running: Actor | None = None  # the thread between two of its steps
+        self.progress = progress
+        progress.scheduler = self
 
     def spawn(self, name: str, body: Callable[[], None], run: Any = None) -> Actor:
         """Adds a thread that runs up to its first step at the next ``settle``."""
@@ -193,7 +216,12 @@ class Scheduler:
 
         while (actor := next((actor for actor in self.actors if actor.status == "running"), None)) is not None:
             assert actor.greenlet is not None
+            self.running = actor
             actor.greenlet.switch()
+            self.running = None
+            if self.progress.abandoned:
+                raise Abort()
+            self.progress.steps += 1
 
     def release(self, actor: Actor, outcome: str) -> None:
         actor.status = "running"
@@ -509,14 +537,14 @@ def harness(scheduler: Scheduler) -> Iterator[World]:
                 raise ModelGap("Zatrzymanie w Stops.ended; model kończy każde Uruchomienie sukcesem")
 
     # Each verified file sees its own stand-ins; the originals come back after the schedule.
-    patches = [
-        (runs, "threading", ModelThreading(scheduler, "runs.py", "RunHost._lock", "_Run._decided", events)),
-        (shutdown, "threading", ModelThreading(scheduler, "shutdown.py", "Shutdown", "Shutdown._requested", events)),
-        (runs, "run_process", engine),
-        (runs, "_Run", TrackedRun),
-    ]
-    originals = [(module, name, getattr(module, name)) for module, name, _ in patches]
-    for module, name, value in patches:
+    stand_ins = (
+        ModelThreading(scheduler, "runs.py", "RunHost._lock", "_Run._decided", events),
+        ModelThreading(scheduler, "shutdown.py", "Shutdown", "Shutdown._requested", events),
+        engine,
+        TrackedRun,
+    )
+    originals = _originals()
+    for (module, name), value in zip(PATCHED, stand_ins, strict=True):
         setattr(module, name, value)
     try:
         log = LogSteps(scheduler)
@@ -544,8 +572,25 @@ def harness(scheduler: Scheduler) -> Iterator[World]:
         world_box.append(world)
         yield world
     finally:
-        for module, name, value in originals:
-            setattr(module, name, value)
+        _put_back(originals)
+
+
+# What ``harness`` replaces in the verified files; ``explore`` puts it back itself after a schedule that never ends.
+PATCHED: tuple[tuple[ModuleType, str], ...] = (
+    (runs, "threading"),
+    (shutdown, "threading"),
+    (runs, "run_process"),
+    (runs, "_Run"),
+)
+
+
+def _originals() -> list[tuple[ModuleType, str, object]]:
+    return [(module, name, getattr(module, name)) for module, name in PATCHED]
+
+
+def _put_back(originals: list[tuple[ModuleType, str, object]]) -> None:
+    for module, name, value in originals:
+        setattr(module, name, value)
 
 
 def _start_tab(world: World, number: int) -> Callable[[], None]:
@@ -788,7 +833,7 @@ def _state(world: World) -> object:
     )
 
 
-def execute(scope: Scope, prefix: Sequence[int], visited: set[object]) -> Execution:
+def execute(scope: Scope, prefix: Sequence[int], visited: set[object], progress: Progress) -> Execution:
     picks: list[int] = []
     widths: list[int] = []
     trace: list[str] = []
@@ -799,7 +844,7 @@ def execute(scope: Scope, prefix: Sequence[int], visited: set[object]) -> Execut
         widths.append(count)
         return index
 
-    scheduler = Scheduler(trace)
+    scheduler = Scheduler(trace, progress)
     try:
         with harness(scheduler) as world:
             cut = _drive(world, scope, choose, picks, len(prefix), visited)
@@ -951,13 +996,76 @@ class ScopeReport:
 
 
 def explore(scope: Scope) -> ScopeReport:
+    """Tries every schedule of ``scope`` on a thread of its own; a modelled thread that waits for real is a LUKA MODELU.
+
+    That thread stays blocked, with every lock it holds, until the process ends, so check the real code in a process
+    of its own (#651); the script's process ends after the report, because the thread is a daemon.
+    """
+
     report = ScopeReport(scope)
-    visited: set[object] = set()
+    progress = Progress()
+    failures: list[BaseException] = []
+    originals = _originals()
+
+    def check() -> None:
+        try:
+            _explore(report, progress)
+        except BaseException as failure:  # noqa: BLE001 - raised again below, in the thread that called explore
+            failures.append(failure)
+
     started = time.perf_counter()
+    checker = threading.Thread(target=check, name="sprawdzenie przeplotów", daemon=True)
+    checker.start()
+    seen, since = -1, time.monotonic()
+    while checker.is_alive():
+        checker.join(STALL_SECONDS / 10)
+        if progress.steps != seen:
+            seen, since = progress.steps, time.monotonic()
+        elif time.monotonic() - since >= STALL_SECONDS:
+            # The checker's thread stays blocked for good, so the verified files get their real threading back here.
+            progress.abandoned = True
+            _put_back(originals)
+            gap, trace = _stalled(progress, checker)
+            report.gaps[gap] = trace
+            break
+    report.seconds = time.perf_counter() - started
+    if failures:
+        raise failures[0]
+    return report
+
+
+def _stalled(progress: Progress, checker: threading.Thread) -> tuple[str, list[str]]:
+    """The modelled thread that waits outside the model, its last step and the line it waits on."""
+
+    scheduler = progress.scheduler
+    actor = scheduler.running if scheduler is not None else None
+    frame = sys._current_frames().get(checker.ident or 0)
+    where = "?"
+    if frame is not None:
+        code = frame.f_code
+        line = linecache.getline(code.co_filename, frame.f_lineno).strip()
+        where = f"{Path(code.co_filename).name}:{frame.f_lineno} {code.co_name} ({line})"
+        if (verified := _code_location(frame)) != "model" and not where.startswith(verified):
+            where += f", dokąd doszedł z {verified}"
+    name = actor.name if actor is not None else "sprawdzenie"
+    if actor is not None and actor.history:
+        stalled = f"po kroku „{actor.history[-1]}” wątek modelu przez {STALL_SECONDS:.0f} s nie doszedł do kolejnego"
+    else:
+        stalled = f"wątek modelu przez {STALL_SECONDS:.0f} s nie doszedł do pierwszego kroku"
+    gap = (
+        f"{name}: {stalled} i stoi w {where}, "
+        "czyli czeka na coś spoza modelu (prawdziwą blokadę, Event albo time.sleep)"
+    )
+    return gap, list(scheduler.trace) if scheduler is not None else []
+
+
+def _explore(report: ScopeReport, progress: Progress) -> None:
+    visited: set[object] = set()
     prefix: list[int] | None = []
     while prefix is not None:
-        execution = execute(scope, prefix, visited)
+        execution = execute(report.scope, prefix, visited, progress)
         report.schedules += 1
+        report.states = len(visited)  # so far, also for a check that stalls
         report.clean_closes += execution.clean_close
         report.closes_refused += execution.close_refused
         report.starts_refused += execution.start_refused
@@ -977,9 +1085,6 @@ def explore(scope: Scope) -> ScopeReport:
         for gap in execution.gaps:
             report.gaps.setdefault(gap, execution.trace)
         prefix = next_prefix(execution)
-    report.states = len(visited)
-    report.seconds = time.perf_counter() - started
-    return report
 
 
 # --- Report -------------------------------------------------------------------------------------------
