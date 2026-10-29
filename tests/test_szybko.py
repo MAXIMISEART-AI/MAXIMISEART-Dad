@@ -93,6 +93,16 @@ BASE_FILES = {
         "def test_dane() -> None:\n"
         "    assert [path.read_text(encoding='utf-8') for path in sorted(DANE.iterdir())] == ['zgodny\\n']\n"
     ),
+    "docs/wzorce/zestaw/wpis.md": "zgodny\n",
+    # Test kopiuje katalog, a napis niesie tylko koniec jego ścieżki: początek przychodzi w argumencie.
+    "tests/test_zestaw.py": (
+        "from pathlib import Path\nimport shutil\n\n\n"
+        "def _kopia(docs: Path, cel: Path) -> Path:\n"
+        "    return Path(shutil.copytree(docs / 'wzorce' / 'zestaw', cel / 'kopia'))\n\n\n"
+        "def test_zestaw(tmp_path: Path) -> None:\n"
+        "    kopia = _kopia(Path(__file__).resolve().parents[1] / 'docs', tmp_path)\n"
+        "    assert [path.read_text(encoding='utf-8') for path in kopia.iterdir()] == ['zgodny\\n']\n"
+    ),
 }
 CONFIGURATION_READER = (
     "from pathlib import Path\n\n\ndef test_konfiguracja() -> None:\n    assert Path('pyproject.toml').name == 'inna.toml'\n"
@@ -305,12 +315,14 @@ def test_nowy_niesledzony_test_biegnie(tmp_path: Path) -> None:
     [
         ("tools/narzedzie.py", "tests/test_narzedzie.py::test_narzedzie"),
         ("docs/dane/wpis.md", "tests/test_dane.py::test_dane"),
+        ("docs/wzorce/zestaw/wpis.md", "tests/test_zestaw.py::test_zestaw"),
         ("skille/a/OPIS.md", "tests/test_opisy.py::test_opisy"),
         ("src/witryna/strona.html", "tests/test_strona.py::test_tytul"),
     ],
     ids=[
         "skrypt, który test uruchamia",
         "plik katalogu, który test czyta",
+        "plik katalogu, który test wskazuje końcem jego ścieżki",
         "plik z globu na katalogu",
         "plik danych pakietu, który czyta jego moduł",
     ],
@@ -336,6 +348,7 @@ def test_zmiana_konfiguracji_albo_conftest_uruchamia_pelny_zestaw(tmp_path: Path
 
     answered = _szybko(repo)
 
+    assert f"Testy pełny zestaw (zmiana w {changed}):" in answered.stdout
     assert "FAILED tests/test_zawsze_pada.py::test_niedotkniety" in answered.stdout
     assert answered.returncode == 1
 

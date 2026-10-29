@@ -129,6 +129,17 @@ def test_run_miesci_sie_w_limicie_zadan_zdarzenia_bo_cel_sciany_rosnie_o_krok(sk
     assert bool(plan.macierz("mutations")) == skills
 
 
+@pytest.mark.parametrize(("event", "limit"), [("pull_request", "ZADANIA_RUNU"), ("push", "ZADANIA_RUNU_MAIN")])
+def test_plan_odmawia_gdy_limit_zadan_zdarzenia_nie_miesci_zadania_na_kazdy_tor_i_podaje_ten_limit(event: str, limit: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    for name in ("ZADANIA_RUNU", "ZADANIA_RUNU_MAIN"):
+        monkeypatch.setattr(plan_ci, name, 1000)
+    # Trzy tory z pracą, a limit zdarzenia zostawia planowi jedno zadanie.
+    monkeypatch.setattr(plan_ci, limit, plan_ci.STALE_ZADANIA + 1)
+
+    with pytest.raises(ValueError, match=rf"^limit {plan_ci.STALE_ZADANIA + 1} zadań runu nie mieści po jednym zadaniu na tor z pracą$"):
+        _plan(_times(), FILES, event=event)
+
+
 def test_kazdy_wybrany_krok_skilla_biegnie_raz_a_skrypt_dluzszy_od_zadania_w_czesciach_najwyzej_po_jednej_na_mutacje() -> None:
     chosen = [key for key in SKILL_STEPS if key != "verify-d/check_d_mutations.py"]
     plan = _plan(_with_skill_times(_times()), [*FILES, LONG], steps=_skill_steps(chosen))
