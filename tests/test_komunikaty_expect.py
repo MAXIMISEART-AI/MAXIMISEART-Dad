@@ -133,7 +133,8 @@ def _creating(path: Path) -> set[str]:
                 return imported.get(name, name).endswith("Message")
             case ast.Attribute(attr=attr):
                 return attr.endswith("Message")
-        return False
+            case _:
+                return False
 
     return {name for name, statement in _places(tree.body) if any(creates(node) for node in ast.walk(statement))}
 
