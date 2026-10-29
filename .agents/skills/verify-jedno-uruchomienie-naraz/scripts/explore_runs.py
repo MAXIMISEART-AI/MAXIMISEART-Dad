@@ -1,7 +1,7 @@
 """Exhaustively check that Centrum rozliczeń runs one Uruchomienie procesu at a time and never closes during one.
 
 The checker runs the real ``RunHost`` (``runs.py``) and ``Shutdown`` (``shutdown.py``), wired as in
-``create_app``, in threads: browser tabs clicking „Uruchom”, „Zaktualizuj narzędzie” and „Zamknij Centrum
+``create_app``, in modelled threads: browser tabs clicking „Uruchom”, „Zaktualizuj narzędzie” and „Zamknij Centrum
 rozliczeń”, Dad answering a Decyzja, the Uruchomienie thread that ``RunHost.start`` spawns, the
 Aktualizacja narzędzia thread, and the server thread ``stop_when_asked``. Every lock entry, Event ``set``/``wait``/``clear``, thread start and Centrum log
 entry of the real code is one indivisible step. Before every step the checker may let any other
@@ -43,7 +43,6 @@ from __future__ import annotations
 
 import argparse
 import sys
-import threading
 import time
 from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
@@ -51,6 +50,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Literal
+
+from greenlet import getcurrent, greenlet  # type: ignore[import-untyped]  # greenlet ships no type hints
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "src"))
 
@@ -65,7 +66,6 @@ from rozliczenia.progress import ProgressProjection
 REPO_ROOT = Path(__file__).resolve().parents[4]
 
 VERIFIED_FILES = ("runs.py", "shutdown.py")
-STEP_TIMEOUT_SECONDS = 10.0
 CLOSE_LOG = "dziennik Centrum: shutdown_requested"
 REQUESTED_SET = "Shutdown._requested.set()"
 CLOSE_TAB = "karta Zamknij"
@@ -88,7 +88,11 @@ class ModelGap(BaseException):
     """The real code used ``threading`` in a way the model primitives do not cover."""
 
 
-# --- Scheduler: one thread runs at a time, from one step to the next --------------------------------
+# --- Scheduler: one modelled thread runs at a time, from one step to the next ------------------------
+#
+# Each modelled thread is a greenlet on the checker's own OS thread. With an OS thread each, every step was a
+# hand-over through the kernel, several hundred thousand per check, and on a CI runner busy with other xdist workers
+# each one waited for a free CPU until the check hit pytest's 120 s limit (#565). A greenlet switch does not wait.
 
 
 @dataclass
@@ -108,16 +112,14 @@ class Actor:
     in_flight: bool = False
     run: Any = None  # the _Run whose work() this thread runs
     history: list[str] = field(default_factory=list)
-    thread: threading.Thread | None = None
-    released: threading.Condition | None = None  # on the Scheduler's lock: this thread may take its step
+    greenlet: greenlet | None = None
 
 
 _ABORT = "\0abort"
-_CURRENT = threading.local()
 
 
 def _current_actor() -> Actor:
-    actor: Actor | None = getattr(_CURRENT, "actor", None)
+    actor: Actor | None = getattr(getcurrent(), "actor", None)
     if actor is None:
         raise ModelGap("krok poza wątkiem modelu")
     return actor
@@ -135,19 +137,17 @@ def _code_location() -> str:
 
 class Scheduler:
     def __init__(self, trace: list[str]) -> None:
-        self.lock = threading.Lock()
-        # A wake-up reaches only the thread that waits for it. With one shared condition every step woke every parked
-        # thread: the exploration took about twice as long, most of it switching threads in the kernel.
-        self.stopped = threading.Condition(self.lock)  # a thread parked at a step or ended
+        self.home = getcurrent()  # the checker, which picks every step
         self.actors: list[Actor] = []
         self.trace = trace
         self.gaps: list[str] = []
 
     def spawn(self, name: str, body: Callable[[], None], run: Any = None) -> Actor:
-        actor = Actor(name, run=run, released=threading.Condition(self.lock))
+        """Adds a thread that runs up to its first step at the next ``settle``."""
+
+        actor = Actor(name, run=run)
 
         def main() -> None:
-            _CURRENT.actor = actor
             try:
                 body()
             except Abort:
@@ -155,15 +155,13 @@ class Scheduler:
             except ModelGap as gap:
                 self.gaps.append(f"{actor.name}: {gap}")
             finally:
-                with self.lock:
-                    actor.status = "done"
-                    actor.pending = None
-                    self.stopped.notify()
+                actor.status = "done"
+                actor.pending = None
 
-        with self.lock:
-            self.actors.append(actor)
-        actor.thread = threading.Thread(target=main, name=f"model-{name}", daemon=True)
-        actor.thread.start()
+        # A thread spawned by another thread still ends into the checker, not into the thread that spawned it.
+        actor.greenlet = greenlet(main, parent=self.home)
+        actor.greenlet.actor = actor
+        self.actors.append(actor)
         return actor
 
     def step(
@@ -176,17 +174,12 @@ class Scheduler:
         """Parks the calling thread until the checker picks this step; returns the picked variant."""
 
         actor = _current_actor()
-        assert actor.released is not None
-        pending = Pending(call, _code_location(), enabled, variants)
-        with self.lock:
-            actor.pending = pending
-            actor.status = "parked"
-            self.stopped.notify()
-            while actor.go is None:
-                actor.released.wait()
-            outcome, actor.go = actor.go, None
-            actor.status = "running"
-            actor.pending = None
+        actor.pending = Pending(call, _code_location(), enabled, variants)
+        actor.status = "parked"
+        self.home.switch()
+        outcome, actor.go = actor.go, None
+        actor.pending = None
+        assert outcome is not None  # release() set it before switching here
         if outcome == _ABORT:
             raise Abort()
         actor.history.append(f"{call} → {outcome}" if outcome else call)
@@ -196,29 +189,21 @@ class Scheduler:
         self.trace.append(f"{_current_actor().name}: {text}")
 
     def settle(self) -> None:
-        deadline = time.monotonic() + STEP_TIMEOUT_SECONDS
-        with self.lock:
-            while any(actor.status == "running" for actor in self.actors):
-                remaining = deadline - time.monotonic()
-                if remaining <= 0:
-                    raise RuntimeError("Wątek nie doszedł do kolejnego kroku na czas; sprawdź zawieszenie.")
-                self.stopped.wait(remaining)
+        """Runs every released or new thread up to its next step or its end."""
+
+        while (actor := next((actor for actor in self.actors if actor.status == "running"), None)) is not None:
+            assert actor.greenlet is not None
+            actor.greenlet.switch()
 
     def release(self, actor: Actor, outcome: str) -> None:
-        assert actor.released is not None
-        with self.lock:
-            actor.status = "running"
-            actor.go = outcome
-            actor.released.notify()
+        actor.status = "running"
+        actor.go = outcome
 
     def abort_all(self) -> None:
         for actor in self.actors:
             if actor.status == "parked":
                 self.release(actor, _ABORT)
         self.settle()
-        for actor in self.actors:
-            assert actor.thread is not None
-            actor.thread.join(STEP_TIMEOUT_SECONDS)
 
 
 # --- Model primitives in place of ``threading`` inside runs.py and shutdown.py --------------------------

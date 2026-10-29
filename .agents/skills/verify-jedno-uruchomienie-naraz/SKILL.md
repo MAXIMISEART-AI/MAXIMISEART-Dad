@@ -114,8 +114,10 @@ counts known findings as violations too: use it to confirm a fix.
 ## How it works and what it covers
 
 The script runs the real `RunHost` and `Shutdown`, wired as in `create_app`, in
-threads. FastAPI runs the sync handlers `startRun`, `decideRun` and `closeCentrum`
-in a thread pool, so tabs really do run in parallel. Inside `runs.py` and
+modelled threads. FastAPI runs the sync handlers `startRun`, `decideRun` and `closeCentrum`
+in a thread pool, so tabs really do run in parallel. Each modelled thread is a
+greenlet on the script's one OS thread, so a busy CI runner slows the check only by
+its share of a CPU, not by a kernel thread switch at every step (#565). Inside `runs.py` and
 `shutdown.py`, `threading` is replaced by model primitives: entering
 `RunHost._lock`, each `Event.set`/`clear`/`wait` and starting the Uruchomienie
 thread is one indivisible step, as is each Centrum log entry and
