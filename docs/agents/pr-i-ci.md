@@ -44,13 +44,15 @@ Dlaczego PR dostaje mniej sprawdzeń niż `main`, mówi [ADR 0020](../adr/0020-c
 
 - Porażkę zadania odtwarzasz przez `.venv/bin/python tools/ci_lokalnie.py --tylko <zadanie>` (Windows: `py -3 tools/ci_lokalnie.py --tylko <zadanie>`).
 - Ciężkie zadania liczy GitHub w częściach: `mutations` po pushu (stan pokazuje `tools/praca_w_toku.py` albo `gh pr checks`), a `change-mutations` i skrypty mutacji skilli nocą na `main`.
-  Część skryptu mutacji z planu (`#k/n` w nazwie jednostki) odtwarzasz przez `MUTACJE_CZESC=k/n` w środowisku polecenia tego skryptu.
+  Część skryptu mutacji albo podstawy z planu (`#k/n` w nazwie jednostki) odtwarzasz przez `MUTACJE_CZESC=k/n` w środowisku polecenia tego skryptu albo polecenia `ci:`.
 
 ## Plan runu, zadania pytest i Mutation checks
 
 - Ile zadań pytest startuje na każdym torze i które pliki testów (albo udziały długiego pliku) bierze każde, ustala zadanie `Plan CI` (`tools/plan_ci.py`) z czasów ostatnich zielonych runów `main`, a E2E i straż czasu dokłada do zadań Windows.
 - Plan dzieli kroki skilli (na PR podstawy `ci:`, na `main` także każdy skrypt `check_*_mutations.py`) między zadania Mutation checks w tym samym limicie zadań runu i z tym samym celem ściany co pytest, a skrypt mutacji dłuższy niż zadanie dzieli na części, najwyżej po jednej na mutację.
-- Podstawy `ci:` plan nie dzieli, więc linia każdego toru w planie nazywa najdłuższą jednostkę po podziale, poniżej której ściana zadania nie zejdzie.
+- Podstawę `ci:` plan dzieli tak samo, na najwyżej tyle części, ile mówi klucz `ci-czesci:` w `SKILL.md`, a podstawę bez niego nie dzieli wcale.
+  Linia każdego toru w planie nazywa najdłuższą jednostkę po podziale, poniżej której ściana zadania nie zejdzie.
+- `Required CI status` czerwienieje też wtedy, gdy części podzielonej jednostki jednego toru nie są w planie dokładnie raz każdą z `1/n`…`n/n`.
 - Chromium instaluje tylko zadanie Mutation checks z krokiem skilla, którego skrypty importują Playwright.
 - `Required CI status` czerwienieje także wtedy, gdy planu nie ma albo zadanie planu (pytest albo Mutation checks) nie zgłosiło w zapisie czasów ostatniej próby którejś swojej jednostki albo zgłosiło ją z porażką, a linia `REQUIRED FAIL` nazywa zadanie i jednostkę.
 - Skrypt mutacji, którego wybór skilli by nie uruchomił (nazwa spoza wzorca, wskazany w `SKILL.md`, a usunięty), i zły klucz `ci:` plan zgłasza w `Required CI status` linią `REQUIRED FAIL | mutacje skilli: …`.

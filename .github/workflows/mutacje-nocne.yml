@@ -153,7 +153,8 @@ jobs:
         id: playwright
         if: ${{ matrix.przegladarka }}
         run: |
-          uv pip install --system --python "${{ steps.python.outputs.python-path }}" -e ".[dev]"
+          $packages = python -c "import tomllib; dev = tomllib.load(open('pyproject.toml', 'rb'))['project']['optional-dependencies']['dev']; print(' '.join(p.replace(' ', '') for p in dev if p.startswith(('playwright==', 'tzdata=='))))"
+          uv pip install --system --python "${{ steps.python.outputs.python-path }}" $packages.Split(' ')
           python -c "from importlib.metadata import version; print('version=' + version('playwright'))" >> $env:GITHUB_OUTPUT
 
       - name: Cache Chromium
@@ -161,11 +162,11 @@ jobs:
         uses: actions/cache@v6
         with:
           path: ~\AppData\Local\ms-playwright
-          key: chromium-${{ runner.os }}-playwright-${{ steps.playwright.outputs.version }}
+          key: chromium-headless-shell-${{ runner.os }}-playwright-${{ steps.playwright.outputs.version }}
 
       - name: Install Chromium
         if: ${{ matrix.przegladarka }}
-        run: python -m playwright install chromium
+        run: python -m playwright install --only-shell chromium
 
       - uses: actions/download-artifact@v8
         with:

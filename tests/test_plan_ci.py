@@ -147,6 +147,27 @@ def test_kazdy_wybrany_krok_skilla_biegnie_raz_a_skrypt_dluzszy_od_zadania_w_cze
     assert all(job.sciana_s <= plan.cel_s or len(job.jednostki) == 1 for job in jobs)
 
 
+@pytest.mark.parametrize(("seconds", "parts"), [(300.0, 2), (3000.0, 4)], ids=["dwie części mieszczą się w zadaniu", "do limitu ci-czesci"])
+def test_podstawa_z_ci_czesci_dluzsza_od_zadania_biegnie_w_czesciach_ktore_skladaja_sie_na_cala(seconds: float, parts: int) -> None:
+    key = "verify-e/ci"
+    steps = [mutacje_skilli.Step(ROOT / ".agents" / "skills" / "verify-e", key, key, (key,), None, 4, True)]
+    czasy = _with_skill_times(_times())
+    lane = czasy.tory[plan_ci.MUTACJE.pomiary]
+    czasy = dataclasses.replace(czasy, tory={**czasy.tory, plan_ci.MUTACJE.pomiary: {**lane, f"skill:{key}": (czasy_ci.Obserwacja(1, "M", seconds),)}})
+
+    plan = plan_ci.rozplanuj([plan_ci.wycen_mutacje(steps, czasy)], "pull_request", czasy.runy)
+    units = sorted(unit for job in plan.zadania for unit in job.jednostki)
+    complete = [_record(plan, job, _reported(job)) for job in plan.zadania]
+    lost = dataclasses.replace(plan, zadania=plan.zadania[1:])
+
+    assert units == [f"skill:{key}#{part}/{parts}" for part in range(1, parts + 1)]
+    assert plan_ci.werdykt(plan, {"plan": "success", "mutations": "success"}, complete) == []
+    # Plan bez jednej części: zadania, które biegły, zgłosiły wszystko, a Required i tak widzi, że podstawa nie jest cała.
+    assert plan_ci.werdykt(lost, {"plan": "success", "mutations": "success"}, [_record(lost, job, _reported(job)) for job in lost.zadania]) == [
+        f"plan CI: części {', '.join(f'{part}/{parts}' for part in range(2, parts + 1))} jednostki skill:{key} na torze mutacje nie są całością 1..{parts}"
+    ]
+
+
 def test_w_zadaniu_podstawa_skilla_biegnie_przed_jego_skryptami_mutacji() -> None:
     plan = _plan(_with_skill_times(_times()), FILES, steps=_skill_steps(["verify-c/check_c_mutations.py", "verify-c/ci"]))
 

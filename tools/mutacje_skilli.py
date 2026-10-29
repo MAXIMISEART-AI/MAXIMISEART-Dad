@@ -32,6 +32,8 @@ Skill może zadeklarować we frontmatterze klucz ``ci:``: polecenie (skrypt ``.p
 i jego argumenty), którym CI sprawdza skill na niezmienionym kodzie. Runner uruchamia je jako krok ``PODSTAWA``
 (przed skryptami mutacji skilla, gdy biegną w tym samym zadaniu), także w skillu bez skryptu mutacji. Polecenie, które wybrany
 skrypt mutacji i tak uruchamia bez mutacji (podstawa ``check_all``), nie biegnie drugi raz. Podstawa przechodzi z kodem 0.
+Klucz ``ci-czesci: <n>`` mówi, że polecenie ``ci:`` dzieli się na najwyżej n części, które plan CI uruchamia jak części
+skryptu mutacji, z ``MUTACJE_CZESC=k/n`` (``tools/skrypt_skilla.py``, ``part``); bez klucza podstawa jest niepodzielna.
 
     py -3 tools/mutacje_skilli.py                  # Windows
     .venv/bin/python tools/mutacje_skilli.py       # macOS i Linux
@@ -132,6 +134,20 @@ def guarded(skill_md: Path) -> tuple[str, ...] | None:
     return tuple(globs)
 
 
+def ci_parts(skill_md: Path) -> int:
+    """Najwięcej części polecenia ``ci`` z klucza ``ci-czesci`` frontmattera ``SKILL.md``; bez klucza 1.
+
+    Klucz to jedna linia ``ci-czesci: <liczba całkowita od 1>``.
+    """
+
+    values = _values(skill_md, "ci-czesci")
+    if not values:
+        return 1
+    if not values[0].strip().isdigit() or int(values[0]) < 1:
+        raise ValueError(f"ci-czesci w {_name(skill_md)} nie jest liczbą części od 1")
+    return int(values[0])
+
+
 def ci_command(skill_md: Path) -> tuple[str, ...] | None:
     """Polecenie z klucza ``ci`` frontmattera ``SKILL.md``; ``None``, gdy klucza nie ma.
 
@@ -178,8 +194,8 @@ def hits(skill: Path, changed: Iterable[str]) -> Hits:
 class Step(NamedTuple):
     """Krok zadania: podstawa ``ci`` skilla (``verdict`` ``None``) albo jeden jego skrypt mutacji.
 
-    ``mutations`` to liczba mutacji skryptu (podstawa: 0), bo więcej części skrypt nie ma; ``browser``: skrypty skilla
-    importują Playwright, więc zadanie CI potrzebuje Chromium.
+    ``parts`` to najwięcej części kroku: liczba mutacji skryptu, bo więcej części skrypt nie ma, a podstawy ``ci-czesci``
+    (bez klucza 1); ``browser``: skrypty skilla importują Playwright, więc zadanie CI potrzebuje Chromium.
     """
 
     skill: Path
@@ -187,7 +203,7 @@ class Step(NamedTuple):
     name: str
     command: tuple[str, ...]
     verdict: str | None
-    mutations: int
+    parts: int
     browser: bool
 
 
@@ -269,7 +285,8 @@ def _count(script: Path) -> int:
 
 
 def steps(failed: dict[str, str]) -> list[Step]:
-    """Kroki wszystkich skilli, podstawa każdego skilla z kluczem ``ci`` przed jego skryptami; zły klucz ``ci`` trafia do ``failed``."""
+    """Kroki wszystkich skilli, podstawa każdego skilla z kluczem ``ci`` przed jego skryptami; zły klucz ``ci`` albo
+    ``ci-czesci`` trafia do ``failed``."""
 
     skills: dict[Path, list[Path]] = {skill_md.parent: [] for skill_md in SKILLS.glob("*/SKILL.md") if _values(skill_md, "ci")}
     for script in sorted(SKILLS.glob(f"*/scripts/{PATTERN}")):
@@ -277,13 +294,13 @@ def steps(failed: dict[str, str]) -> list[Step]:
     found = []
     for skill, scripts in sorted(skills.items()):
         try:
-            command = ci_command(skill / "SKILL.md")
+            command, parts = ci_command(skill / "SKILL.md"), ci_parts(skill / "SKILL.md")
         except ValueError as error:
             failed[f"{BASELINE} {skill.name}"] = str(error)
             command = None
         browser = _browser(skill)
         if command:
-            found.append(Step(skill, f"{skill.name}/ci", f"{BASELINE} {skill.name}", command, None, 0, browser))
+            found.append(Step(skill, f"{skill.name}/ci", f"{BASELINE} {skill.name}", command, None, parts, browser))
         found += [
             Step(skill, f"{skill.name}/{script.name}", _name(script), (_name(script),), VERDICT, _count(script), browser) for script in scripts
         ]

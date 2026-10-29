@@ -32,6 +32,7 @@ BY_CHANGE_ONLY = {
     ),
     "tests/test_na_scalonych_pr.py": "sprawdza narzędzie na repozytoriach testu, a nie całe repozytorium",
     "tests/test_plan_ci.py": "sprawdza plan na repozytoriach testu i atrapach czasów; graf wybiera go przy zmianie planu i ci.yml",
+    "tests/test_podstawa_w_czesciach.py": "sprawdza podział podstawy Centrum; graf wybiera go przy zmianie skilla, skrypt_skilla.py i mutacje_skilli.py",
     "tests/test_praca_w_toku.py": "sprawdza werdykt narzędzia na repozytoriach testu, a nie całe repozytorium; trwa ok. 19 s",
     "tests/test_scal_pr.py": "sprawdza narzędzie na atrapie gh i repozytoriach testu, a nie całe repozytorium",
     "tests/test_szybko.py": "sprawdza samo szybko w repozytoriach testu; graf wybiera go przy zmianie tools/szybko.py i tabel reguł",
