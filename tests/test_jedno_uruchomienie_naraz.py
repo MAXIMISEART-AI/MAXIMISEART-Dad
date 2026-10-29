@@ -6,22 +6,19 @@ jest poza zasięgiem testów przez API, więc sprawdza ją wyczerpująco skrypt 
 Zakres, znane ustalenia i postępowanie przy porażce opisuje
 ``.agents/skills/verify-jedno-uruchomienie-naraz/SKILL.md``.
 
-Sprawdzenie prawdziwego kodu biegnie we własnym procesie, jak w CI. Wątek modelu, który czeka na prawdziwą blokadę
-spoza modelu, staje na zawsze i trzyma swoje blokady do końca procesu: w workerze pytest zatrzymywał każdy następny
-test Centrum, który brał tę blokadę (#651). W procesie testu biegną tylko sprawdzenia, które same zwalniają to, na
-co czeka wątek modelu, albo kończą się błędem przed czekaniem.
+Każde sprawdzenie prawdziwego kodu biegnie we własnym procesie z limitem, jak w CI, także w testach, które same
+zwalniają to, na co czeka wątek modelu. Wątek modelu, który czeka na prawdziwą blokadę spoza modelu, staje na zawsze
+i trzyma swoje blokady do końca procesu, a kod z defektem może stanąć na swojej blokadzie w każdym harmonogramie,
+zanim zadziała podróbka testu. W workerze pytest taki wątek zatrzymywał każdy następny test Centrum, który brał tę
+blokadę, a sesja pytest wisiała bez linii LUKA (#651).
 """
 
 from __future__ import annotations
 
-import importlib.util
 import re
 import subprocess
 import sys
-import threading
-import time
 from pathlib import Path
-from types import ModuleType
 
 import pytest
 
@@ -74,14 +71,62 @@ explore_runs.STALL_SECONDS = 1.0
 raise SystemExit(explore_runs.main(["--scope", "zamknij-w-trakcie"]))
 """
 
+# Skrypt, w którym wątek modelu czeka na blokadę trzymaną przez skrypt dopiero od 7. wywołania RunHost.start, po sześciu
+# krótkich czekaniach, które razem trwają dłużej niż limit. Po raporcie skrypt zwalnia blokadę i patrzy na porzucony
+# wątek. Biegnie z pliku, żeby LUKA mogła pokazać linię, na której wątek stoi.
+HELD_AFTER_SHORT_WAITS = """
+import sys
+import threading
+import time
 
-def _load_explorer() -> ModuleType:
-    spec = importlib.util.spec_from_file_location("explore_runs", EXPLORER)
-    assert spec is not None and spec.loader is not None
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return module
+sys.path.insert(0, sys.argv[1])
+import explore_runs
+
+explore_runs.STALL_SECONDS = 1.0
+held = threading.Lock()
+held.acquire()
+start = explore_runs.runs.RunHost.start
+calls = []
+
+
+def waiting(host, prepared):
+    calls.append(prepared)
+    if len(calls) <= 6:
+        time.sleep(0.25)
+        return start(host, prepared)
+    with held:
+        return start(host, prepared)
+
+
+explore_runs.runs.RunHost.start = waiting
+report = explore_runs.explore(explore_runs.SCOPES["zamknij-w-trakcie"])
+for gap in report.gaps:
+    print("LUKA:", gap)
+print(explore_runs.summarize([report]).lines[-1])
+print("prawdziwe threading w runs.py:", explore_runs.runs.threading is threading)
+schedules = report.schedules
+checker = next(thread for thread in threading.enumerate() if thread.name == "sprawdzenie przeplotów")
+held.release()
+checker.join(timeout=30)
+print("po zwolnieniu blokady:", "żyje" if checker.is_alive() else "skończony", report.schedules - schedules)
+"""
+
+# Skrypt, w którym kod pod sprawdzeniem rzuca nieoczekiwany wyjątek w pierwszym wywołaniu RunHost.start.
+BROKEN_START = """
+import sys
+
+sys.path.insert(0, sys.argv[1])
+import explore_runs
+
+
+def broken(host, prepared):
+    raise LookupError("start zepsuty w teście")
+
+
+explore_runs.runs.RunHost.start = broken
+explore_runs.explore(explore_runs.SCOPES["zamknij-w-trakcie"])
+print("sprawdzenie skończone bez błędu")
+"""
 
 
 def _in_own_process(*arguments: str) -> tuple[int | None, list[str]]:
@@ -122,47 +167,27 @@ def test_sprawdzenie_przeplotow_prowadzi_watki_modelu_bez_watkow_systemu() -> No
     assert (code, lines[-2:]) == (0, ["URUCHOMIENIA OK", "wątki systemu: sprawdzenie przeplotów"]), "\n".join(lines)
 
 
-def test_watek_modelu_czekajacy_poza_modelem_konczy_sprawdzenie_luka_modelu_z_nazwa_i_krokiem(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_watek_modelu_czekajacy_poza_modelem_konczy_sprawdzenie_luka_modelu_z_nazwa_i_krokiem(tmp_path: Path) -> None:
     """Prawdziwa blokada poza modelem zatrzymuje jedyny wątek systemu sprawdzenia (#651).
 
     Bez straży sprawdzenie wisiało do limitu 120 s pytest, z tym samym objawem co flaky test z #565. Krótkie czekania,
     razem dłuższe niż limit, nie są zawieszeniem: limit liczy się od ostatniego kroku, nie od startu sprawdzenia.
     """
 
-    explorer = _load_explorer()
-    monkeypatch.setattr(explorer, "STALL_SECONDS", 1.0)
-    held = threading.Lock()
-    held.acquire()
-    start = explorer.runs.RunHost.start
-    calls: list[object] = []
+    script = tmp_path / "czeka_na_blokade.py"
+    script.write_text(HELD_AFTER_SHORT_WAITS, encoding="utf-8")
 
-    def waiting(host: object, prepared: object) -> object:
-        calls.append(prepared)
-        if len(calls) <= 6:
-            time.sleep(0.25)
-            return start(host, prepared)
-        with held:
-            return start(host, prepared)
+    code, lines = _in_own_process(str(script), str(EXPLORER.parent))
 
-    monkeypatch.setattr(explorer.runs.RunHost, "start", waiting)
-
-    report = explorer.explore(explorer.SCOPES["zamknij-w-trakcie"])
-
-    [gap] = report.gaps
-    assert gap.startswith("karta Uruchom 1: po kroku „żądanie POST /api/runs dociera do serwera” wątek modelu")
-    assert "(with held:)" in gap
-    assert explorer.summarize([report]).lines[-1].startswith("URUCHOMIENIA: LUKA MODELU")
-    # Kolejne testy tego workera używają Centrum z prawdziwym threading.
-    assert explorer.runs.threading is threading
-    # Wątek, który doczekał się po porzuceniu, kończy się na następnym kroku i nie zmienia już raportu.
-    schedules = report.schedules
-    checker = next(thread for thread in threading.enumerate() if thread.name == "sprawdzenie przeplotów")
-    held.release()
-    checker.join(timeout=30)
-    assert not checker.is_alive()
-    assert report.schedules == schedules
+    output = "\n".join(lines)
+    assert code == 0, output
+    [gap] = [line.removeprefix("LUKA: ") for line in lines if line.startswith("LUKA: ")]
+    assert gap.startswith("karta Uruchom 1: po kroku „żądanie POST /api/runs dociera do serwera” wątek modelu"), output
+    assert "(with held:)" in gap, output
+    assert lines[-3].startswith("URUCHOMIENIA: LUKA MODELU"), output
+    # To, co biegnie w procesie po raporcie, używa Centrum z prawdziwym threading, a wątek, który doczekał się po
+    # porzuceniu, kończy się na następnym kroku i nie zmienia już raportu.
+    assert lines[-2:] == ["prawdziwe threading w runs.py: True", "po zwolnieniu blokady: skończony 0"], output
 
 
 @pytest.mark.parametrize(
@@ -207,13 +232,7 @@ def test_watek_modelu_czekajacy_na_zawsze_konczy_proces_sprawdzenia_luka_z_miejs
     assert schedule and schedule[-1].split(". ", 1)[1].startswith(last), output
 
 
-def test_nieoczekiwany_blad_kodu_pod_sprawdzeniem_przerywa_sprawdzenie(monkeypatch: pytest.MonkeyPatch) -> None:
-    explorer = _load_explorer()
+def test_nieoczekiwany_blad_kodu_pod_sprawdzeniem_przerywa_sprawdzenie() -> None:
+    code, lines = _in_own_process("-c", BROKEN_START, str(EXPLORER.parent))
 
-    def broken(host: object, prepared: object) -> object:
-        raise LookupError("start zepsuty w teście")
-
-    monkeypatch.setattr(explorer.runs.RunHost, "start", broken)
-
-    with pytest.raises(LookupError, match="start zepsuty w teście"):
-        explorer.explore(explorer.SCOPES["zamknij-w-trakcie"])
+    assert (code, lines[-1]) == (1, "LookupError: start zepsuty w teście"), "\n".join(lines)

@@ -126,8 +126,10 @@ its share of a CPU, not by a kernel thread switch at every step (#565). The scri
 thread from outside: 10 s without a step means a modelled thread that waits outside the model,
 because a busy runner stretches the gap between two steps only to a fraction of a second. That thread stays
 blocked, with every lock it holds, until its process ends: the script's process ends by itself after the report (the
-thread is a daemon), and the test runs the check of the real code in a process of its own, because in the pytest
-worker the held lock stopped every later test of Centrum (#651). Inside `runs.py` and
+thread is a daemon). So every test runs `explore` on the real code in a process of its own with a time limit, even a
+test whose stand-in releases what the thread waits on: code under check can stall on a lock of its own first, and in
+the pytest worker that lock stopped every later test of Centrum while the session hung with no LUKA in its log (#651).
+Inside `runs.py` and
 `shutdown.py`, `threading` is replaced by model primitives: entering
 `RunHost._lock`, each `Event.set`/`clear`/`wait` and starting the Uruchomienie
 thread is one indivisible step, as is each Centrum log entry and
