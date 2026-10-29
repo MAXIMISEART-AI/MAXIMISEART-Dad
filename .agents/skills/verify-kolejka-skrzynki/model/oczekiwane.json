@@ -1,0 +1,40 @@
+{
+  "okres": {
+    "wynik": "przechodzi"
+  },
+  "logi": {
+    "wynik": "przechodzi"
+  },
+  "nowe": {
+    "wynik": "przechodzi"
+  },
+  "zgloszenie": {
+    "wynik": "przechodzi"
+  },
+  "zgloszenie-w-czesciach": {
+    "wynik": "narusza",
+    "wybacz": "przejecie",
+    "znalezisko": "ponowiona wysyłka Zgłoszenia przejmuje issue swojej przerwanej próby bez komentarzy, więc części od 2 nie trafiają do Skrzynki (_deliver_report)"
+  },
+  "znane": {
+    "wynik": "przechodzi"
+  },
+  "dwie-kolejki": {
+    "wynik": "przechodzi"
+  },
+  "dwa-procesy": {
+    "wynik": "narusza",
+    "wybacz": "dwa_procesy",
+    "znalezisko": "nowe Centrum startuje, gdy stare zamknęło port, a jego wątek kolejki jeszcze wysyła: oba nie znajdują issue okresu i oba je zakładają"
+  },
+  "odczyt": {
+    "wynik": "narusza",
+    "wybacz": "odczyt",
+    "znalezisko": "plik kolejki, którego raz nie da się odczytać (_queued), przejście pomija bez budzenia za RETRY_S, więc czeka do następnej wysyłki albo startu"
+  },
+  "odmowa-tresci": {
+    "wynik": "narusza",
+    "wybacz": "odmowa_po_zalozeniu",
+    "znalezisko": "Skrzynka odrzuca komentarz (Rejected) po założeniu issue Uwagi taty, a następny start zakłada drugie issue z tą samą Uwagą"
+  }
+}

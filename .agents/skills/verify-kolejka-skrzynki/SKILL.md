@@ -1,25 +1,32 @@
 ---
 name: verify-kolejka-skrzynki
-description: Exhaustively check that the Kolejka Skrzynki Zgłoszeń (`Outbox` in `src/rozliczenia/centrum/outbox.py`) delivers every part of every wysyłka (Zgłoszenie, Kontrola ilości, Logi Uruchomienia, Uwaga taty) at least once, keeps one issue per problem and per period, and empties the queue, under every order of network failures, answers lost after the Skrzynka acted, file errors and a killed Centrum. Use when a change touches `_deliver*`, `_comment_all`, `_waiting`, `Outbox._drain`, `_send_all`, `_remove`, `resume` or the delivery marker in `outbox.py`, the box calls in `keyed_box.py` or `newest_with_line` in `report_box.py`, adds a new `Target`, or when `explore_outbox.py` fails.
+description: Exhaustively check that the Kolejka Skrzynki Zgłoszeń (`Outbox` in `src/rozliczenia/centrum/outbox.py`) delivers every part of every wysyłka (Zgłoszenie, Kontrola ilości, Logi Uruchomienia, Uwaga taty) at least once, keeps one issue per problem and per period, and empties the queue, under every order of network failures, answers lost after the Skrzynka acted, file errors and a killed Centrum. Use when a change touches `_deliver*`, `_comment_all`, `_waiting`, `Outbox._drain`, `_send_all`, `_remove`, `resume` or the delivery marker in `outbox.py`, the box calls in `keyed_box.py` or `newest_with_line` in `report_box.py`, `replace_atomically` in `atomic_file.py`, adds a new `Target`, or when `explore_outbox.py` or `sprawdz_model_kolejki.py` fails. A TLA+ model of the same queue (TLC) adds the interleavings the checker leaves out (a wysyłka posted during a pass, the `RETRY_S` wake, two queues of one folder in `_claimed`, a second Centrum whose port the old one already released, and a switch-off at the temporary file and at the rename).
 pilnuje:
   - src/rozliczenia/centrum/outbox.py
   - src/rozliczenia/centrum/keyed_box.py
   - src/rozliczenia/centrum/report_box.py
-ci: .agents/skills/verify-kolejka-skrzynki/scripts/explore_outbox.py
+  - src/rozliczenia/centrum/atomic_file.py
+  - .agents/skills/verify-aktualizacja-narzedzia/scripts/sprawdz_aktualizacje.py
+ci: .agents/skills/verify-kolejka-skrzynki/scripts/sprawdz_kolejke.py
 ---
 
 # Verify Kolejka Skrzynki Zgłoszeń
 
 ## What CI runs and what stays local
 
-CI runs `explore_outbox.py` (the `ci:` key) in Mutation checks whenever a change touches this skill,
-and `check_outbox_mutations.py` in full CI on `main` and nightly on `main` (`mutacje-nocne.yml`) after a
-change of this skill's folder. Run them locally only to reproduce a red Mutation checks step or the
-night's issue, or one `--scope` while you work on it. What stays with you on every change to the covered code is „Does the
-change touch it?”: read each commit since the sync commit against the table, because a change that
-adds a new way to the Skrzynka (a new `Target`, a second writer of queue files, a box call outside
-`KeyedBox`) passes the check without being checked. Sorting a red run as „When the check fails” says
-also stays with you.
+CI runs `sprawdz_kolejke.py` (the `ci:` key) in Mutation checks whenever a change touches this skill:
+it runs the TLA+ model (`sprawdz_model_kolejki.py`, TLC, as the `ci:` of `verify-aktualizacja-narzedzia`
+does) and then the checker of the real code (`explore_outbox.py`), each to its end. The model step
+fails with `MODEL KOLEJKI: ROZJAZD MODELU Z KODEM` when covered code changed since the Sync commit,
+but it cannot tell whether a change to the model is right. `check_outbox_mutations.py` and
+`check_model_kolejki_mutations.py` run in full CI on `main` and nightly on `main` (`mutacje-nocne.yml`)
+after a change of this skill's folder. Run them locally only to reproduce a red Mutation checks step or the
+night's issue, or one `--scope` or `--config` while you work on it. What stays with you on every change to the covered code is „Does the
+change touch it?” and „Bring the model in line”: read each commit since the sync commit against both
+tables, change the model, break the new path in it, and move the sync commit. A change that adds a new
+way to the Skrzynka (a new `Target`, a second writer of queue files, a box call outside `KeyedBox`)
+passes both checks without being checked. Sorting a red run as „When the check fails” and „Real bug
+or modeling error?” say also stays with you.
 
 ## The promise
 
@@ -57,27 +64,32 @@ step of this code that the checker can fail, lose or kill:
 | a restart of Centrum | a new `Outbox` and `KeyedBox` on the same folder, then `Outbox.resume` |
 
 Covered files: `src/rozliczenia/centrum/outbox.py`,
-`src/rozliczenia/centrum/keyed_box.py`, and in
+`src/rozliczenia/centrum/keyed_box.py`, in
 `src/rozliczenia/centrum/report_box.py` `newest_with_line`, by which
-`KeyedBox.find_issue` finds the issue of a Zgłoszenie or a period.
+`KeyedBox.find_issue` finds the issue of a Zgłoszenie or a period, and
+`src/rozliczenia/centrum/atomic_file.py` `replace_atomically`, which writes
+every queue file and its marker (the model only).
 
-**Sync commit: `8122ab4c`** (2026-10-26, `main` after #478). At this commit the
-checker was confirmed to describe the code above. To see whether it needs
-another look:
+**Sync commit: `6f94edb8`** (2026-10-29, `main` before the TLA+ model). The
+checker and the model share it: at this commit both were confirmed to
+describe the code above. Since the checker's earlier sync `8122ab4c` only
+`15362856` changed a covered file: `Outbox` calls `on_rejected` after a
+refused content, which neither the checker nor the model describes. To see
+whether they need another look:
 
 ```bash
-git log --oneline 8122ab4c..HEAD -- src/rozliczenia/centrum/outbox.py src/rozliczenia/centrum/keyed_box.py src/rozliczenia/centrum/report_box.py
+git log --oneline 6f94edb8..HEAD -- src/rozliczenia/centrum/outbox.py src/rozliczenia/centrum/keyed_box.py src/rozliczenia/centrum/report_box.py src/rozliczenia/centrum/atomic_file.py
 ```
 
-Read each listed commit against the table. A change matters when it adds,
+Read each listed commit against this table and the model's table below. A change matters when it adds,
 removes or reorders a box call, changes what a retry does with an issue it
 finds, changes when the marker is written or the file removed, changes which
 failure stops a pass (`_waiting`), or adds a `Target`. A new `Target` also needs
 a scope in `SCOPES` and a branch in `_check` in `explore_outbox.py`. Changes to
 the text of a wysyłka, the log lines, `prepare`, `delivered`, `wait_delivered`
 and the addresses file do not matter here. Move the sync commit forward only
-after the checker matches the code at the new commit and the check and its
-mutations pass there.
+after the checker and the model match the code at the new commit and both
+checks and their mutations pass there.
 
 ## Run
 
@@ -150,7 +162,10 @@ process killed in the middle of `replace_atomically` (it leaves a `.tmp` that
 `resume` removes), `prepare` holding a wysyłka back, a queue thread running at
 the same time as `post` or `wait_delivered` (the checker runs each thread to its
 end), `on_delivered` (Sprawy taty), and
-more wysyłki or failures than the bounds above.
+more wysyłki or failures than the bounds above. The TLA+ model below checks, on its
+own abstraction of this code, two queues on one folder, a process killed in
+the middle of `replace_atomically`, a queue thread running at the same time
+as `post`, refused content and two file errors in a row.
 
 ## Known findings
 
@@ -252,3 +267,243 @@ The Zgłoszenie, Uwaga, marker and removal mutations break the same rule as a
 known finding or an accepted risk, in a schedule those do not excuse. A mutation reported as `NIEAKTUALNA` no longer
 matches `outbox.py`: rewrite its `anchor` and `replacement` against the new code
 so that it breaks the same rule again.
+
+## The TLA+ model
+
+`model/KolejkaSkrzynki.tla` is a hand-written TLA+ model of the same queue,
+which TLC checks in every order of steps and failures. It describes the code
+only while you keep the two in step (Sync commit above). It adds what the
+checker cannot run: threads that interleave (a wysyłka posted during a pass,
+the `RETRY_S` wake, a second queue of one folder, a second Centrum process),
+the temporary file and the rename of `replace_atomically` as separate failure
+points, a switch-off at every step, refused content (`Rejected`), a queue file
+that cannot be read, and two file errors in a row.
+
+### The model's promise
+
+- **JednoIssue**: one period and one problem of a Zgłoszenie have one issue,
+  a comment to a known issue opens none, and one Uwaga taty has one issue,
+  except after the risk ADR 0015 and the docstring of `outbox.py` accept
+  (below). Harm as JEDNO_ISSUE.
+- **WszystkieCzesci**: a queue file disappears or gets its delivery marker
+  only when every part of it is in the Skrzynka. Harm: a wysyłka is lost and
+  nobody knows, because its file is gone.
+- **CzesciWKolejnosci**: in every issue, part k > 1 of a wysyłka has part
+  k-1 of the same wysyłka before it, so the issue reads in order. A repeated
+  part (after a lost answer or a restart) is allowed. Harm: Logi Uruchomienia
+  whose JSON blocks do not join into the file.
+- **Zbieganie** (liveness): once failures stop, every wysyłka that `post`
+  wrote to the queue is in the Skrzynka and its file without a marker is gone,
+  except a file whose content the Skrzynka refused (`Rejected`, waits for the
+  next start) or a sent file `_remove` could not delete (`_undeleted`). Harm
+  as KOLEJKA_PUSTA.
+
+A second issue of an Uwaga taty is possible, and nothing in the code detects
+it: a `NewIssue` has no line to find its issue by. JednoIssue accepts it after
+the causes ADR 0015 („zerwane połączenie po utworzeniu issue może dać drugie
+issue”) and the docstring of `outbox.py` („Przerwanie między wysłaniem a
+znacznikiem powtarza wysyłkę”) name, each recorded in `slady` where it
+happens: a lost answer to `open_issue`, a network failure or a lost answer
+at a `comment`, a switch-off at a `comment`, at the marker or at `_remove`
+after the marker failed (`zerwane_po_zalozeniu`), and the end of a Centrum
+run that leaves a sent file whose marker and removal both failed
+(`bez_znacznika`, the comment in `_send_all`: „bez znacznika chroni już
+tylko _undeleted, do końca tej pracy Centrum”). A period and a Zgłoszenie
+have their line, so `find_issue` keeps them to one issue in one Centrum
+process, also after these causes and with two queues of one folder. A part
+posted twice is at least once and nothing detects it either.
+
+### Model action and code
+
+Each action is one indivisible step of the code in `src/rozliczenia/centrum/`.
+The comment above each action and branch in the model names the same code.
+
+| Model action | Code |
+| --- | --- |
+| `Start` | `app.py` lifespan → `outbox.py` `Outbox.resume`: unlink every `*.tmp`, then `send_in_background`. Only a process with the port starts (`launcher.py` `listen_locally`); a second queue of one process starts while the first runs |
+| `Nadaj` | `outbox.py` `Outbox.post`: the name from the moment and `next(self._sequence)`, `replace_atomically` (`write_text` of `.json.tmp`, then `replace`; `OSError` → `False`), then `send_in_background` |
+| `Petla` | `Outbox._drain`: `_claimed` (taken → ask for another pass and skip `_send_all`), then `sorted(glob("*.json"))` in `_send_all` |
+| `Plik` | `Outbox._send_all` for one file: `_undeleted` → `_remove`, `_rejected` → skip, `_queued` (an `OSError` or a missing file → `_skip_unreadable`), `delivered` → `_remove`, else `_deliver`; the end of the list sets `_stopped_on = None` |
+| `Szukaj` | `keyed_box.py` `KeyedBox.labelled_issues` / `find_issue` (`report_box.py` `newest_with_line`) in `_deliver_to_period`, `_deliver_report` (a found Zgłoszenie is `Delivered(found, ())`), `_deliver_to_known` |
+| `Zaloz` | `KeyedBox.open_issue` in `_deliver_new_issue`, `_deliver_report`, `_deliver_to_period`, with `Post.opening` |
+| `Komentuj` | `KeyedBox.comment` in `_comment_all`, one part per step; the first failure ends the wysyłka |
+| `Stop`, `Odrzuc` | `_waiting`: `Unreachable`, `Refused`, `NoKey` → `_stopped_on` and `return`; `Rejected` → `_rejected` and the next file |
+| `Znacznik`, `Zamiana` | `_send_all` after `Delivered`: `_stopped_on = None`, then the marker in `suppress(OSError)`: `atomic_file.py` `replace_atomically` (`write_text` of `.json.tmp`, then `replace`; an `OSError` unlinks the `.tmp`) |
+| `Usun` | `Outbox._remove`: `unlink(missing_ok=True)`, an `OSError` adds the name to `_undeleted` |
+| `Zwolnij` | `Outbox._drain` `finally`: `_released`; a request of the other queue sets `_again` |
+| `Decyzja` | `Outbox._drain` under `_changed`: `_again` → another pass, else `_draining = False` and `clock.after(RETRY_S, _woken)` when `_stopped_on` is set and no wake is armed |
+| `Budzenie` | `Outbox._woken` (`_retry_armed = False`, `send_in_background`), also in a process that already closed its port |
+| `Zamknij`, `KoniecProcesu` | `server.py` `serve`: uvicorn closes the socket, waits up to `_GRACEFUL_SHUTDOWN_S` (5 s) for open connections, then the process ends and the daemon queue thread dies with it |
+| `Wylacz` | none: the computer switches off or the process dies; the queue folder and the Skrzynka stay |
+
+Ghost variables have no counterpart in the code and serve only the promises:
+`zakolejkowane` (`post` returned `True`), `odrzucone` (the Skrzynka answered
+`Rejected` for this wysyłka), `bezOchrony` (a sent file whose marker and
+removal both failed), `slady` (causes of the accepted risk and of the known
+findings) and `krok` (the counterexample's words).
+
+### Bring the model in line, then run
+
+1. Read the diff of the covered files since the Sync commit
+   (`git diff <sync commit> -- <covered files>`) and find each hunk's row in
+   both tables.
+2. Change the matching action so that one action stays one indivisible step
+   of the code, and keep the comment that names the code. TLA+ strings must be
+   ASCII; comments may use Polish letters.
+3. A new way to fail gets a constant, a branch guarded by it, and a line in
+   every `.cfg`.
+4. Before you trust a pass on a new path, break that path in the model and
+   see the check fail; add the break to `check_model_kolejki_mutations.py`
+   with the code it mirrors. A new guard in the model needs a counterpart in
+   the code; name it in the guard's comment.
+5. Move the Sync commit forward only when the checker and every row of both
+   tables match the code at the new commit.
+
+Run one configuration while you work:
+
+```bash
+.venv/bin/python .agents/skills/verify-kolejka-skrzynki/scripts/sprawdz_model_kolejki.py --config okres
+```
+
+On Windows use `py -3`. It takes Java and `tla2tools.jar` from
+`verify-aktualizacja-narzedzia` (`sprawdz_aktualizacje.py` downloads them
+once into its ignored cache, no system Java needed); `TLC_JAVA` and `TLC_JAR`
+replace them. All configurations take about 20 to 40 s on Maks's Mac. `--strict`
+makes known findings exit 1.
+
+| Last line | Exit | Meaning |
+| --- | --- | --- |
+| `MODEL KOLEJKI OK` | 0 | Every promise holds in every configuration. |
+| `MODEL KOLEJKI OK, ZNANE ZNALEZISKA: n` | 0 | Only the known findings below break a promise; each is printed with its counterexample, and every other path passes. |
+| `MODEL KOLEJKI: NOWE NARUSZENIE (n)` | 1 | A promise breaks in a way no known finding explains. The counterexample is printed. |
+| `MODEL KOLEJKI: ZNALEZISKO ZNIKNĘŁO (n)` | 1 | A known finding no longer happens. If a change fixed it, set `"wynik": "przechodzi"` in `model/oczekiwane.json` and remove it below. |
+| `MODEL KOLEJKI: BŁĄD MODELU (n)` | 2 | TLC gave no verdict (a syntax error) or `TypeOK` broke. Nothing is known about the promise. |
+| `MODEL KOLEJKI: ROZJAZD MODELU Z KODEM` | 1 | Only in CI: covered code changed since the Sync commit. Outside CI the same is a `UWAGA:` line above the verdict, and the verdict means nothing until you bring the model in line. |
+
+A known finding runs twice, as in `verify-aktualizacja-narzedzia`: excusing
+every other known finding (`Wybaczone`, the `…PozaZnanymi` variants) it must
+break, and excusing every known finding it must pass. A finding is excused
+only in a behaviour in which its cause happened (`slady`), not by its
+configuration or promise.
+
+### Configurations
+
+| Config | Wysyłki and failures | Expected |
+| --- | --- | --- |
+| `okres` | two Kontrole ilości to one issue okresu, 2 parts each; 1 network failure, 1 lost answer, 1 file error, 1 switch-off | passes |
+| `logi` | Logi Uruchomienia with a header, 2 parts; 2 network failures, 1 lost answer, 2 file errors, 1 switch-off | passes |
+| `nowe` | two Uwagi taty, 2 parts each; 1 network failure, 1 lost answer, 2 file errors, 1 switch-off | passes |
+| `zgloszenie` | one Zgłoszenie in 1 part; 2 network failures, 1 lost answer, 2 file errors, 1 switch-off | passes |
+| `zgloszenie-w-czesciach` | one Zgłoszenie in 2 parts; 1 of each failure | known finding `przejecie` |
+| `znane` | a comment in 2 parts to the known issue of an Uwaga; 2 network failures, 1 lost answer, 2 file errors, 1 switch-off | passes |
+| `dwie-kolejki` | two queues of one folder in one process, one Kontrola in 2 parts; 1 network failure, 1 file error, 1 switch-off | passes |
+| `dwa-procesy` | one Kontrola; the old Centrum closes its port and the new one starts before the old process ends; no other failure | known finding `dwa_procesy` |
+| `odczyt` | one Kontrola; 1 network failure, 1 read error of the queue file, 1 switch-off | known finding `odczyt` |
+| `odmowa-tresci` | one Uwaga in 2 parts; 1 refused content, 1 switch-off | known finding `odmowa_po_zalozeniu` |
+
+Every configuration checks `TypeOK`, `JednoIssue`, `WszystkieCzesci`,
+`CzesciWKolejnosci` and `Zbieganie`. `Zbieganie` holds only under the
+fairness in `Sprawiedliwosc`: running code takes its next step, an armed
+wake fires, an HTTP request finishes its `post`, an old process ends, Dad
+starts Centrum when none runs, and every failure happens at most as often as
+its bound.
+
+### Known findings of the model
+
+1. **`zgloszenie-w-czesciach`, WszystkieCzesci (`przejecie`)**: the checker's
+   known finding 1, reached also without a network failure: `open_issue`
+   opens issue #1 with part 1, the computer switches off (or the answer is
+   lost), the next start finds #1 by its odcisk line, `_deliver_report`
+   returns `Delivered(found, ())`, and the marker and removal follow. Part 2
+   never reaches the Skrzynka.
+2. **`dwa-procesy`, JednoIssue (`dwa_procesy`)**: the new Centrum starts
+   while the old process still ends. Steps: Centrum A starts; uvicorn closes
+   A's socket (Dad closes Centrum, or the restart guardian restarts it); A's
+   process waits up to `_GRACEFUL_SHUTDOWN_S` for open connections, and its
+   queue thread keeps running; Centrum B takes the free port and `resume`
+   starts B's pass; a Kontrola waits in the queue; A's pass and B's pass both
+   find no issue okresu and both call `open_issue`. Two issues okresu. `_claimed`
+   guards only queues of one process, and the port is free before the old
+   process ends. It needs A's queue thread in a pass, or its `RETRY_S` wake, in
+   the seconds between the closed socket and the end of A, while B already
+   sends.
+3. **`odczyt`, Zbieganie (`odczyt`)**: `_queued` gets an `OSError` reading a
+   queue file (something holds it open), `_skip_unreadable` skips it, the pass
+   ends with `_stopped_on = None`, so `_drain` arms no `RETRY_S` wake. The
+   file waits for the next wysyłka or the next start of Centrum, with the
+   network working.
+4. **`odmowa-tresci`, JednoIssue (`odmowa_po_zalozeniu`)**: `open_issue`
+   opens the issue of an Uwaga, the Skrzynka refuses a `comment` (`Rejected`),
+   the file waits for the next start (`_rejected`), and the next start opens a
+   second issue with the same Uwaga. The model allows one refusal; by the code,
+   every later start opens one more issue while the comment stays refused. `Post.of` keeps every part within `COMMENT_LIMIT`, which #332
+   measured, so a refused comment is not expected; this is what the code does
+   if GitHub refuses one.
+
+A known finding lives in `model/oczekiwane.json` with the trace it is excused
+by. When a change fixes it, the check ends with `ZNALEZISKO ZNIKNĘŁO`.
+
+### Real bug or modeling error?
+
+Read the counterexample as steps in the code's words and check each step
+against its row. If every step can happen in the code in that order, and the
+end state (`pliki kolejki`, `Skrzynka`) is what the disk and GitHub would
+hold, it is a real bug: report it with the counterexample, and change product
+code only if the user asks. If a step cannot happen in the code, fix the
+action and cite the line that proves it. `TypeOK` breaking is always a
+modeling error. Never shrink a bound, add a guard without a counterpart in the
+code, or widen `Wybaczone` or the accepted risk to make a real counterexample
+go away.
+
+### What the model leaves out
+
+Checked only with the bounds in the configurations. Assumed and not checked:
+
+- A second Centrum with the port while another has it: `launcher.py`
+  `listen_locally` excludes it, and `Start` takes it as given.
+- `labelled_issues` sees an issue right after `open_issue` returned. A list
+  that lags behind could let a retry open a second issue okresu or
+  Zgłoszenie; the next retry comes `RETRY_S` later.
+- `os.replace` is atomic: a switch-off leaves the old file or the new one.
+- `Refused`, `NoKey` and `Unreachable` are one failure (`Stop`); the refusal
+  memory of `KeyedBox` (`REFUSED_KEPT_S`) is not modelled.
+- Not modelled: `Gone` (a known issue Maks deleted), closed issues
+  (`closed="new_issue"` or `"reuse"`), `prepare`, `on_delivered`,
+  `on_rejected`, the addresses file, more than 1 000 issues of a label, and
+  Python exceptions (BEZ_WYJATKU stays with the checker).
+- No promise looks at `.tmp` files, so the model does not check that
+  `resume` removes them.
+- Guards without a counterpart in the code, which only bound the run: one
+  port closing per run (`zamkniecia < 1`), a second queue of one process only
+  while the first runs (no code in `src/` makes two; a restart in one process
+  would), and a wysyłka that starts its `post` only after the one before it
+  started (its name, from the moment and `_sequence`, sorts after it).
+
+### After changing the model
+
+CI proves the model can still fail: the night on `main` runs
+`.agents/skills/verify-kolejka-skrzynki/scripts/check_model_kolejki_mutations.py`
+after a change of this skill's folder. Each mutation removes from the model
+one guard or step whose code it names, on a copy of the checkout
+(`tools/mutacje.py`), and must end with `MODEL KOLEJKI: NOWE NARUSZENIE`:
+
+- JednoIssue: an issue okresu opened without looking for it; a Zgłoszenie
+  opened without looking for it; `_claimed` that always lets a queue send; an
+  Uwaga that opens two issues; no delivery marker; a file in `_undeleted`
+  sent again in the same Centrum run; and, as a model check without code, the
+  accepted risk removed from JednoIssue (the risk is reachable).
+- WszystkieCzesci: a failed comment skipped instead of ending the wysyłka; a
+  Zgłoszenie that never posts its comments, with the network working.
+- CzesciWKolejnosci: comments posted from the last part.
+- Zbieganie: a network failure that skips the file to the next start; a pass
+  that stops without `_stopped_on`; no `RETRY_S` wake; a wake that does not
+  ask for a pass (`_woken`); `post` without `send_in_background`; `_again`
+  ignored; a pass that does not clear `_draining`; `resume` without
+  `send_in_background`.
+
+Two mutations fix a known finding in the model (a found Zgłoszenie gets its
+other parts; the new Centrum waits until the old process ends) and must end
+with `MODEL KOLEJKI: ZNALEZISKO ZNIKNĘŁO`. Known findings `odczyt` and
+`odmowa_po_zalozeniu` have no such fix mutation; their two runs in the check
+show only that they still happen and that nothing else breaks in their
+configuration.
