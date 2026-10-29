@@ -380,7 +380,17 @@ def _is_test(path: str) -> bool:
     return pure.parts[0] == "tests" and pure.name.startswith("test_") and pure.suffix == ".py"
 
 
-def select(root: Path, changed: frozenset[str]) -> Selection:
+@dataclass(frozen=True)
+class Reach:
+    """Pliki testów, których dotyczy zmiana, i odległość plików od niej, bez odcisków: tyle bierze Plan CI."""
+
+    tests: tuple[str, ...]
+    distances: dict[str, int]
+    full_reason: str | None
+    dependencies: Dependencies
+
+
+def reach(root: Path, changed: frozenset[str]) -> Reach:
     files = _files(root) | changed
     dependencies = Dependencies.of(root, files)
     tests = {path for path in files if _is_test(path) and (root / path).is_file()}
@@ -391,8 +401,13 @@ def select(root: Path, changed: frozenset[str]) -> Selection:
     distances |= {reader: min(distances.get(reader, 2), 2) for reader in readers}
     if not full:
         tests &= distances.keys()
-    fingerprints = {test: _fingerprint(root, dependencies.inputs_of(test)) for test in sorted(tests)}
-    return Selection(fingerprints, distances, f"zmiana w {', '.join(full)}" if full else None)
+    return Reach(tuple(sorted(tests)), distances, f"zmiana w {', '.join(full)}" if full else None, dependencies)
+
+
+def select(root: Path, changed: frozenset[str]) -> Selection:
+    found = reach(root, changed)
+    fingerprints = {test: _fingerprint(root, found.dependencies.inputs_of(test)) for test in found.tests}
+    return Selection(fingerprints, found.distances, found.full_reason)
 
 
 def _times(root: Path) -> dict[str, float]:
