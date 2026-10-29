@@ -108,11 +108,12 @@ def test_run_miesci_sie_w_limicie_zadan_konta_bo_cel_sciany_rosnie_co_5_s(skills
     czasy = _with_skill_times(_times(per_file_s=150.0))
     steps = _skill_steps(list(SKILL_STEPS)) if skills else None
     plan = _plan(czasy, [*FILES, LONG], steps)
+    limit = plan_ci.ZADANIA_RUNU
     monkeypatch.setattr(plan_ci, "ZADANIA_RUNU", 100)
     unlimited = _plan(czasy, [*FILES, LONG], steps)
 
     assert _run_jobs(plan) <= plan_ci.ZADANIA_RUNU == 100
-    assert _run_jobs(plan) <= 19 < _run_jobs(unlimited)
+    assert _run_jobs(plan) <= limit < _run_jobs(unlimited)
     assert unlimited.cel_s == plan_ci.CEL_S < plan.cel_s
     assert (plan.cel_s - plan_ci.CEL_S) % plan_ci.KROK_CELU_S == 0
     # Jeden cel dla wszystkich torów: Mutation checks dzielą limit zadań z pytest, a nie biorą go przed nimi. Dłużej
@@ -271,7 +272,7 @@ def test_bez_czasow_z_main_plan_wazy_prace_domyslnie_mowi_to_i_daje_macierz(
 
     assert code == 0
     assert out[0] == "CZASY CI | pobranie czasy-ci z GitHuba: gh: not logged in; plan waży pracę bez pomiaru domyślnie"
-    assert re.fullmatch(r"PLAN CI \| push \| wszystkie pliki \| cel \d+ s \| (\d+) zadań runu \(limit 19\) \| czasy z runów main: brak \(wagi domyślne\)", out[1]), out[1]
+    assert re.fullmatch(rf"PLAN CI \| push \| wszystkie pliki \| cel \d+ s \| (\d+) zadań runu \(limit {plan_ci.ZADANIA_RUNU}\) \| czasy z runów main: brak \(wagi domyślne\)", out[1]), out[1]
     assert out[-1] == f"PLAN CI DIGEST | {plan.digest}"
     assert {unit for job in plan.zadania if job.tor == "linux-3.14" for unit in job.jednostki} == {f"pytest:{name}" for name in plan_ci.pliki_testow()}
     # Push biegnie każdy krok każdego skilla repozytorium.

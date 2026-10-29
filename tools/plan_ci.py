@@ -89,8 +89,9 @@ CZESCI = Path(".ci-plan", "czesci.json")
 PLIKI_TESTOW = ("test_*.py", "*_test.py")
 CEL_S = 225.0
 KROK_CELU_S = 5.0
-# Limit konta to 20 zadań naraz ze wszystkich workflowów; 20. slot zostaje dla scalenia.yml.
-ZADANIA_RUNU = 19
+# Organizacja ma 60 zadań naraz ze wszystkich workflowów (plan Team od 26.10). 20 zostawia planowi 16 zadań pytest i
+# Mutation checks, tyle co przed rozdzieleniem Frontend oraz Ruff i mypy na dwa zadania.
+ZADANIA_RUNU = 20
 # Zadania ci.yml o stałej liczbie (plan, Frontend, Ruff i mypy, Required).
 STALE_ZADANIA = 4
 # Zadania bramki w ci.yml, które startują tylko z pracą od planu.
