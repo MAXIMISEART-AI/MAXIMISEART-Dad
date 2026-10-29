@@ -548,11 +548,8 @@ def test_odczyt_tablicy_okresow_nie_sprawdza_osobno_kazdego_rozliczenia_pracowni
     checked: list[object] = []
     stat = os.stat
 
-    # Tylko ścieżki pod folderem okresów: wątek w tle poprzedniego testu w tym workerze (np. wpis dziennika
-    # Centrum) też woła os.stat.
     def counted_stat(path: str | os.PathLike[str], *args: Any, **kwargs: Any) -> os.stat_result:
-        if isinstance(path, str | os.PathLike) and Path(path).is_relative_to(periods):
-            checked.append(path)
+        checked.append(path)
         return stat(path, *args, **kwargs)
 
     monkeypatch.setattr(os, "stat", counted_stat)
