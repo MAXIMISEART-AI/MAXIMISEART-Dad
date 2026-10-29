@@ -53,7 +53,7 @@ The scope is the area (`intermax`, `centrum`, `plan`, `agents`), and the subject
 
 - Write the prose in Polish, with the terms of `GLOSSARY.md` (Komunikat, Zatrzymanie, Uruchomienie procesu, Wzorzec), and keep the template's headings and bold labels as they are.
 - Skip preambles and keep prose brief: short sentences, one thought each.
-  The body becomes the merge commit's description, so keep it under about 40 lines.
+  Keep it under about 40 lines: Maks and the reviewer read it in a minute.
   Long logs, tables of every run and lane recitals go into a PR comment or a file under `~/.t3/notes/<run>/`, linked from the body.
 - The body describes the HEAD it is on.
   After a review round, rewrite the sections that changed instead of adding a section about what changed after the review: the history lives in the verdicts and comments.

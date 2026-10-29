@@ -527,6 +527,19 @@ def test_pr_bez_naglowka_wzoru_skilla_pr_w_jego_kolejnosci_nie_jest_scalany(tmp_
         assert answered.returncode == 0, answered.stdout + answered.stderr
 
 
+def test_brak_naglowka_wzoru_jest_w_jednej_odmowie_z_czerwonym_ci_i_brakiem_werdyktu(tmp_path: Path) -> None:
+    github = FakeGitHub(tmp_path, {"kod/__init__.py": SUM})
+    head = github.open_pull(1, {"kod/inne.py": "INNE: int = 1\n"})
+    github.update(1, body="", statusCheckRollup=[_check_run("COMPLETED", "FAILURE")])
+
+    answered = github.run("1", "--bez-merge")
+
+    assert _last_line(answered) == (
+        f"SCAL ODMOWA | #1 {head[:7]} | CI: „Required CI status” FAILURE; "
+        f"opis: brak {ALL_SECTIONS} w kolejności wzoru .agents/skills/pr/SKILL.md; {NO_PASS.format(head=head)}"
+    )
+
+
 def test_naglowek_dopisany_do_wzoru_skilla_pr_od_razu_obowiazuje(tmp_path: Path) -> None:
     template = TEMPLATE.read_text(encoding="utf-8").replace("## Merge Danger\n", "## Merge Danger\n\n## Rollback\n", 1)
     github = FakeGitHub(tmp_path, {"kod/__init__.py": SUM, ".agents/skills/pr/SKILL.md": template})
