@@ -35,6 +35,7 @@ Ostrzeżenia:
     Gdzie: plik Rozliczenie 08_14_09_2026 - zbiorcze.xlsx, kolumny Y, AB, AD, AJ, AK, AL i AM
     Co zrobić: Przejrzyj opis technika w każdym wierszu Pliku zbiorczego i uzupełnij ilości w tych kolumnach przed Przebiegiem rozliczeń.
 Zatrzymanie: brak
+Uwagi techniczne: brak
 Pliki wynikowe:
   nowy: INEA/08_14_09_2026/Rozliczenie 08_14_09_2026 - zbiorcze.xlsx
   nowy: INEA/08_14_09_2026/Rozliczenie wew. 08_14_09_2026.xlsx
@@ -73,6 +74,7 @@ Ostrzeżenia:
     Gdzie: plik Rozliczenie 08_14_09_2026 - zbiorcze.xlsx, kolumny Y, AB, AD, AJ, AK, AL i AM
     Co zrobić: Przejrzyj opis technika w każdym wierszu Pliku zbiorczego i uzupełnij ilości w tych kolumnach przed Przebiegiem rozliczeń.
 Zatrzymanie: brak
+Uwagi techniczne: brak
 Pliki wynikowe: brak
 
 === przygotowanie-uklad-folderow-taty ===
@@ -109,6 +111,7 @@ Ostrzeżenia:
     Gdzie: plik Rozliczenie 08_14_09_2026 - zbiorcze.xlsx, kolumny Y, AB, AD, AJ, AK, AL i AM
     Co zrobić: Przejrzyj opis technika w każdym wierszu Pliku zbiorczego i uzupełnij ilości w tych kolumnach przed Przebiegiem rozliczeń.
 Zatrzymanie: brak
+Uwagi techniczne: brak
 Pliki wynikowe:
   nowy: Załączniki/Rozliczenia 2026/09_Wrzesień_2026/INEA/08_14_09_2026/Rozliczenie 08_14_09_2026 - zbiorcze.xlsx
   nowy: Załączniki/Rozliczenia 2026/09_Wrzesień_2026/INEA/08_14_09_2026/Rozliczenie wew. 08_14_09_2026.xlsx
@@ -147,6 +150,7 @@ Ostrzeżenia:
     Gdzie: plik Rozliczenie 08_14_09_2026 - zbiorcze.xlsx, kolumny Y, AB, AD, AJ, AK, AL i AM
     Co zrobić: Przejrzyj opis technika w każdym wierszu Pliku zbiorczego i uzupełnij ilości w tych kolumnach przed Przebiegiem rozliczeń.
 Zatrzymanie: brak
+Uwagi techniczne: brak
 Pliki wynikowe:
   nowy: INEA/08_14_09_2026/Rozliczenie 08_14_09_2026 - zbiorcze.xlsx
   nowy: INEA/08_14_09_2026/Rozliczenie wew. 08_14_09_2026.xlsx
@@ -167,6 +171,7 @@ Zatrzymanie (declined): PRZERWANO_NIEPELNY_OKRES
   Co się stało: Przerwano z powodu niepełnego okresu, zgodnie z odpowiedzią. Nie utworzono żadnego pliku.
   Gdzie: okres 08_14_09_2026
   Co zrobić: Uzupełnij eksport zleceń w Rejestrze zleceń, zapisz go, zamknij i uruchom ponownie. Jeśli okres jest pełny, uruchom proces w Centrum rozliczeń i przy decyzji wybierz „Kontynuuj”.
+Uwagi techniczne: brak
 Pliki wynikowe: brak
 
 === przygotowanie-plik-zbiorczy-istnieje ===
@@ -185,6 +190,7 @@ Zatrzymanie (stop): PLIK_OKRESU_ISTNIEJE
   Co się stało: Plik tego okresu już istnieje, więc nie został nadpisany. Nie utworzono żadnego pliku.
   Gdzie: folder INEA\08_14_09_2026, plik Rozliczenie 08_14_09_2026 - zbiorcze.xlsx
   Co zrobić: Sprawdź, czy wybrano właściwy okres. Jeśli plik ma powstać od nowa, przenieś albo usuń istniejący plik i uruchom ponownie.
+Uwagi techniczne: brak
 Pliki wynikowe: brak
 
 === przygotowanie-rejestr-nie-skoroszyt ===
@@ -203,6 +209,7 @@ Zatrzymanie (stop): USZKODZONY_REJESTR
   Co się stało: Nie można odczytać Rejestru zleceń. Plik jest uszkodzony albo nie jest skoroszytem .xlsx. Nie utworzono żadnego pliku.
   Gdzie: plik ZLECENIA INTERMAX OD 08_11_2021.xlsx, folder przygotowanie-rejestr-nie-skoroszyt
   Co zrobić: Sprawdź, czy Rejestr zleceń otwiera się w Excelu i jest zapisany jako .xlsx, zamknij go i uruchom ponownie. Jeśli błąd wraca, przekaż to osobie utrzymującej narzędzie.
+Uwagi techniczne: brak
 Pliki wynikowe: brak
 
 === przygotowanie-rejestr-uciety ===
@@ -221,4 +228,5 @@ Zatrzymanie (stop): USZKODZONY_REJESTR
   Co się stało: Nie można odczytać Rejestru zleceń. Plik jest uszkodzony albo nie jest skoroszytem .xlsx. Nie utworzono żadnego pliku.
   Gdzie: plik ZLECENIA INTERMAX OD 08_11_2021.xlsx, folder przygotowanie-rejestr-uciety
   Co zrobić: Sprawdź, czy Rejestr zleceń otwiera się w Excelu i jest zapisany jako .xlsx, zamknij go i uruchom ponownie. Jeśli błąd wraca, przekaż to osobie utrzymującej narzędzie.
+Uwagi techniczne: brak
 Pliki wynikowe: brak

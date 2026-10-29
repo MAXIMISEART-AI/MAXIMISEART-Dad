@@ -39,7 +39,13 @@ from rozliczenia.workbook_files import (
 )
 from rozliczenia.template_copy import Package
 from rozliczenia.template_file import Route, TemplateFile
-from rozliczenia.workbook_save import ExternalLinksError, SaveProblem, WorkbookSaveError, save_workbook
+from rozliczenia.workbook_save import (
+    ExternalLinksError,
+    SaveProblem,
+    WorkbookSaveError,
+    save_from_template,
+    save_workbook,
+)
 
 from tests.fixtures.benchmark import (
     COLLECTIVE_TEMPLATE,
@@ -873,6 +879,18 @@ def test_nieczytelne_linki_zewnetrzne_przerywaja_zapis_bez_zmiany_skoroszytu(tmp
     assert sorted(path.name for path in tmp_path.iterdir()) == ["Plik zbiorczy.xlsx", "Uszkodzony.xlsx"]
 
 
+def test_nieczytelne_odwolania_wzorca_przerywaja_zapis_i_nazywaja_skoroszyt_docelowy(tmp_path: Path) -> None:
+    target_path = linked_template(tmp_path / "Plik.xlsx")
+    before = target_path.read_bytes()
+
+    with pytest.raises(ExternalLinksError) as raised:
+        save_from_template(Workbook(), target_path, b"to nie jest Wzorzec")
+
+    assert (raised.value.target, raised.value.problem) == (target_path, SaveProblem.EXTERNAL_LINKS_UNREADABLE)
+    assert target_path.read_bytes() == before
+    assert [path.name for path in tmp_path.iterdir()] == ["Plik.xlsx"]
+
+
 class _FullDisk(Workbook):
     """Skoroszyt, którego zapis pada jak na pełnym dysku."""
 
@@ -889,16 +907,21 @@ class _NotAZip(Workbook):
 
 
 @pytest.mark.parametrize(
-    ("workbook", "replace_refused", "problem"),
+    ("workbook", "replace_refused", "problem", "kind"),
     [
-        (Workbook(), True, SaveProblem.REPLACE),
-        (_FullDisk(), False, SaveProblem.CONTENT),
-        (_NotAZip(), False, SaveProblem.EXTERNAL_LINKS_NOT_RESTORED),
+        (Workbook(), True, SaveProblem.REPLACE, WorkbookSaveError),
+        (_FullDisk(), False, SaveProblem.CONTENT, WorkbookSaveError),
+        (_NotAZip(), False, SaveProblem.EXTERNAL_LINKS_NOT_RESTORED, ExternalLinksError),
     ],
     ids=["podmiana", "tresc", "odwolania"],
 )
 def test_nieudany_krok_zapisu_nazywa_skoroszyt_i_krok_a_skoroszyt_zostaje_bez_zmian(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, workbook: Workbook, replace_refused: bool, problem: SaveProblem
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    workbook: Workbook,
+    replace_refused: bool,
+    problem: SaveProblem,
+    kind: type[WorkbookSaveError],
 ) -> None:
     target_path = linked_template(tmp_path / "Plik zbiorczy.xlsx")
     before = target_path.read_bytes()
@@ -908,7 +931,7 @@ def test_nieudany_krok_zapisu_nazywa_skoroszyt_i_krok_a_skoroszyt_zostaje_bez_zm
     with pytest.raises(WorkbookSaveError) as raised:
         save_workbook(workbook, target_path)
 
-    assert (raised.value.target, raised.value.problem) == (target_path, problem)
+    assert (type(raised.value), raised.value.target, raised.value.problem) == (kind, target_path, problem)
     assert target_path.read_bytes() == before
     assert [path.name for path in tmp_path.iterdir()] == ["Plik zbiorczy.xlsx"]
 

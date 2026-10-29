@@ -18,6 +18,7 @@ Uporządkowany dzień:
 Kopia INTERMAX: INTERMAX przed uporządkowaniem <CHWILA>.xlsx
 Ostrzeżenia: brak
 Zatrzymanie: brak
+Uwagi techniczne: brak
 Pliki wynikowe:
   nowy: Kopie INTERMAX/INTERMAX przed uporządkowaniem <CHWILA>.xlsx
   zmieniony: ZLECENIA INTERMAX OD 08_11_2021.xlsx
@@ -39,6 +40,7 @@ Uporządkowany dzień:
 Kopia INTERMAX: INTERMAX przed uporządkowaniem <CHWILA>.xlsx
 Ostrzeżenia: brak
 Zatrzymanie: brak
+Uwagi techniczne: brak
 Pliki wynikowe:
   nowy: Kopie INTERMAX/INTERMAX przed uporządkowaniem <CHWILA>.xlsx
   zmieniony: ZLECENIA INTERMAX OD 08_11_2021.xlsx
@@ -60,6 +62,7 @@ Uporządkowany dzień:
 Kopia INTERMAX: INTERMAX przed uporządkowaniem <CHWILA>.xlsx
 Ostrzeżenia: brak
 Zatrzymanie: brak
+Uwagi techniczne: brak
 Pliki wynikowe:
   nowy: Kopie INTERMAX/INTERMAX przed uporządkowaniem <CHWILA>.xlsx
   zmieniony: ZLECENIA INTERMAX OD 08_11_2021.xlsx
@@ -79,6 +82,7 @@ Zatrzymanie (stop): BRAK_SUROWYCH_ZLECEN
   Co się stało: Na dole arkusza zleceń nie ma wklejonych zleceń do uporządkowania. INTERMAX nie został zmieniony.
   Gdzie: plik ZLECENIA INTERMAX OD 08_11_2021.xlsx, folder intermax-bez-surowych-zlecen, arkusz ZLECENIA OD 06_2025
   Co zrobić: Wklej zlecenia dnia z aplikacji na dół arkusza zleceń, zapisz i zamknij INTERMAX i uruchom ponownie.
+Uwagi techniczne: brak
 Pliki wynikowe: brak
 
 === intermax-rejestr-nie-skoroszyt ===
@@ -96,4 +100,5 @@ Zatrzymanie (stop): NIECZYTELNY_INTERMAX
   Co się stało: Nie można odczytać INTERMAX jako skoroszytu Excela. INTERMAX nie został zmieniony.
   Gdzie: plik ZLECENIA INTERMAX OD 08_11_2021.xlsx, folder intermax-rejestr-nie-skoroszyt
   Co zrobić: Otwórz INTERMAX w Excelu i sprawdź, czy się otwiera. Jeśli tak, zapisz go, zamknij i uruchom ponownie. Jeśli błąd wraca, przekaż ten komunikat osobie utrzymującej narzędzie.
+Uwagi techniczne: brak
 Pliki wynikowe: brak
