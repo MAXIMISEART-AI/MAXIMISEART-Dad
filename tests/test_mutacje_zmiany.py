@@ -92,6 +92,33 @@ def test_zmiana_bez_testu_ktory_ja_widzi_konczy_sie_fail_z_nazwa_mutacji_takze_w
     assert len({entry["klucz"] for entry in written["przezyte"]}) == 2
 
 
+
+def test_mutacja_ktora_przezyla_testy_pliku_albo_nie_ma_testow_tez_trafia_do_zapisu(tmp_path: Path) -> None:
+    other = "def inna() -> int:\n    return 1\n"
+    third = "\n\ndef trzecia() -> int:\n    return 3\n"
+    # ``test_trzecia`` wykonuje kod pliku, ale nie zmienionej linii, więc przeżyte mutacje biegną jeszcze z testami pliku.
+    tests = ONE_CASE.replace("import oba", "import oba, trzecia") + "\n\ndef test_trzecia() -> None:\n    assert trzecia() == 3\n"
+    repo = _repo(tmp_path / "repo", tests, CHANGED + third, BASE + third, other=other)
+    (repo / "src" / "rozliczenia" / "inny.py").write_text(other.replace("1", "2"), encoding="utf-8")
+    record = tmp_path / "zapis" / "czesc.json"
+
+    done = _run(repo, "--zapis", str(record))
+
+    assert done.returncode == 1, done.stdout + done.stderr
+    # Opis mutacji ``return`` też ma strzałkę, więc wynik testów oddziela ostatnia.
+    survived = {line.removeprefix("NIEWYKRYTA: ").rpartition(" → ")[0]: line for line in done.stdout.splitlines() if line.startswith("NIEWYKRYTA")}
+    assert sorted(survived) == [
+        "src/rozliczenia/inny.py:2 `return 2` → `return None`",
+        "src/rozliczenia/inny.py:2 zmiana linii 2 cofnięta do bazy",
+        "src/rozliczenia/warunek.py:2 bez `b` w `and`",
+        "src/rozliczenia/warunek.py:2 zmiana linii 2 cofnięta do bazy",
+    ], done.stdout
+    assert [line.endswith("żaden test nie zależy od src/rozliczenia/inny.py") for _, line in sorted(survived.items())] == [True, True, False, False]
+    assert [line.endswith("(testy pliku)") for _, line in sorted(survived.items())] == [False, False, True, True]
+    written = json.loads(record.read_text(encoding="utf-8"))["przezyte"]
+    assert sorted(entry["id"] for entry in written) == sorted(survived)
+    assert all(entry["linie"] == [2] and len(entry["klucz"]) == 12 for entry in written)
+
 @pytest.mark.parametrize(
     ("changed", "arguments", "verdict"),
     [
