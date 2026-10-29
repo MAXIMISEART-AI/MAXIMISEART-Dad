@@ -65,10 +65,18 @@ mutations pass there.
 py -3 .agents\skills\verify-publikacja-plikow-okresu\scripts\explore_publication.py
 ```
 
-On macOS or Linux use `.venv/bin/python` instead of `py -3`. It takes about 3 s, needs
-nothing beyond the repo's Python, and runs in CI as
+On macOS or Linux use `.venv/bin/python` instead of `py -3`. It takes about 5 s on a
+Mac, needs nothing beyond the repo's `.venv`, and runs in CI as
 `tests/test_publikacja_plikow_okresu.py`. In a worktree the script checks the
 worktree's own `src`.
+
+The script has no step limit of its own, so a hang in the code under check (a
+loop that makes no filesystem call) leaves a manual run waiting until you press
+Ctrl+C. Under pytest the `timeout = 120` of `pyproject.toml` ends it: on Linux
+and macOS as `Failed: Timeout` of the test, on Windows by killing the xdist
+worker. The CI `pytest` job has no `timeout-minutes`, so that limit is the only
+one there. The check does not tell a hang from a slow runner and does not name
+the step that hung: look at the stack that pytest-timeout prints.
 
 The last line is the verdict:
 
@@ -84,8 +92,10 @@ The last line is the verdict:
 
 ## How it works and what it covers
 
-The script runs the real `write_period_files()` in threads against an in-memory
-disk with Windows semantics: `os.rename` never replaces an existing target, and
+The script runs the real `write_period_files()` in modelled runs against an in-memory
+disk with Windows semantics. Each run is a greenlet on the script's one OS thread, so a busy
+CI runner slows the check only by its share of a CPU, not by a kernel thread switch at every
+step. On the disk `os.rename` never replaces an existing target, and
 `os.replace` replaces a file but never a folder. Every filesystem call is one
 indivisible step, the same as one call in the code. Before each step the
 checker tries every possibility: the other run moves first, Dad acts first, the
