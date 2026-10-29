@@ -19,7 +19,7 @@ krok skilla bez pomiaru waży medianę zmierzonych jednostek tego rodzaju na tor
 Ściana zadania to narzut (od startu zadania do pracy), start pytest, suma kosztów jego jednostek i koniec zadania;
 narzut i start też są z pomiarów. Plan dzieli każdy tor na najmniej zadań o ścianie najwyżej ``cel_s`` (LPT: najdłuższa jednostka do
 zadania o najmniejszej sumie). Plik dłuższy niż zadanie dzieli się na k udziałów o tej samej wadze: udział k biegnie
-z ``-p tools.pytest_czesc`` (crc32 id testu modulo k). Skrypt mutacji dłuższy niż zadanie dzieli się tak samo na
+z ``-p tools.pytest_czesc`` (testy pliku po kolei w kolejności kolekcji). Skrypt mutacji dłuższy niż zadanie dzieli się tak samo na
 najwyżej tyle części, ile ma mutacji: część biegnie z ``MUTACJE_CZESC=k/n`` (``tools/mutacje.py``), z podstawą
 poleceń swoich mutacji. Podstawa ``ci:`` z ``ci-czesci: <n>`` dzieli się tak samo na najwyżej n części (część k
 skrypt bierze z ``MUTACJE_CZESC=k/n``, ``tools/skrypt_skilla.py``), a bez niego nie. Plan drukuje najdłuższą jednostkę
