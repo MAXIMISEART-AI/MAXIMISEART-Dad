@@ -279,7 +279,7 @@ def _build(root: Path) -> None:
         json.dumps({"schema_version": 1, "przeczytane": [READ_NOTIFICATION]}) + "\n", encoding="utf-8"
     )
     client = _remembering_choices(world)
-    assert client.post("/api/dad-notes", json=DAD_NOTE).json() == {"state": "waiting"}
+    assert client.post("/api/dad-notes", json=DAD_NOTE).json() == {"state": "waiting", "waits_for": "internet"}
     assert client.get(f"/api/periods/{SETTLEMENT_PERIOD}/quantities-to-fill").json()["state"] == "ready"
     for process, period in (("preparation", PERIOD), ("settlement", SETTLEMENT_PERIOD)):
         started = client.post("/api/runs", json={"process": process, "period": period, "dry_run": True})

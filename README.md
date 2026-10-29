@@ -70,10 +70,12 @@ GitHuba token fine-grained (tylko repozytorium
 `MAXIMISEART-AI/MAXIMISEART-Dad-zgloszenia`, uprawnienie Issues: odczyt i
 zapis, ważność do roku) i wpisuje go jako jedyną linię do
 `config\zgloszenia-klucz.txt` na komputerze taty. Plik jest poza Gitem. Bez
-niego Zgłoszenia czekają w kolejce w `config\zgloszenia\kolejka\` i wychodzą
-same, gdy klucz się pojawi, a Konfiguracja pokazuje „Zgłoszenia: brak klucza”.
-Gdy GitHub nie przyjmuje klucza (wygasł albo nie ma uprawnień), Konfiguracja
-pokazuje „Zgłoszenia: klucz odrzucony”.
+niego Zgłoszenia czekają w Kolejce wysyłki w `config\zgloszenia\kolejka\` i
+wychodzą same, gdy token się pojawi, a Konfiguracja pokazuje „Zgłoszenia: brak
+tokenu”. Gdy GitHub nie przyjmuje tokenu (wygasł albo nie ma uprawnień),
+Konfiguracja pokazuje „Zgłoszenia: token odrzucony”. W obu przypadkach tata
+widzi przy Zgłoszeniu, Uwadze taty i w Powiadomieniach „Token do Zgłoszeń nie
+działa. Skontaktuj się z Maksem.”
 
 Wspólny Wzorzec rozliczenia pracownika leży domyślnie w
 `config\Wzorzec rozliczenia pracownika.xlsx`. Plik wcześniej nazywał się
