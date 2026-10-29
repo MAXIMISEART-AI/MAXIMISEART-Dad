@@ -1,0 +1,321 @@
+"""``tools/rownowaznosc.py``: zmiana, która nie zmienia zachowania, daje TAK SAMO, a każda różnica wyniku RÓŻNICA."""
+
+from __future__ import annotations
+
+import os
+from pathlib import Path
+import shutil
+import subprocess
+import sys
+
+import pytest
+
+from tests.fixtures.potomne import potomne
+from tests.fixtures.rownowaznosc import rownowaznosc, stub_tree, write_workbook
+from tests.fixtures.workbooks import rewrite_parts
+
+ROOT = Path(__file__).resolve().parents[1]
+SCRIPT = ROOT / "tools" / "rownowaznosc.py"
+TIME, MOMENT, FOLDER = rownowaznosc.TIME, rownowaznosc.MOMENT, rownowaznosc.FOLDER
+SETTLEMENTS = "Rozliczenie pracowników 08_14_09_2026"
+
+# Kod wyjścia, wynik i kod Komunikatu Zatrzymania każdego scenariusza na kodzie tego checkoutu.
+EXPECTED = {
+    "przebieg": "kod 0, OK",
+    "przebieg-podglad": "kod 0, OK",
+    "przebieg-ilosci": "kod 0, OK",
+    "przebieg-wzorzec-syntetyczny": "kod 0, OK",
+    "przebieg-podglad-nieznany-wykonawca": "kod 2, WYMAGA_SPRAWDZENIA",
+    "przebieg-nieznany-wykonawca": "kod 1, BLAD_KRYTYCZNY, NIEZNANY_WYKONAWCA",
+    "przebieg-folder-rozliczen-istnieje": "kod 1, BLAD_KRYTYCZNY, FOLDER_ROZLICZEN_ISTNIEJE",
+    "przebieg-plik-zbiorczy-nie-skoroszyt": "kod 1, BLAD_KRYTYCZNY, ZLY_PLIK_ZBIORCZY",
+    "przebieg-plik-zbiorczy-uciety": "kod 1, BLAD_KRYTYCZNY, ZLY_PLIK_ZBIORCZY",
+    "przebieg-format-bez-definicji-L18": "kod 1, BLAD_KRYTYCZNY, ZLY_PLIK_ZBIORCZY",
+    "przebieg-format-bez-definicji-M18": "kod 0, OK",
+    "przebieg-format-bez-definicji-AT18": "kod 0, OK",
+    "przygotowanie": "kod 2, WYMAGA_SPRAWDZENIA",
+    "przygotowanie-podglad": "kod 0, OK",
+    "przygotowanie-uklad-folderow-taty": "kod 2, WYMAGA_SPRAWDZENIA",
+    "przygotowanie-wzorce-syntetyczne": "kod 2, WYMAGA_SPRAWDZENIA",
+    "przygotowanie-niepelny-okres": "kod 1, BLAD_KRYTYCZNY, PRZERWANO_NIEPELNY_OKRES",
+    "przygotowanie-plik-zbiorczy-istnieje": "kod 1, BLAD_KRYTYCZNY, PLIK_OKRESU_ISTNIEJE",
+    "przygotowanie-rejestr-nie-skoroszyt": "kod 1, BLAD_KRYTYCZNY, USZKODZONY_REJESTR",
+    "przygotowanie-rejestr-uciety": "kod 1, BLAD_KRYTYCZNY, USZKODZONY_REJESTR",
+    "intermax": "kod 0, OK",
+    "intermax-starszy-arkusz-zolte-komorki": "kod 0, OK",
+    "intermax-kalendarz-1904": "kod 0, OK",
+    "intermax-bez-surowych-zlecen": "kod 1, BLAD_KRYTYCZNY, BRAK_SUROWYCH_ZLECEN",
+    "intermax-rejestr-nie-skoroszyt": "kod 1, BLAD_KRYTYCZNY, NIECZYTELNY_INTERMAX",
+}
+
+
+def _stub_scenario(name: str = "na-niby") -> rownowaznosc.Scenario:
+    def build(folder: Path) -> list[str | Path]:
+        (folder / "wejscie.txt").write_text("wejście\n", encoding="utf-8")
+        return ["--source", folder / "wejscie.txt"]
+
+    return rownowaznosc.Scenario(name, "settlement", build)
+
+
+def _equivalence(tmp_path: Path, base: Path, head: Path, *scenarios: rownowaznosc.Scenario) -> int:
+    work = tmp_path / "praca"
+    work.mkdir()
+    return rownowaznosc.equivalence(base, head, scenarios or (_stub_scenario(),), work)
+
+
+# --- maskowanie --------------------------------------------------------------------------------------------------
+
+
+def test_maskowanie_ukrywa_czasy_chwile_zegara_i_folder_strony_a_reszte_wyniku_zostawia(tmp_path: Path) -> None:
+    folder = tmp_path / "strona" / "scenariusz"
+    result = {
+        "result": "OK",
+        "total_duration_ms": 1234,
+        "progress": {"phases": [{"phase": "Odczyt", "state": "completed", "duration_ms": 12}]},
+        "summary": {
+            "figures": [{"label": "Czas", "value": 812, "unit": "ms"}, {"label": "Zlecenia", "value": 6, "unit": "count"}],
+            "intermax_copy": "INTERMAX przed uporządkowaniem 2026-10-29 15-12-01.xlsx",
+        },
+        "technical_notes": [
+            f"Nie zapisano metryk w {folder / 'm.jsonl'} o 2026-10-29T15:12:01.123+02:00.",
+            f"Plik {tmp_path / 'strona' / 'm.jsonl'}, chwila 2026-10-29T13:12:01Z, dzień 2026-10-29.",
+        ],
+        "metrics_saved": False,
+    }
+
+    assert rownowaznosc.masked(result, (folder, tmp_path / "strona")) == {
+        "result": "OK",
+        "total_duration_ms": TIME,
+        "progress": {"phases": [{"phase": "Odczyt", "state": "completed", "duration_ms": TIME}]},
+        "summary": {
+            "figures": [{"label": "Czas", "value": TIME, "unit": "ms"}, {"label": "Zlecenia", "value": 6, "unit": "count"}],
+            "intermax_copy": f"INTERMAX przed uporządkowaniem {MOMENT}.xlsx",
+        },
+        "technical_notes": [
+            f"Nie zapisano metryk w {FOLDER}{os.sep}m.jsonl o {MOMENT}.",
+            f"Plik {FOLDER}{os.sep}m.jsonl, chwila {MOMENT}, dzień 2026-10-29.",
+        ],
+        "metrics_saved": False,
+    }
+
+
+# --- JSON wyniku -------------------------------------------------------------------------------------------------
+
+
+def test_rozne_pola_json_to_ich_sciezki_bez_wartosci() -> None:
+    base = {"result": "OK", "stop": None, "warnings": [{"code": "A", "what": "x"}], "summary": {"files": [1, 2]}}
+    head = {"result": "BLAD_KRYTYCZNY", "stop": None, "warnings": [{"code": "A", "what": "y"}], "summary": {"files": [1]}, "nowe": 1}
+
+    assert rownowaznosc.json_differences(base, head) == ["result", "warnings[0].what", "summary.files (liczba 2→1)", "nowe"]
+    assert rownowaznosc.json_differences(base, dict(base)) == []
+    assert rownowaznosc.json_differences({"a": 1}, {"b": 1}) == ["a", "b"]
+    assert rownowaznosc.json_differences([1], 1) == ["JSON"]
+
+
+# --- pliki wynikowe ----------------------------------------------------------------------------------------------
+
+
+def _folders(tmp_path: Path) -> tuple[Path, Path]:
+    base, head = tmp_path / "baza", tmp_path / "head"
+    base.mkdir()
+    head.mkdir()
+    return base, head
+
+
+def test_te_same_pliki_z_inna_chwila_w_nazwie_i_innym_czasem_zapisu_skoroszytu_to_brak_roznicy(tmp_path: Path) -> None:
+    base, head = _folders(tmp_path)
+    write_workbook(base / "Kopie INTERMAX" / "INTERMAX przed uporządkowaniem 2026-10-29 15-12-01.xlsx", "zlecenie")
+    write_workbook(head / "Kopie INTERMAX" / "INTERMAX przed uporządkowaniem 2026-10-29 15-12-04.xlsx", "zlecenie")
+    write_workbook(base / "Plik.xlsx", 1)
+    write_workbook(head / "Plik.xlsx", 1)
+    rewrite_parts(head / "Plik.xlsx", lambda name, data: data.replace(b"<dcterms:modified", b"<dcterms:modified x=\"1\"") if name == "docProps/core.xml" else data)
+    for folder in (base, head):
+        (folder / "uwagi.txt").write_text("to samo\n", encoding="utf-8")
+        (folder / "nie-skoroszyt.xlsx").write_bytes(b"to nie jest skoroszyt\n")
+
+    assert rownowaznosc.file_differences(base, head) == []
+
+
+def test_plik_tylko_po_jednej_stronie_to_roznica_z_nazwa_pliku(tmp_path: Path) -> None:
+    base, head = _folders(tmp_path)
+    (base / "okres").mkdir()
+    (base / "okres" / "stary.txt").write_text("x", encoding="utf-8")
+    (head / "nowy.txt").write_text("x", encoding="utf-8")
+
+    assert rownowaznosc.file_differences(base, head) == ["pliki tylko w bazie: okres/stary.txt", "pliki tylko w HEAD: nowy.txt"]
+
+
+def test_inny_skoroszyt_rozni_sie_czescia_zipu_a_inny_plik_bajtami(tmp_path: Path) -> None:
+    base, head = _folders(tmp_path)
+    write_workbook(base / "okres" / "Plik zbiorczy.xlsx", 1)
+    write_workbook(head / "okres" / "Plik zbiorczy.xlsx", 2)
+    (base / "uwagi.txt").write_text("przed\n", encoding="utf-8")
+    (head / "uwagi.txt").write_text("po\n", encoding="utf-8")
+    (base / "zly.xlsx").write_bytes(b"przed")
+    (head / "zly.xlsx").write_bytes(b"po")
+
+    assert rownowaznosc.file_differences(base, head) == [
+        "okres/Plik zbiorczy.xlsx: części xl/worksheets/sheet1.xml",
+        "uwagi.txt: bajty",
+        "zly.xlsx: bajty",
+    ]
+
+
+def test_rozliczenia_pracownikow_porownuje_porownanie_rozliczen_znaczeniowo_bez_plikow_innych_niz_skoroszyty(tmp_path: Path) -> None:
+    base, head = _folders(tmp_path)
+    for folder, value in ((base, 1), (head, 2)):
+        write_workbook(folder / "okres" / SETTLEMENTS / "Adrian Testowy.xlsx", value)
+        write_workbook(folder / "okres" / SETTLEMENTS / "Darek Fikcyjny.xlsx", "to samo")
+        (folder / "okres" / SETTLEMENTS / "zostaje.txt").write_text("plik sprzed uruchomienia\n", encoding="utf-8")
+    rewrite_parts(head / "okres" / SETTLEMENTS / "Darek Fikcyjny.xlsx", lambda name, data: data + b"\n" if name == "xl/worksheets/sheet1.xml" else data)
+
+    assert rownowaznosc.file_differences(base, head) == [f"okres/{SETTLEMENTS}: wartosci 1"]
+
+
+# --- linia scenariusza -------------------------------------------------------------------------------------------
+
+
+def _outcome(tmp_path: Path, name: str, code: int, result: object) -> rownowaznosc.Outcome:
+    folder = tmp_path / name
+    folder.mkdir()
+    return rownowaznosc.Outcome(code, result, folder)
+
+
+def test_ten_sam_wynik_to_tak_samo_z_kodem_wynikiem_i_kodem_zatrzymania(tmp_path: Path) -> None:
+    result = {"result": "BLAD_KRYTYCZNY", "stop": {"kind": "stop", "message": {"code": "ZLY_PLIK_ZBIORCZY"}}}
+
+    assert rownowaznosc.compare("s", _outcome(tmp_path, "a", 1, result), _outcome(tmp_path, "b", 1, dict(result))) == (
+        "s | TAK SAMO | kod 1, BLAD_KRYTYCZNY, ZLY_PLIK_ZBIORCZY",
+        True,
+    )
+    assert rownowaznosc.compare("s", _outcome(tmp_path, "c", 1, None), _outcome(tmp_path, "d", 1, None)) == ("s | TAK SAMO | kod 1, bez JSON", True)
+
+
+def test_inny_kod_wyjscia_json_tylko_po_jednej_stronie_i_rozne_pole_to_roznica(tmp_path: Path) -> None:
+    ok = {"result": "OK", "stop": None}
+
+    assert rownowaznosc.compare("s", _outcome(tmp_path, "a", 0, ok), _outcome(tmp_path, "b", 1, None)) == (
+        "s | RÓŻNICA | kod 0→1; JSON tylko w bazie",
+        False,
+    )
+    assert rownowaznosc.compare("s", _outcome(tmp_path, "c", 1, None), _outcome(tmp_path, "d", 0, ok))[0] == "s | RÓŻNICA | kod 1→0; JSON tylko w HEAD"
+    assert rownowaznosc.compare("s", _outcome(tmp_path, "e", 0, ok), _outcome(tmp_path, "f", 0, {"result": "OK", "stop": 1}))[0] == "s | RÓŻNICA | JSON stop"
+
+
+def test_linia_roznicy_nazywa_piec_pierwszych_pol_json_a_reszte_liczy(tmp_path: Path) -> None:
+    base, head = {letter: 0 for letter in "abcdefg"}, {letter: 1 for letter in "abcdefg"}
+    five = {letter: 0 for letter in "abcde"}
+
+    assert rownowaznosc.compare("s", _outcome(tmp_path, "a", 0, base), _outcome(tmp_path, "b", 0, head))[0] == "s | RÓŻNICA | JSON a, b, c, d, e, … (+2)"
+    assert rownowaznosc.compare("s", _outcome(tmp_path, "c", 0, five), _outcome(tmp_path, "d", 0, dict.fromkeys(five, 1)))[0] == "s | RÓŻNICA | JSON a, b, c, d, e"
+
+
+# --- przebieg narzędzia ------------------------------------------------------------------------------------------
+
+
+def test_strony_z_tym_samym_wynikiem_i_innym_czasem_daja_rownowaznosc_ok(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    base = stub_tree(tmp_path / "baza", {"result": "OK", "total_duration_ms": 5}, files={"wynik.txt": "to samo"})
+    head = stub_tree(tmp_path / "head", {"result": "OK", "total_duration_ms": 9}, files={"wynik.txt": "to samo"})
+
+    code = _equivalence(tmp_path, base, head, _stub_scenario("pierwszy"), _stub_scenario("drugi"))
+
+    assert (code, capsys.readouterr().out.splitlines()) == (
+        0,
+        ["pierwszy | TAK SAMO | kod 0, OK", "drugi | TAK SAMO | kod 0, OK", "RÓWNOWAŻNOŚĆ OK | 2 scenariuszy"],
+    )
+
+
+def test_strona_z_innym_plikiem_wynikowym_daje_roznica_z_nazwa_scenariusza(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    base = stub_tree(tmp_path / "baza", {"result": "OK"}, files={"okres/wynik.txt": "przed"})
+    head = stub_tree(tmp_path / "head", {"result": "OK"}, files={"okres/wynik.txt": "po"})
+
+    code = _equivalence(tmp_path, base, head)
+
+    assert (code, capsys.readouterr().out.splitlines()) == (
+        1,
+        ["na-niby | RÓŻNICA | okres/wynik.txt: bajty", "RÓWNOWAŻNOŚĆ RÓŻNICA | na-niby"],
+    )
+
+
+def test_strona_bez_json_daje_roznica(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    base = stub_tree(tmp_path / "baza", {"result": "OK"})
+    head = stub_tree(tmp_path / "head", "Traceback (most recent call last):\n", code=1)
+
+    code = _equivalence(tmp_path, base, head)
+
+    assert (code, capsys.readouterr().out.splitlines()[0]) == (1, "na-niby | RÓŻNICA | kod 0→1; JSON tylko w bazie")
+
+
+def test_scenariusz_bez_fixture_w_checkoucie_ma_linie_bez_fixture_i_nie_liczy_sie(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    def missing(folder: Path) -> list[str | Path]:
+        raise ModuleNotFoundError("No module named 'tests.fixtures.nieznany'", name="tests.fixtures.nieznany")
+
+    tree = stub_tree(tmp_path / "drzewo", {"result": "OK"})
+
+    code = _equivalence(tmp_path, tree, tree, rownowaznosc.Scenario("stary", "intermax", missing), _stub_scenario())
+
+    assert (code, capsys.readouterr().out.splitlines()) == (
+        0,
+        ["stary | BEZ FIXTURE | tests.fixtures.nieznany", "na-niby | TAK SAMO | kod 0, OK", "RÓWNOWAŻNOŚĆ OK | 1 scenariuszy"],
+    )
+
+
+def test_brak_modulu_spoza_fixtures_to_blad_narzedzia_a_nie_pominiety_scenariusz(tmp_path: Path) -> None:
+    def broken(folder: Path) -> list[str | Path]:
+        raise ModuleNotFoundError("No module named 'openpyxl_nowy'", name="openpyxl_nowy")
+
+    tree = stub_tree(tmp_path / "drzewo", {"result": "OK"})
+
+    with pytest.raises(ModuleNotFoundError, match="openpyxl_nowy"):
+        _equivalence(tmp_path, tree, tree, rownowaznosc.Scenario("zepsuty", "settlement", broken))
+
+
+@pytest.mark.parametrize("scenario", rownowaznosc.SCENARIOS, ids=lambda scenario: scenario.name)
+def test_scenariusz_na_tym_samym_kodzie_po_obu_stronach_daje_tak_samo_z_oczekiwanym_wynikiem(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], scenario: rownowaznosc.Scenario
+) -> None:
+    code = _equivalence(tmp_path, ROOT, ROOT, scenario)
+
+    assert (code, capsys.readouterr().out.splitlines()) == (
+        0,
+        [f"{scenario.name} | TAK SAMO | {EXPECTED[scenario.name]}", "RÓWNOWAŻNOŚĆ OK | 1 scenariuszy"],
+    )
+
+
+def test_kazdy_proces_ma_scenariusz_zakonczony_i_scenariusz_z_zatrzymaniem_na_pliku_uszkodzonym() -> None:
+    assert set(EXPECTED) == {scenario.name for scenario in rownowaznosc.SCENARIOS}
+    for process in ("settlement", "preparation", "intermax"):
+        names = [scenario.name for scenario in rownowaznosc.SCENARIOS if scenario.process == process]
+        assert any(EXPECTED[name].startswith("kod 0") for name in names), process
+        assert any("nie-skoroszyt" in name and "BLAD_KRYTYCZNY" in EXPECTED[name] for name in names), process
+
+
+def _script(copy: Path, *arguments: str) -> tuple[int, list[str]]:
+    done = subprocess.run(
+        [sys.executable, str(copy / "tools" / "rownowaznosc.py"), *arguments],
+        cwd=copy,
+        # Jak konsola Windows: bez UTF-8 wprost „RÓŻNICA” nie dałaby się wydrukować.
+        env={**os.environ, "PYTHONIOENCODING": "cp1252"},
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        timeout=100,
+        check=False,
+    )
+    assert not done.stderr, done.stderr
+    return done.returncode, done.stdout.splitlines()
+
+
+def test_skrypt_porownuje_baze_z_drzewem_roboczym_z_niezacommitowana_zmiana_a_z_glowa_z_kopia_commitu() -> None:
+    with potomne.commit_copy(ROOT, "HEAD") as copy:
+        shutil.copy2(SCRIPT, copy / "tools" / "rownowaznosc.py")
+        machine_script = copy / "tools" / "uruchom_proces.py"
+        exit_codes = '_EXIT_CODES = {"OK": 0,'
+        assert exit_codes in machine_script.read_text(encoding="utf-8")
+        machine_script.write_text(machine_script.read_text(encoding="utf-8").replace(exit_codes, '_EXIT_CODES = {"OK": 5,'), encoding="utf-8")
+
+        changed = _script(copy, "--baza", "HEAD", "--scenariusz", "przebieg")
+        committed = _script(copy, "--baza", "HEAD", "--glowa", "HEAD", "--scenariusz", "przebieg")
+
+    assert changed == (1, ["przebieg | RÓŻNICA | kod 0→5", "RÓWNOWAŻNOŚĆ RÓŻNICA | przebieg"])
+    assert committed == (0, ["przebieg | TAK SAMO | kod 0, OK", "RÓWNOWAŻNOŚĆ OK | 1 scenariuszy"])
