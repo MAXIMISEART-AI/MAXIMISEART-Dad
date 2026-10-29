@@ -181,12 +181,18 @@ class RunCards:
             state="interrupted",
             run=info,
             started_at=started.started_at,
-            advice=contract.Message(
-                what=_INTERRUPTED,
-                where=f"{info.title}, okres {info.period}",
-                action=_PREVIEW_ADVICE if info.dry_run else _WRITE_ADVICE,
-            ),
+            advice=_interrupted_advice(info.title, info.period, dry_run=info.dry_run),
         )
+
+
+def _interrupted_advice(title: str, period: str, *, dry_run: bool) -> contract.Message:
+    """Komunikat karty Urwanego Uruchomienia procesu ``title`` w okresie ``period``, bez kodu."""
+
+    return contract.Message(
+        what=_INTERRUPTED,
+        where=f"{title}, okres {period}",
+        action=_PREVIEW_ADVICE if dry_run else _WRITE_ADVICE,
+    )
 
 
 def _read(path: Path, model: type[ModelT]) -> ModelT | None:

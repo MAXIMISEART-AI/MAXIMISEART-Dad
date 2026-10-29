@@ -1,6 +1,6 @@
 """Próbki każdej fabryki katalogów Komunikatów, z syntetycznymi ścieżkami komputera taty.
 
-Wspólne dla testu instrukcji taty i testu rodzaju Zatrzymania: każdy katalog
+Wspólne dla testu instrukcji taty, testu rodzaju Zatrzymania i testu expect Komunikatów: każdy katalog
 ma tu wszystkie swoje fabryki, warianty liczby pojedynczej i mnogiej osobno.
 """
 
@@ -11,6 +11,7 @@ from datetime import date
 from functools import partial
 from pathlib import Path
 
+from rozliczenia import intermax_messages
 from rozliczenia import preparation_messages as messages
 from rozliczenia import settlement_messages
 from rozliczenia.centrum import (
@@ -264,4 +265,53 @@ UPDATE_SAMPLES: Samples = {
         lambda: update_messages.message_of(ROLLBACK_FAILED),
         lambda: update_messages.message_of("NIEZNANY_KOD"),
     ],
+}
+
+COPIES = Path("C:/Narzedzie/Kopie INTERMAX")
+COPY = COPIES / "INTERMAX przed uporządkowaniem 2026-09-14 07-30-00.xlsx"
+SEPTEMBER_14 = date(2026, 9, 14)
+INTERMAX_SAMPLES: Samples = {
+    "register_unusable": [
+        partial(intermax_messages.register_unusable, WorkbookError(REGISTER, problem)) for problem in Problem
+    ],
+    "register_missing": [lambda: intermax_messages.register_missing(REGISTER)],
+    "register_open": [lambda: intermax_messages.register_open(REGISTER)],
+    "no_order_sheet": [lambda: intermax_messages.no_order_sheet(REGISTER)],
+    "no_raw_orders": [lambda: intermax_messages.no_raw_orders(REGISTER, SHEET)],
+    "raw_orders_in_several_sheets": [
+        lambda: intermax_messages.raw_orders_in_several_sheets(REGISTER, [SHEET, "ZLECENIA 2025"])
+    ],
+    "raw_order_above_ordered": [lambda: intermax_messages.raw_order_above_ordered(REGISTER, SHEET, 812, 815)],
+    "raw_order_without_value": [
+        lambda: intermax_messages.raw_order_without_value(REGISTER, SHEET, 816, "B", worker=False),
+        lambda: intermax_messages.raw_order_without_value(REGISTER, SHEET, 816, "R", worker=True),
+    ],
+    "several_days": [
+        lambda: intermax_messages.several_days(REGISTER, SHEET, [SEPTEMBER_14, date(2026, 9, 15)], 816, 840),
+        lambda: intermax_messages.several_days(
+            REGISTER, SHEET, [SEPTEMBER_14, date(2026, 9, 15), date(2026, 9, 16)], 816, 860
+        ),
+    ],
+    "day_already_ordered": [lambda: intermax_messages.day_already_ordered(REGISTER, SHEET, SEPTEMBER_14, 816, 840)],
+    "unsupported_shape": [lambda: intermax_messages.unsupported_shape(REGISTER, SHEET)],
+    "register_syncing": [lambda: intermax_messages.register_syncing(REGISTER)],
+    "write_check_failed": [lambda: intermax_messages.write_check_failed(REGISTER)],
+    "copy_failed": [lambda: intermax_messages.copy_failed(COPIES)],
+    "old_copies_kept": [lambda: intermax_messages.old_copies_kept(COPIES)],
+    "copies_unreadable": [lambda: intermax_messages.copies_unreadable(COPIES)],
+    "copy_missing": [lambda: intermax_messages.copy_missing(COPIES, COPY.name)],
+    "copy_unusable": [partial(intermax_messages.copy_unusable, WorkbookError(COPY, problem)) for problem in Problem],
+    "copy_damaged": [lambda: intermax_messages.copy_damaged(COPY)],
+    "restore_register_unusable": [
+        partial(intermax_messages.restore_register_unusable, WorkbookError(REGISTER, problem)) for problem in Problem
+    ],
+    "restore_register_open": [lambda: intermax_messages.restore_register_open(REGISTER)],
+    "restore_register_syncing": [lambda: intermax_messages.restore_register_syncing(REGISTER)],
+    "restore_copy_failed": [lambda: intermax_messages.restore_copy_failed(COPIES)],
+    "restored_moment_ago": [lambda: intermax_messages.restored_moment_ago(COPIES)],
+    "restore_failed": [lambda: intermax_messages.restore_failed(REGISTER)],
+    "old_copies_kept_after_restore": [lambda: intermax_messages.old_copies_kept_after_restore(COPIES)],
+    "unexpected_failure": [intermax_messages.unexpected_failure],
+    "summary_not_shown": [intermax_messages.summary_not_shown],
+    "plan_not_shown": [intermax_messages.plan_not_shown],
 }
