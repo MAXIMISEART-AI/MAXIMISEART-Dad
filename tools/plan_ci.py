@@ -25,9 +25,9 @@ poleceń swoich mutacji. Podstawa ``ci:`` z ``ci-czesci: <n>`` dzieli się tak s
 skrypt bierze z ``MUTACJE_CZESC=k/n``, ``tools/skrypt_skilla.py``), a bez niego nie. Plan drukuje najdłuższą jednostkę
 każdego toru po podziale: poniżej niej ściana zadania nie zejdzie.
 Zadanie Mutation checks instaluje Chromium tylko wtedy, gdy ma krok skilla, którego skrypty importują Playwright. Gdy
-run (``STALE_ZADANIA``, zadania pytest i Mutation checks) przekroczyłby ``ZADANIA_RUNU``, cel wszystkich torów rośnie
-co ``KROK_CELU_S``. Mutacje zmienionych linii i skrypty mutacji skilli nie biegną na pull request, tylko nocą na
-``main`` (ADR 0021).
+run (``STALE_ZADANIA``, zadania pytest i Mutation checks) przekroczyłby ``ZADANIA_RUNU`` na pull request albo
+``ZADANIA_RUNU_MAIN`` na pushu i nocą, cel wszystkich torów rośnie co ``KROK_CELU_S``. Mutacje zmienionych linii i
+skrypty mutacji skilli nie biegną na pull request, tylko nocą na ``main`` (ADR 0021).
 
 Na pull request zadanie po porażce pytest uruchamia raz same testy, które padły (``niestabilne_testy``, najwyżej
 ``PONOWIENIE_NAJWIECEJ``; więcej porażek to nie flak), jeśli id każdego da się zgłosić w issue. Gdy wszystkie
@@ -88,11 +88,14 @@ WYKONANIE = Path(".ci-czasy", "wykonanie.json")
 CZESCI = Path(".ci-plan", "czesci.json")
 # Domyślne python_files pytest: pyproject.toml go nie zmienia.
 PLIKI_TESTOW = ("test_*.py", "*_test.py")
-CEL_S = 225.0
+# W symulacji 60 PR (29.10) cel 60, 75 i 90 s daje bramce ten sam p50 i p90, bo ścianę trzyma jednostka, której plan
+# nie dzieli (część podstawy skilla, krok E2E, długi test), a 90 s najmniej zadań: stały koszt zadania pytest to ok. 40 s.
+CEL_S = 90.0
 KROK_CELU_S = 5.0
-# Organizacja ma 60 zadań naraz ze wszystkich workflowów (plan Team od 26.10). 20 zostawia planowi 16 zadań pytest i
-# Mutation checks, tyle co przed rozdzieleniem Frontend oraz Ruff i mypy na dwa zadania.
-ZADANIA_RUNU = 20
+# Organizacja ma 60 zadań naraz ze wszystkich workflowów (plan Team od 26.10): run pull request bierze najwyżej 40, a
+# run na main (push i noc) 20, więc największy run PR i pełne CI main startują razem bez kolejki.
+ZADANIA_RUNU = 40
+ZADANIA_RUNU_MAIN = 20
 # Zadania ci.yml o stałej liczbie (plan, Frontend, Ruff i mypy, Required).
 STALE_ZADANIA = 4
 # Zadania bramki w ci.yml, które startują tylko z pracą od planu.
@@ -382,13 +385,17 @@ def _kolejnosc(jednostka: Jednostka) -> tuple[bool, float, str, bool, str]:
     return (jednostka.klucz.startswith("krok:"), -jednostka.s, "", False, jednostka.klucz)
 
 
-def rozplanuj(wyceny: Sequence[Wycena], zdarzenie: str, runy: tuple[int, ...] = (), bledy: tuple[str, ...] = ()) -> Plan:
-    """Najmniej zadań na tor przy celu ``CEL_S``; gdy run przekroczyłby ``ZADANIA_RUNU``, cel wszystkich torów rośnie o
-    ``KROK_CELU_S``. Tor bez pracy nie ma zadań."""
+def _limit_runu(zdarzenie: str) -> int:
+    return ZADANIA_RUNU if zdarzenie == "pull_request" else ZADANIA_RUNU_MAIN
 
-    limit = ZADANIA_RUNU - STALE_ZADANIA
+
+def rozplanuj(wyceny: Sequence[Wycena], zdarzenie: str, runy: tuple[int, ...] = (), bledy: tuple[str, ...] = ()) -> Plan:
+    """Najmniej zadań na tor przy celu ``CEL_S``; gdy run przekroczyłby limit zadań zdarzenia (``ZADANIA_RUNU`` albo
+    ``ZADANIA_RUNU_MAIN``), cel wszystkich torów rośnie o ``KROK_CELU_S``. Tor bez pracy nie ma zadań."""
+
+    limit = _limit_runu(zdarzenie) - STALE_ZADANIA
     if limit < sum(bool(wycena.podzielne or wycena.niepodzielne) for wycena in wyceny):
-        raise ValueError(f"limit {ZADANIA_RUNU} zadań runu nie mieści po jednym zadaniu na tor z pracą")
+        raise ValueError(f"limit {_limit_runu(zdarzenie)} zadań runu nie mieści po jednym zadaniu na tor z pracą")
     cel = CEL_S
     podzial = [_upakuj(wycena, cel) for wycena in wyceny]
     while sum(map(len, podzial)) > limit:
@@ -421,7 +428,7 @@ def _katalog_czasow() -> Path:
 def _wypisz(plan: Plan, praca: Zakres, wyceny: Sequence[Wycena], wybor: mutacje_skilli.Selection) -> None:
     run = STALE_ZADANIA + len(plan.zadania)
     zrodlo = ", ".join(map(str, plan.runy)) or "brak (wagi domyślne)"
-    print(f"PLAN CI | {plan.zdarzenie} | {praca.zrodlo} | cel {plan.cel_s:.0f} s | {run} zadań runu (limit {ZADANIA_RUNU}) | czasy z runów main: {zrodlo}")
+    print(f"PLAN CI | {plan.zdarzenie} | {praca.zrodlo} | cel {plan.cel_s:.0f} s | {run} zadań runu (limit {_limit_runu(plan.zdarzenie)}) | czasy z runów main: {zrodlo}")
     for wycena in wyceny:
         # Najdłuższa jednostka po podziale to dolna granica ściany zadania toru: celu poniżej niej plan nie osiągnie.
         najdluzsza = max(wycena.jednostki(_pojemnosc(wycena, plan.cel_s)), key=lambda j: (j.s, j.klucz), default=None)

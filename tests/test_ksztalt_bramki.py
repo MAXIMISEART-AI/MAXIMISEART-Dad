@@ -38,7 +38,10 @@ class Limit:
 
 
 # Na HEAD bramki: L 27 testów, 5 zadań i 56,9 s, C 80 testów, 10 zadań i 219,2 s; wszystkie pliki to 118 testów.
-LIMITY = {"L": Limit(32, 6, 68.3), "C": Limit(96, 12, 263.0)}
+# Cel ściany 90 s i limit 40 zadań runu PR (hillclimb CI 29.10, H5) dzielą C na więcej krótszych zadań: 21 zadań runu
+# i 104,1 s (cel rośnie do 105 s, bo krok E2E na Windows się nie dzieli), więc limit zadań C to 25, a prognozy ściany
+# 124,9 s (+20%). L się nie zmienia: 6 zadań i 58,5 s.
+LIMITY = {"L": Limit(32, 6, 68.3), "C": Limit(96, 25, 124.9)}
 
 
 @pytest.fixture(scope="module")
