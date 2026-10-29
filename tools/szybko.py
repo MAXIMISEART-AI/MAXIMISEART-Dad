@@ -191,6 +191,9 @@ class Dependencies:
     def of(cls, root: Path, files: frozenset[str]) -> Dependencies:
         modules = _modules(files)
         directories = {str(parent) for path in files for parent in PurePosixPath(path).parents if str(parent) != "."}
+        in_folder: dict[str, set[str]] = defaultdict(set)
+        for file in files:
+            in_folder[str(PurePosixPath(file).parent)].add(file)
         package_data = _package_data(files)
         depends_on: dict[str, set[str]] = defaultdict(set)
         folder_files: dict[str, set[str]] = defaultdict(set)
@@ -215,7 +218,7 @@ class Dependencies:
                 # a katalog w narzędziu to zwykle lista miejsc do sprawdzenia (``GENERATED``), nie plik, który czyta.
                 (depends_on if test else folder_files)[path] |= _files_named(text, files)
                 if test:
-                    folder_files[path] |= _folder_files(text, files, directories)
+                    folder_files[path] |= _folder_files(text, in_folder)
             for glob in globs:
                 folder_files[path] |= _globbed(glob, files, directories)
             folder_files[path] |= package_data.get(str(PurePosixPath(path).parent), set())
@@ -333,11 +336,12 @@ def _files_named(text: str, files: frozenset[str]) -> set[str]:
     return {file for file in files if file == path or file.endswith("/" + path)}
 
 
-def _folder_files(text: str, files: frozenset[str], directories: set[str]) -> set[str]:
+def _folder_files(text: str, in_folder: dict[str, set[str]]) -> set[str]:
+    """Pliki leżące wprost w katalogu ``text`` (``in_folder``: katalog → jego pliki)."""
+
     if (path := _as_path(text)) is None or "/" not in path:
         return set()
-    folders = {folder for folder in directories if folder == path or folder.endswith("/" + path)}
-    found = {file for file in files if str(PurePosixPath(file).parent) in folders}
+    found = {file for folder, inside in in_folder.items() if folder == path or folder.endswith("/" + path) for file in inside}
     # Pakiet test zna przez importy; jego katalog w napisie to ścieżka w repozytorium, które test sam buduje.
     return set() if any(PurePosixPath(file).name == "__init__.py" for file in found) else found
 
