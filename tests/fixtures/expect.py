@@ -1,7 +1,7 @@
 """Test expect: wynik porównany z tekstem zapisanym w repo, żeby diff PR pokazywał zmianę zachowania.
 
 Plik expect jest w UTF-8 z końcami linii ``\\n``; odczyt ``read_text`` zamienia ``\\r\\n`` z checkoutu na Windows na ``\\n``.
-Przy różnicy test pada z unified diffem i poleceniem, które zapisuje nowy plik:
+Przy różnicy test pada z unified diffem i poleceniem, które zapisuje nowy plik (``save_command``):
 ``ZAPISZ_EXPECT=1`` przed pytestem. W CI (``CI`` ustawione) plik nigdy się nie zapisuje.
 """
 
@@ -10,11 +10,26 @@ from __future__ import annotations
 import difflib
 import os
 from pathlib import Path
+import shlex
+import sys
 
 import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 SAVE = "ZAPISZ_EXPECT"
+
+
+def save_command(test: str, *, windows: bool) -> str:
+    """Polecenie z katalogu repo, które zapisuje plik expect testu ``test``: w PowerShellu na Windows, w sh gdzie indziej.
+
+    PowerShell trzyma ``$env:`` do końca sesji, więc polecenie zdejmuje zmienną po pyteście, żeby następne testy
+    porównywały plik, a nie go zapisywały.
+    """
+
+    if windows:
+        quoted = "'" + test.replace("'", "''") + "'"
+        return f"$env:{SAVE}=1; .venv\\Scripts\\python.exe -m pytest {quoted}; Remove-Item Env:{SAVE}"
+    return f"{SAVE}=1 .venv/bin/python -m pytest {shlex.quote(test)}"
 
 
 def assert_expected(actual: str, path: Path) -> None:
@@ -39,6 +54,6 @@ def assert_expected(actual: str, path: Path) -> None:
     pytest.fail(
         f"wynik różni się od pliku expect {name}:\n{diff}\n"
         f"Jeśli zmiana jest zamierzona, zapisz nowy plik i dodaj go do tego samego commita:\n"
-        f"  {SAVE}=1 .venv/bin/python -m pytest '{test}'",
+        f"  {save_command(test, windows=sys.platform == 'win32')}",
         pytrace=False,
     )

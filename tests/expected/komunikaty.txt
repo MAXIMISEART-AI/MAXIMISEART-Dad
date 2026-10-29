@@ -1,4 +1,4 @@
-# Komunikaty, które widzi tata: próbka każdej fabryki każdego katalogu.
+# Komunikaty, które widzi tata: próbka każdej fabryki każdego katalogu i każdego Komunikatu spoza katalogów.
 # Plik zapisuje tests/test_komunikaty_expect.py; ścieżki w próbkach są syntetyczne.
 
 === Przygotowanie pliku zbiorczego (src/rozliczenia/preparation_messages.py) ===
@@ -918,3 +918,22 @@ plan_not_shown [BLAD_PLANU]
   Co się stało: Nie udało się pokazać planu. INTERMAX nie został zmieniony.
   Gdzie: Uporządkowanie INTERMAX
   Co zrobić: Przekaż ten komunikat osobie utrzymującej narzędzie.
+
+=== Wynik Uruchomienia (src/rozliczenia/centrum/runs.py) ===
+
+_RESULT_NOT_SHOWN [BLAD_WYNIKU]
+  Co się stało: Nie udało się pokazać wyniku Uruchomienia procesu.
+  Gdzie: Centrum rozliczeń
+  Co zrobić: Sprawdź Folder okresu i przekaż ten komunikat osobie utrzymującej narzędzie.
+
+=== Karta Urwanego Uruchomienia (src/rozliczenia/centrum/run_cards.py) ===
+
+_interrupted_advice #1 [bez kodu]
+  Co się stało: Centrum rozliczeń zamknęło się w trakcie tego Uruchomienia, więc nie ma jego wyniku.
+  Gdzie: Przygotowanie pliku zbiorczego, okres 08_14_09_2026
+  Co zrobić: Podgląd niczego nie zapisał. Uruchom go ponownie.
+
+_interrupted_advice #2 [bez kodu]
+  Co się stało: Centrum rozliczeń zamknęło się w trakcie tego Uruchomienia, więc nie ma jego wyniku.
+  Gdzie: Przygotowanie pliku zbiorczego, okres 08_14_09_2026
+  Co zrobić: Uruchom ponownie. Pliki okresu, które zdążyły powstać, Centrum zostawi i powie, co z nimi zrobić.
