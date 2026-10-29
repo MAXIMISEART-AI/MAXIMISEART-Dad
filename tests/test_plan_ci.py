@@ -387,14 +387,17 @@ def test_udzialy_pliku_dziela_go_miedzy_zadania_bez_luk_i_powtorzen_a_kazdy_ma_t
     mini_repo: Path, monkeypatch: pytest.MonkeyPatch, tests: int, shares: int
 ) -> None:
     (mini_repo / "tests" / "test_mini.py").write_text("\n".join(f"def test_{index:02}() -> None:\n    pass\n" for index in range(tests)), encoding="utf-8")
-    (mini_repo / "tests" / "test_obok.py").write_text("def test_obok_a() -> None:\n    pass\n\n\ndef test_obok_b() -> None:\n    pass\n", encoding="utf-8")
-    # Pierwsze zadanie ma przed udziałem inny plik, jak zadania prawdziwego planu.
+    (mini_repo / "tests" / "test_inny.py").write_text("def test_inny_a() -> None:\n    pass\n\n\ndef test_inny_b() -> None:\n    pass\n", encoding="utf-8")
+    # Jak hak testów @pytest.mark.dlugi w tests/conftest.py: conftest ustawia testy zależnie od składu zadania, zanim
+    # zobaczy je plugin udziałów, a pierwsze zadanie ma przed udziałem inny plik, jak zadania prawdziwego planu (jego id
+    # sortują się przed id udziału).
+    (mini_repo / "tests" / "conftest.py").write_text("def pytest_collection_modifyitems(items):\n    if len({item.path for item in items}) > 1:\n        items.reverse()\n", encoding="utf-8")
     jobs = tuple(
         plan_ci.Zadanie(
             f"linux-3.14-{share}",
             "linux-3.14",
             f"pytest (Python 3.14, Linux, {share}/{shares})",
-            ("pytest:tests/test_obok.py",) * (share == 1) + (f"pytest:tests/test_mini.py#{share}/{shares}",),
+            ("pytest:tests/test_inny.py",) * (share == 1) + (f"pytest:tests/test_mini.py#{share}/{shares}",),
             1.0,
         )
         for share in range(1, shares + 1)

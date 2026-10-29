@@ -2,12 +2,13 @@
 
     python -m pytest -n auto -p tools.pytest_czesc --czesci czesci.json tests/test_a.py tests/test_b.py
 
-``czesci.json`` to ``{"tests/test_a.py": {"n": 3, "udzialy": [1, 3]}}``: testy pliku w kolejności kolekcji idą po
-kolei do udziałów 1, 2, 3, 1, 2, …, a zostają te z udziałów 1 i 3. Plik bez wpisu zostaje cały. Kolekcja pliku
-(kolejność definicji i parametrów) nie zależy od innych plików zadania ani od ``PYTHONHASHSEED``, więc udziały 1..n
-dzielą plik bez luk i bez powtórzeń w każdym procesie toru, także z testami, których plan nie znał, a plik z co
-najmniej n testami ma test w każdym udziale. Lista id w linii poleceń nie wchodzi w grę: 3620 id jednego pliku
-przekracza 32 767 znaków linii Windows. Pod xdist każdy worker odznacza to samo, więc kontroler widzi zgodne kolekcje.
+``czesci.json`` to ``{"tests/test_a.py": {"n": 3, "udzialy": [1, 3]}}``: testy pliku posortowane po id idą po
+kolei do udziałów 1, 2, 3, 1, 2, …, a zostają te z udziałów 1 i 3. Plik bez wpisu zostaje cały. Zbiór id pliku nie
+zależy od innych plików zadania, od kolejności, w jakiej ustawiły testy wcześniejsze hooki, ani od ``PYTHONHASHSEED``,
+więc udziały 1..n dzielą plik bez luk i bez powtórzeń w każdym procesie toru, także z testami, których plan nie znał,
+a plik z co najmniej n testami ma test w każdym udziale. Lista id w linii poleceń nie wchodzi w grę: 3620 id jednego
+pliku przekracza 32 767 znaków linii Windows. Pod xdist każdy worker odznacza to samo, więc kontroler widzi zgodne
+kolekcje.
 """
 
 from __future__ import annotations
@@ -32,8 +33,9 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
     for item in items:
         pliki[item.nodeid.split("::")[0]].append(item.nodeid)
     # Po kolei, nie crc32 id modulo n: udział bez testów nie zgłasza wyniku i czerwieni Required, a crc32 modulo 3 nie
-    # dał żadnego z 7 testów test_kopia_wzorca.py udziałowi 1 (run 40910405317).
-    udzial = {nodeid: numer % czesci[plik]["n"] + 1 for plik, nodeids in pliki.items() if plik in czesci for numer, nodeid in enumerate(nodeids)}
+    # dał żadnego z 7 testów test_kopia_wzorca.py udziałowi 1 (run 40910405317). Po id, nie w kolejności items: hak
+    # testów dlugi z tests/conftest.py biegnie przed tym i ustawia je zależnie od wszystkich plików zadania.
+    udzial = {nodeid: numer % czesci[plik]["n"] + 1 for plik, nodeids in pliki.items() if plik in czesci for numer, nodeid in enumerate(sorted(nodeids))}
     zostaja: list[pytest.Item] = []
     odznaczone: list[pytest.Item] = []
     for item in items:
