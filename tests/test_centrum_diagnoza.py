@@ -659,8 +659,12 @@ REFUSED_KEY = ("failed", "Skrzynka Zgłoszeń odrzuca Token do Zgłoszeń. Zgło
 
 
 def box_now_answers(centrum: PreparingCentrum, failure: Refused | Unreachable) -> None:
-    """Skrzynka od teraz odpowiada ``failure``; przyjęcie klucza przez Logi Uruchomienia z tej pracy Centrum wygasa."""
+    """Skrzynka od teraz odpowiada ``failure``; przyjęcie klucza przez Logi Uruchomienia z tej pracy Centrum wygasa.
 
+    Najpierw czeka na Logi Uruchomienia: wysłane w tle już po przesunięciu zegara dałyby świeże przyjęcie klucza (#627).
+    """
+
+    run_logs_handled(centrum)
     centrum.surroundings.report_box.search_failure = failure
     centrum.surroundings.clock.advance(minutes=10)
 
