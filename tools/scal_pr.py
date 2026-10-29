@@ -6,7 +6,9 @@ Narzędzie scala PR numer N do jego bazy, gdy jednocześnie:
 2. check ``Required CI status`` z GitHub Actions na HEAD PR skończył się sukcesem (jak w rulesecie ``main``:
    CheckRun z workflow, nie status commitu, który może ustawić każdy z prawem zapisu);
 3. najnowszy werdykt dla HEAD PR to ``PASS``;
-4. HEAD PR scala się z bieżącą bazą z ``origin`` bez konfliktu, a ruff i mypy dla obu systemów przechodzą na
+4. opis PR ma każdy nagłówek ``##`` wzoru z ``.agents/skills/pr/SKILL.md``, każdy jako osobną linię i w kolejności
+   wzoru, więc każdy PR ma te same sekcje, a sekcja dopisana do wzoru od razu obowiązuje;
+5. HEAD PR scala się z bieżącą bazą z ``origin`` bez konfliktu, a ruff i mypy dla obu systemów przechodzą na
    scalonym drzewie (``scalenia_pr.merge_verdict``, jak status ``scalenie z main``, ale teraz, nie po pushu).
 
 Mutacje zmienionych linii nie biegną na PR i nie czeka na nie: biegną nocą na ``main`` (ADR 0021,
@@ -24,7 +26,7 @@ sprzeciw po ``PASS`` odbiera zgodę, nowszy ``PASS`` ją przywraca, a werdykt st
 push. Komentarz edytowany liczy się z treścią po edycji, ale w miejscu utworzenia, a ukryty komentarz nadal się liczy.
 
 Gdy któryś warunek nie zachodzi, narzędzie nie scala i kończy się linią ``SCAL ODMOWA | #N <sha> | <przyczyny>``.
-Warunki 1–3 sprawdza razem i podaje wszystkie przyczyny; warunek 4 trwa dłużej, więc biegnie dopiero po nich.
+Warunki 1–4 sprawdza razem i podaje wszystkie przyczyny; warunek 5 trwa dłużej, więc biegnie dopiero po nich.
 Przed merge'em sprawdza, że baza w ``origin`` nie przesunęła się w trakcie sprawdzania, a ``gh pr merge
 --match-head-commit`` odrzuca PR, którego HEAD zmienił się po sprawdzeniu. Po merge'u uruchamia
 ``tools/sprzatanie.py``, jeśli istnieje, i podaje ostatnią linię jego raportu: bez ``--usun`` sprzątanie niczego nie
@@ -102,6 +104,7 @@ REQUIRED_CHECK = "Required CI status"
 VERDICT_LINE = re.compile(r"WERDYKT: (PASS|FAIL) ([0-9a-f]{40})")
 TRUSTED = frozenset({"OWNER", "MEMBER", "COLLABORATOR"})
 CLEANUP = ROOT / "tools" / "sprzatanie.py"
+TEMPLATE = ROOT / ".agents" / "skills" / "pr" / "SKILL.md"
 CLEANUP_TIMEOUT_S = 300
 LINK = "\x01"
 NOT_TEXT = "\x00"
@@ -156,6 +159,22 @@ def _ci_problem(rollup: list[dict[str, str | None]]) -> str | None:
         return f"CI: brak „{REQUIRED_CHECK}” z GitHub Actions na HEAD"
     failed = [result for result in results if result != "SUCCESS"]
     return f"CI: „{REQUIRED_CHECK}” {', '.join(failed)}" if failed else None
+
+
+def _body_problem(body: str) -> str | None:
+    """Przyczyna odmowy, gdy opisowi brakuje nagłówka wzoru albo ma go nie po poprzednim; wzór to blok ``markdown``."""
+
+    template = TEMPLATE.read_text(encoding="utf-8").partition("```markdown\n")[2].partition("\n```")[0]
+    lines = [line.strip() for line in body.splitlines()]
+    missing, after = [], 0
+    for heading in (line for line in template.splitlines() if line.startswith("## ")):
+        if heading in lines[after:]:
+            after = lines.index(heading, after) + 1
+        else:
+            missing.append(heading)
+    if not missing:
+        return None
+    return f"opis: brak {', '.join(f'„{heading}”' for heading in missing)} w kolejności wzoru {TEMPLATE.relative_to(ROOT).as_posix()}"
 
 
 def _verdict(verdict: dict[str, object], head: str) -> str | None:
@@ -288,7 +307,7 @@ def _pull(number: int) -> Pull:
         problems.append("PR jest szkicem")
     if pull["isCrossRepository"]:
         problems.append("PR z forka")
-    problems += filter(None, [_ci_problem(pull["statusCheckRollup"])])
+    problems += filter(None, [_ci_problem(pull["statusCheckRollup"]), _body_problem(pull["body"])])
     verdicts = [*pull["comments"], *pull["reviews"]]
     verdicts.sort(key=lambda verdict: verdict.get("createdAt") or verdict.get("submittedAt") or "")
     repository = "/".join(pull["url"].split("/")[3:5])

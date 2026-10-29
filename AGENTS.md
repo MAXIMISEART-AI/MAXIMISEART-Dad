@@ -5,6 +5,7 @@
 - Po każdej zmianie uruchom `.venv/bin/python tools/szybko.py` (Windows: `py -3 tools/szybko.py`), na gałęzi zbudowanej na innej z `--baza <gałąź rodzica>`. Co sprawdza, a co zostawia CI, mówi jego `--help`.
 - Kod i testy: zanim napiszesz albo zrecenzujesz kod (także w `tools/`, `frontend/` i skryptach skilli) albo test, przeczytaj [`CODING_STANDARDS.md`](CODING_STANDARDS.md).
 - Model domeny i reguły procesu: przeczytaj [`GLOSSARY.md`](GLOSSARY.md) oraz właściwe ADR-y w [`docs/adr/`](docs/adr/).
+- Tytuł i opis PR: napisz według skilla [`.agents/skills/pr/SKILL.md`](.agents/skills/pr/SKILL.md), także zamiast osobistego `/pr`, a gdy wzorowi czegoś brakuje, dopisz to do skilla.
 - Przegląd PR: zanim napiszesz werdykt albo zlecisz przegląd, przeczytaj [`docs/agents/przeglad.md`](docs/agents/przeglad.md).
 - Skille: przeczytaj [`docs/agents/skille.md`](docs/agents/skille.md) przed pushem i przed utworzeniem albo zmianą skilla.
 - Wydajność i środowisko taty: przy pomiarach wydajności albo decyzjach zależnych od jego sprzętu lub OneDrive przeczytaj [`docs/agents/komputer-taty.md`](docs/agents/komputer-taty.md).
@@ -35,6 +36,7 @@ Szczegóły strażnika, jego wyjątki i granicę (co łapie tylko przegląd) opi
 |---|---|
 | Push agenta, który wysyła HEAD, przechodzi tylko wtedy, gdy ruff i mypy dla obu systemów nie zgłaszają błędów w drzewie roboczym. | brama `tools/hooks/pre-push`, `tests/test_brama_pre_push.py` |
 | Tag Wydania `v*` i GitHub Release tworzy tylko narzędzie Wydań (#316), które ustawia `MAXIMISEART_WYDANIE=1` (ADR 0014), a agent nie robi tego ani `git push`, także z `--no-verify`, ani `gh release create`, `gh api` czy stroną GitHuba. | brama `tools/hooks/pre-push`, `tests/test_brama_pre_push.py` |
+| Opis PR ma każdy nagłówek `##` wzoru ze skilla `pr`, w jego kolejności. | `tools/scal_pr.py`, `tests/test_scal_pr.py` |
 | Na własny proces agent czeka na powiadomienie `run_in_background`, a na CI rodzic przez `watch_pull_request`. | hook `PreToolUse` `tools/hooks/czekanie.py` (`.claude/settings.json`), `tests/test_czekanie.py` |
 | Agent w trybie bypass nie czeka na zgodę człowieka na polecenie Basha: gdy Claude Code by o nią zapytał (kontrola `rm`, której nie zdejmuje `permissions.allow`, albo reguła `permissions.ask`), od razu oddaje mu odmowę z poprawką, którą podaje komunikat hooka; po aktualizacji Claude Code uruchom `tools/wyrocznia_zgody.py`. | hook `PermissionRequest` `tools/hooks/zgoda.py` (`.claude/settings.json`), `tests/test_zgoda.py` |
 | Issue tego repozytorium, które opis PR wskazuje jako naprawione, zamyka się przy merge'u PR do domyślnej gałęzi, nie ręcznie: `Closes #N` zamyka GitHub, a słowa „Naprawia” GitHub nie zna, więc `tools/scal_pr.py` renderuje opis rendererem GitHuba i zamyka z komentarzem o PR i commicie merge'a issues z linków na liście numerów po „Naprawia”, które zaczyna linię akapitu albo punktu listy stojącego tylko w akapitach i listach, poza kodem i przekreśleniem, a odwołania do innego repozytorium (Zgłoszenia) zostawia. | `tools/scal_pr.py`, `tests/test_scal_pr.py` |

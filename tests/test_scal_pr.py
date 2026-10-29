@@ -1,5 +1,5 @@
-"""``tools/scal_pr.py``: agent scala PR tylko przy zielonym CI na HEAD, werdykcie PASS dla HEAD i scaleniu z bieżącą
-bazą, które przechodzi ruff i mypy.
+"""``tools/scal_pr.py``: agent scala PR tylko przy zielonym CI na HEAD, werdykcie PASS dla HEAD, opisie z sekcjami wzoru
+skilla ``pr`` i scaleniu z bieżącą bazą, które przechodzi ruff i mypy.
 
 Testy biegną na prawdziwym Gicie z repozytorium bare jako ``origin`` (z ``refs/pull/N/head`` jak na GitHubie)
 i na prawdziwym ``tools/ci_lokalnie.py --tylko ruff,mypy`` na małym kodzie. Atrapa ``gh`` podaje stan PR i zapisuje
@@ -25,6 +25,8 @@ import scal_pr
 pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="Atrapa gh to skrypt sh.")
 
 TOOLS = Path(__file__).resolve().parents[1] / "tools"
+TEMPLATE = Path(__file__).resolve().parents[1] / ".agents" / "skills" / "pr" / "SKILL.md"
+BODY = opisy_pr.wzor("Cel.")
 SUM = "def suma(a: int, b: int) -> int:\n    return a + b\n"
 PYPROJECT = '[tool.ruff]\ninclude = ["kod/**/*.py"]\n\n[tool.mypy]\nstrict = true\nfiles = ["kod"]\n'
 CLEANUP = 'import pathlib\n\npathlib.Path("posprzatane").write_text("tak")\nprint("SPRZĄTANIE OK | 0 usuniętych")\n'
@@ -125,7 +127,12 @@ class FakeGitHub:
         self.origin = origin
         self.checkout = repository(
             tmp_path / "checkout",
-            {".gitignore": ".mypy_cache/\n.ruff_cache/\n__pycache__/\nposprzatane\n", "pyproject.toml": PYPROJECT, **files},
+            {
+                ".gitignore": ".mypy_cache/\n.ruff_cache/\n__pycache__/\nposprzatane\n",
+                "pyproject.toml": PYPROJECT,
+                ".agents/skills/pr/SKILL.md": TEMPLATE.read_text(encoding="utf-8"),
+                **files,
+            },
         )
         for tool in ("scal_pr.py", "scalenia_pr.py"):
             shutil.copy2(TOOLS / tool, self.checkout / "tools" / tool)
@@ -148,6 +155,7 @@ class FakeGitHub:
         self.pulls[str(number)] = {
             "number": number,
             "title": f"PR {number}",
+            "body": BODY,
             "state": "OPEN",
             "isDraft": False,
             "isCrossRepository": False,
@@ -158,7 +166,6 @@ class FakeGitHub:
             "reviews": [],
             "mergeCommit": None,
             "url": f"https://github.com/{opisy_pr.REPO}/pull/{number}",
-            "body": "",
             "closingIssuesReferences": [],
         }
         self._save()
@@ -485,6 +492,68 @@ def test_pr_zamkniety_szkic_albo_z_forka_nie_jest_scalany(
     assert github.merges() == []
 
 
+ALL_SECTIONS = "„## Why”, „## Summary”, „## Evidence”, „## Merge Danger”"
+
+
+@pytest.mark.parametrize(
+    ("body", "missing"),
+    [
+        ("", ALL_SECTIONS),
+        ("## Why\n\nCel.\n\n## Co\n\n- zmiana\n", "„## Summary”, „## Evidence”, „## Merge Danger”"),
+        (
+            "## Why\n\n## What changed\n\n## Scope\n\n## Tradeoffs\n\n## Blast Radius\n\n## Verification\n",
+            "„## Summary”, „## Evidence”, „## Merge Danger”",
+        ),
+        (BODY.replace("## Why", "## Dlaczego"), "„## Why”"),
+        ("## Summary\n\n" + BODY.replace("## Summary\n\n", ""), "„## Summary”"),
+        (BODY.replace("## Evidence", "### Evidence"), "„## Evidence”"),
+        (BODY.replace("## Evidence", "Dowody są w sekcji ## Evidence"), "„## Evidence”"),
+        ("\r\n".join(f"  {line}  " for line in BODY.splitlines()), ""),
+    ],
+    ids=["pusty", "wlasne-sekcje", "sekcje-innego-wzoru", "przetlumaczony-naglowek", "zla-kolejnosc", "naglowek-3-stopnia", "naglowek-w-zdaniu", "odstepy-i-crlf"],
+)
+def test_pr_bez_naglowka_wzoru_skilla_pr_w_jego_kolejnosci_nie_jest_scalany(tmp_path: Path, body: str, missing: str) -> None:
+    github = FakeGitHub(tmp_path, {"kod/__init__.py": SUM})
+    head = github.open_pull(1, {"kod/inne.py": "INNE: int = 1\n"})
+    github.update(1, body=body)
+    github.comment(1, f"WERDYKT: PASS {head}")
+
+    answered = github.run("1", "--bez-merge")
+
+    if missing:
+        assert answered.returncode == 1, answered.stdout + answered.stderr
+        assert _last_line(answered) == f"SCAL ODMOWA | #1 {head[:7]} | opis: brak {missing} w kolejności wzoru .agents/skills/pr/SKILL.md"
+    else:
+        assert answered.returncode == 0, answered.stdout + answered.stderr
+
+
+def test_brak_naglowka_wzoru_jest_w_jednej_odmowie_z_czerwonym_ci_i_brakiem_werdyktu(tmp_path: Path) -> None:
+    github = FakeGitHub(tmp_path, {"kod/__init__.py": SUM})
+    head = github.open_pull(1, {"kod/inne.py": "INNE: int = 1\n"})
+    github.update(1, body="", statusCheckRollup=[_check_run("COMPLETED", "FAILURE")])
+
+    answered = github.run("1", "--bez-merge")
+
+    assert _last_line(answered) == (
+        f"SCAL ODMOWA | #1 {head[:7]} | CI: „Required CI status” FAILURE; "
+        f"opis: brak {ALL_SECTIONS} w kolejności wzoru .agents/skills/pr/SKILL.md; {NO_PASS.format(head=head)}"
+    )
+
+
+def test_naglowek_dopisany_do_wzoru_skilla_pr_od_razu_obowiazuje(tmp_path: Path) -> None:
+    template = TEMPLATE.read_text(encoding="utf-8").replace("## Merge Danger\n", "## Merge Danger\n\n## Rollback\n", 1)
+    github = FakeGitHub(tmp_path, {"kod/__init__.py": SUM, ".agents/skills/pr/SKILL.md": template})
+    head = github.open_pull(1, {"kod/inne.py": "INNE: int = 1\n"})
+    github.comment(1, f"WERDYKT: PASS {head}")
+
+    refused = github.run("1", "--bez-merge")
+    github.update(1, body=f"{BODY}\n## Rollback\n\nRevert.\n")
+    accepted = github.run("1", "--bez-merge")
+
+    assert _last_line(refused) == f"SCAL ODMOWA | #1 {head[:7]} | opis: brak „## Rollback” w kolejności wzoru .agents/skills/pr/SKILL.md"
+    assert accepted.returncode == 0, accepted.stdout + accepted.stderr
+
+
 @pytest.mark.parametrize(
     ("main_files", "pull_files", "reason"),
     [
@@ -590,7 +659,7 @@ def test_merge_do_galezi_innej_niz_domyslna_niczego_nie_zamyka_ani_nie_renderuje
     assert github.renders() == []
 
 
-@pytest.mark.parametrize("body", ["Closes #3", "Ten PR\nnaprawia #3"], ids=["closes", "naprawia-mala-litera"])
+@pytest.mark.parametrize("body", [opisy_pr.wzor("Closes #3"), opisy_pr.wzor("Ten PR\nnaprawia #3")], ids=["closes", "naprawia-mala-litera"])
 def test_pr_bez_slowa_naprawia_nie_pyta_o_domyslna_galaz_ani_nie_renderuje_opisu(tmp_path: Path, body: str) -> None:
     github = FakeGitHub(tmp_path, {"kod/__init__.py": SUM})
     github.repo_view = _repo_view("trunk")
