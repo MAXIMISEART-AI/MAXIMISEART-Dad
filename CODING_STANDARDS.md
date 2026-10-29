@@ -52,7 +52,8 @@ A rule that a check enforces sits in its section's table, one line per rule, bes
 |---|---|
 | A file or folder of Dad's in a bad state (corrupt, with a BOM, in UTF-16, without access) gives a Komunikat that names it, and a file without access is „niedostępny” in it, never „uszkodzony”: read a workbook through `_file_bytes` (`workbook_files.py`) and a period folder through `reading` (`period_folder.py`). | `tests/test_uszkodzone_wejscia.py`, `tests/test_jeden_odczyt_skoroszytu.py` |
 | Only `template_file.py`, `template_copy.py`, `row_look.py`, `workbook_save.py` and `intermax_file.py` write a workbook. | `tests/test_jeden_zapis_skoroszytu.py` |
-| The engine decides on the facts of a process's plan, never on a Komunikat's code: one place per process (`collective_preparation`, `engine`) translates the facts into warnings, Zatrzymania, the result and Decyzja taty. | `tests/test_decyzje_na_faktach.py` |
+| The engine decides on the facts of a process's plan, never on a Komunikat's code: one place per process (`collective_preparation`, `engine`) translates the facts into warnings, Zatrzymania, the result and Decyzja taty. No code in `src/`, Centrum rozliczeń included, compares or matches a Komunikat's code, whether as a literal, a module or class constant, or in a set, tuple, list or dict. | `tests/test_decyzje_na_faktach.py`: `test_silnik_nie_decyduje_na_kodzie_komunikatu` for the engine, `test_kod_nie_porownuje_kodu_komunikatu` for all of `src/` |
+| An error that becomes a Komunikat carries facts, not a sentence for tata: its `__init__` takes no `str`, and an error without its own `__init__` is not a parameter of a Komunikat factory. | `test_blad_ktory_proces_tlumaczy_na_komunikat_niesie_fakty_a_nie_tekst` in `tests/test_komunikaty_expect.py` |
 
 ## Test Surface
 

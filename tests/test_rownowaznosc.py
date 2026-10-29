@@ -421,3 +421,23 @@ def test_skrypt_bez_bazy_liczy_domyslna_baze_od_commitu_glowy_a_bez_niego_od_hea
         rownowaznosc.main(arguments)
 
     assert computed.value.args == (rownowaznosc.ROOT, head)
+
+
+class _BaseCopied(Exception):
+    pass
+
+
+def test_skrypt_z_baza_kopiuje_te_baze_bez_liczenia_domyslnej(monkeypatch: pytest.MonkeyPatch) -> None:
+    def default_base(repository: Path, given: str | None) -> str:
+        raise _BaseComputed(repository, given)
+
+    def commit_copy(repository: Path, commit: str) -> Path:
+        raise _BaseCopied(repository, commit)
+
+    monkeypatch.setattr(rownowaznosc, "default_base", default_base)
+    monkeypatch.setattr(potomne, "commit_copy", commit_copy)
+
+    with pytest.raises(_BaseCopied) as copied:
+        rownowaznosc.main(["--baza", "abc123"])
+
+    assert copied.value.args == (rownowaznosc.ROOT, "abc123")

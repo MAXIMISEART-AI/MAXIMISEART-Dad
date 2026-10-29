@@ -13,7 +13,7 @@ Błąd, który fabryka tłumaczy na Komunikat, niesie fakty, a nie zdanie dla ta
 from __future__ import annotations
 
 import ast
-from collections.abc import Callable, Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence, Set
 import importlib
 import inspect
 from pathlib import Path
@@ -104,8 +104,14 @@ def _places(statements: list[ast.stmt], prefix: str = "") -> Iterator[tuple[str,
                 yield f"{prefix}wiersz {statement.lineno}", statement
 
 
-def _copies(call: ast.Call) -> bool:
-    """``Message(what=message.what, where=message.where, …)``: każde pole z tego samego pola jednego obiektu."""
+_PARTS = frozenset({"what", "where", "action"})
+
+
+def _copies(call: ast.Call, module_names: Set[str]) -> bool:
+    """``Message(what=message.what, where=message.where, …)``: każde pole z tego samego pola jednego obiektu funkcji.
+
+    Obiekt to parametr albo zmienna funkcji; nazwa modułu (stała, import) ma własny tekst, więc kopią nie jest.
+    """
 
     owners = [
         keyword.value.value.id
@@ -114,15 +120,41 @@ def _copies(call: ast.Call) -> bool:
         and isinstance(keyword.value.value, ast.Name)
         and keyword.value.attr == keyword.arg
     ]
-    return not call.args and len(owners) == len(call.keywords) and len(set(owners)) == 1
+    return (
+        not call.args
+        and len(owners) == len(call.keywords)
+        and len(set(owners)) == 1
+        and owners[0] not in module_names
+    )
+
+
+def _rewrites(call: ast.Call) -> bool:
+    """``komunikat.model_copy(update={"action": …})`` albo ``replace(komunikat, action=…)``: nowy tekst w kopii."""
+
+    match call.func:
+        case ast.Attribute(attr="model_copy"):
+            return any(
+                keyword.arg == "update"
+                and isinstance(keyword.value, ast.Dict)
+                and any(isinstance(key, ast.Constant) and key.value in _PARTS for key in keyword.value.keys)
+                for keyword in call.keywords
+            )
+        case ast.Name(id="replace") | ast.Attribute(attr="replace"):
+            return any(keyword.arg in _PARTS for keyword in call.keywords)
+        case _:
+            return False
 
 
 def _creating(path: Path) -> set[str]:
     """Miejsca modułu (``_places``), które tworzą Komunikat.
 
     Tworzy go wywołanie, którego nazwa po rozwiązaniu importów (``Message as M``) albo atrybut (``message.Message``,
-    ``contract.Message``) kończy się na ``Message``. Wywołanie, które tylko przepisuje pola innego Komunikatu
-    (``_copies``), nowego tekstu nie tworzy.
+    ``contract.Message``) kończy się na ``Message``, i kopia z nowym tekstem części (``_rewrites``). Wywołanie, które
+    tylko przepisuje pola innego Komunikatu (``_copies``), nowego tekstu nie tworzy.
+
+    Granica: ``model_copy`` ze słownikiem ``update`` spoza literału (``update=zmiany``, ``update=dict(...)``) i
+    przepisanie pól obiektu z tekstem, który powstał w funkcji (``t = SimpleNamespace(what="…")``), łapie tylko
+    przegląd.
     """
 
     tree = ast.parse(path.read_text(encoding="utf-8"))
@@ -132,10 +164,19 @@ def _creating(path: Path) -> set[str]:
         if isinstance(node, ast.Import | ast.ImportFrom)
         for alias in node.names
     }
+    module_names = set(imported) | {
+        node.id
+        for statement in tree.body
+        if isinstance(statement, ast.Assign | ast.AnnAssign)
+        for node in ast.walk(statement)
+        if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store)
+    }
 
     def creates(node: ast.AST) -> bool:
-        if not isinstance(node, ast.Call) or _copies(node):
+        if not isinstance(node, ast.Call) or _copies(node, module_names):
             return False
+        if _rewrites(node):
+            return True
         match node.func:
             case ast.Name(id=name):
                 return imported.get(name, name).endswith("Message")
@@ -241,9 +282,12 @@ def test_blad_ktory_proces_tlumaczy_na_komunikat_niesie_fakty_a_nie_tekst() -> N
     """Wyjątek, z którego powstaje Komunikat, nie przyjmuje ``str``: zdanie dla taty pisze katalog, nie kod błędu.
 
     Taki wyjątek stoi w sygnaturze fabryki Komunikatu albo w ``except``, którego obsługa woła fabrykę albo tworzy
-    ``StopError``. Granica: sprawdzenie widzi parametry ``__init__`` z adnotacją ``str`` (także w unii) w klasach
-    ``src/rozliczenia``, a nie pole ustawione bez parametru, parametr bez adnotacji, ``except`` na zmiennej
-    (``except errors``) ani tekst w dataclass faktu (``SameWorkerFile`` niesie nazwy z konfiguracji).
+    ``StopError``. Sprawdzenie widzi parametry ``__init__`` z adnotacją ``str`` (także w unii) w klasach
+    ``src/rozliczenia``, a błąd bez własnego ``__init__`` przyjmuje każdy tekst w ``args``, więc nie stoi w sygnaturze
+    fabryki. Granica: pole ustawione bez parametru, parametr bez adnotacji, ``except`` na zmiennej (``except errors``),
+    tekst w dataclass faktu (``SameWorkerFile`` niesie nazwy z konfiguracji) i błąd bez własnego ``__init__`` tylko
+    w ``except``, którego obsługa przekaże fabryce jego tekst (``str(error)``); dziś obsługa ``WorkbookSaveError``
+    (rzucany ze zdaniem) i ``HeldByOneDrive`` woła fabrykę bez błędu.
     """
 
     modules = _engine_modules()
@@ -263,7 +307,7 @@ def test_blad_ktory_proces_tlumaczy_na_komunikat_niesie_fakty_a_nie_tekst() -> N
         if inspect.isfunction(error.__init__)
         for parameter, hint in typing.get_type_hints(error.__init__).items()
         if str in _variants(hint)
-    }
+    } | {f"{error.__name__}.args" for error in errors & in_signatures if not inspect.isfunction(error.__init__)}
 
     assert with_text == set()
     assert {WorkbookError, WorkerConfigError, PeriodFolderError, PeriodFolderLookupError} <= in_signatures

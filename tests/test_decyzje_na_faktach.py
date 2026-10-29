@@ -7,8 +7,9 @@ metryk albo tekstu wyjątku decyzją nie jest.
 
 W silniku (``src/rozliczenia/*.py``) decyzją jest każde porównanie z ``.code`` w wyrażeniu. W całym ``src/``, także
 w Centrum, gdzie wyniki Aktualizacji narzędzia też mają pole ``code``, a nie są Komunikatami, decyzją jest porównanie
-albo ``case`` z kodem Komunikatu: literałem, stałą modułu (także zaimportowaną, ``moduł.STAŁA``) albo zbiorem,
-krotką, listą lub słownikiem, który go zawiera. Kody to kody próbek katalogów z ``tests/fixtures/message_samples.py``.
+albo ``case`` z kodem Komunikatu: literałem, stałą modułu (także zaimportowaną, ``moduł.STAŁA``) albo klasy
+(``Klasa.STAŁA``) albo zbiorem, krotką, listą lub słownikiem, który go zawiera, także w wyrażeniu
+(``frozenset({...})``, ``{KOD: …}``). Kody to kody próbek katalogów z ``tests/fixtures/message_samples.py``.
 
 Granica: kod tylko w zmiennej lokalnej, wyszukanie w słowniku po kodzie (``tabela[message.code]``) i ``getattr``
 łapie tylko przegląd.
@@ -68,7 +69,7 @@ def _message_codes() -> frozenset[str]:
 
 
 def _value(node: ast.AST, names: Mapping[str, object]) -> object:
-    """Wartość operandu ze stałych modułu; ``_UNKNOWN`` dla wszystkiego, co znane jest dopiero w trakcie działania."""
+    """Wartość operandu ze stałych modułu i jego klas; ``_UNKNOWN`` dla tego, co znane jest dopiero w trakcie działania."""
 
     match node:
         case ast.Constant(value=value):
@@ -76,10 +77,14 @@ def _value(node: ast.AST, names: Mapping[str, object]) -> object:
         case ast.Name(id=name):
             return names.get(name, _UNKNOWN)
         case ast.Attribute(value=owner, attr=attr):
-            module = _value(owner, names)
-            return getattr(module, attr, _UNKNOWN) if isinstance(module, ModuleType) else _UNKNOWN
+            holder = _value(owner, names)
+            return getattr(holder, attr, _UNKNOWN) if isinstance(holder, ModuleType | type) else _UNKNOWN
         case ast.Set(elts=elements) | ast.Tuple(elts=elements) | ast.List(elts=elements):
             return tuple(_value(element, names) for element in elements)
+        case ast.Dict(keys=keys):
+            return tuple(_UNKNOWN if key is None else _value(key, names) for key in keys)
+        case ast.Call(func=ast.Name(id="frozenset" | "set" | "tuple" | "list" | "dict"), args=[collection], keywords=[]):
+            return _value(collection, names)
         case _:
             return _UNKNOWN
 
