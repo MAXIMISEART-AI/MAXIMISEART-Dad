@@ -2,7 +2,7 @@
 
 Each mutation removes from ``model/KolejkaSkrzynki.tla`` one guard or step whose counterpart in
 ``src/rozliczenia/centrum/outbox.py`` the mutation names, runs on its own copy of the checkout (``tools/mutacje.py``)
-and must end TLC's report with the expected line. Two mutations fix a known finding in the model and must end with
+and must end TLC's report with the expected line. One mutation fixes a known finding in the model and must end with
 ``ZNALEZISKO ZNIKNĘŁO``. A mutation whose anchor text is no longer in the model is reported as NIEAKTUALNA: update
 it to the new model.
 
@@ -54,6 +54,20 @@ MUTATIONS = (
         (Edit(MODEL, '    /\\ IF passes[Proc(q)] = "wolny"\n', "    /\\ IF TRUE\n"),),
         _check("dwie-kolejki"),
         "dwie kolejki jednego folderu wysyłają naraz i zakładają dwa issue okresu",
+        NEW,
+    ),
+    Mutation(
+        "uvicorn zamyka gniazdo, zanim kolejka skończy przejście (_Server.shutdown bez Shutdown.before_release)",
+        (Edit(MODEL, "    /\\ ~draining[q]\n", "    /\\ TRUE\n"),),
+        _check("dwa-procesy"),
+        "nowe Centrum zajmuje port, gdy kolejka starego jeszcze wysyła, i obie zakładają issue okresu",
+        NEW,
+    ),
+    Mutation(
+        "przejście zamykanej kolejki bierze następny plik (_send_all bez _closing)",
+        (Edit(MODEL, 'Zamykana(q) == zyje[q] \\in {"zamykana", "zamkniety"}\n', "Zamykana(q) == FALSE\n"),),
+        _check("dwa-procesy"),
+        "post starego Centrum po zamknięciu gniazda budzi jego kolejkę, która wysyła razem z kolejką nowego",
         NEW,
     ),
     Mutation(
@@ -277,14 +291,6 @@ MUTATIONS = (
         ),
         _check("zgloszenie-w-czesciach"),
         "znane znalezisko „przejecie” znika, a sprawdzenie to mówi",
-        GONE,
-    ),
-    Mutation(
-        "naprawa w modelu: nowe Centrum czeka, aż stary proces się skończy",
-        (Edit(MODEL, "    /\\ IF DwaProcesy \\/ q = 1 THEN MaPort = {} ELSE zyje[1] = \"tak\"\n",
-              "    /\\ IF DwaProcesy \\/ q = 1 THEN \\A r \\in Q : zyje[r] = \"nie\" ELSE zyje[1] = \"tak\"\n"),),
-        _check("dwa-procesy"),
-        "znane znalezisko „dwa_procesy” znika, a sprawdzenie to mówi",
         GONE,
     ),
 )

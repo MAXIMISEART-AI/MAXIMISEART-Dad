@@ -34,7 +34,7 @@ CONSTANTS
     AwariaOdczytu,  \* OSError także z odczytu pliku kolejki (outbox.py _queued)
     MaxWylaczen,    \* komputer gaśnie albo proces ginie w dowolnym kroku
     Kolejki,        \* 1 albo 2: dwie kolejki jednego folderu (_claimed, _released)
-    DwaProcesy,     \* druga kolejka w nowym procesie, gdy stary zamknął port, a jego wątek jeszcze wysyła
+    DwaProcesy,     \* druga kolejka w nowym procesie, gdy stary zamyka się w trakcie wysyłki i zwolnił port
     \* Znane znaleziska (oczekiwane.json), każde przy jednej obietnicy: ślady przyczyn, po których wariant
     \* ...PozaZnanymi tej obietnicy ją pomija. Pozostałe obietnice tego przebiegu sprawdza dalej w całości.
     WybaczoneJednoIssue, WybaczoneWszystkieCzesci, WybaczoneCzesciWKolejnosci, WybaczoneZbieganie
@@ -57,8 +57,9 @@ VARIABLES
                    \* Zgłoszenia), "N" (Uwaga taty, bez wiersza) albo "Z" (issue o znanym numerze);
                    \* tresc: treść issue, potem komentarze, każdy jako <<wysyłka, część>> (0: nagłówek)
     \* Pamięć procesu: znika z procesem.
-    zyje,          \* proces kolejki q: "nie", "tak" (ma port, przyjmuje zapytania HTTP) albo "zamkniety"
-                   \* (uvicorn zamknął gniazdo, a proces jeszcze kończy pracę: _GRACEFUL_SHUTDOWN_S)
+    zyje,          \* proces kolejki q: "nie", "tak" (ma port, przyjmuje zapytania HTTP), "zamykana" (Outbox.stop:
+                   \* _closing, port i zapytania jak w "tak") albo "zamkniety" (uvicorn zamknął gniazdo, a proces
+                   \* jeszcze kończy pracę: _GRACEFUL_SHUTDOWN_S)
     pc,            \* krok wątku skrzynka-kolejka kolejki q; "spi", gdy wątek nie biegnie
     draining, again, armed, stopped, \* Outbox._draining, _again, _retry_armed, _stopped_on is not None
     undeleted, rejected,             \* Outbox._undeleted, _rejected (nazwy plików)
@@ -89,7 +90,7 @@ awarie == <<sieci, zgubione, odmowy, bledyPliku, wylaczenia>>
 vars == <<dysk, issues, zyje, watek, passes, zamkniecia, nadawanie, awarie, krok, slady>>
 
 \* Znane znaleziska (SKILL.md, oczekiwane.json): ślad przyczyny, po której obietnica pada.
-ZnaneZnaleziska == {"przejecie", "dwa_procesy", "odczyt"}
+ZnaneZnaleziska == {"przejecie", "odczyt"}
 \* Ryzyka, które obietnica JednoIssue przyjmuje sama (ADR 0015, docstring outbox.py, komentarze w _send_all).
 Ryzyka == {"zerwane_po_zalozeniu", "bez_znacznika", "bez_numeru"}
 
@@ -102,7 +103,7 @@ TypeOK ==
     /\ tmp \subseteq W
     /\ numer \in [W -> Nat]
     /\ issues \in Seq([klucz : {"L", "N", "Z"}, tresc : Seq(Para)])
-    /\ zyje \in [Q -> {"nie", "tak", "zamkniety"}]
+    /\ zyje \in [Q -> {"nie", "tak", "zamykana", "zamkniety"}]
     /\ pc \in [Q -> Kroki]
     /\ draining \in [Q -> BOOLEAN] /\ again \in [Q -> BOOLEAN]
     /\ armed \in [Q -> BOOLEAN] /\ stopped \in [Q -> BOOLEAN]
@@ -208,6 +209,8 @@ Odrzuc(q, w, opis) ==
     /\ rejected' = Ustaw(rejected, q, rejected[q] \cup {w})
     /\ Idz(q, "plik", opis)
 Slad(s) == slady' = slady \cup {s}
+\* Outbox.stop ustawił _closing (app.py lifespan: Shutdown.finish_before_release).
+Zamykana(q) == zyje[q] \in {"zamykana", "zamkniety"}
 
 \* --- Wątek skrzynka-kolejka ----------------------------------------------------
 
@@ -232,6 +235,7 @@ Petla(q) ==
 \* Koniec listy: self._stopped_on = None.
 Plik(q) ==
     /\ pc[q] = "plik"
+    /\ lista[q] = <<>> \/ ~Zamykana(q)
     /\ IF lista[q] = <<>>
        THEN /\ stopped' = Ustaw(stopped, q, FALSE)
             /\ UNCHANGED <<lista, biez, bledyPliku, slady>>
@@ -265,6 +269,16 @@ Plik(q) ==
                             ELSE Idz(q, "szukaj", "_deliver: wysylka z pliku")
     /\ UNCHANGED <<dysk, issues, zyje, draining, again, armed, undeleted, rejected, nr, kom, bezZnacznika, bezOchrony,
                    passes, zamkniecia, nadawanie, sieci, zgubione, odmowy, wylaczenia>>
+
+\* outbox.py Outbox._send_all, początek pętli: _closing (stop), więc przejście nie bierze następnego pliku i
+\* wraca bez zmiany _stopped_on; plik czeka na resume następnego Centrum.
+Zatrzymane(q) ==
+    /\ pc[q] = "plik"
+    /\ lista[q] /= <<>>
+    /\ Zamykana(q)
+    /\ Idz(q, "zwolnij", "_send_all: _closing (stop), nastepny plik czeka na nastepne Centrum")
+    /\ UNCHANGED <<dysk, issues, zyje, draining, again, armed, stopped, undeleted, rejected, lista, biez, nr, kom,
+                   bezZnacznika, bezOchrony, passes, zamkniecia, nadawanie, awarie, slady>>
 
 \* keyed_box.py KeyedBox.labelled_issues (find_issue: newest_with_line), wołane przez outbox.py
 \* _deliver_to_period, _deliver_report i _deliver_to_known. Odczyt nie zmienia Skrzynki.
@@ -494,7 +508,7 @@ Decyzja(q) ==
 
 Watek(q) ==
     /\ zyje[q] /= "nie"
-    /\ \/ Petla(q) \/ Plik(q) \/ Szukaj(q) \/ Zaloz(q) \/ Komentuj(q) \/ ZapiszNumer(q) \/ ZamienNumer(q)
+    /\ \/ Petla(q) \/ Plik(q) \/ Zatrzymane(q) \/ Szukaj(q) \/ Zaloz(q) \/ Komentuj(q) \/ ZapiszNumer(q) \/ ZamienNumer(q)
        \/ Znacznik(q) \/ Zamiana(q) \/ Usun(q) \/ Zwolnij(q) \/ Decyzja(q)
 
 \* outbox.py Outbox._woken: budzenie z clock.after (wątek zegara, także w procesie, który zamknął port).
@@ -509,9 +523,10 @@ Budzenie(q) ==
 
 \* --- Zapytania HTTP: Outbox.post ------------------------------------------------
 
-\* Kolejka procesu z portem: tylko jej create_app przyjmuje zapytania. Straż bez odpowiednika w kodzie: w jednym
-\* procesie z dwiema kolejkami każde post idzie do pierwszej (SKILL.md, What the model leaves out).
-MaPort == {q \in Q : zyje[q] = "tak"}
+\* Kolejka procesu z portem: tylko jej create_app przyjmuje zapytania, także w trakcie Outbox.stop. Straż bez
+\* odpowiednika w kodzie: w jednym procesie z dwiema kolejkami każde post idzie do pierwszej (SKILL.md, What the
+\* model leaves out).
+MaPort == {q \in Q : zyje[q] \in {"tak", "zamykana"}}
 Port == CHOOSE q \in MaPort : \A r \in MaPort : q <= r
 
 \* outbox.py Outbox.post: nazwa z chwili i next(self._sequence) na początku, potem replace_atomically
@@ -610,7 +625,9 @@ Wylacz ==
 
 \* app.py lifespan: Outbox.resume przed pierwszym zapytaniem HTTP usuwa pliki *.tmp (każdy w
 \* suppress(OSError)) i wywołuje send_in_background. Port ma tylko jeden proces (launcher.py
-\* listen_locally); druga kolejka tego samego procesu powstaje, gdy pierwsza działa.
+\* listen_locally); druga kolejka tego samego procesu powstaje, gdy pierwsza działa. Nowy proces
+\* startuje także wtedy, gdy stary po zamknięciu gniazda jeszcze kończy pracę (KoniecProcesu), a
+\* jego resume może usunąć plik .json.tmp, który post starego procesu jeszcze zamienia (Nadaj).
 Start(q) ==
     /\ zyje[q] = "nie"
     /\ IF DwaProcesy \/ q = 1 THEN MaPort = {} ELSE zyje[1] = "tak"
@@ -618,23 +635,30 @@ Start(q) ==
     /\ tmp' = {}
     /\ draining' = Ustaw(draining, q, TRUE)
     /\ pc' = Ustaw(pc, q, "petla")
-    \* Nowy proces, gdy stary jeszcze kończy pracę po zamknięciu portu (server.py serve: uvicorn
-    \* zamyka gniazdo, potem czeka do _GRACEFUL_SHUTDOWN_S na połączenia, a wątek kolejki dalej biegnie).
-    /\ IF DwaProcesy /\ \E r \in Q : zyje[r] = "zamkniety" THEN Slad("dwa_procesy") ELSE UNCHANGED slady
     /\ krok' = "Centrum startuje: Outbox.resume usuwa *.tmp, send_in_background"
     /\ UNCHANGED <<plik, numer, issues, again, armed, stopped, undeleted, rejected, lista, biez, nr, kom, bezZnacznika,
-                   bezOchrony, passes, zamkniecia, nadawanie, awarie>>
+                   bezOchrony, passes, zamkniecia, nadawanie, awarie, slady>>
 
-\* Tata zamyka Centrum albo opiekun ponownego startu je restartuje: uvicorn zamyka gniazdo (port wolny
-\* dla nowego Centrum), a proces jeszcze kończy pracę.
-Zamknij(q) ==
+\* Tata zamyka Centrum albo opiekun ponownego startu je restartuje: server.py _Server.shutdown woła
+\* Shutdown.before_release, czyli Outbox.stop (app.py lifespan), który ustawia _closing i czeka na koniec
+\* przejścia. Do tego czasu proces ma port i przyjmuje zapytania HTTP.
+Zatrzymaj(q) ==
     /\ DwaProcesy
     /\ zyje[q] = "tak"
     /\ zamkniecia < 1
     /\ zamkniecia' = zamkniecia + 1
-    /\ zyje' = Ustaw(zyje, q, "zamkniety")
-    /\ krok' = "server.py serve: uvicorn zamyka gniazdo, proces jeszcze konczy prace"
+    /\ zyje' = Ustaw(zyje, q, "zamykana")
+    /\ krok' = "server.py _Server.shutdown: Outbox.stop ustawia _closing i czeka na koniec przejscia"
     /\ UNCHANGED <<dysk, issues, watek, passes, nadawanie, awarie, slady>>
+
+\* Outbox.stop wraca, gdy pod blokadą zastanie _draining = False, a uvicorn zamyka gniazdo (port wolny dla
+\* nowego Centrum); proces jeszcze kończy pracę do _GRACEFUL_SHUTDOWN_S.
+Zamknij(q) ==
+    /\ zyje[q] = "zamykana"
+    /\ ~draining[q]
+    /\ zyje' = Ustaw(zyje, q, "zamkniety")
+    /\ krok' = "server.py serve: Outbox.stop wraca, uvicorn zamyka gniazdo, proces jeszcze konczy prace"
+    /\ UNCHANGED <<dysk, issues, watek, passes, zamkniecia, nadawanie, awarie, slady>>
 
 \* Proces po zamknięciu portu kończy się, a jego wątki daemon giną z nim.
 KoniecProcesu(q) ==
@@ -644,15 +668,18 @@ KoniecProcesu(q) ==
     /\ UNCHANGED <<tmp, numer, issues, biez, nr, zamkniecia, przez, zakolejkowane, odrzucone, awarie>>
 
 Next ==
-    \/ \E q \in Q : Watek(q) \/ Budzenie(q) \/ Start(q) \/ Zamknij(q) \/ KoniecProcesu(q)
+    \/ \E q \in Q : Watek(q) \/ Budzenie(q) \/ Start(q) \/ Zatrzymaj(q) \/ Zamknij(q) \/ KoniecProcesu(q)
     \/ \E w \in W : Nadaj(w)
     \/ Wylacz
 
 \* Działający kod robi następny krok, budzenie przychodzi, zapytanie HTTP kończy post, stary proces
 \* kiedyś się kończy, a tata uruchamia Centrum, gdy nic nie działa. Komputer gaśnie i Skrzynka zawodzi
-\* skończenie wiele razy (Max...), więc po ostatniej awarii zostają kroki, które się udają.
+\* skończenie wiele razy (Max...), więc po ostatniej awarii zostają kroki, które się udają. Outbox.stop
+\* wraca przy którejś chwili bez przejścia, choć budzenie albo post zamykanej kolejki może zaczynać
+\* następne (puste) przejścia, więc Zamknij jest silnie sprawiedliwe.
 Sprawiedliwosc ==
     /\ \A q \in Q : WF_vars(Watek(q)) /\ WF_vars(Budzenie(q)) /\ WF_vars(KoniecProcesu(q)) /\ WF_vars(Start(q))
+    /\ \A q \in Q : SF_vars(Zamknij(q))
     /\ \A w \in W : WF_vars(Nadaj(w))
 
 Spec == Init /\ [][Next]_vars /\ Sprawiedliwosc

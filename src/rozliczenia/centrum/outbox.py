@@ -74,7 +74,8 @@ Frame = Callable[[int, int, str], str]
 
 # Foldery kolejki z trwającym przejściem w tym procesie i czy inna kolejka tego folderu prosi o następne. Dwie
 # kolejki jednego folderu (restart Centrum w procesie) nie wysyłają naraz: obie nie znalazłyby issue okresu, którego
-# druga jeszcze nie założyła, i założyłyby je dwa razy. Między procesami pilnuje tego port Centrum (``launcher``).
+# druga jeszcze nie założyła, i założyłyby je dwa razy. Między procesami pilnuje tego port Centrum (``launcher``), który
+# zamykane Centrum zwalnia dopiero po ``Outbox.stop``.
 _PASSES_LOCK: Final = threading.Lock()
 _PASSES: Final[dict[Path, bool]] = {}
 
@@ -536,7 +537,8 @@ class Outbox:
     ``None``: wysyłka czeka na inną i zostaje w kolejce do następnego przejścia.
 
     Dwie kolejki jednego folderu w tym procesie nie wysyłają naraz (``_claimed``): kolejka, która zastanie przejście
-    drugiej, nie wysyła nic, a druga po swoim przejściu robi następne.
+    drugiej, nie wysyła nic, a druga po swoim przejściu robi następne. Kolejka zamykanego Centrum (``stop``) kończy
+    wysyłkę, którą zaczęła, i nie wysyła już nic, zanim nowe Centrum dostanie port.
 
     Przejście, które stanęło na przyczynie dla całej kolejki, nastawia jedno budzenie ``clock`` za ``RETRY_S``, chyba
     że już jest nastawione; budzenie rusza wysyłkę w tle. Odrzucona treść i wysyłka czekająca w ``prepare`` budzenia
@@ -566,11 +568,12 @@ class Outbox:
         self._prepare = prepare
         self._addresses = addresses
         self._sequence = itertools.count(1)
-        self._lock = threading.Lock()  # _draining, _again, _retry_armed, _first_comments, _rejected_posts
+        self._lock = threading.Lock()  # _draining, _again, _retry_armed, _closing, _first_comments, _rejected_posts
         self._changed = threading.Condition(self._lock)
         self._draining = False
         self._again = False
         self._retry_armed = False
+        self._closing = False  # stop: żadne przejście nie bierze już następnego pliku
         self._stopped_on: WaitingCause | None = None  # tylko wątek kolejki
         self._first_comments: dict[tuple[str, Label], str | None] = {} if addresses is None else _read_addresses(addresses)
         self._undeleted: set[str] = set()  # wysłane w tej pracy Centrum, usunięcie się nie udało i jest w dzienniku
@@ -582,9 +585,12 @@ class Outbox:
         """Przy starcie Centrum: usuwa pozostałości urwanego zapisu i wysyła w tle wszystko, co czeka.
 
         Woła go ``lifespan`` przed przyjęciem pierwszego zapytania HTTP. Wysyłkę tworzy tylko zapytanie HTTP
-        (Uruchomienie albo „Wyślij” Uwagi taty), a wątek wysyłki rusza dopiero tutaj, więc żaden ``*.tmp`` nie ma
-        teraz autora: każdy został po zapisie przerwanym w poprzedniej pracy Centrum (np. utrata zasilania). Plik
-        ``.json`` obok niego, jeśli jest, ma pełną treść sprzed tego zapisu. Start nie czeka na skrzynkę: pyta ją tylko wątek w tle.
+        (Uruchomienie albo „Wyślij” Uwagi taty), a wątek wysyłki rusza dopiero tutaj, więc ``*.tmp`` nie ma autora w
+        tej pracy Centrum. Został po zapisie przerwanym w poprzedniej (np. utrata zasilania) albo pisze go jeszcze
+        ``post`` poprzedniego Centrum, które po zwolnieniu portu kończy otwarte zapytania do ``_GRACEFUL_SHUTDOWN_S``
+        (``server``): taki ``post`` zwraca wtedy ``False`` (wysyłka przepada, typ wyjątku jest w dzienniku). Plik
+        ``.json`` obok niego, jeśli jest, ma pełną treść sprzed tego zapisu. Start nie czeka na skrzynkę: pyta ją tylko
+        wątek w tle.
         """
 
         with suppress(OSError):
@@ -592,6 +598,18 @@ class Outbox:
                 with suppress(OSError):
                     leftover.unlink()
         self.send_in_background()
+
+    def stop(self) -> None:
+        """Przy zamykaniu Centrum, zanim zwolni port: czeka, aż wątek wysyłki skończy wysyłkę, którą zaczął.
+
+        Potem żadne przejście tej kolejki nie bierze następnego pliku, także po ``post`` i budzeniu ``RETRY_S``: pliki
+        czekają na ``resume`` następnego Centrum, które dostanie port dopiero po tym. Tak kolejki dwóch procesów
+        Centrum nie wysyłają z jednego folderu naraz, choć ``_claimed`` widzi tylko ten proces.
+        """
+
+        with self._changed:
+            self._closing = True
+            self._changed.wait_for(lambda: not self._draining)
 
     @property
     def directory(self) -> Path:
@@ -687,6 +705,9 @@ class Outbox:
         """
 
         for path in sorted(self._directory.glob("*.json")):
+            with self._lock:
+                if self._closing:
+                    return
             if path.name in self._undeleted:
                 self._remove(path)
                 continue
