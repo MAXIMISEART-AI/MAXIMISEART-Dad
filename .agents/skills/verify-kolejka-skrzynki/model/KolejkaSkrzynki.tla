@@ -35,7 +35,9 @@ CONSTANTS
     MaxWylaczen,    \* komputer gaśnie albo proces ginie w dowolnym kroku
     Kolejki,        \* 1 albo 2: dwie kolejki jednego folderu (_claimed, _released)
     DwaProcesy,     \* druga kolejka w nowym procesie, gdy stary zamknął port, a jego wątek jeszcze wysyła
-    Wybaczone       \* znane znaleziska, które warianty ...PozaZnanymi pomijają (oczekiwane.json)
+    \* Znane znaleziska (oczekiwane.json), każde przy jednej obietnicy: ślady przyczyn, po których wariant
+    \* ...PozaZnanymi tej obietnicy ją pomija. Pozostałe obietnice tego przebiegu sprawdza dalej w całości.
+    WybaczoneJednoIssue, WybaczoneWszystkieCzesci, WybaczoneCzesciWKolejnosci, WybaczoneZbieganie
 
 W == 1..Wysylek
 Q == 1..Kolejki
@@ -170,18 +172,19 @@ CzesciWKolejnosci ==
 Odrzucona(w) == w \in odrzucone /\ \E q \in Q : zyje[q] /= "nie" /\ w \in rejected[q]
 Pamieta(w) == \E q \in Q : zyje[q] /= "nie" /\ w \in undeleted[q]
 
-\* Gdy awarie się skończą, każda wysyłka z kolejki jest w Skrzynce, a jej pliku bez znacznika nie ma.
+\* Gdy awarie się skończą, pliku bez znacznika nie ma, chyba że Skrzynka odrzuciła jego treść albo jest wysłany i
+\* tylko nie dało się go usunąć. Plik, który zniknął albo ma znacznik, a Skrzynka nie ma jego części, łamie już
+\* WszystkieCzesci, więc Zbieganie patrzy tylko na pliki bez znacznika i każde znalezisko łamie jedną obietnicę.
 Zbieganie ==
-    <>[](\A w \in zakolejkowane :
-            /\ Dostarczona(w) \/ Odrzucona(w)
-            /\ plik[w] = "czeka" => Odrzucona(w) \/ Pamieta(w))
+    <>[](\A w \in zakolejkowane : plik[w] = "czeka" => Odrzucona(w) \/ (Pamieta(w) /\ Dostarczona(w)))
 
-Znane == Wybaczone \cap slady /= {}
-JednoIssuePozaZnanymi == JednoIssue \/ Znane
-WszystkieCzesciPozaZnanymi == WszystkieCzesci \/ Znane
-CzesciWKolejnosciPozaZnanymi == CzesciWKolejnosci \/ Znane
-\* slady tylko rosną, więc <>Znane to przebieg, w którym przyczyna znanego znaleziska kiedyś się zdarzyła.
-ZbieganiePozaZnanymi == Zbieganie \/ <>Znane
+\* Przyczyna jednego ze znanych znalezisk obietnicy już się zdarzyła.
+Po(wybaczone) == wybaczone \cap slady /= {}
+JednoIssuePozaZnanymi == JednoIssue \/ Po(WybaczoneJednoIssue)
+WszystkieCzesciPozaZnanymi == WszystkieCzesci \/ Po(WybaczoneWszystkieCzesci)
+CzesciWKolejnosciPozaZnanymi == CzesciWKolejnosci \/ Po(WybaczoneCzesciWKolejnosci)
+\* slady tylko rosną, więc <>Po(...) to przebieg, w którym przyczyna znanego znaleziska kiedyś się zdarzyła.
+ZbieganiePozaZnanymi == Zbieganie \/ <>Po(WybaczoneZbieganie)
 
 \* --- Pomocnicze ----------------------------------------------------------------
 
@@ -454,7 +457,8 @@ Budzenie(q) ==
 
 \* --- Zapytania HTTP: Outbox.post ------------------------------------------------
 
-\* Kolejka procesu z portem: tylko jej create_app przyjmuje zapytania (w jednym procesie pierwsza).
+\* Kolejka procesu z portem: tylko jej create_app przyjmuje zapytania. Straż bez odpowiednika w kodzie: w jednym
+\* procesie z dwiema kolejkami każde post idzie do pierwszej (SKILL.md, What the model leaves out).
 MaPort == {q \in Q : zyje[q] = "tak"}
 Port == CHOOSE q \in MaPort : \A r \in MaPort : q <= r
 
@@ -480,12 +484,20 @@ Nadaj(w) ==
           /\ UNCHANGED <<zakolejkowane, draining, again, pc>>
        \/ /\ nadawca[w] = "zamiana"
           /\ tmp' = tmp \ {w}
-          /\ \/ /\ plik' = [plik EXCEPT ![w] = "czeka"]
+          /\ \/ /\ w \in tmp
+                /\ plik' = [plik EXCEPT ![w] = "czeka"]
                 /\ zakolejkowane' = zakolejkowane \cup {w}
                 /\ nadawca' = [nadawca EXCEPT ![w] = "budzi"]
                 /\ UNCHANGED bledyPliku
                 /\ krok' = "post: os.replace, plik kolejki bez znacznika"
-             \/ /\ bledyPliku < MaxBledowPliku
+             \* Pliku .json.tmp już nie ma (usunął go resume nowego procesu): temporary.replace rzuca
+             \* FileNotFoundError, czyli OSError, i post zwraca False.
+             \/ /\ w \notin tmp
+                /\ plik' = [plik EXCEPT ![w] = "przepadl"]
+                /\ nadawca' = [nadawca EXCEPT ![w] = "koniec"]
+                /\ UNCHANGED <<zakolejkowane, bledyPliku>>
+                /\ krok' = "post: pliku .json.tmp juz nie ma, os.replace rzuca FileNotFoundError, post zwraca False"
+             \/ /\ w \in tmp /\ bledyPliku < MaxBledowPliku
                 /\ bledyPliku' = bledyPliku + 1
                 /\ plik' = [plik EXCEPT ![w] = "przepadl"]
                 /\ nadawca' = [nadawca EXCEPT ![w] = "koniec"]

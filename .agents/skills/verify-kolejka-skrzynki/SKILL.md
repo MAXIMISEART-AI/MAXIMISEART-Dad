@@ -6,8 +6,12 @@ pilnuje:
   - src/rozliczenia/centrum/keyed_box.py
   - src/rozliczenia/centrum/report_box.py
   - src/rozliczenia/centrum/atomic_file.py
+  - src/rozliczenia/centrum/app.py
+  - src/rozliczenia/centrum/launcher.py
+  - src/rozliczenia/centrum/server.py
   - .agents/skills/verify-aktualizacja-narzedzia/scripts/sprawdz_aktualizacje.py
 ci: .agents/skills/verify-kolejka-skrzynki/scripts/sprawdz_kolejke.py
+ci-czesci: 2
 ---
 
 # Verify Kolejka Skrzynki Zgłoszeń
@@ -15,8 +19,13 @@ ci: .agents/skills/verify-kolejka-skrzynki/scripts/sprawdz_kolejke.py
 ## What CI runs and what stays local
 
 CI runs `sprawdz_kolejke.py` (the `ci:` key) in Mutation checks whenever a change touches this skill:
-it runs the TLA+ model (`sprawdz_model_kolejki.py`, TLC, as the `ci:` of `verify-aktualizacja-narzedzia`
-does) and then the checker of the real code (`explore_outbox.py`), each to its end. The model step
+it runs the checker of the real code (`explore_outbox.py`) and the TLA+ model (`sprawdz_model_kolejki.py`, TLC,
+as the `ci:` of `verify-aktualizacja-narzedzia` does), each to its end. Its units (`UNITS` in
+`sprawdz_kolejke.py`) are the scope `watek-okresu`, the other four scopes, and the model; CI runs them in up to
+`ci-czesci` parts (`MUTACJE_CZESC=k/n`, consecutive units per part). `watek-okresu` alone takes about as long
+as the other two units together (in CI about 190 s of 340 s), so with two parts it gets its own, and no part
+is longer than it: below that the wall of the job does not go without splitting that scope's schedules. A
+pull request runs the parts of one n, and the night on `main` runs every part of every n up to `ci-czesci`. The model unit
 fails with `MODEL KOLEJKI: ROZJAZD MODELU Z KODEM` when covered code changed since the Sync commit,
 but it cannot tell whether a change to the model is right. `check_outbox_mutations.py` and
 `check_model_kolejki_mutations.py` run in full CI on `main` and nightly on `main` (`mutacje-nocne.yml`)
@@ -68,7 +77,14 @@ Covered files: `src/rozliczenia/centrum/outbox.py`,
 `src/rozliczenia/centrum/report_box.py` `newest_with_line`, by which
 `KeyedBox.find_issue` finds the issue of a Zgłoszenie or a period, and
 `src/rozliczenia/centrum/atomic_file.py` `replace_atomically`, which writes
-every queue file and its marker (the model only).
+every queue file and its marker (the model only). The model's `Start`, `Zamknij`
+and `KoniecProcesu`, on which the known finding `dwa_procesy` stands, also
+cover three definitions in files that Centrum changes often: `lifespan` in
+`app.py`, `listen_locally` and `_listen_when_released` in `launcher.py`, and
+`_GRACEFUL_SHUTDOWN_S`, `serve` and `_Server` in `server.py` (`DEFINITIONS` in
+`sprawdz_model_kolejki.py`). Only a change to these definitions, not to the
+rest of their files, is drift. Name these three files here without their
+`src/…` path in backticks: such a path makes the whole file covered.
 
 **Sync commit: `6f94edb8`** (2026-10-29, `main` before the TLA+ model). The
 checker and the model share it: at this commit both were confirmed to
@@ -81,6 +97,8 @@ whether they need another look:
 git log --oneline 6f94edb8..HEAD -- src/rozliczenia/centrum/outbox.py src/rozliczenia/centrum/keyed_box.py src/rozliczenia/centrum/report_box.py src/rozliczenia/centrum/atomic_file.py
 ```
 
+A change to the three definitions above shows as a `UWAGA:` line of
+`sprawdz_model_kolejki.py` (in CI as the drift verdict).
 Read each listed commit against this table and the model's table below. A change matters when it adds,
 removes or reorders a box call, changes what a retry does with an issue it
 finds, changes when the marker is written or the file removed, changes which
@@ -292,11 +310,13 @@ that cannot be read, and two file errors in a row.
   k-1 of the same wysyłka before it, so the issue reads in order. A repeated
   part (after a lost answer or a restart) is allowed. Harm: Logi Uruchomienia
   whose JSON blocks do not join into the file.
-- **Zbieganie** (liveness): once failures stop, every wysyłka that `post`
-  wrote to the queue is in the Skrzynka and its file without a marker is gone,
-  except a file whose content the Skrzynka refused (`Rejected`, waits for the
-  next start) or a sent file `_remove` could not delete (`_undeleted`). Harm
-  as KOLEJKA_PUSTA.
+- **Zbieganie** (liveness): once failures stop, no file without its marker
+  is left of a wysyłka that `post` wrote to the queue, except a file whose
+  content the Skrzynka refused (`Rejected`, waits for the next start) or a
+  sent file `_remove` could not delete (`_undeleted`, every part in the
+  Skrzynka). A file that disappeared or got its marker without every part
+  breaks WszystkieCzesci, so Zbieganie looks only at files without a marker,
+  and every known finding breaks one promise. Harm as KOLEJKA_PUSTA.
 
 A second issue of an Uwaga taty is possible, and nothing in the code detects
 it: a `NewIssue` has no line to find its issue by. JednoIssue accepts it after
@@ -320,8 +340,8 @@ The comment above each action and branch in the model names the same code.
 
 | Model action | Code |
 | --- | --- |
-| `Start` | `app.py` lifespan → `outbox.py` `Outbox.resume`: unlink every `*.tmp`, then `send_in_background`. Only a process with the port starts (`launcher.py` `listen_locally`); a second queue of one process starts while the first runs |
-| `Nadaj` | `outbox.py` `Outbox.post`: the name from the moment and `next(self._sequence)`, `replace_atomically` (`write_text` of `.json.tmp`, then `replace`; `OSError` → `False`), then `send_in_background` |
+| `Start` | `app.py` `lifespan` → `outbox.py` `Outbox.resume`: unlink every `*.tmp`, then `send_in_background`. Only a process with the port starts (`launcher.py` `listen_locally`); a second queue of one process starts while the first runs |
+| `Nadaj` | `outbox.py` `Outbox.post`: the name from the moment and `next(self._sequence)`, `replace_atomically` (`write_text` of `.json.tmp`, then `replace`; `OSError` → `False`, also the `FileNotFoundError` of `replace` when `resume` of a new process removed the `.tmp`), then `send_in_background` |
 | `Petla` | `Outbox._drain`: `_claimed` (taken → ask for another pass and skip `_send_all`), then `sorted(glob("*.json"))` in `_send_all` |
 | `Plik` | `Outbox._send_all` for one file: `_undeleted` → `_remove`, `_rejected` → skip, `_queued` (an `OSError` or a missing file → `_skip_unreadable`), `delivered` → `_remove`, else `_deliver`; the end of the list sets `_stopped_on = None` |
 | `Szukaj` | `keyed_box.py` `KeyedBox.labelled_issues` / `find_issue` (`report_box.py` `newest_with_line`) in `_deliver_to_period`, `_deliver_report` (a found Zgłoszenie is `Delivered(found, ())`), `_deliver_to_known` |
@@ -374,17 +394,22 @@ makes known findings exit 1.
 | Last line | Exit | Meaning |
 | --- | --- | --- |
 | `MODEL KOLEJKI OK` | 0 | Every promise holds in every configuration. |
-| `MODEL KOLEJKI OK, ZNANE ZNALEZISKA: n` | 0 | Only the known findings below break a promise; each is printed with its counterexample, and every other path passes. |
-| `MODEL KOLEJKI: NOWE NARUSZENIE (n)` | 1 | A promise breaks in a way no known finding explains. The counterexample is printed. |
+| `MODEL KOLEJKI OK, ZNANE ZNALEZISKA: n` | 0 | Only the known findings below break a promise, each only its own and after its cause; each is printed with its counterexample, and with every known finding excused the configuration passes. |
+| `MODEL KOLEJKI: NOWE NARUSZENIE (n)` | 1 | A promise breaks in a way no known finding explains: another promise than the finding's, or its promise without its cause in `slady`. The counterexample is printed. |
 | `MODEL KOLEJKI: ZNALEZISKO ZNIKNĘŁO (n)` | 1 | A known finding no longer happens. If a change fixed it, set `"wynik": "przechodzi"` in `model/oczekiwane.json` and remove it below. |
 | `MODEL KOLEJKI: BŁĄD MODELU (n)` | 2 | TLC gave no verdict (a syntax error) or `TypeOK` broke. Nothing is known about the promise. |
 | `MODEL KOLEJKI: ROZJAZD MODELU Z KODEM` | 1 | Only in CI: covered code changed since the Sync commit. Outside CI the same is a `UWAGA:` line above the verdict, and the verdict means nothing until you bring the model in line. |
 
-A known finding runs twice, as in `verify-aktualizacja-narzedzia`: excusing
-every other known finding (`Wybaczone`, the `…PozaZnanymi` variants) it must
-break, and excusing every known finding it must pass. A finding is excused
-only in a behaviour in which its cause happened (`slady`), not by its
-configuration or promise.
+Each known finding in `model/oczekiwane.json` names the promise it breaks
+(`obietnica`) and its cause (`przyczyna`), a mark in `slady` that only the step
+of the code it names sets. It runs twice, as in `verify-aktualizacja-narzedzia`.
+First excusing every other known finding: it must break exactly its promise,
+and the last state of the counterexample must have its cause in `slady`;
+another promise, or the right one without the cause, is `NOWE NARUSZENIE`.
+Then excusing every known finding: it must pass. A finding excuses only its
+own promise (`Wybaczone<promise>`, the `<promise>PozaZnanymi` variant), and
+only in a behaviour in which its cause happened; every other promise of its
+configuration is checked in full.
 
 ### Configurations
 
@@ -426,7 +451,9 @@ its bound.
    guards only queues of one process, and the port is free before the old
    process ends. It needs A's queue thread in a pass, or its `RETRY_S` wake, in
    the seconds between the closed socket and the end of A, while B already
-   sends.
+   sends. In the same window the docstring of `Outbox.resume` („żaden `*.tmp`
+   nie ma teraz autora”) is not true: B's `resume` can remove the `.tmp` of a
+   `post` that A still writes, and that `post` returns `False`.
 3. **`odczyt`, Zbieganie (`odczyt`)**: `_queued` gets an `OSError` reading a
    queue file (something holds it open), `_skip_unreadable` skips it, the pass
    ends with `_stopped_on = None`, so `_drain` arms no `RETRY_S` wake. The
@@ -440,8 +467,8 @@ its bound.
    measured, so a refused comment is not expected; this is what the code does
    if GitHub refuses one.
 
-A known finding lives in `model/oczekiwane.json` with the trace it is excused
-by. When a change fixes it, the check ends with `ZNALEZISKO ZNIKNĘŁO`.
+A known finding lives in `model/oczekiwane.json` with the promise it breaks
+and the cause it is excused after. When a change fixes it, the check ends with `ZNALEZISKO ZNIKNĘŁO`.
 
 ### Real bug or modeling error?
 
@@ -476,8 +503,12 @@ Checked only with the bounds in the configurations. Assumed and not checked:
 - Guards without a counterpart in the code, which only bound the run: one
   port closing per run (`zamkniecia < 1`), a second queue of one process only
   while the first runs (no code in `src/` makes two; a restart in one process
-  would), and a wysyłka that starts its `post` only after the one before it
-  started (its name, from the moment and `_sequence`, sorts after it).
+  would), a wysyłka that starts its `post` only after the one before it
+  started (its name, from the moment and `_sequence`, sorts after it), and
+  `Port`: in one process with two queues (`dwie-kolejki`) every `post` goes to
+  the first. Not checked through it: a `post` whose `send_in_background` wakes
+  the second queue while the first sleeps. With two processes only one has
+  the port at a time, so there `Port` is no choice.
 
 ### After changing the model
 
@@ -493,7 +524,12 @@ one guard or step whose code it names, on a copy of the checkout
   sent again in the same Centrum run; and, as a model check without code, the
   accepted risk removed from JednoIssue (the risk is reachable).
 - WszystkieCzesci: a failed comment skipped instead of ending the wysyłka; a
-  Zgłoszenie that never posts its comments, with the network working.
+  Zgłoszenie that never posts its comments, with the network working; and, in
+  the configurations of known findings that excuse another promise, a refused
+  comment that removes the file instead of `_rejected` (`odmowa-tresci`, which
+  excuses only JednoIssue after `odmowa_po_zalozeniu`) and an unreadable file
+  removed instead of skipped by `_skip_unreadable` (`odczyt`, which excuses
+  only Zbieganie after `odczyt`).
 - CzesciWKolejnosci: comments posted from the last part.
 - Zbieganie: a network failure that skips the file to the next start; a pass
   that stops without `_stopped_on`; no `RETRY_S` wake; a wake that does not
@@ -504,6 +540,10 @@ one guard or step whose code it names, on a copy of the checkout
 Two mutations fix a known finding in the model (a found Zgłoszenie gets its
 other parts; the new Centrum waits until the old process ends) and must end
 with `MODEL KOLEJKI: ZNALEZISKO ZNIKNĘŁO`. Known findings `odczyt` and
-`odmowa_po_zalozeniu` have no such fix mutation; their two runs in the check
-show only that they still happen and that nothing else breaks in their
-configuration.
+`odmowa_po_zalozeniu` have no such fix mutation, so nothing shows that a fix
+of either would end with `ZNALEZISKO ZNIKNĘŁO`. That their configurations
+break no other promise stands on the two mutations above in `odmowa-tresci`
+and `odczyt`, each of which breaks WszystkieCzesci after the finding's cause
+and ends with `NOWE NARUSZENIE`. A second break of the same promise after the
+same cause (another second issue after a refused comment, another file that
+waits after a read error) the finding excuses, and that is not checked.

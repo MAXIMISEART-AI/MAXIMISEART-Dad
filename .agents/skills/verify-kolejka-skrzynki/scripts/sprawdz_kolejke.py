@@ -1,7 +1,9 @@
 """Podstawa skilla w CI: model TLA+ Kolejki Skrzynki (TLC) i sprawdzenie prawdziwego kodu, oba do końca.
 
-Uruchamia po kolei ``sprawdz_model_kolejki.py`` i ``explore_outbox.py`` tym samym Pythonem, z ich wyjściem, i kończy
-się linią ``KOLEJKA SKRZYNKI OK`` albo ``KOLEJKA SKRZYNKI: PADŁO <skrypty>`` z kodem 1.
+Uruchamia po kolei jednostki z ``UNITS`` (zakresy ``explore_outbox.py`` i ``sprawdz_model_kolejki.py``) tym samym
+Pythonem, z ich wyjściem, i kończy się linią ``KOLEJKA SKRZYNKI OK`` albo ``KOLEJKA SKRZYNKI: PADŁO <jednostki>`` z
+kodem 1. W CI część ``MUTACJE_CZESC=k/n`` (``ci-czesci`` w ``SKILL.md``) uruchamia tylko swój kawałek ``UNITS``
+(``skrypt_skilla.part``).
 
     .venv/bin/python .agents/skills/verify-kolejka-skrzynki/scripts/sprawdz_kolejke.py
     py -3 .agents\\skills\\verify-kolejka-skrzynki\\scripts\\sprawdz_kolejke.py
@@ -10,20 +12,51 @@ się linią ``KOLEJKA SKRZYNKI OK`` albo ``KOLEJKA SKRZYNKI: PADŁO <skrypty>`` 
 from __future__ import annotations
 
 import argparse
+from collections.abc import Mapping
+import os
 from pathlib import Path
 import subprocess
 import sys
 
-CHECKS = ("sprawdz_model_kolejki.py", "explore_outbox.py")
+sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "tools"))
+
+from skrypt_skilla import part
+
+# Jednostka to skrypt skilla z argumentami; każda biegnie od świeżego startu. Zakres ``watek-okresu`` trwa sam tyle co
+# reszta zakresów i model razem (w CI ok. 190 s z 340 s), więc jest osobną jednostką na początku: przy dwóch częściach
+# dostaje część dla siebie, a dłużej niż on nie trwa już żadna część.
+UNITS = (
+    ("explore_outbox.py", ("--scope", "watek-okresu")),
+    (
+        "explore_outbox.py",
+        ("--scope", "zgloszenie", "--scope", "zgloszenie-w-czesciach", "--scope", "nowe-issue", "--scope", "znane-issue"),
+    ),
+    ("sprawdz_model_kolejki.py", ()),
+)
+
+
+def units(environment: Mapping[str, str] = os.environ) -> tuple[tuple[str, tuple[str, ...]], ...]:
+    """Jednostki tego przebiegu: wszystkie albo w CI kawałek ``MUTACJE_CZESC=k/n`` z ``UNITS``."""
+
+    return part(UNITS, environment)
 
 
 def main(argv: list[str] | None = None) -> int:
     argparse.ArgumentParser(description=__doc__.splitlines()[0] if __doc__ else None).parse_args(argv)
+    try:
+        chosen = units()
+    except ValueError as problem:
+        print(f"KOLEJKA SKRZYNKI: PADŁO ({problem})")
+        return 1
     here = Path(__file__).resolve().parent
-    failed = [name for name in CHECKS if subprocess.run([sys.executable, str(here / name)], check=False).returncode != 0]
+    failed = [
+        " ".join((name, *arguments))
+        for name, arguments in chosen
+        if subprocess.run([sys.executable, str(here / name), *arguments], check=False).returncode != 0
+    ]
     print()
     if failed:
-        print(f"KOLEJKA SKRZYNKI: PADŁO {' '.join(failed)}")
+        print(f"KOLEJKA SKRZYNKI: PADŁO {', '.join(failed)}")
         return 1
     print("KOLEJKA SKRZYNKI OK")
     return 0

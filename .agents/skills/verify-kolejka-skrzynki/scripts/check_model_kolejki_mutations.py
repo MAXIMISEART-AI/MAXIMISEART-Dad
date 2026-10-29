@@ -116,6 +116,29 @@ MUTATIONS = (
         NEW,
     ),
     Mutation(
+        "odrzucony komentarz usuwa plik zamiast _rejected (_send_all: _remove po _on_rejected)",
+        (
+            Edit(
+                MODEL,
+                '          /\\ Odrzuc(q, w, "comment: Rejected, plik czeka do nastepnego startu")\n'
+                "          /\\ UNCHANGED <<issues, kom, stopped, sieci, zgubione>>\n",
+                '          /\\ Idz(q, "usun", "comment: Rejected, _remove")\n'
+                "          /\\ UNCHANGED <<issues, kom, stopped, rejected, sieci, zgubione>>\n",
+            ),
+        ),
+        _check("odmowa-tresci"),
+        "Uwaga taty, której komentarz Skrzynka odrzuciła, znika z kolejki bez części 2, choć jej znalezisko wybacza tylko drugie issue",
+        NEW,
+    ),
+    Mutation(
+        "nieczytelny plik kolejki usunięty zamiast pominięty (_skip_unreadable: _remove)",
+        (Edit(MODEL, '/\\ Idz(q, "plik", "_queued: read_text rzuca OSError, _skip_unreadable pomija plik")\n',
+              '/\\ Idz(q, "usun", "_queued: read_text rzuca OSError, _remove")\n'),),
+        _check("odczyt"),
+        "Kontrola ilości, której pliku raz nie dało się odczytać, znika bez wysyłki, choć jej znalezisko wybacza tylko Zbieganie",
+        NEW,
+    ),
+    Mutation(
         "części komentowane od końca (_comment_all: reversed(comments))",
         (Edit(MODEL, "Od(a) == [i \\in 1..(Czesci - a + 1) |-> a + i - 1]\n",
               "Od(a) == [i \\in 1..(Czesci - a + 1) |-> Czesci - i + 1]\n"),),
