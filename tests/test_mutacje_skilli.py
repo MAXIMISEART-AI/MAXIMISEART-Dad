@@ -158,7 +158,10 @@ def test_skrypt_bez_werdyktu_daje_fail(tmp_path: Path) -> None:
 
 
 def test_skrypt_po_limicie_czasu_daje_fail_a_kolejne_dalej_ruszaja(tmp_path: Path) -> None:
-    _skill(tmp_path, "verify-a", {"check_a_mutations.py": "import time\ntime.sleep(60)\n"})
+    # Wybór kroków importuje skrypt, żeby przeczytać jego tabelę, więc ``sleep`` na poziomie modułu biegłby w procesie
+    # narzędzia, a nie w skrypcie, którego pilnuje limit. Werdykt po ``sleep`` sprawia, że FAIL daje tylko limit.
+    late = "import time\n\nif __name__ == '__main__':\n    time.sleep(60)\n" + "".join(f"    {line}\n" for line in PASSING.splitlines())
+    _skill(tmp_path, "verify-a", {"check_a_mutations.py": late})
     _skill(tmp_path, "verify-b", {"check_b_mutations.py": PASSING})
 
     result = _run(tmp_path, "--limit-s", "1")
