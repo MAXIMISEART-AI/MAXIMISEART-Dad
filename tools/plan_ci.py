@@ -90,10 +90,11 @@ CZESCI = Path(".ci-plan", "czesci.json")
 PLIKI_TESTOW = ("test_*.py", "*_test.py")
 CEL_S = 225.0
 KROK_CELU_S = 5.0
-# Limit konta to 20 zadań naraz ze wszystkich workflowów; 20. slot zostaje dla scalenia.yml.
-ZADANIA_RUNU = 19
-# Zadania ci.yml o stałej liczbie (plan, szybkie, Required).
-STALE_ZADANIA = 3
+# Organizacja ma 60 zadań naraz ze wszystkich workflowów (plan Team od 26.10). 20 zostawia planowi 16 zadań pytest i
+# Mutation checks, tyle co przed rozdzieleniem Frontend oraz Ruff i mypy na dwa zadania.
+ZADANIA_RUNU = 20
+# Zadania ci.yml o stałej liczbie (plan, Frontend, Ruff i mypy, Required).
+STALE_ZADANIA = 4
 # Zadania bramki w ci.yml, które startują tylko z pracą od planu.
 Z_PLANU = ("pytest", "mutations")
 # Zdarzenie planu skryptów mutacji skilli w mutacje-nocne.yml.
@@ -288,8 +289,8 @@ def zakres(zdarzenie: str, zmiana: frozenset[str], root: Path = ROOT) -> Zakres:
     windows, linux = (tor for tor in TORY if tor.nazwa in ("windows-3.11", "linux-3.14"))
     if full := sorted(sciezka for sciezka in zmiana if sciezka in szybko.FULL or sciezka.startswith(".github/workflows/")):
         return Zakres((replace(windows, kroki=("e2e", "timing")), linux), tuple(pliki_testow(root)), f"FULL ({', '.join(full)})")
-    wybor = szybko.select(root, zmiana)
-    wybrane = sorted(wybor.fingerprints)
+    wybor = szybko.reach(root, zmiana)
+    wybrane = list(wybor.tests)
     struktura = [wezel for wezel in szybko.STRUCTURE if wezel.partition("::")[0] not in wybrane]
     kroki = ("e2e",) * any(sciezka.startswith("src/") for sciezka in zmiana) + ("timing",) * any(skrypt in wybor.distances for skrypt in STRAZ)
     return Zakres((replace(windows, kroki=kroki), linux), (*wybrane, *struktura), f"wybór {len(wybrane)} plików")

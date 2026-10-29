@@ -139,7 +139,8 @@ def _plan(event: str, *, skills: bool = False, errors: tuple[str, ...] = ()) -> 
         ("pull_request", True, {}, []),
         ("push", True, {}, []),
         ("push", True, {"pytest": "skipped"}, ["pytest=skipped"]),
-        ("pull_request", True, {"szybkie": "failure"}, ["szybkie=failure"]),
+        ("pull_request", True, {"frontend": "failure"}, ["frontend=failure"]),
+        ("pull_request", True, {"ruff-mypy": "failure"}, ["ruff-mypy=failure"]),
         ("pull_request", True, {"mutations": "cancelled"}, ["mutations=cancelled"]),
         ("pull_request", False, {"mutations": "skipped"}, []),
         ("pull_request", True, {"mutations": "skipped"}, ["mutations=skipped"]),
@@ -156,7 +157,7 @@ def test_required_przechodzi_tylko_gdy_kazde_zadanie_przeszlo_a_pominiete_jest_t
 
     assert done.returncode == (1 if reported else 0), done.stdout + done.stderr
     assert done.stdout.splitlines() == ([f"REQUIRED FAIL | {reason}" for reason in reported] or [done.stdout.splitlines()[0]])
-    assert reported or done.stdout.startswith(f"REQUIRED OK | 4 zadań, {len(plan.zadania)} zadań z planu ")
+    assert reported or done.stdout.startswith(f"REQUIRED OK | 5 zadań, {len(plan.zadania)} zadań z planu ")
 
 
 def test_required_czerwienieje_bez_planu_i_gdy_zadanie_planu_nie_zglosilo_jednostki_albo_ta_padla(tmp_path: Path) -> None:
@@ -189,12 +190,8 @@ def test_kazdy_krok_wskazany_w_wyrazeniu_jest_wczesniej_w_tym_samym_zadaniu() ->
     assert unknown == {}
 
 
-def test_w_szybkich_porazka_jednego_sprawdzenia_nie_ukrywa_pozostalych() -> None:
-    steps = jobs()["szybkie"]["steps"]
+def test_w_ruff_mypy_porazka_jednego_sprawdzenia_nie_ukrywa_pozostalych() -> None:
+    steps = jobs()["ruff-mypy"]["steps"]
     deps = next(index for index, step in enumerate(steps) if step.get("id") == "deps")
-    checks = [step.get("if") for step in steps[deps + 1 :]]
-    python_checks = [step["run"].split()[2] for step in steps[deps + 1 :] if step.get("if") == INDEPENDENT]
 
-    assert checks[checks.index(INDEPENDENT) :] == [INDEPENDENT] * 3
-    assert python_checks == ["ruff", "mypy", "mypy"]
-    assert set(checks[: checks.index(INDEPENDENT)]) == {None}
+    assert [(step["run"].split()[2], step.get("if")) for step in steps[deps + 1 :]] == [("ruff", INDEPENDENT), ("mypy", INDEPENDENT), ("mypy", INDEPENDENT)]

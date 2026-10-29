@@ -20,10 +20,10 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  szybkie:
-    # Short checks share one runner: alone, each spent most of its time on setup. mypy needs no Windows runner,
-    # because --platform decides which sys.platform branches it checks; CI checks both systems.
-    name: Ruff, mypy, Frontend
+  frontend:
+    # Centrum rozliczeń: the committed build and contract must match their sources (tata has no Node). Beside Ruff and
+    # mypy, not after them: one job for both took 47–78 s, so on a short pull request it ended after the pytest jobs.
+    name: Frontend
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -38,7 +38,6 @@ jobs:
           enable-cache: false
 
       - name: Install development dependencies (pinned FastAPI and Pydantic shape the contract)
-        id: deps
         run: uv pip install --system --python "${{ steps.python.outputs.python-path }}" -e ".[dev]"
 
       # Centrum rozliczeń: the committed build and contract must match their sources (tata has no Node).
@@ -92,8 +91,28 @@ jobs:
             exit 1
           fi
 
-      # Each Python check runs even when an earlier step failed, so one red check does not hide the others.
-      # They come after the Frontend steps, which run as one chain, as the Frontend job did.
+  ruff-mypy:
+    # mypy needs no Windows runner, because --platform decides which sys.platform branches it checks; CI checks both
+    # systems.
+    name: Ruff, mypy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - id: python
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.14'
+
+      - uses: astral-sh/setup-uv@v10.3.2
+        with:
+          enable-cache: false
+
+      - name: Install development dependencies
+        id: deps
+        run: uv pip install --system --python "${{ steps.python.outputs.python-path }}" -e ".[dev]"
+
+      # Each check runs even when an earlier step failed, so one red check does not hide the others.
       - name: Lint Python code
         if: ${{ !cancelled() && steps.deps.outcome == 'success' }}
         run: python -m ruff check
@@ -373,7 +392,8 @@ jobs:
     runs-on: ubuntu-latest
     needs:
       - plan
-      - szybkie
+      - frontend
+      - ruff-mypy
       - pytest
       - mutations
     # Also in a cancelled run: a skipped required check counts as success and would not block the merge.

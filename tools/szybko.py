@@ -191,6 +191,9 @@ class Dependencies:
     def of(cls, root: Path, files: frozenset[str]) -> Dependencies:
         modules = _modules(files)
         directories = {str(parent) for path in files for parent in PurePosixPath(path).parents if str(parent) != "."}
+        in_folder: dict[str, set[str]] = defaultdict(set)
+        for file in files:
+            in_folder[str(PurePosixPath(file).parent)].add(file)
         package_data = _package_data(files)
         depends_on: dict[str, set[str]] = defaultdict(set)
         folder_files: dict[str, set[str]] = defaultdict(set)
@@ -201,9 +204,10 @@ class Dependencies:
                 tree = ast.parse((root / path).read_bytes())
             except (OSError, SyntaxError, ValueError):
                 continue
-            for name in _imports(tree, path):
+            nodes = list(ast.walk(tree))
+            for name in _imports(nodes, path):
                 depends_on[path] |= _resolve(name, path, modules, files)
-            texts, globs = references(tree)
+            texts, globs = references(nodes)
             test = path.startswith("tests/")
             if not test:
                 # Poza testami sama nazwa pliku albo modułu to zwykle nazwa procesu albo pliku w cudzym katalogu.
@@ -215,7 +219,7 @@ class Dependencies:
                 # a katalog w narzędziu to zwykle lista miejsc do sprawdzenia (``GENERATED``), nie plik, który czyta.
                 (depends_on if test else folder_files)[path] |= _files_named(text, files)
                 if test:
-                    folder_files[path] |= _folder_files(text, files, directories)
+                    folder_files[path] |= _folder_files(text, in_folder)
             for glob in globs:
                 folder_files[path] |= _globbed(glob, files, directories)
             folder_files[path] |= package_data.get(str(PurePosixPath(path).parent), set())
@@ -292,10 +296,10 @@ def _modules(files: frozenset[str]) -> dict[str, set[str]]:
     return modules
 
 
-def _imports(tree: ast.AST, path: str) -> set[str]:
+def _imports(nodes: Iterable[ast.AST], path: str) -> set[str]:
     package = PurePosixPath(path).parent.parts
     names: set[str] = set()
-    for node in ast.walk(tree):
+    for node in nodes:
         if isinstance(node, ast.Import):
             names.update(alias.name for alias in node.names)
         elif isinstance(node, ast.ImportFrom):
@@ -333,11 +337,12 @@ def _files_named(text: str, files: frozenset[str]) -> set[str]:
     return {file for file in files if file == path or file.endswith("/" + path)}
 
 
-def _folder_files(text: str, files: frozenset[str], directories: set[str]) -> set[str]:
+def _folder_files(text: str, in_folder: dict[str, set[str]]) -> set[str]:
+    """Pliki leżące wprost w katalogu ``text`` (``in_folder``: katalog → jego pliki)."""
+
     if (path := _as_path(text)) is None or "/" not in path:
         return set()
-    folders = {folder for folder in directories if folder == path or folder.endswith("/" + path)}
-    found = {file for file in files if str(PurePosixPath(file).parent) in folders}
+    found = {file for folder, inside in in_folder.items() if folder == path or folder.endswith("/" + path) for file in inside}
     # Pakiet test zna przez importy; jego katalog w napisie to ścieżka w repozytorium, które test sam buduje.
     return set() if any(PurePosixPath(file).name == "__init__.py" for file in found) else found
 
@@ -375,7 +380,17 @@ def _is_test(path: str) -> bool:
     return pure.parts[0] == "tests" and pure.name.startswith("test_") and pure.suffix == ".py"
 
 
-def select(root: Path, changed: frozenset[str]) -> Selection:
+@dataclass(frozen=True)
+class Reach:
+    """Pliki testów, których dotyczy zmiana, i odległość plików od niej, bez odcisków: tyle bierze Plan CI."""
+
+    tests: tuple[str, ...]
+    distances: dict[str, int]
+    full_reason: str | None
+    dependencies: Dependencies
+
+
+def reach(root: Path, changed: frozenset[str]) -> Reach:
     files = _files(root) | changed
     dependencies = Dependencies.of(root, files)
     tests = {path for path in files if _is_test(path) and (root / path).is_file()}
@@ -386,8 +401,13 @@ def select(root: Path, changed: frozenset[str]) -> Selection:
     distances |= {reader: min(distances.get(reader, 2), 2) for reader in readers}
     if not full:
         tests &= distances.keys()
-    fingerprints = {test: _fingerprint(root, dependencies.inputs_of(test)) for test in sorted(tests)}
-    return Selection(fingerprints, distances, f"zmiana w {', '.join(full)}" if full else None)
+    return Reach(tuple(sorted(tests)), distances, f"zmiana w {', '.join(full)}" if full else None, dependencies)
+
+
+def select(root: Path, changed: frozenset[str]) -> Selection:
+    found = reach(root, changed)
+    fingerprints = {test: _fingerprint(root, found.dependencies.inputs_of(test)) for test in found.tests}
+    return Selection(fingerprints, found.distances, found.full_reason)
 
 
 def _times(root: Path) -> dict[str, float]:

@@ -55,6 +55,7 @@ from __future__ import annotations
 import argparse
 from collections import defaultdict
 from collections.abc import Mapping
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass
 from datetime import datetime
 import json
@@ -316,18 +317,24 @@ def _gh(*argumenty: str) -> str:
 
 
 def _pobierz(katalog: Path) -> None:
-    """Artefakty ``czasy-ci`` ``ILE_RUNOW`` najnowszych zielonych runów main do ``<run>.json``; starsze usuwa."""
+    """Artefakty ``czasy-ci`` ``ILE_RUNOW`` najnowszych zielonych runów main do ``<run>.json``; starsze usuwa.
 
-    zielone = set(_gh("api", "repos/{owner}/{repo}/actions/workflows/ci.yml/runs?branch=main&event=push&status=success&per_page=100", "--jq", ".workflow_runs[].id").split())
-    artefakty = _gh("api", f"repos/{{owner}}/{{repo}}/actions/artifacts?name={ARTEFAKT}&per_page={SZUKANE_ARTEFAKTY}", "--jq", ".artifacts[] | select(.expired | not) | .workflow_run.id")
-    runy = sorted({int(run) for run in artefakty.split() if run in zielone}, reverse=True)[:ILE_RUNOW]
-    for run in runy:
-        if not (katalog / f"{run}.json").is_file():
-            pobrany = katalog / f"{run}.pobieranie"
-            shutil.rmtree(pobrany, ignore_errors=True)
-            _gh("run", "download", str(run), "--name", ARTEFAKT, "--dir", str(pobrany))
-            (pobrany / f"{ARTEFAKT}.json").replace(katalog / f"{run}.json")
-            shutil.rmtree(pobrany)
+    Zapytania idą równolegle, bo Plan CI czeka na nie na ścieżce krytycznej runu. Zielony run main ma swój artefakt, więc
+    zielone runy wśród ``SZUKANE_ARTEFAKTY`` najnowszych artefaktów są wśród tylu najnowszych zielonych runów.
+    """
+
+    def pobierz(run: int) -> None:
+        pobrany = katalog / f"{run}.pobieranie"
+        shutil.rmtree(pobrany, ignore_errors=True)
+        _gh("run", "download", str(run), "--name", ARTEFAKT, "--dir", str(pobrany))
+        (pobrany / f"{ARTEFAKT}.json").replace(katalog / f"{run}.json")
+        shutil.rmtree(pobrany)
+
+    with ThreadPoolExecutor() as pula:
+        zielone = pula.submit(_gh, "api", f"repos/{{owner}}/{{repo}}/actions/workflows/ci.yml/runs?branch=main&event=push&status=success&per_page={SZUKANE_ARTEFAKTY}", "--jq", ".workflow_runs[].id")
+        artefakty = pula.submit(_gh, "api", f"repos/{{owner}}/{{repo}}/actions/artifacts?name={ARTEFAKT}&per_page={SZUKANE_ARTEFAKTY}", "--jq", ".artifacts[] | select(.expired | not) | .workflow_run.id")
+        runy = sorted({int(run) for run in artefakty.result().split() if run in set(zielone.result().split())}, reverse=True)[:ILE_RUNOW]
+        list(pula.map(pobierz, [run for run in runy if not (katalog / f"{run}.json").is_file()]))
     for plik in katalog.glob("*.json"):
         if plik.stem.isdigit() and int(plik.stem) not in runy:
             plik.unlink()

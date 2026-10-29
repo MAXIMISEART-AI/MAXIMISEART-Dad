@@ -120,8 +120,8 @@ A rule that a check enforces sits in its section's table, one line per rule, bes
 
 | Rule | Guard |
 |---|---|
-| The frontend reaches the server (`fetch`, `EventSource`, `WebSocket`, `XMLHttpRequest`, `sendBeacon`) and calls `JSON.parse` only in the files of `NETWORK_FILES`, which parse every server response and stream event with a schema generated from the server models. | `npm run rules` (rule 3 in `frontend/scripts/rules.mjs`) in CI job `Ruff, mypy, Frontend` |
-| After a change to the server models, and after a merge or a rebase, regenerate the contract and the Centrum build (`npm run regen` in `frontend/`), because the `merge=wygenerowane` driver keeps the current HEAD's version of them. | step „Require the committed contract and build to be fresh” of CI job `Ruff, mypy, Frontend` |
+| The frontend reaches the server (`fetch`, `EventSource`, `WebSocket`, `XMLHttpRequest`, `sendBeacon`) and calls `JSON.parse` only in the files of `NETWORK_FILES`, which parse every server response and stream event with a schema generated from the server models. | `npm run rules` (rule 3 in `frontend/scripts/rules.mjs`) in CI job `Frontend` |
+| After a change to the server models, and after a merge or a rebase, regenerate the contract and the Centrum build (`npm run regen` in `frontend/`), because the `merge=wygenerowane` driver keeps the current HEAD's version of them. | step „Require the committed contract and build to be fresh” of CI job `Frontend` |
 
 ## Review Context
 

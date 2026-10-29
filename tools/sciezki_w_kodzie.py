@@ -6,6 +6,7 @@ Czyta je ``tools/szybko.py``: od tych plików zależy test, choć ich nie import
 from __future__ import annotations
 
 import ast
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import TypeGuard
 
@@ -20,8 +21,9 @@ class Glob:
     recursive: bool
 
 
-def references(tree: ast.AST) -> tuple[set[str], set[Glob]]:
-    """Napisy modułu, ścieżki składane operatorem ``/`` (``ROOT / "docs" / "adr"`` daje ``docs/adr``) i globy na katalogach."""
+def references(nodes: Sequence[ast.AST]) -> tuple[set[str], set[Glob]]:
+    """Napisy modułu, ścieżki składane operatorem ``/`` (``ROOT / "docs" / "adr"`` daje ``docs/adr``) i globy na katalogach;
+    ``nodes`` to wszystkie węzły modułu (``ast.walk``), które ``tools/szybko.py`` przegląda raz także dla importów."""
 
     def is_path(node: ast.AST) -> TypeGuard[ast.BinOp]:
         return isinstance(node, ast.BinOp) and isinstance(node.op, ast.Div)
@@ -50,7 +52,6 @@ def references(tree: ast.AST) -> tuple[set[str], set[Glob]]:
             joined = []
         return found
 
-    nodes = list(ast.walk(tree))
     assignments = [node for node in nodes if isinstance(node, ast.Assign) and len(node.targets) == 1]
     for assignment in sorted(assignments, key=lambda node: (node.lineno, node.col_offset)):
         target, value = assignment.targets[0], assignment.value
