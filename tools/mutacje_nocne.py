@@ -23,11 +23,11 @@ Workflow ``mutacje-nocne.yml`` biegnie raz na dobę na ``main`` i ręcznie (``wo
   zgłoszeniu reszty, więc następna noc liczy od tej samej bazy. Zgłoszone mutacje się nie powtórzą, także gdy PR z
   następnego dnia przesunie ich linie, bo klucz nie ma numerów linii.
 - Skrypty mutacji skilli nocy planuje ``tools/plan_ci.py plan --zdarzenie noc --baza <baza>`` (skrypty skilli, których
-  folder, runner mutacji albo sprawdzenie zmieniło się od bazy), a zadanie planu wgrywa swój zapis wykonania jako
-  artefakt ``mutacje-skilli-<id zadania>``. ``zglos --plan-skilli`` daje każdy skrypt, który padł, linią
-  ``SKRYPT <skrypt>`` do issue ``Przeżyte mutacje skilli z #N`` PR-u, który ostatni zmienił folder skilla od bazy (bez
-  takiej zmiany: inną ścieżkę z ``mutacje_skilli.watched``, a bez niej ostatni PR nocy); linii, którą issue już ma, nie
-  dostaje drugi raz. Zadanie bez zapisu tego planu albo bez wyniku jednostki czerwieni run.
+  folder, runner mutacji albo sprawdzenie zmieniło się od bazy, i części każdego n podstaw z ``ci-czesci``), a zadanie
+  planu wgrywa swój zapis wykonania jako artefakt ``mutacje-skilli-<id zadania>``. ``zglos --plan-skilli`` daje każdy
+  skrypt, który padł, linią ``SKRYPT <skrypt>`` do issue ``Przeżyte mutacje skilli z #N`` PR-u, który ostatni zmienił
+  folder skilla od bazy (bez takiej zmiany: inną ścieżkę z ``mutacje_skilli.watched``, a dla podstawy z ``pilnuje``,
+  a bez niej ostatni PR nocy); linii, którą issue już ma, nie dostaje drugi raz. Zadanie bez zapisu tego planu albo bez wyniku jednostki czerwieni run.
 
 Bazę i liczbę części nocy drukuje lokalnie bez testów:
 
@@ -246,11 +246,11 @@ def wyniki_skilli(plan: plan_ci.Plan, katalog: Path) -> tuple[list[str], list[st
         if zapis.get("plan") != plan.digest:
             problemy.append(f"{zadanie.nazwa}: zapis innego planu niż {plan.digest[:12]}")
             continue
-        wyniki = {jednostka["klucz"]: jednostka["status"] for jednostka in zapis["jednostki"]}
+        # Części jednego kroku w zadaniu zgłaszają się pod jego kluczem: krok padł, gdy padła którakolwiek.
         zaplanowane = {klucz.partition("#")[0] for klucz in zadanie.jednostki}
-        if brak := sorted(zaplanowane - wyniki.keys()):
+        if brak := sorted(zaplanowane - {jednostka["klucz"] for jednostka in zapis["jednostki"]}):
             problemy.append(f"{zadanie.nazwa}: jednostki bez wyniku: {', '.join(brak)}")
-        padly |= {klucz for klucz in zaplanowane if wyniki.get(klucz, "ok") != "ok"}
+        padly |= zaplanowane & {jednostka["klucz"] for jednostka in zapis["jednostki"] if jednostka["status"] != "ok"}
     return sorted(padly), problemy
 
 
@@ -262,10 +262,12 @@ def przypisz_skrypty(github: GitHub, root: Path, od: str, padly: Sequence[str]) 
     wynik: dict[Autor, list[str]] = {}
     for klucz in padly:
         krok = kroki[klucz]
+        folder = f"{krok.skill.relative_to(mutacje_skilli.ROOT).as_posix()}/"
         try:
-            sciezki = mutacje_skilli.watched(krok)
+            # Część podstawy z ci-czesci psuje skrypt skilla albo kod, który skill pilnuje.
+            sciezki = mutacje_skilli.watched(krok) if krok.verdict else (folder, *(mutacje_skilli.guarded(krok.skill / "SKILL.md") or ()))
         except Exception:  # noqa: BLE001 - tabela, której nie da się wczytać, wskazuje tylko folder skilla
-            sciezki = (f"{krok.skill.relative_to(mutacje_skilli.ROOT).as_posix()}/",)
+            sciezki = (folder,)
         for grupa in ((sciezki[0],), (*sciezki[1:], *mutacje_skilli.INFRASTRUCTURE), ()):
             if commit := _git(root, "log", "-1", "--format=%H", f"{od}..HEAD", "--", *grupa):
                 break

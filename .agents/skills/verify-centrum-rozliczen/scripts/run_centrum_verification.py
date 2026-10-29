@@ -8,6 +8,7 @@ removed; evidence lives in ``<run dir>/evidence/centrum-<id>`` and is kept.
 from __future__ import annotations
 
 from argparse import RawDescriptionHelpFormatter
+from collections.abc import Mapping, Sequence
 import importlib.util
 import io
 import json
@@ -22,9 +23,9 @@ import uuid
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "tools"))
 
-from drive import DEFAULT_REPEATS, EXPLICIT_FEATURES
+from drive import DEFAULT_REPEATS, FEATURES
 from quiet_machine import MachineBusy, QuietMachine
-from skrypt_skilla import Parser, new_run
+from skrypt_skilla import Parser, new_run, part
 
 SCRIPTS = Path(__file__).resolve().parent
 REPO_ROOT = SCRIPTS.parents[3]
@@ -298,20 +299,19 @@ def _environment() -> dict[str, str]:
     return environment
 
 
-def _driven(feature: str) -> dict[str, tuple[str, ...]]:
-    """Screenshots each driven feature must leave: ``all`` drives every feature but ``EXPLICIT_FEATURES``."""
+def driven(feature: str, environment: Mapping[str, str] = os.environ) -> tuple[str, ...]:
+    """The features a run of ``--feature feature`` drives, in order: ``all`` is every feature but ``EXPLICIT_FEATURES``,
+    or in CI the part ``MUTACJE_CZESC=k/n`` of them (``skrypt_skilla.part``)."""
 
-    if feature == "all":
-        return {name: shots for name, shots in REQUIRED_SCREENSHOTS.items() if name not in EXPLICIT_FEATURES}
-    return {feature: REQUIRED_SCREENSHOTS[feature]}
+    return part(FEATURES, environment) if feature == "all" else (feature,)
 
 
-def drive_timeout_s(feature: str) -> int:
-    """How long the drive of ``feature`` may run before it counts as hung."""
+def drive_timeout_s(features: Sequence[str]) -> int:
+    """How long the drive of ``features`` may run before it counts as hung."""
 
-    if feature == "wydajnosc":
+    if tuple(features) == ("wydajnosc",):
         return PERFORMANCE_TIMEOUT_SECONDS
-    return max(STEP_TIMEOUT_SECONDS, DRIVE_SECONDS_PER_FEATURE * len(_driven(feature)))
+    return max(STEP_TIMEOUT_SECONDS, DRIVE_SECONDS_PER_FEATURE * len(features))
 
 
 def _run_step(name: str, arguments: list[str], evidence: Path, timeout: int = STEP_TIMEOUT_SECONDS) -> None:
@@ -404,23 +404,23 @@ def _preflight() -> None:
         raise VerificationFailure(f"screenshot numbers used twice: {shared}")
 
 
-def _verify(feature: str, performance: list[str], run_dir: Path) -> Path:
+def _verify(features: tuple[str, ...], performance: list[str], run_dir: Path) -> Path:
     run = new_run(run_dir, f"centrum-{uuid.uuid4().hex}")
     run_root, evidence = run.root, run.evidence
     print(f"EVIDENCE {evidence}", flush=True)
     process: subprocess.Popen[bytes] | None = None
     try:
         _preflight()
-        variant = ["--wariant", "rok-pracy"] if feature == "wydajnosc" else []
+        variant = ["--wariant", "rok-pracy"] if features == ("wydajnosc",) else []
         _run_step("fixture", [str(SCRIPTS / "create_centrum_fixture.py"), "--root", str(run_root), *variant], evidence)
         process, url = _launch(run_root, evidence)
         _run_step("doctor", [str(SCRIPTS / "centrum_doctor.py"), "--root", str(run_root)], evidence)
         _run_step(
             "drive",
             [str(SCRIPTS / "drive_centrum.py"), "--root", str(run_root), "--url", url,
-             "--evidence", str(evidence), "--feature", feature, *performance],
+             "--evidence", str(evidence), "--feature", *features, *performance],
             evidence,
-            drive_timeout_s(feature),
+            drive_timeout_s(features),
         )
     finally:
         if process is not None:
@@ -428,10 +428,9 @@ def _verify(feature: str, performance: list[str], run_dir: Path) -> Path:
         _run_step("cleanup", [str(SCRIPTS / "centrum_cleanup.py"), "--root", str(run_root)], evidence)
     if run_root.exists():
         raise VerificationFailure(f"scratch was not removed: {run_root}")
-    features = _driven(feature)
     missing = [name for name in REQUIRED_EVIDENCE[:-1] if not (evidence / name).exists()]
-    missing += [shot for shots in features.values() for shot in shots if not (evidence / "screenshots" / shot).exists()]
-    missing += [name for name in REQUIRED_FEATURE_EVIDENCE.get(feature, ()) if not (evidence / name).exists()]
+    missing += [shot for name in features for shot in REQUIRED_SCREENSHOTS[name] if not (evidence / "screenshots" / shot).exists()]
+    missing += [name for feature in features for name in REQUIRED_FEATURE_EVIDENCE.get(feature, ()) if not (evidence / name).exists()]
     if missing:
         raise VerificationFailure(f"evidence is missing: {', '.join(missing)}")
     _run_step("self-test", [str(SCRIPTS / "centrum_self_test.py"), "--evidence-root", str(evidence)], evidence)
@@ -453,6 +452,12 @@ def main(argv: list[str] | None = None) -> int:
             stream.reconfigure(encoding="utf-8", errors="replace")
     performance = [] if args.baseline is None else ["--baseline", str(Path(args.baseline).resolve())]
     performance += [] if args.powtorzenia is None else ["--powtorzenia", str(args.powtorzenia)]
+    try:
+        features = driven(args.feature)
+    except ValueError as exc:
+        print(f"VERIFY FAIL | features={args.feature} | {exc}", file=sys.stderr)
+        return 1
+    shown = args.feature if features == driven(args.feature, {}) else ",".join(features)
     machine = QuietMachine()
     # wydajnosc holds the machine alone; every other run waits only for a measurement in progress.
     hold = machine.measurement() if args.feature == "wydajnosc" else machine.run()
@@ -460,11 +465,11 @@ def main(argv: list[str] | None = None) -> int:
         with hold as waited:
             if waited >= 1:
                 print(f"MASZYNA WOLNA | czekano {waited:.0f} s", flush=True)
-            evidence = _verify(args.feature, performance, args.run_dir)
+            evidence = _verify(features, performance, args.run_dir)
     except (VerificationFailure, MachineBusy) as exc:
-        print(f"VERIFY FAIL | features={args.feature} | {exc}", file=sys.stderr)
+        print(f"VERIFY FAIL | features={shown} | {exc}", file=sys.stderr)
         return 1
-    print(f"VERIFY OK | features={args.feature} | evidence={evidence} | scratch_removed=true")
+    print(f"VERIFY OK | features={shown} | evidence={evidence} | scratch_removed=true")
     return 0
 
 

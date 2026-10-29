@@ -23,6 +23,7 @@ from playwright.sync_api import sync_playwright
 from drive import (
     DEFAULT_REPEATS,
     EXPLICIT_FEATURES,
+    FEATURES,
     aktualizacja,
     aktualnosc_i_onedrive,
     blad_odczytu,
@@ -53,49 +54,18 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "tools"))
 
 from skrypt_skilla import Parser
 
-# aktualizacja moves the run's tool clone right after Konfiguracja shows it. Przygotowanie pliku zbiorczego
-# appends to the metrics files that Metryki counts, so it runs after Metryki; blad-odczytu runs between them, before
-# the week's first Uruchomienie; uzupelnienie shows what Dad fills in its Plik zbiorczy and restores the file, and
-# Przebieg rozliczeń continues Dad's path from that Plik zbiorczy, and kontrola-ilosci sends its Kontrola ilości after two restarts of Centrum; Diagnoza stops Uruchomienia of an empty Folder okresu after Dad's week, and aktualnosc-i-onedrive diagnoses one more such stop with the
-# scripted GitHub and OneDrive; zgloszenie sends one such stop to the file skrzynka Zgłoszeń, and
-# uwaga-taty needs the skrzynka queue that kontrola-ilosci emptied; logi-uruchomienia matches every Uruchomienie
-# of the week with its file of Logi; powiadomienia closes an Uwaga taty and that Zgłoszenie there; pomiar-u-taty
-# clicks through the pages with the files
-# of Dad's whole week; uporzadkowanie-intermax points the Rejestr zleceń to its INTERMAX files and back, so it runs after
-# every feature that reads the Rejestr zleceń, and kopie-intermax after it, because uporzadkowanie-intermax counts the
-# Kopie in their folder; start-i-zamykanie closes Centrum, so it stays last.
-FEATURES = (
-    "ustawienia",
-    "tablica-okresow",
-    "uklad-folderow-taty",
-    "konfiguracja",
-    "aktualizacja",
-    "metryki",
-    "blad-odczytu",
-    "przygotowanie-pliku-zbiorczego",
-    "uzupelnienie",
-    "przebieg-rozliczen",
-    "kontrola-ilosci",
-    "diagnoza",
-    "aktualnosc-i-onedrive",
-    "zgloszenie",
-    "uwaga-taty",
-    "logi-uruchomienia",
-    "karta-z-logow",
-    "powiadomienia",
-    "pomiar-u-taty",
-    "uporzadkowanie-intermax",
-    "kopie-intermax",
-    "start-i-zamykanie",
-)
-
-
 def main(argv: list[str] | None = None) -> int:
     parser = Parser(description=__doc__, formatter_class=RawDescriptionHelpFormatter)
     parser.add_root("run root with fixture.json and a served Centrum")
     parser.add_argument("--url", required=True, help="Centrum URL from <root>/server.json.")
     parser.add_argument("--evidence", required=True, help="Evidence directory that survives cleanup.")
-    parser.add_argument("--feature", choices=("all", *FEATURES, *EXPLICIT_FEATURES), default="all")
+    parser.add_argument(
+        "--feature",
+        nargs="+",
+        choices=("all", *FEATURES, *EXPLICIT_FEATURES),
+        default=["all"],
+        help="all, or the features to drive in this order (a part of all in CI).",
+    )
     parser.add_argument(
         "--baseline", type=Path, default=wydajnosc.BASELINE, help="wydajnosc: the baseline to compare with."
     )
@@ -131,7 +101,7 @@ def main(argv: list[str] | None = None) -> int:
             wydajnosc.drive_performance, baseline_path=args.baseline.resolve(), repeats=args.powtorzenia
         ),
     }
-    selected = FEATURES if args.feature == "all" else (args.feature,)
+    selected = FEATURES if args.feature == ["all"] else tuple(args.feature)
     try:
         with sync_playwright() as playwright:
             browser = playwright.chromium.launch()

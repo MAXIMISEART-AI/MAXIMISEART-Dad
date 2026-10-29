@@ -125,7 +125,7 @@ SCRIPT = "skill:verify-a/check_a_mutations.py"
 
 
 def _plan(event: str, *, skills: bool = False, errors: tuple[str, ...] = ()) -> plan_ci.Plan:
-    job = plan_ci.Zadanie("windows-3.11-1", "windows-3.11", "pytest (Python 3.11, 1/1)", ("pytest:tests/test_a.py#1/2", "pytest:tests/test_b.py", "krok:e2e"), 99.0)
+    job = plan_ci.Zadanie("windows-3.11-1", "windows-3.11", "pytest (Python 3.11, 1/1)", ("pytest:tests/test_a.py#1/2", "pytest:tests/test_a.py#2/2", "pytest:tests/test_b.py", "krok:e2e"), 99.0)
     checks = (
         plan_ci.Zadanie("mutacje-1", "mutacje", "Mutation checks (1/2)", ("skill:verify-a/ci", f"{SCRIPT}#1/2"), 99.0, przegladarka=True),
         plan_ci.Zadanie("mutacje-2", "mutacje", "Mutation checks (2/2)", (f"{SCRIPT}#2/2", "skill:verify-b/ci"), 99.0),

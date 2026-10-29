@@ -147,6 +147,78 @@ def test_kazdy_wybrany_krok_skilla_biegnie_raz_a_skrypt_dluzszy_od_zadania_w_cze
     assert all(job.sciana_s <= plan.cel_s or len(job.jednostki) == 1 for job in jobs)
 
 
+def _base_in_parts(seconds: float, key: str = "verify-e/ci") -> plan_ci.Plan:
+    """Plan pull requestu z jedną podstawą z ``ci-czesci: 4``, która trwa w CI ``seconds``."""
+
+    steps = [mutacje_skilli.Step(ROOT / ".agents" / "skills" / key.split("/")[0], key, key, (key,), None, 4, True)]
+    czasy = _with_skill_times(_times())
+    lane = czasy.tory[plan_ci.MUTACJE.pomiary]
+    czasy = dataclasses.replace(czasy, tory={**czasy.tory, plan_ci.MUTACJE.pomiary: {**lane, f"skill:{key}": (czasy_ci.Obserwacja(1, "M", seconds),)}})
+    return plan_ci.rozplanuj([plan_ci.wycen_mutacje(steps, czasy)], "pull_request", czasy.runy)
+
+
+@pytest.mark.parametrize(("seconds", "parts"), [(300.0, 2), (3000.0, 4)], ids=["dwie części mieszczą się w zadaniu", "do limitu ci-czesci"])
+def test_podstawa_z_ci_czesci_dluzsza_od_zadania_biegnie_w_czesciach_ktore_skladaja_sie_na_cala(seconds: float, parts: int) -> None:
+    key = "verify-e/ci"
+    plan = _base_in_parts(seconds, key)
+    units = sorted(unit for job in plan.zadania for unit in job.jednostki)
+    complete = [_record(plan, job, _reported(job)) for job in plan.zadania]
+    lost = dataclasses.replace(plan, zadania=plan.zadania[1:])
+
+    assert units == [f"skill:{key}#{part}/{parts}" for part in range(1, parts + 1)]
+    assert plan_ci.werdykt(plan, {"plan": "success", "mutations": "success"}, complete) == []
+    # Plan bez jednej części: zadania, które biegły, zgłosiły wszystko, a Required i tak widzi, że podstawa nie jest cała.
+    assert plan_ci.werdykt(lost, {"plan": "success", "mutations": "success"}, [_record(lost, job, _reported(job)) for job in lost.zadania]) == [
+        f"plan CI: części {', '.join(f'{part}/{parts}' for part in range(2, parts + 1))} jednostki skill:{key} na torze mutacje nie są całością 1..{parts}"
+    ]
+
+
+def _with_units(plan: plan_ci.Plan, units: dict[str, tuple[str, ...]]) -> plan_ci.Plan:
+    """``plan``, w którym zadania o id z ``units`` mają te jednostki, a nowe id to kopie pierwszego zadania toru."""
+
+    jobs = {job.id: job for job in plan.zadania}
+    for job_id, keys in units.items():
+        lane = job_id.rpartition("-")[0]
+        template = jobs.get(job_id) or next(job for job in plan.zadania if job.tor == lane)
+        jobs[job_id] = dataclasses.replace(template, id=job_id, nazwa=f"{template.nazwa} ({job_id})", jednostki=keys)
+    return dataclasses.replace(plan, zadania=tuple(jobs.values()))
+
+
+def _long_shares(plan: plan_ci.Plan) -> tuple[plan_ci.Zadanie, str]:
+    """Zadanie toru Windows 3.11 z pierwszym udziałem ``LONG`` i ten udział."""
+
+    job = next(job for job in plan.zadania if job.tor == "windows-3.11" and any(unit.startswith(f"pytest:{LONG}#1/") for unit in job.jednostki))
+    return job, next(unit for unit in job.jednostki if unit.startswith(f"pytest:{LONG}#1/"))
+
+
+def _incomplete(case: str) -> tuple[plan_ci.Plan, str]:
+    """Plan, którego części jednej jednostki nie są całością, i przyczyna, którą ma dać Required."""
+
+    if case == "pytest":
+        plan = _plan(_times(), [*FILES, LONG])
+        job, share = _long_shares(plan)
+        count = share.rpartition("/")[2]
+        broken = _with_units(plan, {job.id: tuple(unit for unit in job.jednostki if unit != share)})
+        rest = ", ".join(f"{share}/{count}" for share in range(2, int(count) + 1))
+        return broken, f"plan CI: części {rest} jednostki pytest:{LONG} na torze windows-3.11 nie są całością 1..{count}"
+    plan, key = _base_in_parts(300.0), "skill:verify-e/ci"
+    [first, second] = plan.zadania
+    if case == "zdublowana":
+        broken = _with_units(plan, {"mutacje-3": first.jednostki})
+        return broken, f"plan CI: części 1/2, 1/2, 2/2 jednostki {key} na torze mutacje nie są całością 1..2"
+    broken = _with_units(plan, {second.id: (f"{key}#2/3",)})
+    return broken, f"plan CI: części 1/2, 2/3 jednostki {key} na torze mutacje nie są całością 1..2"
+
+
+@pytest.mark.parametrize("case", ["zdublowana", "z innego n", "pytest"], ids=["część podstawy dwa razy", "część z innego n", "niepełne udziały pliku pytest"])
+def test_required_czerwienieje_gdy_czesci_jednostki_nie_sa_kazda_z_1_do_n_dokladnie_raz(case: str) -> None:
+    plan, reason = _incomplete(case)
+    results = {"plan": "success", "pytest": "success", "mutations": "success"}
+
+    # Każde zadanie zgłosiło każdą swoją jednostkę bez porażki, więc przyczyną jest sam podział.
+    assert plan_ci.werdykt(plan, results, [_record(plan, job, _reported(job)) for job in plan.zadania]) == [reason]
+
+
 def test_w_zadaniu_podstawa_skilla_biegnie_przed_jego_skryptami_mutacji() -> None:
     plan = _plan(_with_skill_times(_times()), FILES, steps=_skill_steps(["verify-c/check_c_mutations.py", "verify-c/ci"]))
 
@@ -539,6 +611,38 @@ def test_plan_pull_requestu_i_nocy_startuje_mutation_checks_tylko_z_praca_od_zmi
     assert (output["pytest"] == "[]") == (event == "noc")
     shown = [line for line in out.splitlines() if line.startswith(("WYBRANY", "POMINIĘTY"))]
     assert len(shown) == len(reported) and all(line.startswith(start) for line, start in zip(shown, reported, strict=True)), out
+
+
+@pytest.mark.parametrize("event", ["pull_request", "noc"])
+def test_noca_podstawa_z_ci_czesci_biegnie_kazda_czescia_kazdego_n_a_pull_request_czesciami_jednego(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], event: str
+) -> None:
+    def offline(*arguments: str) -> str:
+        raise subprocess.CalledProcessError(1, ["gh", *arguments], stderr="gh: not logged in")
+
+    skill_md = ".agents/skills/verify-a/SKILL.md"
+    files = {**SKILL, skill_md: SKILL[skill_md].replace("ci: ", "ci-czesci: 3\nci: ")}
+    repo = repository(tmp_path / "repo", {"src/pakiet/a.py": "def a(x: int) -> bool:\n    return x > 1\n", **files})
+    commit(repo, "baza")
+    git(repo, "branch", "baza")
+    with (repo / ".agents/skills/verify-a/scripts/sprawdz_a.py").open("a", encoding="utf-8") as file:
+        file.write("\nZMIANA = 1\n")
+    commit(repo, "zmiana podstawy")
+    for module in (plan_ci, mutacje_skilli, szybko):
+        monkeypatch.setattr(module, "ROOT", repo)
+    monkeypatch.setattr(mutacje_skilli, "SKILLS", repo / ".agents" / "skills")
+    monkeypatch.setattr(czasy_ci, "_gh", offline)
+
+    code = plan_ci.main(["plan", "--zdarzenie", event, "--baza", "baza", "--czasy", str(tmp_path / "czasy"), "--wyjscie", str(tmp_path / "plan.json")])
+    plan = plan_ci.Plan.z_json((tmp_path / "plan.json").read_text(encoding="utf-8"))
+    base = Counter(unit for job in plan.zadania for unit in job.jednostki if unit.startswith("skill:verify-a/ci"))
+
+    assert code == 0, capsys.readouterr().out
+    if event == "noc":
+        # Część, która pada tylko przy innym n niż dzisiejszy plan pull requestu, wychodzi w nocy.
+        assert base == Counter(f"skill:verify-a/ci#{k}/{n}" for n in range(1, 4) for k in range(1, n + 1))
+    else:
+        assert base == Counter(["skill:verify-a/ci"])
 
 
 @pytest.mark.parametrize(

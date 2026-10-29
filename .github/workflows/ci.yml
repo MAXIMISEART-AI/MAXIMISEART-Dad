@@ -300,26 +300,29 @@ jobs:
       - name: Install dependencies
         run: uv pip install --system --python "${{ steps.python.outputs.python-path }}" -r requirements.txt
 
-      # verify-centrum-rozliczen drives Centrum in Chromium; the plan marks the jobs that run its steps.
+      # verify-centrum-rozliczen drives Centrum in Chromium; the plan marks the jobs that run its steps. Only the browser
+      # packages pinned in the dev extra of pyproject.toml (Playwright, and tzdata for Dad's time zone on Windows), not
+      # the whole extra: skill scripts add src to sys.path themselves, so the package need not be installed.
       - name: Install Playwright
         id: playwright
         if: ${{ matrix.przegladarka }}
         run: |
-          uv pip install --system --python "${{ steps.python.outputs.python-path }}" -e ".[dev]"
+          $packages = python -c "import tomllib; dev = tomllib.load(open('pyproject.toml', 'rb'))['project']['optional-dependencies']['dev']; print(' '.join(p.replace(' ', '') for p in dev if p.startswith(('playwright==', 'tzdata=='))))"
+          uv pip install --system --python "${{ steps.python.outputs.python-path }}" $packages.Split(' ')
           python -c "from importlib.metadata import version; print('version=' + version('playwright'))" >> $env:GITHUB_OUTPUT
 
-      # One playwright version always downloads the same Chromium, so the jobs share it; on a hit the install below
-      # finds the browser in place.
+      # One playwright version always downloads the same browser, so the jobs share it; on a hit the install below
+      # finds it in place. Headless Chromium runs the headless shell alone, a third of the full browser's size.
       - name: Cache Chromium
         if: ${{ matrix.przegladarka }}
         uses: actions/cache@v6
         with:
           path: ~\AppData\Local\ms-playwright
-          key: chromium-${{ runner.os }}-playwright-${{ steps.playwright.outputs.version }}
+          key: chromium-headless-shell-${{ runner.os }}-playwright-${{ steps.playwright.outputs.version }}
 
       - name: Install Chromium
         if: ${{ matrix.przegladarka }}
-        run: python -m playwright install chromium
+        run: python -m playwright install --only-shell chromium
 
       - uses: actions/download-artifact@v8
         with:

@@ -440,7 +440,19 @@ def test_nazwy_mutacji_w_tabeli_kazdego_skryptu_skilla_sa_rozne(monkeypatch: pyt
     assert {script: sorted(set(found)) for script, found in names.items()} == {script: sorted(found) for script, found in names.items()}
 
 
-def test_wybor_oznacza_kroki_skilla_ktorego_skrypty_importuja_playwright_i_liczy_mutacje_skryptu(
+def _load_copy(root: Path, monkeypatch: pytest.MonkeyPatch) -> ModuleType:
+    """Kopia narzędzia w ``root`` wczytana jako moduł, więc widzi tylko skille ``root``."""
+
+    _tool(root)
+    monkeypatch.syspath_prepend(str(root / "tools"))
+    spec = importlib.util.spec_from_file_location("mutacje_skilli_w_kopii", root / "tools" / TOOL.name)
+    assert spec is not None and spec.loader is not None
+    tool = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(tool)
+    return tool
+
+
+def test_wybor_oznacza_kroki_skilla_ktorego_skrypty_importuja_playwright_i_liczy_czesci_kroku(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     table = (
@@ -451,17 +463,12 @@ def test_wybor_oznacza_kroki_skilla_ktorego_skrypty_importuja_playwright_i_liczy
     drive = ".agents/skills/verify-a/scripts/drive/przegladarka.py"
     _skill(tmp_path, "verify-a", {"check_a_mutations.py": table.replace("{count}", "3"), "drive/przegladarka.py": "from playwright.sync_api import sync_playwright\n"}, _with_ci("verify-a", drive))
     _skill(tmp_path, "verify-b", {"check_b_mutations.py": table.replace("{count}", "0"), "opis.py": "TEKST = 'import playwright'\n"})
-    _tool(tmp_path)
-    monkeypatch.syspath_prepend(str(tmp_path / "tools"))
-    spec = importlib.util.spec_from_file_location("mutacje_skilli_w_kopii", tmp_path / "tools" / TOOL.name)
-    assert spec is not None and spec.loader is not None
-    tool = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(tool)
+    tool = _load_copy(tmp_path, monkeypatch)
 
     selection = tool.wybor(None)
 
-    assert [(step.key, step.mutations, step.browser) for step, _ in selection.chosen] == [
-        ("verify-a/ci", 0, True),
+    assert [(step.key, step.parts, step.browser) for step, _ in selection.chosen] == [
+        ("verify-a/ci", 1, True),
         ("verify-a/check_a_mutations.py", 3, True),
         ("verify-b/check_b_mutations.py", 1, False),
     ]
@@ -501,6 +508,32 @@ def test_czerwona_podstawa_ci_daje_fail_takze_w_skillu_bez_skryptu_mutacji(tmp_p
 
     assert result.returncode == 1
     assert "FAIL PODSTAWA verify-d" in result.stdout
+    assert result.stdout.splitlines()[-1] == "MUTACJE SKILLI FAIL | PODSTAWA verify-d"
+
+
+@pytest.mark.parametrize(("parts", "chosen"), [("", 1), ("ci-czesci: 4\n", 4)], ids=["bez klucza", "cztery"])
+def test_podstawa_dzieli_sie_najwyzej_na_tyle_czesci_ile_mowi_ci_czesci(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, parts: str, chosen: int) -> None:
+    command = ".agents/skills/verify-d/scripts/sprawdz_d.py --feature all"
+    _skill(tmp_path, "verify-a", {"check_a_mutations.py": "MUTATIONS = ()\n"})
+    _skill(tmp_path, "verify-d", {"sprawdz_d.py": CHECKED_IN_CI.format(code=0)}, _with_ci("verify-d", command).replace(f"ci: {command}\n", f"ci: {command}\n{parts}"))
+    tool = _load_copy(tmp_path, monkeypatch)
+
+    selection = tool.wybor(None)
+
+    assert [(step.key, step.parts) for step, _ in selection.chosen] == [("verify-a/check_a_mutations.py", 1), ("verify-d/ci", chosen)]
+    assert selection.failed == {}
+
+
+@pytest.mark.parametrize("value", ["0", "osiem", "-2", ""])
+def test_zly_klucz_ci_czesci_daje_fail_podstawy(tmp_path: Path, value: str) -> None:
+    command = ".agents/skills/verify-d/scripts/sprawdz_d.py"
+    _skill(tmp_path, "verify-a", {"check_a_mutations.py": PASSING})
+    _skill(tmp_path, "verify-d", {"sprawdz_d.py": CHECKED_IN_CI.format(code=0)}, _with_ci("verify-d", command).replace(f"ci: {command}\n", f"ci: {command}\nci-czesci: {value}\n"))
+
+    result = _run(tmp_path)
+
+    assert result.returncode == 1
+    assert "FAIL PODSTAWA verify-d: ci-czesci w .agents/skills/verify-d/SKILL.md nie jest liczbą części od 1" in result.stdout
     assert result.stdout.splitlines()[-1] == "MUTACJE SKILLI FAIL | PODSTAWA verify-d"
 
 

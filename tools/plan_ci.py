@@ -10,7 +10,8 @@ przy zmianie w domknięciu jej skryptów (``STRAZ``); przy wyborze wszystkich pl
 Praca Mutation checks to tor ``MUTACJE`` (Windows 3.14): kroki skilli z wyboru ``tools/mutacje_skilli.py`` (na pull
 request podstawy ``ci:``, których werdykt mogą zmienić zmiany od bazy, na pushu wszystkie kroki), każda podstawa ``ci:`` i
 każdy skrypt mutacji osobno. Zdarzenie ``noc`` (workflow ``mutacje-nocne.yml``, ADR 0021) nie ma pytest, a jego Mutation
-checks to skrypty mutacji skilli, których werdykt mogły zmienić zmiany ``main`` od bazy nocy. Koszt jednostki to ściana, którą dodaje do zadania: plik waży sumę czasów swoich testów przez
+checks to skrypty mutacji skilli, których werdykt mogły zmienić zmiany ``main`` od bazy nocy, i każda część każdej
+liczby części podstawy z ``ci-czesci``, którą pull request uruchomiłby przy tych zmianach. Koszt jednostki to ściana, którą dodaje do zadania: plik waży sumę czasów swoich testów przez
 ``WORKERY`` workerów xdist, krok swój czas. Czasy to mediany z ostatnich runów main (``tools/czasy_ci.py``). Plik albo
 krok skilla bez pomiaru waży medianę zmierzonych jednostek tego rodzaju na torze, a bez żadnych pomiarów wagę z
 ``DOMYSLNIE``: plan to wypisuje i biegnie dalej, bo brak czasów psuje tylko równowagę zadań, nie zbiór pracy.
@@ -20,8 +21,9 @@ narzut i start też są z pomiarów. Plan dzieli każdy tor na najmniej zadań o
 zadania o najmniejszej sumie). Plik dłuższy niż zadanie dzieli się na k udziałów o tej samej wadze: udział k biegnie
 z ``-p tools.pytest_czesc`` (crc32 id testu modulo k). Skrypt mutacji dłuższy niż zadanie dzieli się tak samo na
 najwyżej tyle części, ile ma mutacji: część biegnie z ``MUTACJE_CZESC=k/n`` (``tools/mutacje.py``), z podstawą
-poleceń swoich mutacji. Podstawy ``ci:`` plan nie dzieli, więc drukuje najdłuższą jednostkę każdego toru po podziale:
-poniżej niej ściana zadania nie zejdzie.
+poleceń swoich mutacji. Podstawa ``ci:`` z ``ci-czesci: <n>`` dzieli się tak samo na najwyżej n części (część k
+skrypt bierze z ``MUTACJE_CZESC=k/n``, ``tools/skrypt_skilla.py``), a bez niego nie. Plan drukuje najdłuższą jednostkę
+każdego toru po podziale: poniżej niej ściana zadania nie zejdzie.
 Zadanie Mutation checks instaluje Chromium tylko wtedy, gdy ma krok skilla, którego skrypty importują Playwright. Gdy
 run (``STALE_ZADANIA``, zadania pytest i Mutation checks) przekroczyłby ``ZADANIA_RUNU``, cel wszystkich torów rośnie
 co ``KROK_CELU_S``. Mutacje zmienionych linii i skrypty mutacji skilli nie biegną na pull request, tylko nocą na
@@ -35,7 +37,8 @@ zapisuje też wynik swoich testów z kwarantanny.
 Plan ma ``digest``: zadanie wykonuje tylko plan, którego treść się z nim zgadza, i zapisuje go w swoim zapisie czasów,
 a ``Required CI status`` (``werdykt``) przyjmuje tylko zapisy tego planu. Werdykt przepuszcza run, gdy każde zadanie
 przeszło, zadanie pominięte to tylko takie, któremu plan nie dał pracy, a każde zadanie planu zgłosiło w ostatniej
-próbie każdą swoją jednostkę (plik testów, krok CI, krok skilla) bez porażki. Plan, którego nie ma, i skrypt mutacji,
+próbie każdą swoją jednostkę (plik testów, krok CI, krok skilla) bez porażki, a części każdej podzielonej jednostki
+składają się na całość (każda z 1..n dokładnie raz). Plan, którego nie ma, i skrypt mutacji,
 który wybór skilli zgubił albo zły klucz ``ci:`` (``bledy`` planu), są czerwonym werdyktem z przyczyną.
 
     python3 tools/plan_ci.py plan --zdarzenie pull_request --baza HEAD^1 --czasy .ci-plan/czasy --wyjscie .ci-plan/plan.json
@@ -312,8 +315,10 @@ def wycen(tor: Tor, pliki: Sequence[str], czasy: czasy_ci.Czasy) -> Wycena:
     )
 
 
-def wycen_mutacje(kroki: Sequence[mutacje_skilli.Step], czasy: czasy_ci.Czasy) -> Wycena:
-    """Kroki skilli na torze ``MUTACJE``: skrypt mutacji podzielny na najwyżej tyle części, ile ma mutacji, podstawa nie."""
+def wycen_mutacje(kroki: Sequence[mutacje_skilli.Step], czasy: czasy_ci.Czasy, zdarzenie: str = "pull_request") -> Wycena:
+    """Kroki skilli na torze ``MUTACJE``: skrypt mutacji podzielny na najwyżej tyle części, ile ma mutacji, podstawa na
+    tyle, ile mówi jej ``ci-czesci``, a bez niego wcale. Nocą podstawa z ``ci-czesci: n`` biegnie każdą częścią
+    ``k/m`` każdego m od 1 do n, każda osobną jednostką, bo pull request uruchamia części tylko jednego m."""
 
     tor = MUTACJE
     pomiary = czasy.tory.get(tor.pomiary, {})
@@ -321,14 +326,19 @@ def wycen_mutacje(kroki: Sequence[mutacje_skilli.Step], czasy: czasy_ci.Czasy) -
     domyslny = statistics.median(zmierzone.values()) if zmierzone else DOMYSLNIE.krok_skilla_s
     koszty = {f"skill:{krok.key}": zmierzone.get(f"skill:{krok.key}", domyslny) for krok in kroki}
     narzuty = [z[f"narzut:{tor.szablon}"] for z in czasy.zadania(tor.pomiary) if f"narzut:{tor.szablon}" in z]
+    kazde_n = [krok for krok in kroki if zdarzenie == NOC and krok.verdict is None and krok.parts > 1]
+    podzielne = [krok for krok in kroki if (krok.verdict or krok.parts > 1) and krok not in kazde_n]
+    czesci_kazdego_n = {
+        f"skill:{krok.key}#{k}/{n}": koszty[f"skill:{krok.key}"] / n for krok in kazde_n for n in range(1, krok.parts + 1) for k in range(1, n + 1)
+    }
     return Wycena(
         tor,
-        {f"skill:{krok.key}": koszty[f"skill:{krok.key}"] for krok in kroki if krok.verdict},
-        {f"skill:{krok.key}": koszty[f"skill:{krok.key}"] for krok in kroki if not krok.verdict},
+        {f"skill:{krok.key}": koszty[f"skill:{krok.key}"] for krok in podzielne},
+        {f"skill:{krok.key}": koszty[f"skill:{krok.key}"] for krok in kroki if krok not in podzielne and krok not in kazde_n} | czesci_kazdego_n,
         statistics.median(narzuty) if narzuty else DOMYSLNIE.narzut_mutacji_s,
         # Wybór kroków i start Pythona przed pierwszym krokiem: do 1 s w runach main 40297447225–40308056465.
         0.0,
-        {f"skill:{krok.key}": krok.mutations for krok in kroki if krok.verdict},
+        {f"skill:{krok.key}": krok.parts for krok in podzielne},
         frozenset(f"skill:{krok.key}" for krok in kroki if krok.browser),
     )
 
@@ -438,7 +448,7 @@ def _plan(args: argparse.Namespace) -> int:
     zmiana = None if args.zdarzenie == "push" else szybko.changed_since(args.baza)
     praca = zakres(args.zdarzenie, zmiana or frozenset())
     wybor = mutacje_skilli.wybor(zmiana, night=args.zdarzenie == NOC)
-    wyceny = [*(wycen(tor, praca.pliki, czasy) for tor in praca.tory), wycen_mutacje([krok for krok, _ in wybor.chosen], czasy)]
+    wyceny = [*(wycen(tor, praca.pliki, czasy) for tor in praca.tory), wycen_mutacje([krok for krok, _ in wybor.chosen], czasy, args.zdarzenie)]
     bledy = tuple(f"{nazwa}: {powod}" for nazwa, powod in sorted(wybor.failed.items()))
     plan = rozplanuj(wyceny, args.zdarzenie, czasy.runy, bledy)
     _wypisz(plan, praca, wyceny, wybor)
@@ -591,6 +601,7 @@ def werdykt(plan: Plan | None, wyniki_zadan: Mapping[str, str], zapisy: Sequence
     if plan is None:
         return przyczyny
     przyczyny += [f"mutacje skilli: {blad}" for blad in plan.bledy]
+    przyczyny += _niepelne_czesci(plan)
     ostatnie: dict[str, czasy_ci.Zapis] = {}
     for zapis in zapisy:
         if zapis.plan == plan.digest and zapis.zadanie_planu is not None:
@@ -607,6 +618,24 @@ def werdykt(plan: Plan | None, wyniki_zadan: Mapping[str, str], zapisy: Sequence
         # Druga linia obrony, gdyby zadanie z porażką skończyło się sukcesem.
         if padly := sorted(zaplanowane & {jednostka.klucz for jednostka in ostatni.jednostki if jednostka.status != "ok"}):
             przyczyny.append(f"{zadanie.nazwa}: jednostki z porażką: {', '.join(padly)}")
+    return przyczyny
+
+
+def _niepelne_czesci(plan: Plan) -> list[str]:
+    """Jednostki podzielone w planie, których części ``#k/n`` z zadań jednego toru nie są dokładnie raz każdą z 1..n."""
+
+    czesci: dict[tuple[str, str], list[str]] = defaultdict(list)
+    for zadanie in plan.zadania:
+        for klucz in zadanie.jednostki:
+            nazwa, _, czesc = klucz.partition("#")
+            if czesc:
+                czesci[(zadanie.tor, nazwa)].append(czesc)
+    przyczyny = []
+    for (tor, nazwa), lista in sorted(czesci.items()):
+        n = lista[0].partition("/")[2]
+        calosc = [f"{k}/{n}" for k in range(1, int(n) + 1)] if n.isdigit() else []
+        if sorted(lista) != sorted(calosc):
+            przyczyny.append(f"plan CI: części {', '.join(sorted(lista))} jednostki {nazwa} na torze {tor} nie są całością 1..{n}")
     return przyczyny
 
 

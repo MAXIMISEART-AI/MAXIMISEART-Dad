@@ -24,10 +24,10 @@ def runner(monkeypatch: pytest.MonkeyPatch) -> ModuleType:
 
 
 def test_drive_wszystkich_funkcji_ma_limit_rosnacy_z_liczba_funkcji_a_jedna_funkcja_staly(runner: ModuleType) -> None:
-    every = [name for name in runner.REQUIRED_SCREENSHOTS if name not in runner.EXPLICIT_FEATURES]
+    every = runner.driven("all", {})
 
     # all trwał w CI 280–305 s, a padał na stałych 300 s (runy 40309201075, 40322305317): limit daje mu co najmniej
     # dwa razy tyle i rośnie z każdą funkcją.
-    assert runner.drive_timeout_s("all") == runner.DRIVE_SECONDS_PER_FEATURE * len(every) >= 2 * 305
-    assert runner.drive_timeout_s(every[0]) == runner.STEP_TIMEOUT_SECONDS
-    assert runner.drive_timeout_s("wydajnosc") == runner.PERFORMANCE_TIMEOUT_SECONDS
+    assert runner.drive_timeout_s(every) == runner.DRIVE_SECONDS_PER_FEATURE * len(every) >= 2 * 305
+    assert runner.drive_timeout_s((every[0],)) == runner.STEP_TIMEOUT_SECONDS
+    assert runner.drive_timeout_s(("wydajnosc",)) == runner.PERFORMANCE_TIMEOUT_SECONDS

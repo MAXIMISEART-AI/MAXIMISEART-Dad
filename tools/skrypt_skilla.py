@@ -14,24 +14,33 @@ Sprzątanie usuwa znacznik ostatni, więc po przerwanym sprzątaniu następne wc
 
 Runner, który nic nie sprawdził (``VERIFY SKIP``), kończy się kodem ``SKIPPED``, a nie ``0``, więc pominięcie
 nie wygląda dla wywołującego jak dowód.
+
+Podstawa skilla (klucz ``ci:``) z kluczem ``ci-czesci: <n>`` dzieli się w CI na najwyżej n części: plan CI uruchamia
+część k z ``MUTACJE_CZESC=k/n`` (``tools/mutacje.py``), a skrypt bierze swoje jednostki (funkcje, zakresy) przez
+``part``: k-ty z n kolejnych kawałków w ich kolejności, więc n części sprawdza każdą jednostkę dokładnie raz, a stan,
+który jednostka zostawia następnej, zostaje jak w całym przebiegu wewnątrz części.
 """
 
 from __future__ import annotations
 
 import argparse
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 import os
 from pathlib import Path
 import shutil
 import stat
 import sys
-from typing import Any
+from typing import Any, TypeVar
+
+T = TypeVar("T")
 
 VERIFICATION = Path(__file__).resolve().parents[1] / ".verification"
 MARKER = ".katalog-runu"
 EVERY = "all"
 SKIPPED = 3
+# Zmienna części, ta sama co ``mutacje.PART``; skrypt skilla nie importuje silnika mutacji.
+PART = "MUTACJE_CZESC"
 
 
 class RunRootError(ValueError):
@@ -166,3 +175,17 @@ def _writable_then_retry(function: Callable[..., Any], path: str, _: object) -> 
 
     Path(path).chmod(stat.S_IRWXU)
     function(path)
+
+
+def part(units: Sequence[T], environment: Mapping[str, str] = os.environ) -> tuple[T, ...]:
+    """Jednostki części ``K/N`` z ``MUTACJE_CZESC`` w ``environment``: K-ty z N kolejnych kawałków ``units`` (bez
+    zmiennej wszystkie). Zła postać albo N większe od liczby jednostek, przy którym część byłaby pusta, to ``ValueError``."""
+
+    value = environment.get(PART)
+    if not value:
+        return tuple(units)
+    number, _, count = value.partition("/")
+    if not (number.isdigit() and count.isdigit() and 1 <= int(number) <= int(count) <= len(units)):
+        raise ValueError(f"{PART} to K/N z 1 <= K <= N <= {len(units)}, nie {value!r}")
+    k, n = int(number), int(count)
+    return tuple(units[(k - 1) * len(units) // n : k * len(units) // n])

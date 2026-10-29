@@ -455,15 +455,20 @@ def test_czesc_instaluje_to_samo_co_czesci_pytest_na_linuksie() -> None:
 
 
 def _historia_skilli(tmp_path: Path) -> tuple[Path, str]:
-    """``main`` ze skillami verify-a i verify-b: folder verify-a zmienił PR #21 (merge), potem src PR #22 i runner
-    mutacji PR #23 (squash); zwraca repozytorium i bazę nocy sprzed tych zmian."""
+    """``main`` ze skillami verify-a i verify-b oraz verify-c z podstawą w częściach (pilnuje ``src/*``): folder verify-a
+    zmienił PR #21 (merge), potem src PR #22 i runner mutacji PR #23 (squash); zwraca repozytorium i bazę nocy sprzed
+    tych zmian."""
 
     skille = {
         f".agents/skills/{skill}/{plik}": tresc
         for skill in ("verify-a", "verify-b")
         for plik, tresc in (("SKILL.md", f"---\nname: {skill}\npilnuje:\n  - src/*\n---\n"), (f"scripts/check_{skill[-1]}_mutations.py", "MUTATIONS = ()\n"))
     }
-    repo = repository(tmp_path / "repo", {**skille, "src/a.py": "a = 1\n", "tools/mutacje.py": "X = 1\n"})
+    podstawa = {
+        ".agents/skills/verify-c/SKILL.md": f"---\nname: verify-c\npilnuje:\n  - src/*\nci: {PODSTAWA_C}\nci-czesci: 2\n---\n",
+        PODSTAWA_C: "",
+    }
+    repo = repository(tmp_path / "repo", {**skille, **podstawa, "src/a.py": "a = 1\n", "tools/mutacje.py": "X = 1\n"})
     git(repo, "checkout", "--quiet", "-b", "main")
     baza = commit(repo, "baza nocy")
     git(repo, "checkout", "--quiet", "-b", "feat/skill")
@@ -479,6 +484,7 @@ def _historia_skilli(tmp_path: Path) -> tuple[Path, str]:
 
 
 SKRYPT_A, SKRYPT_B = "skill:verify-a/check_a_mutations.py", "skill:verify-b/check_b_mutations.py"
+PODSTAWA_C = ".agents/skills/verify-c/scripts/sprawdz_c.py"
 PLAN_SKILLI = plan_ci.Plan(
     plan_ci.NOC,
     225.0,
@@ -529,6 +535,30 @@ def test_skrypt_mutacji_skilla_ktory_padl_noca_trafia_do_issue_pr_ktory_ostatni_
     assert all(issue["labels"] == ["ready-for-agent", "przezyte-mutacje"] for issue in github.issues)
     assert github.wyslane == wyslane
     assert wyjscie.splitlines()[-1] == "MUTACJE NOCNE OK | części 0 | przeżyło 0 | zadania skilli 2 | padło skryptów 2"
+
+
+def test_czesc_podstawy_ktora_padla_noca_obok_przechodzacej_w_tym_samym_zadaniu_trafia_do_pr_ktory_zmienil_pilnuje(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    repo, baza = _historia_skilli(tmp_path)
+    monkeypatch.setattr(mutacje_skilli, "ROOT", repo)
+    monkeypatch.setattr(mutacje_skilli, "SKILLS", repo / ".agents" / "skills")
+    github = GitHubWPamieci()
+    klucz = "skill:verify-c/ci"
+    plan = plan_ci.Plan(plan_ci.NOC, 225.0, (), (plan_ci.Zadanie("mutacje-1", "mutacje", "Mutation checks (1/1)", (f"{klucz}#1/2", f"{klucz}#2/2"), 100.0),))
+    # Obie części zgłaszają się pod kluczem podstawy, a padła pierwsza.
+    zapis = tmp_path / "zapisy" / f"{mutacje_nocne.ARTEFAKT_SKILLI}mutacje-1" / plan_ci.WYKONANIE.name
+    zapis.parent.mkdir(parents=True)
+    jednostki = [{"klucz": klucz, "s": 1.0, "status": status} for status in ("fail", "ok")]
+    zapis.write_text(json.dumps({"plan": plan.digest, "zadanie": "mutacje-1", "jednostki": jednostki}), encoding="utf-8")
+
+    kod = mutacje_nocne.zglos(github, repo, baza, tmp_path / "zapisy", 0, RUN, plan)
+
+    tresci = {issue["title"]: issue["body"] for issue in github.issues}
+    assert kod == 0, capsys.readouterr().out
+    # Folder verify-c nie zmienił się od bazy, a jego pilnuje zmienił PR #22.
+    assert list(tresci) == ["Przeżyte mutacje skilli z #22"]
+    assert f"SKRYPT {PODSTAWA_C}\n" in tresci["Przeżyte mutacje skilli z #22"]
 
 
 def test_zadanie_skilli_bez_zapisu_tego_planu_albo_bez_wyniku_jednostki_czerwieni_przebieg(
