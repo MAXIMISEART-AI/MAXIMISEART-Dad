@@ -258,6 +258,7 @@ def przypisz_skrypty(github: GitHub, root: Path, od: str, padly: Sequence[str]) 
     """Skrypty mutacji skilli, które padły, według PR-u, który ostatni zmienił folder skilla od ``od``."""
 
     kroki = {f"skill:{krok.key}": krok for krok in mutacje_skilli.steps({})}
+    linia_main = _git(root, "rev-list", "--first-parent", "--reverse", f"{od}..HEAD").split()
     wynik: dict[Autor, list[str]] = {}
     for klucz in padly:
         krok = kroki[klucz]
@@ -268,7 +269,8 @@ def przypisz_skrypty(github: GitHub, root: Path, od: str, padly: Sequence[str]) 
         for grupa in ((sciezki[0],), (*sciezki[1:], *mutacje_skilli.INFRASTRUCTURE), ()):
             if commit := _git(root, "log", "-1", "--format=%H", f"{od}..HEAD", "--", *grupa):
                 break
-        wynik.setdefault(autor(github, root, od, commit or _git(root, "rev-parse", "HEAD")), []).append(krok.command[0])
+        commit = commit or _git(root, "rev-parse", "HEAD")
+        wynik.setdefault(autor(github, root, linia_main[_wniesienie(root, linia_main, commit)], commit), []).append(krok.command[0])
     return wynik
 
 
