@@ -260,7 +260,19 @@ export type DadNoteNotification = {
     /**
      * State
      */
-    state: 'wyslana' | 'czeka_na_internet' | 'rozwiazana' | 'przeczytana';
+    state: 'wyslana' | 'czeka_na_internet' | 'czeka_na_token' | 'odrzucona' | 'rozwiazana' | 'przeczytana';
+};
+
+/**
+ * DadNoteRejected
+ *
+ * Skrzynka Zgłoszeń odrzuciła treść Uwagi taty; jak ``ReportRejected``, Centrum niczego nie obiecuje.
+ */
+export type DadNoteRejected = {
+    /**
+     * State
+     */
+    state: 'rejected';
 };
 
 /**
@@ -322,13 +334,17 @@ export type DadNoteText = {
 /**
  * DadNoteWaiting
  *
- * Uwaga taty czeka w kolejce (brak internetu, klucza albo odmowa) i wyjdzie sama, także po następnym starcie.
+ * Uwaga taty czeka w Kolejce wysyłki i wyjdzie sama, także po następnym starcie, gdy będzie to, na co czeka.
  */
 export type DadNoteWaiting = {
     /**
      * State
      */
     state: 'waiting';
+    /**
+     * Waits For
+     */
+    waits_for: 'internet' | 'key';
 };
 
 /**
@@ -1484,14 +1500,13 @@ export type ReportNotification = {
     /**
      * State
      */
-    state: 'wyslana' | 'czeka_na_internet' | 'rozwiazana' | 'przeczytana';
+    state: 'wyslana' | 'czeka_na_internet' | 'czeka_na_token' | 'odrzucona' | 'rozwiazana' | 'przeczytana';
 };
 
 /**
  * ReportQueued
  *
- * Zgłoszenie czeka w kolejce Skrzynki na tym komputerze i wyjdzie samo; ``waits_for``: na internet albo na klucz
- * do Zgłoszeń od Maksa (brak klucza albo klucz, którego Skrzynka odmówiła).
+ * Zgłoszenie czeka w Kolejce wysyłki na tym komputerze i wyjdzie samo, gdy będzie to, na co czeka.
  */
 export type ReportQueued = {
     /**
@@ -1514,6 +1529,21 @@ export type ReportReady = {
      * State
      */
     state: 'ready';
+};
+
+/**
+ * ReportRejected
+ *
+ * Skrzynka Zgłoszeń odrzuciła treść tego Zgłoszenia: ani internet, ani Token do Zgłoszeń tego nie naprawią.
+ *
+ * Plik zostaje w Kolejce wysyłki, która spróbuje go dopiero przy następnym starcie Centrum, więc Centrum niczego nie
+ * obiecuje, tylko każe skontaktować się z Maksem.
+ */
+export type ReportRejected = {
+    /**
+     * State
+     */
+    state: 'rejected';
 };
 
 /**
@@ -1797,6 +1827,8 @@ export type RunOutcome = {
     } & ReportWaiting) | ({
         state: 'queued';
     } & ReportQueued) | ({
+        state: 'rejected';
+    } & ReportRejected) | ({
         state: 'not_queued';
     } & ReportNotQueued) | null;
     /**
@@ -2042,6 +2074,8 @@ export type ToolUpdateFailed = {
     } & ReportWaiting) | ({
         state: 'queued';
     } & ReportQueued) | ({
+        state: 'rejected';
+    } & ReportRejected) | ({
         state: 'not_queued';
     } & ReportNotQueued);
     draft: ReportDraft;
@@ -2323,7 +2357,9 @@ export type SendDadNoteResponses = {
         state: 'sent';
     } & DadNoteSent) | ({
         state: 'waiting';
-    } & DadNoteWaiting);
+    } & DadNoteWaiting) | ({
+        state: 'rejected';
+    } & DadNoteRejected);
 };
 
 export type SendDadNoteResponse = SendDadNoteResponses[keyof SendDadNoteResponses];
@@ -3123,6 +3159,8 @@ export type ReportRunResponses = {
     } & ReportWaiting) | ({
         state: 'queued';
     } & ReportQueued) | ({
+        state: 'rejected';
+    } & ReportRejected) | ({
         state: 'not_queued';
     } & ReportNotQueued);
 };
@@ -3352,6 +3390,8 @@ export type ReportToolUpdateResponses = {
     } & ReportWaiting) | ({
         state: 'queued';
     } & ReportQueued) | ({
+        state: 'rejected';
+    } & ReportRejected) | ({
         state: 'not_queued';
     } & ReportNotQueued);
 };
