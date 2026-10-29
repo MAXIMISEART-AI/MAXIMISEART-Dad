@@ -34,22 +34,27 @@ ostrzeżeniem w linii ``SCAL OK``, bo PR jest już scalony.
 Po merge'u do domyślnej gałęzi repozytorium, przed sprzątaniem, zamyka jego otwarte issues, które opis PR wskazuje
 słowem „Naprawia”. GitHub tego słowa nie zna, więc bez narzędzia takie issues zostawały otwarte. Każde dostaje
 komentarz z numerem PR i pełnym SHA commitu merge'a, a linia ``SCAL OK`` podaje ``zamknięte: #N``. Opis bez słowa
-„naprawia” (bez względu na wielkość liter) pomija bez pytania GitHuba. Z nim pyta o domyślną gałąź (``gh repo view``),
-a przy merge'u do niej renderuje opis rendererem GitHuba (``gh api markdown``, ``mode=gfm``, ``context`` to
-repozytorium PR), więc to GitHub decyduje, co jest kodem, cytatem albo komentarzem HTML.
+„Naprawia” pomija bez pytania GitHuba. Z nim pyta o domyślną gałąź (``gh repo view``), a przy merge'u do niej
+renderuje opis rendererem GitHuba (``gh api markdown``, ``mode=gfm``, ``context`` to repozytorium PR), więc to GitHub
+decyduje, co jest kodem, cytatem albo komentarzem HTML.
 
 Issue się liczy, gdy GitHub zamienił jego odwołanie na link do issue tego repozytorium (bez względu na wielkość liter
-właściciela i nazwy), a link stoi na liście numerów zaraz po słowie „Naprawia”, które zaczyna linię akapitu albo
-punktu listy. Linia zaczyna się na początku akapitu i punktu i po ``<br>``, którym GitHub zastępuje koniec wiersza.
-Liczy się więc ``Naprawia #490``, ``Naprawia #490, #491 i #492 oraz #493``, kilka linii, także pogrubionych, i adres
-issue. Lista kończy się na pierwszym tekście innym niż przecinek, „i”, „oraz” albo numer, którego GitHub nie zlinkował
-(nieistniejący): „Naprawia #490. Nie naprawia #491” zamyka tylko #490. Kończy ją też odwołanie do innego
-repozytorium: w ``Naprawia MAXIMISEART-AI/MAXIMISEART-Dad-zgloszenia#12, #13`` GitHub linkuje ``#13`` do tego repo,
-ale autor wylicza tam Zgłoszenia. Zgłoszenie zostaje otwarte, bo zamknięte mówi Centrum taty, że poprawka czeka na aktualizację, a merge do
-``main`` to jeszcze nie Wydanie. Nie zamyka: „naprawia” w środku linii (także „Ten PR nie do końca naprawia #490”),
-linii, która zaczyna się od kodu, obrazka albo pola punktu listy zadań (``- [ ] Naprawia #490``), nagłówka, tabeli,
-bloku HTML (``<div>``), ``<summary>``, cytatu, kodu (fragmentu, bloku i ``<pre>``), przekreślenia, PR-a, issue już
-zamkniętego ani issues, które GitHub zamyka sam (``closingIssuesReferences``: ``Closes``, ``Fixes``, ``Resolves``).
+właściciela i nazwy), a link stoi na liście numerów zaraz po słowie „Naprawia”, pisanym dokładnie tak, od wielkiej
+litery, które zaczyna linię akapitu albo punktu listy. Linię kończy tylko ``<br>``, którym GitHub zastępuje koniec
+wiersza, oraz początek i koniec bloku: akapitu, punktu listy, nagłówka, cytatu, tabeli, ``<pre>``, ``<div>``,
+``<details>``, ``<summary>`` i ``<hr>``. Każdy inny znacznik (``<q>``, ``<kbd>``, emoji, wzór ``$…$`` i każdy, którego
+GitHub dopiero zacznie używać) należy do linii, a jego tekst się liczy, poza kodem. Liczy się więc ``Naprawia #490``,
+``Naprawia #490, #491 i #492 oraz #493``, kilka linii, także pogrubionych, i adres issue. Lista kończy się na
+pierwszym tekście innym niż przecinek, „i”, „oraz” albo numer, którego GitHub nie zlinkował (nieistniejący): „Naprawia
+#490. Nie naprawia #491” zamyka tylko #490. Kończy ją też odwołanie do innego repozytorium: w ``Naprawia
+MAXIMISEART-AI/MAXIMISEART-Dad-zgloszenia#12, #13`` GitHub linkuje ``#13`` do tego repo, ale autor wylicza tam
+Zgłoszenia. Zgłoszenie zostaje otwarte, bo zamknięte mówi Centrum taty, że poprawka czeka na aktualizację, a merge do
+``main`` to jeszcze nie Wydanie. Nie zamyka: „Naprawia” w środku linii (także „Ten PR <q>nie</q> Naprawia #490”),
+„naprawia” małą literą (także w zawiniętej linii „Ten PR nie do końca⏎naprawia #490”), linii, która zaczyna się od
+kodu, obrazka albo pola punktu listy zadań (``- [ ] Naprawia #490``), nagłówka, tabeli, bloku HTML (``<div>``),
+``<summary>``, cytatu (także alertu GitHuba ``> [!NOTE]``), kodu (fragmentu, bloku i ``<pre>``), przekreślenia, PR-a,
+issue już zamkniętego ani issues, które GitHub zamyka sam (``closingIssuesReferences``: ``Closes``, ``Fixes``,
+``Resolves``).
 
 Merge do innej gałęzi niż domyślna (stos PR-ów) niczego nie zamyka i nie renderuje opisu, jak GitHub przy ``Closes``,
 a linia podaje ``bez zamykania „Naprawia”: baza <gałąź> to nie <domyślna>``. Gdy GitHub nie poda domyślnej gałęzi
@@ -96,12 +101,9 @@ CLEANUP_TIMEOUT_S = 300
 LINK = "\x01"
 NOT_TEXT = "\x00"
 _REFERENCE = rf"(?:{LINK}|(?:[\w.-]+/[\w.-]+)?#\d+)"
-FIXES = re.compile(rf"\s*naprawia\s+({_REFERENCE}(?:\s*(?:,|\bi\b|\boraz\b)\s*{_REFERENCE})*)", re.IGNORECASE)
+FIXES = re.compile(rf"\s*Naprawia\s+({_REFERENCE}(?:\s*(?:,|\bi\b|\boraz\b)\s*{_REFERENCE})*)")
 REFERENCE = re.compile(_REFERENCE)
-INLINE = frozenset(
-    {"a", "b", "code", "del", "em", "g-emoji", "i", "img", "input", "ins", "kbd", "mark", "s", "small", "span", "strike", "strong", "sub"}
-    | {"sup", "u"}
-)
+BLOCKS = frozenset({"blockquote", "details", "div", "h1", "h2", "h3", "h4", "h5", "h6", "hr", "li", "p", "pre", "summary", "table"})
 HIDDEN = frozenset({"blockquote", "code", "del", "img", "input", "s", "strike"})
 VOID = frozenset({"area", "br", "col", "embed", "hr", "img", "input", "source", "track", "wbr"})
 
@@ -180,7 +182,10 @@ class _Link:
 
 
 class _Lines(HTMLParser):
-    """Linie akapitów i punktów list w HTML opisu PR: ``LINK`` w miejscu linku do issue albo PR, ``NOT_TEXT`` w miejscu kodu, obrazka i pola wyboru."""
+    """Linie akapitów i punktów list w HTML opisu PR: ``LINK`` w miejscu linku do issue albo PR, ``NOT_TEXT`` w miejscu kodu, obrazka i pola wyboru.
+
+    Linię kończy ``<br>`` i początek albo koniec bloku z ``BLOCKS``, a każdy inny znacznik należy do linii.
+    """
 
     def __init__(self) -> None:
         super().__init__()
@@ -191,9 +196,11 @@ class _Lines(HTMLParser):
         self._link: _Link | None = None
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
-        if tag not in INLINE:
-            self._end_line()
         attributes = dict(attrs)
+        if tag == "div" and "markdown-alert" in (attributes.get("class") or "").split():
+            tag = "blockquote"  # alert GitHuba (``> [!NOTE]``) to cytat, który GitHub renderuje jako ``<div>``
+        if tag in BLOCKS or tag == "br":
+            self._end_line()
         if tag in HIDDEN:
             if not self._hidden:
                 self._line.append(NOT_TEXT)
@@ -201,13 +208,13 @@ class _Lines(HTMLParser):
         elif tag == "a" and not self._hidden and "issue-link" in (attributes.get("class") or "").split():
             _, owner, name, _, number = urlsplit(attributes.get("data-url") or "").path.split("/")
             self._link = _Link(f"{owner}/{name}", int(number), attributes.get("data-hovercard-type") == "issue")
-        if tag not in INLINE and tag not in VOID:
+        if tag in BLOCKS and tag not in VOID:
             self._blocks.append(tag)
 
     def handle_endtag(self, tag: str) -> None:
-        if tag not in INLINE:
+        if tag in BLOCKS:
             self._end_line()
-            self._blocks.pop()
+            tag = self._blocks.pop()
         if tag in HIDDEN:
             self._hidden -= 1
         elif tag == "a" and self._link is not None:
@@ -314,7 +321,7 @@ def _check(pull: Pull) -> str:
 def _close_fixed(pull: Pull, *, merged: bool, merge_commit: str | None) -> str:
     """Zamyka otwarte issues z linii „Naprawia” z komentarzem o merge'u, a przed merge'em tylko je podaje."""
 
-    if "naprawia" not in pull.body.casefold():
+    if "Naprawia" not in pull.body:
         return ""
     unchecked = "nie zamknięto issues z „Naprawia”, zamknij je ręcznie" if merged else "nie sprawdzono „Naprawia”"
     try:

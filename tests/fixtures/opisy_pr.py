@@ -1,10 +1,11 @@
 """Opisy PR z „Naprawia” i ich HTML z renderera GitHuba dla testów ``tools/scal_pr.py``.
 
-``PRZYPADKI`` to opisy z numerami issues, które ``scal_pr.fixed_issues`` ma z nich wziąć: repro z trzech werdyktów
-FAIL PR #624 (parser regex nie odtwarzał, co GitHub renderuje jako kod) i przypadki brzegowe. ``PRAWDZIWE`` to scalone
-PR-y z bazą ``main``, których issues z „Naprawia” zostawały otwarte przed #624, z numerami, które narzędzie ma
-zamknąć. ``SCALENIE`` to opisy testów przepływu ``tools/scal_pr.py``. Numery to prawdziwe issues i PR-y tego repo,
-bo renderer odróżnia je po ich stanie na GitHubie (``data-hovercard-type``).
+``PRZYPADKI`` to opisy z numerami issues, które ``scal_pr.fixed_issues`` ma z nich wziąć: repro z czterech werdyktów
+FAIL PR #624 (parser regex nie odtwarzał, co GitHub renderuje jako kod, a znacznik spoza listy wierszowych kończył
+linię) i przypadki brzegowe. ``PRAWDZIWE`` to scalone PR-y z bazą ``main``, których issues z „Naprawia” zostawały
+otwarte przed #624, z numerami, które narzędzie ma zamknąć. ``SCALENIE`` to opisy testów przepływu
+``tools/scal_pr.py``. Numery to prawdziwe issues i PR-y tego repo, bo renderer odróżnia je po ich stanie na GitHubie
+(``data-hovercard-type``).
 
 ``opisy_pr.json`` trzyma opisy ``PRAWDZIWE`` i HTML każdego opisu z ``gh api markdown`` (``mode=gfm``, ``context``
 to ``REPO``), a atrapa ``gh`` w testach podaje go zamiast GitHuba, więc testy biegną bez sieci. Po zmianie opisów
@@ -25,7 +26,7 @@ RENDERED = Path(__file__).with_name("opisy_pr.json")
 ZGLOSZENIE = "MAXIMISEART-AI/MAXIMISEART-Dad-zgloszenia#12"
 PRZYPADKI: tuple[tuple[str, str, tuple[int, ...]], ...] = (
     ("linia-naprawia", "Naprawia #490.", (490,)),
-    ("male-i-wielkie-litery", "naprawia #490\nNAPRAWIA #491", (490, 491)),
+    ("tylko-naprawia-od-wielkiej-litery", "naprawia #490\nNAPRAWIA #491\nNaprawia #492", (492,)),
     ("kilka-numerow-w-linii", "Naprawia #490, #491 i #492 oraz #493", (490, 491, 492, 493)),
     ("kilka-linii-bez-powtorzen", "## Why\n\nNaprawia #487\nNaprawia #493\nNaprawia #487", (487, 493)),
     ("linie-z-crlf", "Opis\r\nNaprawia #490\r\nNaprawia #491, #492\r\n", (490, 491, 492)),
@@ -33,7 +34,7 @@ PRZYPADKI: tuple[tuple[str, str, tuple[int, ...]], ...] = (
     ("twarda-spacja", "Naprawia\u00a0#490", (490,)),
     ("pogrubienie-i-kursywa", "**Naprawia #490**\n*Naprawia #491*", (490, 491)),
     ("punkty-list", "- Naprawia #490\n* Naprawia #491\n+ Naprawia #492\n1. Naprawia #493", (490, 491, 492, 493)),
-    ("ciag-dalszy-punktu-listy", "- Naprawia #490\n  Naprawia #491\n   naprawia #492", (490, 491, 492)),
+    ("ciag-dalszy-punktu-listy", "- Naprawia #490\n  Naprawia #491\n   Naprawia #492", (490, 491, 492)),
     ("zagniezdzona-lista", "- Naprawia #490\n  - Naprawia #491\n  - Nie naprawia #492", (490, 491)),
     ("wciecie-po-znaczniku-listy", "-    Naprawia #490\n-     Naprawia #491\n-\tNaprawia #492", (490, 492)),
     ("ciag-dalszy-punktu-wciety-o-cztery-spacje", "   - Naprawia #490\n    - Naprawia #491", (490,)),
@@ -60,15 +61,43 @@ PRZYPADKI: tuple[tuple[str, str, tuple[int, ...]], ...] = (
     ("tekst-w-liscie-numerow", "Naprawia #490 i dlatego #491 działa", (490,)),
     ("w-srodku-zdania", "Ta zmiana naprawia #490, bo plan liczy limit od runu.", ()),
     ("przeczenie-w-srodku-zdania", "Ten PR nie do końca naprawia #490", ()),
+    ("naprawia-od-wielkiej-litery-w-srodku-zdania", "Ten PR nie Naprawia #490", ()),
+    ("zawinieta-linia-z-przeczeniem", "Ten PR nie do końca\nnaprawia #490, tylko część.", ()),
+    ("zawinieta-linia-z-nie", "Ta zmiana nie\nnaprawia #490", ()),
+    ("zawinieta-linia-z-pytaniem", "Sprawdziłem, czy ta zmiana\nnaprawia #490, ale nie.", ()),
+    ("naprawia-za-cytatem-q", "Ten PR <q>nie</q> Naprawia #490", ()),
+    ("naprawia-za-tt", "Zmiana w <tt>scal_pr</tt> Naprawia #490", ()),
+    ("naprawia-za-samp", "Wynik <samp>OK</samp> Naprawia #490", ()),
+    ("naprawia-za-var", "Gdy <var>n</var> Naprawia #490", ()),
+    ("naprawia-za-ruby", "<ruby>X<rt>y</rt></ruby> Naprawia #490", ()),
+    ("naprawia-za-wzorem", "Gdy $n > 0$ Naprawia #490", ()),
+    ("naprawia-za-emoji", "Ten PR :x: Naprawia #490", ()),
+    ("naprawia-za-kbd", "Skrót <kbd>Ctrl</kbd> Naprawia #490", ()),
+    ("naprawia-za-sup", "Przypis<sup>1</sup> Naprawia #490", ()),
+    ("naprawia-za-pustym-znacznikiem", "Ten PR nie <q></q>Naprawia #490", ()),
+    ("naprawia-za-span-i-mark", "Opis <span>x</span> Naprawia #490\nOpis <mark>x</mark> Naprawia #491", ()),
     ("przeczenie-z-dwiema-spacjami", "Nie  naprawia #490", ()),
     ("przeczenie-z-tabulatorem", "Nie\tnaprawia #490", ()),
     ("naglowek", "## Naprawia #490", ()),
+    ("naglowki-w-punktach-listy", "- # Naprawia #490\n- ## Naprawia #491\n- ### Naprawia #492\n- #### Naprawia #493\n- ##### Naprawia #487\n- ###### Naprawia #488", ()),
+    ("tabela-w-punkcie-listy", "- <table><tr><td>Naprawia #490</td></tr></table>", ()),
+    ("blok-html-w-punkcie-listy", "- <div>Naprawia #490</div>", ()),
+    ("pre-w-punkcie-listy", "- <pre>Naprawia #490</pre>", ()),
+    ("details-w-punkcie-listy", "- <details>Naprawia #490</details>", ()),
+    ("summary-w-punkcie-listy", "- <summary>Naprawia #490</summary>", ()),
+    ("linia-po-bloku-html-w-punkcie-listy", "- Opis\n  <div>x</div>\n  Naprawia #490", (490,)),
+    ("linia-po-cytacie-w-punkcie-listy", "- <blockquote>x</blockquote>Naprawia #490", (490,)),
+    ("linia-po-pre-w-punkcie-listy", "- <pre>x</pre>Naprawia #490", (490,)),
+    ("linia-po-linii-poziomej-w-punkcie-listy", "- Opis\n  ***\n  Naprawia #490", (490,)),
+    ("akapit-html-w-punkcie-listy", "- Opis\n  <p>Naprawia #490</p>", (490,)),
     ("tabela", "| Naprawia #490 |\n|---|\n| Naprawia #491 |", ()),
     ("blok-html", "<div>Naprawia #490</div>", ()),
     ("details", "<details>\n<summary>Naprawia #490</summary>\n\nNaprawia #491\n</details>", (491,)),
     ("punkty-listy-zadan", "- [x] Naprawia #490\n- [ ] Naprawia #491\n- Naprawia #492", (492,)),
     ("obrazek-przed-naprawia", "![x](https://example.com/a.png) Naprawia #490\n\nNaprawia #491", (491,)),
     ("cytat", "> Naprawia #490", ()),
+    ("alert", "> [!NOTE]\n> Naprawia #490\n\nNaprawia #491", (491,)),
+    ("alert-w-punkcie-listy-to-cytat", "- > [!WARNING]\n  > Naprawia #490", ()),
     ("przekreslenie", "~~Naprawia #490~~", ()),
     ("przekreslony-numer", "Naprawia ~~#490~~, #491", ()),
     ("komentarz-html", "Opis\n<!-- Naprawia #490 -->", ()),
