@@ -60,7 +60,8 @@ STOPS = re.compile(r"^for\s*\(\(|\b(?:break|exit|return)\b(?!=)|\$\(seq\s+(?:[01
 LIST_END = re.compile(r"[;|\n]")
 LONE_AMPERSAND = re.compile(r"(?<![<>&])&(?![&>])")
 HEREDOC = re.compile(r"(?<!<)<<-?\s*(['\"]?)(\w+)\1")
-SHELL_ARGUMENT = re.compile(r"(?:^|\s)-c\s*$")
+# Skrypt powłoki to tylko argument `-c` powłoki: `grep -c '…'` liczy wiersze, a `python3 -c '…'` to Python.
+SHELL_ARGUMENT = re.compile(r"(?:^|[\s/;&|(`])(?:ba|da|k|z)?sh\s+-c\s*$")
 
 INSTEAD = (
     "Zamiast czekać: dziecko delegate_task kończy zadanie i zwraca URL PR i pełny SHA HEAD (rodzic ma "
@@ -117,7 +118,7 @@ def _code(command: str, start: int = 0, inside_substitution: bool = False) -> tu
             continue
         if char in "'\"":
             literal, end = _quoted(command, index)
-            shell_argument = SHELL_ARGUMENT.search("".join(kept[-12:]))
+            shell_argument = SHELL_ARGUMENT.search("".join(kept[-24:]))
             kept.append(";" + command[index + 1 : end] if shell_argument else literal)
             index = end
             continue

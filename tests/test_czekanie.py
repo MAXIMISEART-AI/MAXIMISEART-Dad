@@ -64,6 +64,8 @@ CI_LOOPS = (
     "until ! gh pr checks 1 | grep -q pending; do sleep 30; done && gh pr checks 1",
     's="$(for i in $(seq 1 20); do gh pr checks 1 | grep -q pending || break; sleep 30; done; gh pr checks 1)"',
     "if gh pr view 1 --json state >/dev/null; then until ! gh pr checks 1 | grep -q pending; do sleep 30; done; fi",
+    # Skrypt ``-c`` powłoki podanej ścieżką.
+    "/bin/sh -c 'until ! gh pr checks 1 | grep -q pending; do sleep 30; done'",
     "for i in $(seq 20); do gh pr checks 1 | grep -c pending; sleep 30; done",
     "until [ $(for n in 1 2; do gh pr checks $n; done | grep -c pending) = 0 ]; do sleep 30; done",
     # Wyjście z pętli przez ``exit`` i ``return`` zamiast ``break``.
@@ -172,6 +174,8 @@ PASSING = (
     "until test -f x; do echo; done; sleep 5; gh pr checks 1; done",
     "rg -n 'while|until' tools/hooks/czekanie.py; sleep 1; gh pr checks 446",
     'grep -nw "until" tools/hooks/czekanie.py; sleep 1; gh pr checks 446',
+    # ``-c`` innego polecenia niż powłoka to nie skrypt: ``grep -c`` liczy wiersze z tym tekstem.
+    "grep -c 'until ! gh pr checks 1 | grep -q pending; do sleep 30; done' ~/.t3/notes/czekanie.log",
 )
 
 
