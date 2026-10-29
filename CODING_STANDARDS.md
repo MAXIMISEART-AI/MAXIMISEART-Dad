@@ -29,6 +29,7 @@ A rule that a check enforces sits in its section's table, one line per rule, bes
 | Rule | Guard |
 |---|---|
 | The engine (`src/rozliczenia/*.py`) never imports Centrum rozliczeń, the modules in `STDLIB_ONLY` import only the standard library and each other when loaded, and the modules of the restart guardian's copy (`_COPIED` in `restart_guardian.py`) import only the standard library and `_COPIED`. | `tests/test_granice_importow.py` |
+| A `match` handles every variant of its subject or ends with `case _`, a condition is never a value that is always true (an Enum member, a `Path`, a dataclass, an `Iterable`), and a `# type: ignore` names its error code. | mypy codes `exhaustive-match`, `truthy-bool`, `truthy-iterable` and `ignore-without-code` (`enable_error_code` in `pyproject.toml`), for both systems in `tools/ci_lokalnie.py` |
 
 ## Error Ownership
 

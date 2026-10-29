@@ -11,8 +11,11 @@ from __future__ import annotations
 
 import importlib.util
 import sys
+import threading
 from pathlib import Path
 from types import ModuleType
+
+import pytest
 
 EXPLORER = (
     Path(__file__).resolve().parents[1]
@@ -39,3 +42,26 @@ def test_centrum_prowadzi_jedno_uruchomienie_naraz_i_nie_zamyka_sie_w_trakcie_w_
     outcome = explorer.summarize([explorer.explore(scope) for scope in explorer.SCOPES.values()])
 
     assert outcome.exit_code == 0, "\n".join(outcome.lines)
+
+
+def test_sprawdzenie_przeplotow_prowadzi_watki_modelu_bez_watkow_systemu(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Czas sprawdzenia nie zależy od tego, jak zajęte są procesory runnera (#565).
+
+    Wątek systemu na każdy wątek modelu oddawał sterowanie przez jądro przy każdym kroku, a na runnerze CI zajętym
+    innymi workerami xdist sprawdzenie dochodziło do limitu 120 s pytest.
+    """
+
+    explorer = _load_explorer()
+    started: list[str] = []
+    start = threading.Thread.start
+
+    def counted(thread: threading.Thread) -> None:
+        started.append(thread.name)
+        start(thread)
+
+    monkeypatch.setattr(threading.Thread, "start", counted)
+
+    report = explorer.explore(explorer.SCOPES["zamknij-w-trakcie"])
+
+    assert report.runs_ended and report.clean_closes
+    assert started == []

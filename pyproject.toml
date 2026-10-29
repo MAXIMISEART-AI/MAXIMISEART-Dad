@@ -17,6 +17,8 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "fastapi==0.146.0",
+    # explore_runs.py of verify-jedno-uruchomienie-naraz runs its modelled threads as greenlets (#565).
+    "greenlet==3.5.6",
     "httpx2==2.14.0",
     "hypothesis==6.170.5",
     "mypy==2.0.0",
@@ -163,3 +165,5 @@ files = [
 ]
 mypy_path = "src"
 show_error_codes = true
+# Ponad strict: match bez przypadku dla każdego wariantu, warunek zawsze prawdziwy i ignore bez kodu błędu.
+enable_error_code = ["exhaustive-match", "truthy-bool", "truthy-iterable", "ignore-without-code"]

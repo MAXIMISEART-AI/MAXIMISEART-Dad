@@ -22,9 +22,8 @@ def completed_record() -> dict[str, Any]:
         started_at="2026-09-15T08:00:00+00:00",
         total_duration_ms=1000,
         phase_durations_ms={},
-        result="OK",
+        ending="OK",
         counters=dict.fromkeys(COUNTER_NAMES, 1),
-        stop=None,
         routes={(TemplateKind.COLLECTIVE_FILE, Route.OPENPYXL): 1, (TemplateKind.WORKER_SETTLEMENT, Route.COPY): 2},
     )
 
@@ -36,9 +35,8 @@ def stopped_record(stop: Any) -> dict[str, Any]:
         started_at="2026-09-15T08:00:00+00:00",
         total_duration_ms=400,
         phase_durations_ms={},
-        result="BLAD_KRYTYCZNY",
+        ending=stop,
         counters=dict.fromkeys(COUNTER_NAMES, 0),
-        stop=stop,
         routes={},
     )
 

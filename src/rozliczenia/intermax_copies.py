@@ -173,7 +173,8 @@ def restore(
                 raise StopError(messages.restore_register_syncing(register)) from failure
             case WorkbookSaveError() | WriteMismatch() | OSError():
                 raise StopError(messages.restore_failed(register)) from failure
-        raise
+            case _:
+                raise
     warnings: list[Message] = []
     try:
         keep_newest(directory)
