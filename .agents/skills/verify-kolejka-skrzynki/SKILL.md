@@ -87,17 +87,19 @@ that Centrum changes often: `lifespan` in `app.py`, `listen_locally` and
 rest of their files, is drift. Name these four files here without their
 `src/…` path in backticks: such a path makes the whole file covered.
 
-**Sync commit: `0ab6ff1b`** (2026-10-30, #665: after a refused comment the
-queue file keeps the number of the Uwaga's issue). The checker and the model
+**Sync commit: `da260363`** (2026-10-30, #666: a closing Centrum's queue ends
+the wysyłka it started before the port is free). The checker and the model
 share it: at this commit both were confirmed to describe the code above. The
-checker leaves `Rejected` out, so #665 changed only the model. Before it,
-`6f94edb8` was the sync of both, and since the checker's earlier sync
+checker never calls `Outbox.stop`, so #666 changed only the model, as #665
+(`0ab6ff1b`: after a refused comment the queue file keeps the number of the
+Uwaga's issue) did before it, because the checker leaves `Rejected` out.
+Before them, `6f94edb8` was the sync of both, and since the checker's earlier sync
 `8122ab4c` only `15362856` changed a covered file: `Outbox` calls
 `on_rejected` after a refused content, which neither the checker nor the
 model describes. To see whether they need another look:
 
 ```bash
-git log --oneline 0ab6ff1b..HEAD -- src/rozliczenia/centrum/outbox.py src/rozliczenia/centrum/keyed_box.py src/rozliczenia/centrum/report_box.py src/rozliczenia/centrum/atomic_file.py
+git log --oneline da260363..HEAD -- src/rozliczenia/centrum/outbox.py src/rozliczenia/centrum/keyed_box.py src/rozliczenia/centrum/report_box.py src/rozliczenia/centrum/atomic_file.py
 ```
 
 A change to the definitions above shows as a `UWAGA:` line of
