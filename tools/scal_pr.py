@@ -29,9 +29,21 @@ Przed merge'em sprawdza, że baza w ``origin`` nie przesunęła się w trakcie s
 --match-head-commit`` odrzuca PR, którego HEAD zmienił się po sprawdzeniu. Po merge'u uruchamia
 ``tools/sprzatanie.py``, jeśli istnieje, i podaje ostatnią linię jego raportu: bez ``--usun`` sprzątanie niczego nie
 usuwa, tylko mówi, które lokalne gałęzie i worktree można usunąć. Sprzątanie, które przekroczy czas, kończy się
-ostrzeżeniem w linii ``SCAL OK``, bo PR jest już scalony. Kod 0 i ``SCAL OK`` znaczą, że PR jest scalony
-(albo z ``--bez-merge``: że byłby); linia po merge'u podaje SHA commitu merge'a i bazy, z którą sprawdziła
-scalenie. Kod 1 to odmowa albo błąd narzędzia (``SCAL FAIL``).
+ostrzeżeniem w linii ``SCAL OK``, bo PR jest już scalony.
+
+Po merge'u, przed sprzątaniem, zamyka otwarte issues tego repozytorium, które opis PR wskazuje słowem „Naprawia”:
+``Naprawia #490``, także w środku zdania, kilka numerów (``Naprawia #490, #491``, ``#490 i #491``) i kilka linii.
+GitHub tego słowa nie zna, więc bez narzędzia takie issues zostawały otwarte. Każde dostaje komentarz z numerem PR
+i pełnym SHA commitu merge'a, a linia ``SCAL OK`` podaje ``zamknięte: #N``. Nie zamyka: ``#N`` bez „Naprawia”
+przed nim, „nie naprawia #N”, tekstu w bloku albo fragmencie kodu, numeru PR, issue już zamkniętego, issues, które
+GitHub zamyka sam (``closingIssuesReferences``: ``Closes``, ``Fixes``, ``Resolves``), ani odwołań do innego
+repozytorium, np. ``Naprawia MAXIMISEART-AI/MAXIMISEART-Dad-zgloszenia#N``: zamknięte Zgłoszenie mówi Centrum taty,
+że poprawka czeka na aktualizację, a merge do ``main`` to jeszcze nie Wydanie. Porażka ``gh`` przy zamykaniu kończy
+się ostrzeżeniem ``UWAGA: nie zamknięto #N`` w linii ``SCAL OK``, bo PR jest już scalony. Z ``--bez-merge`` niczego
+nie zamyka, a linia podaje ``po merge'u zamknie: #N``.
+
+Kod 0 i ``SCAL OK`` znaczą, że PR jest scalony (albo z ``--bez-merge``: że byłby); linia po merge'u podaje SHA
+commitu merge'a i bazy, z którą sprawdziła scalenie. Kod 1 to odmowa albo błąd narzędzia (``SCAL FAIL``).
 
 Komentarze, recenzje i checki pochodzą z jednego ``gh pr view --json``, które doczytuje wszystkie strony
 komentarzy (sprawdzone na PR z 337 komentarzami, gh 2.101).
@@ -59,6 +71,10 @@ VERDICT_LINE = re.compile(r"WERDYKT: (PASS|FAIL) ([0-9a-f]{40})")
 TRUSTED = frozenset({"OWNER", "MEMBER", "COLLABORATOR"})
 CLEANUP = ROOT / "tools" / "sprzatanie.py"
 CLEANUP_TIMEOUT_S = 300
+_REFERENCE = r"(?:[\w.-]+/[\w.-]+)?#\d+"
+FIXES = re.compile(rf"(?<!nie )\bnaprawia[ \t]+({_REFERENCE}(?:[ \t]*(?:,|\bi\b|\boraz\b)[ \t]*{_REFERENCE})*)", re.IGNORECASE)
+REFERENCE = re.compile(r"(?:([\w.-]+/[\w.-]+))?#(\d+)")
+CODE = re.compile(r"^ {0,3}(`{3,}|~{3,}).*?(?:^ {0,3}\1|\Z)|`[^`\n]*`", re.MULTILINE | re.DOTALL)
 
 
 @dataclass(frozen=True)
@@ -69,6 +85,8 @@ class Pull:
     base: str
     problems: tuple[str, ...]
     verdicts: tuple[dict[str, object], ...]
+    repository: str
+    fixes: tuple[int, ...]
 
 
 class _Refused(Exception):
@@ -123,8 +141,22 @@ def _verdict_problem(verdicts: tuple[dict[str, object], ...], head: str) -> str 
     return None if latest == "PASS" else f"werdykt: FAIL dla {head[:7]} bez nowszego „WERDYKT: PASS {head}”"
 
 
+def fixed_issues(body: str, repository: str) -> tuple[int, ...]:
+    """Numery z „Naprawia #N” w opisie PR, które wskazują ``repository`` (``właściciel/nazwa``), bez tekstu w kodzie."""
+
+    numbers: list[int] = []
+    for listed in FIXES.finditer(CODE.sub("", body)):
+        for reference in REFERENCE.finditer(listed[1]):
+            if (reference[1] or repository).casefold() == repository.casefold() and int(reference[2]) not in numbers:
+                numbers.append(int(reference[2]))
+    return tuple(numbers)
+
+
 def _pull(number: int) -> Pull:
-    fields = "number,title,state,isDraft,isCrossRepository,baseRefName,headRefOid,statusCheckRollup,comments,reviews"
+    fields = (
+        "number,title,state,isDraft,isCrossRepository,baseRefName,headRefOid,statusCheckRollup,comments,reviews,"
+        "url,body,closingIssuesReferences"
+    )
     pull = json.loads(_gh("pr", "view", str(number), "--json", fields))
     problems = []
     if pull["state"] != "OPEN":
@@ -136,7 +168,16 @@ def _pull(number: int) -> Pull:
     problems += filter(None, [_ci_problem(pull["statusCheckRollup"])])
     verdicts = [*pull["comments"], *pull["reviews"]]
     verdicts.sort(key=lambda verdict: verdict.get("createdAt") or verdict.get("submittedAt") or "")
-    return Pull(number, pull["title"], pull["headRefOid"], pull["baseRefName"], tuple(problems), tuple(verdicts))
+    repository = "/".join(pull["url"].split("/")[3:5])
+    closed_by_github = {
+        issue["number"]
+        for issue in pull["closingIssuesReferences"]
+        if f"{issue['repository']['owner']['login']}/{issue['repository']['name']}".casefold() == repository.casefold()
+    }
+    fixes = tuple(issue for issue in fixed_issues(pull["body"], repository) if issue not in closed_by_github)
+    return Pull(
+        number, pull["title"], pull["headRefOid"], pull["baseRefName"], tuple(problems), tuple(verdicts), repository, fixes
+    )
 
 
 def _remote_base(base: str) -> str:
@@ -162,6 +203,29 @@ def _check(pull: Pull) -> str:
     return base
 
 
+def _close_fixed(pull: Pull, merge_commit: str | None) -> str:
+    """Zamyka otwarte issues z ``pull.fixes`` z komentarzem o merge'u, a bez ``merge_commit`` tylko je podaje."""
+
+    closing, failed = [], []
+    for number in pull.fixes:
+        try:
+            issue = json.loads(_gh("api", f"repos/{pull.repository}/issues/{number}"))
+            if "pull_request" in issue or issue["state"] != "open":
+                continue
+            if merge_commit:
+                comment = f"Naprawione przez #{pull.number}, scalone jako {merge_commit}."
+                _gh("issue", "close", str(number), "--repo", pull.repository, "--comment", comment)
+            closing.append(f"#{number}")
+        except subprocess.SubprocessError:
+            failed.append(f"#{number}")
+    done, warning = ("zamknięte", "UWAGA: nie zamknięto {}, zamknij ręcznie") if merge_commit else (
+        "po merge'u zamknie", "UWAGA: nie sprawdzono {}"
+    )
+    parts = [f"{done}: {', '.join(closing)}"] if closing else []
+    parts += [warning.format(", ".join(failed))] if failed else []
+    return "".join(f" | {part}" for part in parts)
+
+
 def _clean_up() -> str:
     if not CLEANUP.exists():
         return f"sprzątanie pominięte: brak {CLEANUP.relative_to(ROOT).as_posix()}"
@@ -184,12 +248,13 @@ def _merge(number: int, *, merge: bool) -> int:
         print(f"SCAL ODMOWA | {where} | {refusal}")
         return 1
     if not merge:
-        print(f"SCAL OK | {where} | gotowy do merge'a z {pull.base} {base[:7]}, bez merge'a (--bez-merge)")
+        print(f"SCAL OK | {where} | gotowy do merge'a z {pull.base} {base[:7]}, bez merge'a (--bez-merge){_close_fixed(pull, None)}")
         return 0
     _gh("pr", "merge", str(number), "--merge", "--match-head-commit", pull.head)
     merged = json.loads(_gh("pr", "view", str(number), "--json", "mergeCommit"))["mergeCommit"]
-    merge_commit = merged["oid"][:7] if merged else "?"
-    print(f"SCAL OK | {where} | scalony do {pull.base} jako {merge_commit} (baza {base[:7]}) | {_clean_up()}")
+    merge_commit = merged["oid"] if merged else "?"
+    closed = _close_fixed(pull, merge_commit)
+    print(f"SCAL OK | {where} | scalony do {pull.base} jako {merge_commit[:7]} (baza {base[:7]}){closed} | {_clean_up()}")
     return 0
 
 
