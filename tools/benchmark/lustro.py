@@ -25,6 +25,7 @@ from openpyxl.worksheet.worksheet import Worksheet
 
 from benchmark import ROOT, SCRIPT, BenchmarkError
 import potomne
+from rozliczenia import settlement_messages
 from rozliczenia.period_folder import PeriodFolder, collective_file_name
 from rozliczenia.settlement_period import parse_period_token
 from rozliczenia.workbook_files import DATA_ROW_COLUMNS, QUANTITY_COLUMNS, read_data_rows
@@ -153,7 +154,8 @@ def _worker_ids(config: Path) -> list[str]:
     try:
         return list(load_worker_mapping(config))
     except WorkerConfigError as error:
-        raise BenchmarkError(f"Konfiguracja wykonawców {config} jest niepoprawna: {error.detail}") from None
+        reason = settlement_messages.worker_config_problem(config, error).what
+        raise BenchmarkError(f"{reason} Plik: {config}") from None
 
 
 def _fingerprint(scenario_name: str, config: Path, templates: Mapping[str, Path]) -> str:

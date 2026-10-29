@@ -440,6 +440,35 @@ def test_komentarz_pokazuje_start_procesu_takze_obok_pomiaru_sprzed_jego_mierzen
     ]
 
 
+def test_pomiar_z_niepoprawna_konfiguracja_wykonawcow_konczy_sie_przyczyna_z_katalogu_przebiegu(tmp_path: Path) -> None:
+    config = tmp_path / "worker_mapping.yaml"
+    config.write_text("schema_version: 2\nworkers:\n  a: A\n", encoding="utf-8")
+    journal = tmp_path / "dziennik.jsonl"
+
+    measured = run_benchmark(
+        "measure",
+        "--scenario",
+        "maly-tydzien",
+        "--templates-dir",
+        str(write_templates(tmp_path / "wzorce")),
+        "--config",
+        str(config),
+        "--mirror-dir",
+        str(tmp_path / "lustro"),
+        "--reference-dir",
+        str(tmp_path / "referencje"),
+        "--journal",
+        str(journal),
+        "--machine",
+        "test",
+    )
+
+    assert measured.returncode == 1
+    reason = "Konfiguracja wykonawców jest niepoprawna. Nieobsługiwana wersja konfiguracji."
+    assert f"{reason} Plik: {config}" in measured.stderr
+    assert not journal.exists()
+
+
 def test_pomiar_z_innym_wzorcem_rozliczenia_pracownika_nie_ma_pasujacego_wyniku_referencyjnego(tmp_path: Path) -> None:
     config = write_mapping(tmp_path / "worker_mapping.yaml")
     journal = tmp_path / "dziennik.jsonl"

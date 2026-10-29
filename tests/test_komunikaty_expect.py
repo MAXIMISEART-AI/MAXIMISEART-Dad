@@ -7,18 +7,23 @@ co tata zobaczy inaczej, obok zmiany kodu.
 Katalog to moduł fabryk Komunikatów: ma wpis w ``CATALOGS``, a każda jego publiczna funkcja ma próbkę.
 Moduł ``src/``, który tworzy Komunikat poza katalogiem, ma w ``OUTSIDE_CATALOGS`` próbkę każdej funkcji i stałej,
 która go tworzy (co liczy się jako utworzenie, mówi ``_creating``), więc i jego tekst trafia do pliku.
+Błąd, który fabryka tłumaczy na Komunikat, niesie fakty, a nie zdanie dla taty, więc i jego tekst pisze katalog.
 """
 
 from __future__ import annotations
 
 import ast
 from collections.abc import Callable, Iterator, Mapping, Sequence
+import importlib
 import inspect
 from pathlib import Path
+import pkgutil
 from types import ModuleType
+import typing
 
 import pytest
 
+import rozliczenia
 from rozliczenia import intermax_messages, settlement_messages
 from rozliczenia import preparation_messages as messages
 from rozliczenia.centrum import (
@@ -32,7 +37,10 @@ from rozliczenia.centrum import (
     start_problems,
     update_messages,
 )
-from rozliczenia.message import Message
+from rozliczenia.message import Message, StopError
+from rozliczenia.period_folder import PeriodFolderError, PeriodFolderInaccessible, PeriodFolderLookupError
+from rozliczenia.workbook_files import WorkbookError
+from rozliczenia.worker_config import WorkerConfigError
 
 from tests.fixtures import message_samples
 from tests.fixtures.expect import assert_expected
@@ -183,6 +191,83 @@ def test_kazdy_katalog_probek_trafia_do_pliku_expect() -> None:
     sample_sets = {name for name, value in vars(message_samples).items() if name.endswith("_SAMPLES")}
 
     assert {id(getattr(message_samples, name)) for name in sample_sets} == {id(samples) for _, samples in CATALOGS.values()}
+
+
+def _engine_modules() -> list[ModuleType]:
+    return [importlib.import_module(info.name) for info in pkgutil.walk_packages(rozliczenia.__path__, "rozliczenia.")]
+
+
+def _factories(modules: Sequence[ModuleType]) -> list[Callable[..., object]]:
+    """Funkcje modułów z adnotacją ``-> Message``: fabryki katalogów i ich funkcje prywatne."""
+
+    return [
+        function
+        for module in modules
+        for _, function in inspect.getmembers(module, inspect.isfunction)
+        if function.__module__ == module.__name__ and function.__annotations__.get("return") in ("Message", Message)
+    ]
+
+
+def _resolved(module: ModuleType, node: ast.expr) -> object:
+    """Obiekt nazwy (``StopError``) albo atrybutu (``settlement_messages.collective_file_invalid``) w module."""
+
+    match node:
+        case ast.Name(id=name):
+            return vars(module).get(name)
+        case ast.Attribute(value=value, attr=attr):
+            return getattr(_resolved(module, value), attr, None)
+        case _:
+            return None
+
+
+def _caught_for_message(module: ModuleType, makers: Sequence[object]) -> Iterator[object]:
+    """Typy z ``except`` modułu, którego obsługa woła fabrykę Komunikatu albo tworzy ``StopError``."""
+
+    tree = ast.parse(Path(str(module.__file__)).read_text(encoding="utf-8"))
+    for handler in ast.walk(tree):
+        if not isinstance(handler, ast.ExceptHandler) or handler.type is None:
+            continue
+        calls = [node.func for node in ast.walk(handler) if isinstance(node, ast.Call)]
+        if any(_resolved(module, call) is maker for call in calls for maker in makers):
+            kinds = handler.type.elts if isinstance(handler.type, ast.Tuple) else [handler.type]
+            yield from (_resolved(module, kind) for kind in kinds)
+
+
+def _variants(hint: object) -> tuple[object, ...]:
+    return typing.get_args(hint) or (hint,)
+
+
+def test_blad_ktory_proces_tlumaczy_na_komunikat_niesie_fakty_a_nie_tekst() -> None:
+    """Wyjątek, z którego powstaje Komunikat, nie przyjmuje ``str``: zdanie dla taty pisze katalog, nie kod błędu.
+
+    Taki wyjątek stoi w sygnaturze fabryki Komunikatu albo w ``except``, którego obsługa woła fabrykę albo tworzy
+    ``StopError``. Granica: sprawdzenie widzi parametry ``__init__`` z adnotacją ``str`` (także w unii) w klasach
+    ``src/rozliczenia``, a nie pole ustawione bez parametru, parametr bez adnotacji, ``except`` na zmiennej
+    (``except errors``) ani tekst w dataclass faktu (``SameWorkerFile`` niesie nazwy z konfiguracji).
+    """
+
+    modules = _engine_modules()
+    factories = _factories(modules)
+    in_signatures = {
+        kind for factory in factories for hint in typing.get_type_hints(factory).values() for kind in _variants(hint)
+    }
+    caught = {kind for module in modules for kind in _caught_for_message(module, [*factories, StopError])}
+    errors = {
+        kind
+        for kind in in_signatures | caught
+        if inspect.isclass(kind) and issubclass(kind, BaseException) and kind.__module__.startswith("rozliczenia.")
+    }
+    with_text = {
+        f"{error.__name__}.{parameter}"
+        for error in errors
+        if inspect.isfunction(error.__init__)
+        for parameter, hint in typing.get_type_hints(error.__init__).items()
+        if str in _variants(hint)
+    }
+
+    assert with_text == set()
+    assert {WorkbookError, WorkerConfigError, PeriodFolderError, PeriodFolderLookupError} <= in_signatures
+    assert PeriodFolderInaccessible in caught
 
 
 def test_komunikaty_ktore_widzi_tata_odpowiadaja_plikowi_expect() -> None:

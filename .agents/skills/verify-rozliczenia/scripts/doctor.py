@@ -65,11 +65,8 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         period, template_count = _check(args.root, args.expected_version)
-    except (OSError, ValueError, KeyError, TypeError, WorkbookError) as exc:
+    except (OSError, ValueError, KeyError, TypeError, WorkbookError, PeriodFolderError) as exc:
         print(f"DOCTOR FAIL: {exc}", file=sys.stderr)
-        return 1
-    except PeriodFolderError as exc:
-        print(f"DOCTOR FAIL: {exc.message}", file=sys.stderr)
         return 1
     print(
         f"DOCTOR OK | app=MAXIMISEART-Dad | version={args.expected_version} | "
