@@ -8,7 +8,9 @@ import shutil
 import subprocess
 import sys
 
-from tests.fixtures.git_repo import commit, repository
+import pytest
+
+from tests.fixtures.git_repo import commit, git, repository
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = "import pathlib\nprint(pathlib.Path('src/dane.txt').read_text().strip(), '{}')\n"
@@ -48,6 +50,33 @@ def test_polecenie_biegnie_na_commicie_z_narzedziami_checkoutu_takze_niezacommit
     assert summary == "NA SCALONYCH PR OK | 1 PR-ów"
     assert (repo / "src" / "dane.txt").read_text(encoding="utf-8") == "nowe dane\n"
     assert (repo.parent / "wyniki" / f"{first[:8]}.txt").read_text(encoding="utf-8").strip() == "stare dane nowe narzędzie"
+
+
+@pytest.mark.parametrize("revision", ["origin/main", "HEAD^1"])
+def test_commit_podany_nazwa_rewizji_ma_etykiete_i_plik_wyniku_ze_skrotu_sha(tmp_path: Path, revision: str) -> None:
+    repo, first = _repo(tmp_path)
+    git(repo, "update-ref", "refs/remotes/origin/main", first)
+
+    done = _run(repo, "--commit", revision, "--", "tools/wypisz.py")
+
+    assert done.returncode == 0, done.stdout + done.stderr
+    assert done.stdout.startswith(f"{first[:8]} | {first[:8]} | ")
+    assert (repo.parent / "wyniki" / f"{first[:8]}.txt").read_text(encoding="utf-8").strip() == "stare dane stare narzędzie"
+
+
+def test_commit_tylko_w_origin_narzedzie_pobiera(tmp_path: Path) -> None:
+    repo, _ = _repo(tmp_path)
+    origin = tmp_path / "origin"
+    git(tmp_path, "clone", "--quiet", str(repo), str(origin))
+    (origin / "src" / "dane.txt").write_text("dane z origin\n", encoding="utf-8")
+    only_in_origin = commit(origin, "trzeci")
+    git(repo, "remote", "add", "origin", str(origin))
+
+    done = _run(repo, "--commit", only_in_origin, "--", "tools/wypisz.py")
+
+    assert done.returncode == 0, done.stdout + done.stderr
+    assert done.stdout.startswith(f"{only_in_origin[:8]} | {only_in_origin[:8]} | ")
+    assert "| kod 0 | dane z origin stare narzędzie |" in done.stdout
 
 
 def test_polecenie_z_kodem_innym_niz_zero_konczy_sie_fail_z_nazwa_commitu(tmp_path: Path) -> None:
