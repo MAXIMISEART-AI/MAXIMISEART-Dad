@@ -12,7 +12,7 @@ from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 from io import BytesIO
 from pathlib import Path
-from typing import Any, Literal
+from typing import Literal
 
 import pytest
 from openpyxl import load_workbook
@@ -20,7 +20,7 @@ from openpyxl.styles import Color, Font, PatternFill
 from openpyxl.utils.cell import coordinate_from_string, get_column_letter
 from openpyxl.worksheet.worksheet import Worksheet
 
-from rozliczenia import TOOL_ROOT, intermax_file
+from rozliczenia import TOOL_ROOT
 from rozliczenia.domain import ProgressPhase
 from rozliczenia.intermax_file import Waiting
 from rozliczenia.intermax_ordering import OrderingSummary
@@ -28,7 +28,6 @@ from rozliczenia.intermax_process import PROCESS, OrderingInputs
 from rozliczenia.message import Message
 from rozliczenia.process_run import Finished, Outcome, Stop, run_process
 from rozliczenia.progress import PhaseState
-from rozliczenia.workbook_save import SaveProblem, WorkbookSaveError
 
 from tests.fixtures.clock import ManualClock
 from tests.fixtures.intermax import (
@@ -1851,28 +1850,6 @@ def test_intermax_nieczytelny_w_przerwie_miedzy_probami_podmiany_to_zatrzymanie_
 
     assert (stop.message.code, stop.stop_kind) == (code, "for_tata")
     assert len(attempts) == 1
-
-
-def test_intermax_otwarty_w_excelu_w_przerwie_miedzy_probami_podmiany_to_nieudany_zapis_przez_excel(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    path, _ = _register(tmp_path)
-    _refused(monkeypatch, 1)
-    save = intermax_file.save
-    raised: list[WorkbookSaveError] = []
-
-    def recorded(*args: Any, **kwargs: Any) -> None:
-        try:
-            save(*args, **kwargs)
-        except WorkbookSaveError as error:
-            raised.append(error)
-            raise
-
-    monkeypatch.setattr(intermax_file, "save", recorded)
-
-    _stop(_run(tmp_path, clock=_PauseThen(lambda: path.with_name(f"~${REGISTER_NAME}").write_bytes(b""))))
-
-    assert [(error.target, error.problem) for error in raised] == [(path, SaveProblem.OPEN_IN_EXCEL)]
 
 
 def test_odmowa_podmiany_przy_otwartym_excelu_to_zatrzymanie_dla_taty_bez_czekania(

@@ -104,8 +104,8 @@ file), or the process is killed (Dad closes the console window). Schedules that
 reach a state already seen are cut short. This is sound because the code is
 deterministic: a state means the disk, what each run has observed so far, and
 the bounds left. A read observes whether its path holds nothing, a file or a folder,
-not the answer of the `os` call that asked: `Path.exists` asks `os.stat` on Python
-3.11 and 3.12 but `os.path.exists` on 3.14, and with the answer in the state 3.14
+not the answer of the `os` call that asked: `Path.is_symlink` asks `os.lstat` on Python
+3.11 and 3.12 but `os.path.islink` on 3.14, and with the answer in the state 3.14
 explored 6640 schedules of `dwa-uruchomienia` instead of 9798. The tree is the same
 on every Python.
 
