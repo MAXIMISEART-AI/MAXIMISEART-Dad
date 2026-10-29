@@ -86,7 +86,7 @@ cover three definitions in files that Centrum changes often: `lifespan` in
 rest of their files, is drift. Name these three files here without their
 `src/…` path in backticks: such a path makes the whole file covered.
 
-**Sync commit: `0ab6ff1b`** (2026-10-30, #664 merged with `main` after #665:
+**Sync commit: `2900e8c2`** (2026-10-30, #664 merged with `main` after #665:
 a queue file that `_queued` cannot read arms the `RETRY_S` wake, and after a
 refused comment the queue file keeps the number of the Uwaga's issue). The
 checker and the model share it: at this commit both were confirmed to
@@ -98,7 +98,7 @@ which neither the checker nor the model describes. To see whether they need
 another look:
 
 ```bash
-git log --oneline 0ab6ff1b..HEAD -- src/rozliczenia/centrum/outbox.py src/rozliczenia/centrum/keyed_box.py src/rozliczenia/centrum/report_box.py src/rozliczenia/centrum/atomic_file.py
+git log --oneline 2900e8c2..HEAD -- src/rozliczenia/centrum/outbox.py src/rozliczenia/centrum/keyed_box.py src/rozliczenia/centrum/report_box.py src/rozliczenia/centrum/atomic_file.py
 ```
 
 A change to the three definitions above shows as a `UWAGA:` line of
