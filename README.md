@@ -320,7 +320,8 @@ Check formatowania nie jest wymagany. Sprawdzenia CI poza krokami E2E i Timing g
 (ruff, mypy, pytest, mutacje, frontend z odtwarzalnym buildem) odtwarza lokalnie
 `.venv/bin/python tools/ci_lokalnie.py --tylko <zadania>` (Windows: `py -3 tools/ci_lokalnie.py --tylko <zadania>`).
 Mutacje liczy CI na GitHubie (`mutations` w każdym runie, `change-mutations` nocą na `main`),
-więc lokalnie biegną tylko z `--odtwarzam <id albo URL runu Actions>`, w którym padły na tej gałęzi.
+więc lokalnie biegną tylko z `--odtwarzam <id albo URL runu Actions>`, w którym padły na tej gałęzi
+(run nocny odtwarza się na jego commicie).
 Na macOS i Linuksie `tools/setup_worktree.py` włącza bramę `tools/hooks/pre-push`:
 push agenta (zmienna `AI_AGENT` albo `CLAUDECODE`) przechodzi po ruff i mypy dla obu
 systemów (`tools/ci_lokalnie.py --tylko ruff,mypy`), a push człowieka bez sprawdzania.
