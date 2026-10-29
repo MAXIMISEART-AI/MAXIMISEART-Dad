@@ -9,7 +9,7 @@ problem is a three-part message (what, where, what to do): a missing Wzorzec
 is `NIEDOSTEPNY_WZORZEC`, not a damaged file) are a Zatrzymanie, a Wzorzec open in
 Excel (`Otwarty w Excelu`) an Ostrzeżenie. The header also says whether the key
 to Zgłoszenia is there and whether the skrzynka accepts it (`Zgłoszenia: gotowe`,
-`Zgłoszenia: brak tokenu`, `Zgłoszenia: token odrzucony`; driven in `zgloszenie.md`). The page is read
+`Zgłoszenia: brak klucza`, `Zgłoszenia: klucz odrzucony`; driven in `zgloszenie.md`). The page is read
 only: Centrum never changes the konfiguracja wykonawców, a Wzorzec, or an
 Excel lock file.
 
