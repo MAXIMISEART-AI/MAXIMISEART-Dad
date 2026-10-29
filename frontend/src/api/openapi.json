@@ -3433,6 +3433,17 @@
             },
             "type": "array",
             "title": "Open In Excel"
+          },
+          "reminder": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reminder"
           }
         },
         "additionalProperties": false,
@@ -3445,7 +3456,8 @@
           "last_complete",
           "previewed",
           "collective_file",
-          "open_in_excel"
+          "open_in_excel",
+          "reminder"
         ],
         "title": "PeriodChoice",
         "description": "Okres do wyboru przy starcie, ze Statusem okresu wyliczonym z plików."

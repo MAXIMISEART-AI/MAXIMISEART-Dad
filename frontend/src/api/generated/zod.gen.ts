@@ -438,7 +438,8 @@ export const zPeriodChoice = z.object({
     last_complete: z.boolean(),
     previewed: z.boolean(),
     collective_file: z.string().nullable(),
-    open_in_excel: z.array(z.string())
+    open_in_excel: z.array(z.string()),
+    reminder: z.string().nullable()
 });
 
 /**

@@ -967,6 +967,10 @@ export type PeriodChoice = {
      * Open In Excel
      */
     open_in_excel: Array<string>;
+    /**
+     * Reminder
+     */
+    reminder: string | null;
 };
 
 /**

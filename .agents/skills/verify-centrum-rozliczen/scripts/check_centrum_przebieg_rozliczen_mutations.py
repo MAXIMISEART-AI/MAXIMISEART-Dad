@@ -13,10 +13,22 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "tools"))
 sys.path.insert(0, str(Path(__file__).resolve().parents[4] / ".agents/skills/verify-centrum-rozliczen/scripts"))
 
-from cele_mutacji_centrum import PRZEBIEG, RUN_VIEW, SETTLEMENT_MESSAGES
+from cele_mutacji_centrum import BUILD, PRZEBIEG, RUN_VIEW, SETTLEMENT_MESSAGES
 from mutacje import Edit, Mutation, check_all
 
 MUTATIONS = (
+    Mutation(
+        "stopka karty startu zawsze o pliku danych",
+        (Edit(RUN_VIEW, "        return None if template_open and not data_file_open else self.reminder\n", "        return self.reminder\n"),),
+        PRZEBIEG,
+        "gdy Uruchom blokuje tylko pozostawiony ~$ Wzorca, stopka każe zamknąć Plik zbiorczy",
+    ),
+    Mutation(
+        "Nowe Uruchomienie procesu bez ponownego odczytu",
+        (Edit(BUILD, "&&(s.current=r,t())},[r,t])", "&&(s.current=r)},[r,t])"),),
+        PRZEBIEG,
+        "po usunięciu ~$ karta startu pokazuje stare ostrzeżenie aż do powrotu do okna",
+    ),
     Mutation(
         "po Przebiegu rozliczeń akcją główną jest Plik zbiorczy",
         (Edit(RUN_VIEW, '    result_action="open_worker_settlements_folder",\n', '    result_action="open_collective_file",\n'),),

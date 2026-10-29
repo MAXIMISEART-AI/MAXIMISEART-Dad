@@ -86,11 +86,12 @@ function RunHistory() {
 
 function RunsContent() {
   const { resource: setup, reload } = useResource(getRunSetup)
-  const { view } = useRuns()
+  const { view, dismissed } = useRuns()
   const finishedRun = view?.state === "finished" ? view.run.id : null
   const entrance = useContentEntrance(view === null || setup.state === "loading")
-  // Uruchomienie zakończone przed wejściem na stronę zna już odczyt przy montowaniu.
+  // Uruchomienie zakończone albo odłożone przed wejściem na stronę zna już odczyt przy montowaniu.
   const readAfter = React.useRef(finishedRun)
+  const readAfterDismissed = React.useRef(dismissed)
 
   // Zakończone Uruchomienie zmienia Status okresu i historię podglądów, więc wybór okresu czytamy od nowa.
   React.useEffect(() => {
@@ -99,6 +100,15 @@ function RunsContent() {
       reload()
     }
   }, [finishedRun, reload])
+
+  // Nad wynikiem tata mógł zamknąć plik albo usunąć pozostawiony `~$` bez wyjścia z okna, więc
+  // „Nowe Uruchomienie procesu” czyta pliki od nowa, tak jak powrót do okna.
+  React.useEffect(() => {
+    if (dismissed !== readAfterDismissed.current) {
+      readAfterDismissed.current = dismissed
+      reload()
+    }
+  }, [dismissed, reload])
 
   if (view === null || setup.state === "loading") {
     return <RunsSkeleton />

@@ -12,6 +12,7 @@ from openpyxl.worksheet.worksheet import Worksheet
 from playwright.sync_api import Page, expect
 
 from drive.common import (
+    FOCUS,
     LAST_COMPLETE,
     ROW_MARKER,
     Run,
@@ -39,6 +40,12 @@ UNMAPPED_WORKER_ACTION = (
     "wykonawców. Potem zapisz i zamknij Plik zbiorczy w Excelu i uruchom ponownie."
 )
 NAMES_ROW = re.compile(r"\bWiersz \d+\b")
+REMINDER = "Zapisz i zamknij Plik zbiorczy w Excelu"
+# Counts Dad's returns to the window, so a step can show that a new read came without one.
+COUNT_RETURNS = (
+    "() => { window.__returns = 0; const count = () => window.__returns++;"
+    " window.addEventListener('focus', count); document.addEventListener('visibilitychange', count) }"
+)
 
 
 def _settlement_records(run: Run, name: str) -> list[dict[str, object]]:
@@ -78,6 +85,68 @@ def _post(run: Run, path: str, body: dict[str, object], name: str) -> int:
     return run.refused(request, name)
 
 
+def _setup_choice(run: Run, name: str) -> dict[str, object]:
+    processes = run.api("/api/runs/setup", name)["processes"]
+    assert isinstance(processes, list)
+    [setup] = [process for process in processes if process["process"] == "settlement"]
+    [choice] = [choice for choice in setup["periods"] if choice["token"] == LAST_COMPLETE]
+    assert isinstance(choice, dict)
+    return choice
+
+
+def _template_lock_left_behind(run: Run, page: Page) -> None:
+    """A lock file left by Excel next to the Wzorzec rozliczenia pracownika, then deleted while a result is shown.
+
+    The footer does not send Dad to the Plik zbiorczy, which does not block, and „Nowe Uruchomienie procesu” reads
+    the files again without Dad's return to the window.
+    """
+
+    template = Path(run.fixture["configuration"]["worker_template"])
+    lock = template.with_name(f"~${template.name}")
+    warning = (
+        "Wzorzec rozliczenia pracownika jest otwarty w Excelu. Zamknij go bez zapisywania zmian. Jeśli Excel jest "
+        f"zamknięty, usuń z tego samego folderu pozostawiony plik {lock.name}."
+    )
+    warned = page.get_by_role("alert").filter(has_text=warning)
+    start = page.get_by_role("button", name="Uruchom", exact=True)
+    reminder = page.get_by_text(REMINDER, exact=True)
+
+    lock.touch()
+    print(f"  harness: Excel crashed and left {lock.name} next to the Wzorzec; Dad returns to Centrum", flush=True)
+    try:
+        page.evaluate(FOCUS)
+        expect(warned).to_have_text(warning)
+        expect(start).to_be_disabled()
+        expect(reminder).to_have_count(0)
+        choice = _setup_choice(run, "przebieg-wzorzec-otwarty-w-excelu")
+        run.check(
+            (choice["open_in_excel"], choice["reminder"]) == ([warning], None),
+            "only the Wzorzec blocks Uruchom, so the footer does not tell Dad to close the Plik zbiorczy",
+        )
+        run.capture(page, "4c-przebieg-wzorzec-otwarty-w-excelu")
+
+        # The card reads the files again once the Uruchomienie ends; that read must see the lock file, not race it.
+        with page.expect_response(lambda response: response.url.endswith("/api/runs/setup")):
+            page.get_by_role("button", name="Podgląd bez zapisu", exact=True).click()
+        expect(stop_banner(page)).to_contain_text(f"pozostawiony plik {lock.name}")
+        page.evaluate(COUNT_RETURNS)
+    finally:
+        lock.unlink(missing_ok=True)
+    print(f"  harness: Dad deletes {lock.name} while Centrum keeps the focus", flush=True)
+    page.get_by_role("button", name="Nowe Uruchomienie procesu", exact=True).click()
+    page.get_by_role("radio", name="Przebieg rozliczeń").click()
+    expect(page.get_by_role("combobox", name="Okres")).to_contain_text(LAST_COMPLETE)
+    expect(warned).to_have_count(0)
+    expect(start).to_be_enabled()
+    expect(reminder).to_be_visible()
+    choice = _setup_choice(run, "przebieg-wzorzec-zamkniety")
+    run.check(
+        page.evaluate("() => window.__returns") == 0 and (choice["open_in_excel"], choice["reminder"]) == ([], REMINDER),
+        "Nowe Uruchomienie procesu shows the files as they are now, without Dad's return to the window",
+    )
+    run.capture(page, "4d-przebieg-nowe-uruchomienie-bez-blokady")
+
+
 def drive_settlement(run: Run, page: Page) -> None:
     feature = SETTLEMENT
     internal_settlement, collective_file = period_files(run)
@@ -95,7 +164,6 @@ def drive_settlement(run: Run, page: Page) -> None:
     if not collective_file.is_file():
         # Dad's path starts with Przygotowanie pliku zbiorczego; alone, this feature drives it first.
         drive_preparation(run, page)
-    records_before = len(_settlement_records(run, "przebieg-metryki-przed"))
 
     run.step(feature, "przebieg-gotowosc")
     filled = _fill_readiness(collective_file)
@@ -111,7 +179,7 @@ def drive_settlement(run: Run, page: Page) -> None:
     expect(page.get_by_role("radio", name="Przebieg rozliczeń")).to_be_checked()
     expect(page.get_by_role("combobox", name="Okres")).to_contain_text(period_choice(LAST_COMPLETE, "ostatni pełny"))
     expect(page.get_by_role("group", name="Plik zbiorczy")).to_contain_text(collective_file.name)
-    expect(page.get_by_text("Zapisz i zamknij Plik zbiorczy w Excelu", exact=True)).to_be_visible()
+    expect(page.get_by_text(REMINDER, exact=True)).to_be_visible()
     processes = run.api("/api/runs/setup", "przebieg-wybor-okresu")["processes"]
     assert isinstance(processes, list)
     [setup] = [process for process in processes if process["process"] == "settlement"]
@@ -133,11 +201,16 @@ def drive_settlement(run: Run, page: Page) -> None:
             "Plik zbiorczy jest otwarty w Excelu. Zapisz go i zamknij. Jeśli Excel jest zamknięty, usuń z tego samego "
             f"folderu pozostawiony plik ~${collective_file.name}."
         ),
+        reminder=REMINDER,
         name="przebieg-plik-zbiorczy",
         shots=("4a-przebieg-plik-zbiorczy-otwarty-w-excelu", "4b-przebieg-plik-zbiorczy-zamkniety"),
     )
 
+    run.step(feature, "przebieg-wzorzec-pozostawiony-plik-blokady")
+    _template_lock_left_behind(run, page)
+
     run.step(feature, "przebieg-podglad")
+    records_before = len(_settlement_records(run, "przebieg-metryki-przed"))
     page.goto(run.url)
     next_step = page.get_by_role("region", name="Następny krok")
     expect(next_step).to_contain_text("Utwórz rozliczenia pracowników")
@@ -170,7 +243,7 @@ def drive_settlement(run: Run, page: Page) -> None:
     run.step(feature, "przebieg-potwierdzenie")
     live.get_by_role("button", name="Uruchom", exact=True).click()
     confirm = page.get_by_role("alertdialog", name="Uruchomić z zapisem?")
-    expect(confirm).to_contain_text("Zapisz i zamknij Plik zbiorczy w Excelu")
+    expect(confirm).to_contain_text(REMINDER)
     expect(confirm).to_contain_text("„Uruchom” potwierdza Gotowość Pliku zbiorczego")
     expect(confirm.get_by_text("Nie było podglądu bez zapisu")).to_have_count(0)
     without_quantity = run.api(f"/api/periods/{LAST_COMPLETE}/without-quantity", "przebieg-potwierdzenie-wiersze")

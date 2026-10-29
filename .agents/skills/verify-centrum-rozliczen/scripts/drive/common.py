@@ -223,13 +223,21 @@ def stop_banner(page: Page) -> Locator:
 
 
 def start_card_warns_while_open(
-    run: Run, page: Page, *, process: str, workbook: Path, warning: str, name: str, shots: tuple[str, str]
+    run: Run,
+    page: Page,
+    *,
+    process: str,
+    workbook: Path,
+    warning: str,
+    reminder: str,
+    name: str,
+    shots: tuple[str, str],
 ) -> None:
-    """The start card warns while ``workbook`` is open in Excel and stops warning when Dad closes it.
+    """The start card warns while ``workbook``, the process's data file, is open in Excel and stops when Dad closes it.
 
     The card shows the server's ``open_in_excel`` for the chosen period (``LAST_COMPLETE``), turns off „Uruchom”,
-    and keeps „Podgląd bez zapisu”. Excel is not driven: the harness adds and removes its lock file ``~$<name>``,
-    then fires ``focus`` as Dad's return to the window does.
+    keeps „Podgląd bez zapisu” and the footer's ``reminder`` about that file. Excel is not driven: the harness adds
+    and removes its lock file ``~$<name>``, then fires ``focus`` as Dad's return to the window does.
     """
 
     lock = workbook.with_name(f"~${workbook.name}")
@@ -237,14 +245,12 @@ def start_card_warns_while_open(
     start = page.get_by_role("button", name="Uruchom", exact=True)
     preview = page.get_by_role("button", name="Podgląd bez zapisu", exact=True)
 
-    def shown(answer: str) -> list[object]:
+    def shown(answer: str) -> tuple[object, object]:
         processes = run.api("/api/runs/setup", answer)["processes"]
         assert isinstance(processes, list)
         [setup] = [setup for setup in processes if setup["process"] == process]
         [choice] = [choice for choice in setup["periods"] if choice["token"] == LAST_COMPLETE]
-        found = choice["open_in_excel"]
-        assert isinstance(found, list)
-        return found
+        return choice["open_in_excel"], choice["reminder"]
 
     lock.touch()
     print(f"  harness: Excel opens {workbook.name}, so its lock file is next to it; Dad returns to Centrum", flush=True)
@@ -253,9 +259,11 @@ def start_card_warns_while_open(
         expect(warned).to_have_text(warning)
         expect(start).to_be_disabled()
         expect(preview).to_be_enabled()
+        expect(page.get_by_text(reminder, exact=True)).to_be_visible()
         run.check(
-            shown(f"{name}-otwarty-w-excelu") == [warning],
-            f"the start card names {workbook.name} open in Excel; Uruchom is off and Podgląd bez zapisu stays on",
+            shown(f"{name}-otwarty-w-excelu") == ([warning], reminder),
+            f"the start card names {workbook.name} open in Excel; Uruchom is off, Podgląd bez zapisu stays on, and "
+            "the footer still reminds to close it",
         )
         run.capture(page, shots[0])
     finally:
@@ -265,7 +273,7 @@ def start_card_warns_while_open(
     expect(warned).to_have_count(0)
     expect(start).to_be_enabled()
     run.check(
-        shown(f"{name}-zamkniety") == [],
+        shown(f"{name}-zamkniety") == ([], reminder),
         f"after {workbook.name} is closed the warning is gone without a reload and Uruchom is on again",
     )
     run.capture(page, shots[1])

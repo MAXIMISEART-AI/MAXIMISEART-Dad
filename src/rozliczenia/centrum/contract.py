@@ -301,6 +301,8 @@ class PeriodChoice(_Model):
     collective_file: str | None
     # Zdania o skoroszytach wejściowych procesu otwartych w Excelu: najpierw plik danych, potem Wzorce.
     open_in_excel: list[str]
+    # Przypomnienie w stopce karty startu przy tym okresie; brak, gdy „Uruchom” blokuje tylko otwarty Wzorzec.
+    reminder: str | None
 
 
 class ProcessSetup(_Model):

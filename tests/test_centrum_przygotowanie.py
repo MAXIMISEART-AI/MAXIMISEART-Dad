@@ -513,6 +513,29 @@ def test_karta_startu_mowi_ktore_pliki_przygotowania_sa_otwarte_w_excelu_az_do_i
     assert open_in_excel() == {()}
 
 
+@pytest.mark.parametrize(
+    ("workbooks", "reminder"),
+    [
+        ((), "Zapisz i zamknij Rejestr zleceń w Excelu"),
+        (("register_path",), "Zapisz i zamknij Rejestr zleceń w Excelu"),
+        (("register_path", "collective_template_path"), "Zapisz i zamknij Rejestr zleceń w Excelu"),
+        (("internal_template_path",), None),
+        (("collective_template_path",), None),
+    ],
+)
+def test_stopka_karty_startu_nie_kaze_zamknac_rejestru_zlecen_gdy_uruchom_blokuje_tylko_wzorzec(
+    tmp_path: Path, workbooks: tuple[str, ...], reminder: str | None
+) -> None:
+    centrum = preparing_centrum(tmp_path)
+    for workbook in workbooks:
+        path: Path = getattr(centrum.fixture, workbook)
+        path.with_name(f"~${path.name}").touch()
+
+    setup, _settlement = centrum.client.get("/api/runs/setup").json()["processes"]
+
+    assert {choice["reminder"] for choice in setup["periods"]} == {reminder}
+
+
 @pytest.mark.parametrize("workbook", ["register_path", "internal_template_path", "collective_template_path"])
 def test_rada_karty_startu_i_zatrzymania_nazywa_ten_sam_pozostawiony_plik_blokady(
     tmp_path: Path, workbook: str
