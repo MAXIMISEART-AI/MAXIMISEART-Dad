@@ -112,10 +112,12 @@ def drive_notifications(run: Run, page: Page) -> None:
     config = Path(run.fixture["settings"]).parent
     key_file = config / "zgloszenia-klucz.txt"
     box = run.root / "skrzynka-zgloszen"
+    # A part of `all` may start at uwaga-taty or later (SKILL.md), so each case this feature closes is checked apart.
+    if not any(issue["state"] == "open" for issue in zgloszenie._issues(box)):
+        print("  harness: no open Zgłoszenie yet, so zgloszenie runs first", flush=True)
+        zgloszenie.drive_report(run, page)
     if not uwaga_taty._issues(box):
-        print("  harness: no Uwaga taty sent yet, so zgloszenie and uwaga-taty run first", flush=True)
-        if not zgloszenie._issues(box):
-            zgloszenie.drive_report(run, page)
+        print("  harness: no Uwaga taty sent yet, so uwaga-taty runs first", flush=True)
         uwaga_taty.drive_dad_note(run, page)
     key_file.write_text(KEY + "\n", encoding="utf-8")
     notes = uwaga_taty._issues(box)
