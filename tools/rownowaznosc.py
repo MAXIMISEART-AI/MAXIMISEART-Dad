@@ -15,6 +15,8 @@ Zatrzymaniem i z plikiem uszkodzonym, i uruchamia każdy skryptem dla maszyn ``t
 
 Każda strona dostaje własną kopię wejść scenariusza i uruchamia swój ``tools/uruchom_proces.py`` ze swoim ``src``,
 więc zmiana skryptu dla maszyn też jest zmianą zachowania. Scenariusze biegną najwyżej ``PARALLEL`` naraz.
+Te same scenariusze, uruchomione tak samo (``built`` i ``run``), opisuje karta Uruchomienia w plikach expect testu
+``tests/test_uruchomienia_expect.py``, więc nowy scenariusz dopisuje też swoją kartę.
 Porównanie:
 
 - kod wyjścia i JSON wyniku (``result``, ``summary``, ``warnings`` i ``stop`` z kodem i trzema częściami Komunikatu,
@@ -291,7 +293,7 @@ def json_differences(base: object, head: object, path: str = "") -> list[str]:
     return [] if base == head else [path or "JSON"]
 
 
-def _files(folder: Path) -> dict[str, Path]:
+def files(folder: Path) -> dict[str, Path]:
     """Pliki folderu według nazwy z zamaskowaną chwilą; drugi i dalszy plik tej samej nazwy dostaje numer ``(2)``."""
 
     named: dict[str, list[Path]] = {}
@@ -320,7 +322,7 @@ def _workbook_difference(base: Path, head: Path) -> str | None:
 def file_differences(base: Path, head: Path) -> list[str]:
     """Różnice plików dwóch folderów scenariusza po uruchomieniu: nazwy i części, bez treści."""
 
-    base_files, head_files = _files(base), _files(head)
+    base_files, head_files = files(base), files(head)
     found = []
     for side, names in (("bazie", base_files.keys() - head_files.keys()), ("HEAD", head_files.keys() - base_files.keys())):
         if names:
@@ -367,7 +369,16 @@ def _relative(argument: str | Path, folder: Path) -> str:
     return argument.relative_to(folder).as_posix() if isinstance(argument, Path) else argument
 
 
-def _run(tree: Path, scenario: Scenario, arguments: Sequence[str], inputs: Path, side: Path) -> Outcome:
+def built(scenario: Scenario, folder: Path) -> list[str]:
+    """Buduje wejścia scenariusza w nowym folderze ``folder`` i zwraca argumenty procesu ze ścieżkami względnymi."""
+
+    folder.mkdir(parents=True)
+    return [_relative(argument, folder) for argument in scenario.build(folder)]
+
+
+def run(tree: Path, scenario: Scenario, arguments: Sequence[str], inputs: Path, side: Path) -> Outcome:
+    """Uruchamia scenariusz skryptem dla maszyn drzewa ``tree`` na kopii wejść ``inputs`` w folderze strony ``side``."""
+
     folder = side / scenario.name
     shutil.copytree(inputs, folder)
     metrics = side / f"{scenario.name}-metryki.jsonl"
@@ -383,20 +394,18 @@ def _run(tree: Path, scenario: Scenario, arguments: Sequence[str], inputs: Path,
 def equivalence(base_tree: Path, head_tree: Path, scenarios: Sequence[Scenario], work: Path) -> int:
     """Drukuje linię każdego scenariusza i ostatnią linię wyniku; zwraca kod wyjścia."""
 
-    built: dict[str, list[str]] = {}
+    arguments: dict[str, list[str]] = {}
     for scenario in scenarios:
-        folder = work / "wejscia" / scenario.name
-        folder.mkdir(parents=True)
         try:
-            built[scenario.name] = [_relative(argument, folder) for argument in scenario.build(folder)]
+            arguments[scenario.name] = built(scenario, work / "wejscia" / scenario.name)
         except ModuleNotFoundError as error:
             if not (error.name or "").startswith("tests.fixtures."):
                 raise
             print(f"{scenario.name} | BEZ FIXTURE | {error.name}", flush=True)
-    chosen = [scenario for scenario in scenarios if scenario.name in built]
+    chosen = [scenario for scenario in scenarios if scenario.name in arguments]
     jobs = [(tree, scenario, side) for scenario in chosen for tree, side in ((base_tree, "baza"), (head_tree, "head"))]
     with ThreadPoolExecutor(PARALLEL) as pool:
-        outcomes = list(pool.map(lambda job: _run(job[0], job[1], built[job[1].name], work / "wejscia" / job[1].name, work / job[2]), jobs))
+        outcomes = list(pool.map(lambda job: run(job[0], job[1], arguments[job[1].name], work / "wejscia" / job[1].name, work / job[2]), jobs))
     differing = []
     for index, scenario in enumerate(chosen):
         line, same = compare(scenario.name, outcomes[2 * index], outcomes[2 * index + 1])

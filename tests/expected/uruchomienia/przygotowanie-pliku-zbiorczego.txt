@@ -1,0 +1,224 @@
+# Przygotowanie pliku zbiorczego: karta Uruchomienia każdego scenariusza z tools/rownowaznosc.py, bez czasów, chwil i folderów.
+# Plik zapisuje tests/test_uruchomienia_expect.py.
+
+=== przygotowanie ===
+Wynik: WYMAGA_SPRAWDZENIA
+Etapy:
+  Sprawdzanie: completed
+  Odczyt danych: completed
+  Planowanie: completed
+  Zapisywanie: completed
+Liczby postępu:
+  Ostrzeżenia: 2
+  Czas uruchomienia: <CZAS>
+Podsumowanie:
+  Zlecenia okresu: 4
+  Zlecenia skuteczne: 3
+  Pominięte puste wiersze: 5
+Zlecenia na dzień:
+  wt 08.09.2026: 1
+  śr 09.09.2026: 1
+  czw 10.09.2026: 0
+  pt 11.09.2026: 0
+  sob 12.09.2026: 1
+  niedz 13.09.2026: 0
+  pon 14.09.2026: 1
+Plik okresu: Rozliczenie wew. 08_14_09_2026.xlsx (internal_settlement)
+Plik okresu: Rozliczenie 08_14_09_2026 - zbiorcze.xlsx (collective_file)
+Ostrzeżenia:
+  NIEZNANE_URZADZENIA
+    Co się stało: Narzędzie nie zna urządzenia z kolumny URZĄDZENIA, więc w tych wierszach Pliku zbiorczego wpisało tylko ilości niezależne od urządzeń (V, T i N).
+    Gdzie: plik Rozliczenie 08_14_09_2026 - zbiorcze.xlsx, wiersze 18, 19, 20
+    Co zrobić: Uzupełnij pozostałe ilości w tych wierszach ręcznie przed Przebiegiem rozliczeń. Jeśli to nowe urządzenie, które będzie wracać, powiedz o nim osobie utrzymującej narzędzie.
+  KOLUMNY_Z_OPISU
+    Co się stało: Ilości, które wynikają z opisu technika (CZYNNOŚCI ZREALIZOWANE), narzędzie zostawia do uzupełnienia.
+    Gdzie: plik Rozliczenie 08_14_09_2026 - zbiorcze.xlsx, kolumny Y, AB, AD, AJ, AK, AL i AM
+    Co zrobić: Przejrzyj opis technika w każdym wierszu Pliku zbiorczego i uzupełnij ilości w tych kolumnach przed Przebiegiem rozliczeń.
+Zatrzymanie: brak
+Pliki wynikowe:
+  nowy: INEA/08_14_09_2026/Rozliczenie 08_14_09_2026 - zbiorcze.xlsx
+  nowy: INEA/08_14_09_2026/Rozliczenie wew. 08_14_09_2026.xlsx
+
+=== przygotowanie-podglad ===
+Wynik: OK
+Etapy:
+  Sprawdzanie: completed
+  Odczyt danych: completed
+  Planowanie: completed
+  Zapisywanie: completed
+Liczby postępu:
+  Ostrzeżenia: 2
+  Czas uruchomienia: <CZAS>
+Podsumowanie:
+  Zlecenia okresu: 4
+  Zlecenia skuteczne: 3
+  Pominięte puste wiersze: 5
+Zlecenia na dzień:
+  wt 08.09.2026: 1
+  śr 09.09.2026: 1
+  czw 10.09.2026: 0
+  pt 11.09.2026: 0
+  sob 12.09.2026: 1
+  niedz 13.09.2026: 0
+  pon 14.09.2026: 1
+Plik okresu: Rozliczenie wew. 08_14_09_2026.xlsx (internal_settlement)
+Plik okresu: Rozliczenie 08_14_09_2026 - zbiorcze.xlsx (collective_file)
+Ostrzeżenia:
+  NIEZNANE_URZADZENIA
+    Co się stało: Narzędzie nie zna urządzenia z kolumny URZĄDZENIA, więc w tych wierszach Pliku zbiorczego wpisało tylko ilości niezależne od urządzeń (V, T i N).
+    Gdzie: plik Rozliczenie 08_14_09_2026 - zbiorcze.xlsx, wiersze 18, 19, 20
+    Co zrobić: Uzupełnij pozostałe ilości w tych wierszach ręcznie przed Przebiegiem rozliczeń. Jeśli to nowe urządzenie, które będzie wracać, powiedz o nim osobie utrzymującej narzędzie.
+  KOLUMNY_Z_OPISU
+    Co się stało: Ilości, które wynikają z opisu technika (CZYNNOŚCI ZREALIZOWANE), narzędzie zostawia do uzupełnienia.
+    Gdzie: plik Rozliczenie 08_14_09_2026 - zbiorcze.xlsx, kolumny Y, AB, AD, AJ, AK, AL i AM
+    Co zrobić: Przejrzyj opis technika w każdym wierszu Pliku zbiorczego i uzupełnij ilości w tych kolumnach przed Przebiegiem rozliczeń.
+Zatrzymanie: brak
+Pliki wynikowe: brak
+
+=== przygotowanie-uklad-folderow-taty ===
+Wynik: WYMAGA_SPRAWDZENIA
+Etapy:
+  Sprawdzanie: completed
+  Odczyt danych: completed
+  Planowanie: completed
+  Zapisywanie: completed
+Liczby postępu:
+  Ostrzeżenia: 2
+  Czas uruchomienia: <CZAS>
+Podsumowanie:
+  Zlecenia okresu: 4
+  Zlecenia skuteczne: 3
+  Pominięte puste wiersze: 5
+Zlecenia na dzień:
+  wt 08.09.2026: 1
+  śr 09.09.2026: 1
+  czw 10.09.2026: 0
+  pt 11.09.2026: 0
+  sob 12.09.2026: 1
+  niedz 13.09.2026: 0
+  pon 14.09.2026: 1
+Plik okresu: Rozliczenie wew. 08_14_09_2026.xlsx (internal_settlement)
+Plik okresu: Rozliczenie 08_14_09_2026 - zbiorcze.xlsx (collective_file)
+Ostrzeżenia:
+  NIEZNANE_URZADZENIA
+    Co się stało: Narzędzie nie zna urządzenia z kolumny URZĄDZENIA, więc w tych wierszach Pliku zbiorczego wpisało tylko ilości niezależne od urządzeń (V, T i N).
+    Gdzie: plik Rozliczenie 08_14_09_2026 - zbiorcze.xlsx, wiersze 18, 19, 20
+    Co zrobić: Uzupełnij pozostałe ilości w tych wierszach ręcznie przed Przebiegiem rozliczeń. Jeśli to nowe urządzenie, które będzie wracać, powiedz o nim osobie utrzymującej narzędzie.
+  KOLUMNY_Z_OPISU
+    Co się stało: Ilości, które wynikają z opisu technika (CZYNNOŚCI ZREALIZOWANE), narzędzie zostawia do uzupełnienia.
+    Gdzie: plik Rozliczenie 08_14_09_2026 - zbiorcze.xlsx, kolumny Y, AB, AD, AJ, AK, AL i AM
+    Co zrobić: Przejrzyj opis technika w każdym wierszu Pliku zbiorczego i uzupełnij ilości w tych kolumnach przed Przebiegiem rozliczeń.
+Zatrzymanie: brak
+Pliki wynikowe:
+  nowy: Załączniki/Rozliczenia 2026/09_Wrzesień_2026/INEA/08_14_09_2026/Rozliczenie 08_14_09_2026 - zbiorcze.xlsx
+  nowy: Załączniki/Rozliczenia 2026/09_Wrzesień_2026/INEA/08_14_09_2026/Rozliczenie wew. 08_14_09_2026.xlsx
+
+=== przygotowanie-wzorce-syntetyczne ===
+Wynik: WYMAGA_SPRAWDZENIA
+Etapy:
+  Sprawdzanie: completed
+  Odczyt danych: completed
+  Planowanie: completed
+  Zapisywanie: completed
+Liczby postępu:
+  Ostrzeżenia: 2
+  Czas uruchomienia: <CZAS>
+Podsumowanie:
+  Zlecenia okresu: 4
+  Zlecenia skuteczne: 3
+  Pominięte puste wiersze: 5
+Zlecenia na dzień:
+  wt 08.09.2026: 1
+  śr 09.09.2026: 1
+  czw 10.09.2026: 0
+  pt 11.09.2026: 0
+  sob 12.09.2026: 1
+  niedz 13.09.2026: 0
+  pon 14.09.2026: 1
+Plik okresu: Rozliczenie wew. 08_14_09_2026.xlsx (internal_settlement)
+Plik okresu: Rozliczenie 08_14_09_2026 - zbiorcze.xlsx (collective_file)
+Ostrzeżenia:
+  NIEZNANE_URZADZENIA
+    Co się stało: Narzędzie nie zna urządzenia z kolumny URZĄDZENIA, więc w tych wierszach Pliku zbiorczego wpisało tylko ilości niezależne od urządzeń (V, T i N).
+    Gdzie: plik Rozliczenie 08_14_09_2026 - zbiorcze.xlsx, wiersze 18, 19, 20
+    Co zrobić: Uzupełnij pozostałe ilości w tych wierszach ręcznie przed Przebiegiem rozliczeń. Jeśli to nowe urządzenie, które będzie wracać, powiedz o nim osobie utrzymującej narzędzie.
+  KOLUMNY_Z_OPISU
+    Co się stało: Ilości, które wynikają z opisu technika (CZYNNOŚCI ZREALIZOWANE), narzędzie zostawia do uzupełnienia.
+    Gdzie: plik Rozliczenie 08_14_09_2026 - zbiorcze.xlsx, kolumny Y, AB, AD, AJ, AK, AL i AM
+    Co zrobić: Przejrzyj opis technika w każdym wierszu Pliku zbiorczego i uzupełnij ilości w tych kolumnach przed Przebiegiem rozliczeń.
+Zatrzymanie: brak
+Pliki wynikowe:
+  nowy: INEA/08_14_09_2026/Rozliczenie 08_14_09_2026 - zbiorcze.xlsx
+  nowy: INEA/08_14_09_2026/Rozliczenie wew. 08_14_09_2026.xlsx
+
+=== przygotowanie-niepelny-okres ===
+Wynik: BLAD_KRYTYCZNY
+Etapy:
+  Sprawdzanie: completed
+  Odczyt danych: completed
+  Planowanie: completed
+  Zapisywanie: pending
+Liczby postępu:
+  Ostrzeżenia: 3
+  Czas uruchomienia: <CZAS>
+Podsumowanie: brak
+Ostrzeżenia: brak
+Zatrzymanie (declined): PRZERWANO_NIEPELNY_OKRES
+  Co się stało: Przerwano z powodu niepełnego okresu, zgodnie z odpowiedzią. Nie utworzono żadnego pliku.
+  Gdzie: okres 08_14_09_2026
+  Co zrobić: Uzupełnij eksport zleceń w Rejestrze zleceń, zapisz go, zamknij i uruchom ponownie. Jeśli okres jest pełny, uruchom proces w Centrum rozliczeń i przy decyzji wybierz „Kontynuuj”.
+Pliki wynikowe: brak
+
+=== przygotowanie-plik-zbiorczy-istnieje ===
+Wynik: BLAD_KRYTYCZNY
+Etapy:
+  Sprawdzanie: failed
+  Odczyt danych: pending
+  Planowanie: pending
+  Zapisywanie: pending
+Liczby postępu:
+  Ostrzeżenia: 0
+  Czas uruchomienia: <CZAS>
+Podsumowanie: brak
+Ostrzeżenia: brak
+Zatrzymanie (stop): PLIK_OKRESU_ISTNIEJE
+  Co się stało: Plik tego okresu już istnieje, więc nie został nadpisany. Nie utworzono żadnego pliku.
+  Gdzie: folder INEA\08_14_09_2026, plik Rozliczenie 08_14_09_2026 - zbiorcze.xlsx
+  Co zrobić: Sprawdź, czy wybrano właściwy okres. Jeśli plik ma powstać od nowa, przenieś albo usuń istniejący plik i uruchom ponownie.
+Pliki wynikowe: brak
+
+=== przygotowanie-rejestr-nie-skoroszyt ===
+Wynik: BLAD_KRYTYCZNY
+Etapy:
+  Sprawdzanie: failed
+  Odczyt danych: pending
+  Planowanie: pending
+  Zapisywanie: pending
+Liczby postępu:
+  Ostrzeżenia: 0
+  Czas uruchomienia: <CZAS>
+Podsumowanie: brak
+Ostrzeżenia: brak
+Zatrzymanie (stop): USZKODZONY_REJESTR
+  Co się stało: Nie można odczytać Rejestru zleceń. Plik jest uszkodzony albo nie jest skoroszytem .xlsx. Nie utworzono żadnego pliku.
+  Gdzie: plik ZLECENIA INTERMAX OD 08_11_2021.xlsx, folder przygotowanie-rejestr-nie-skoroszyt
+  Co zrobić: Sprawdź, czy Rejestr zleceń otwiera się w Excelu i jest zapisany jako .xlsx, zamknij go i uruchom ponownie. Jeśli błąd wraca, przekaż to osobie utrzymującej narzędzie.
+Pliki wynikowe: brak
+
+=== przygotowanie-rejestr-uciety ===
+Wynik: BLAD_KRYTYCZNY
+Etapy:
+  Sprawdzanie: failed
+  Odczyt danych: pending
+  Planowanie: pending
+  Zapisywanie: pending
+Liczby postępu:
+  Ostrzeżenia: 0
+  Czas uruchomienia: <CZAS>
+Podsumowanie: brak
+Ostrzeżenia: brak
+Zatrzymanie (stop): USZKODZONY_REJESTR
+  Co się stało: Nie można odczytać Rejestru zleceń. Plik jest uszkodzony albo nie jest skoroszytem .xlsx. Nie utworzono żadnego pliku.
+  Gdzie: plik ZLECENIA INTERMAX OD 08_11_2021.xlsx, folder przygotowanie-rejestr-uciety
+  Co zrobić: Sprawdź, czy Rejestr zleceń otwiera się w Excelu i jest zapisany jako .xlsx, zamknij go i uruchom ponownie. Jeśli błąd wraca, przekaż to osobie utrzymującej narzędzie.
+Pliki wynikowe: brak

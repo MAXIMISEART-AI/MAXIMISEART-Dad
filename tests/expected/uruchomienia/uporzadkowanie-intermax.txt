@@ -1,0 +1,99 @@
+# Uporządkowanie INTERMAX: karta Uruchomienia każdego scenariusza z tools/rownowaznosc.py, bez czasów, chwil i folderów.
+# Plik zapisuje tests/test_uruchomienia_expect.py.
+
+=== intermax ===
+Wynik: OK
+Etapy:
+  Sprawdzanie: completed
+  Odczyt danych: completed
+  Planowanie: completed
+  Zapisywanie: completed
+Liczby postępu:
+  Czas uruchomienia: <CZAS>
+Podsumowanie:
+  Zlecenia: 6
+  Wykonawcy: 3
+Uporządkowany dzień:
+  pon 26.10.2026: 6
+Kopia INTERMAX: INTERMAX przed uporządkowaniem <CHWILA>.xlsx
+Ostrzeżenia: brak
+Zatrzymanie: brak
+Pliki wynikowe:
+  nowy: Kopie INTERMAX/INTERMAX przed uporządkowaniem <CHWILA>.xlsx
+  zmieniony: ZLECENIA INTERMAX OD 08_11_2021.xlsx
+
+=== intermax-starszy-arkusz-zolte-komorki ===
+Wynik: OK
+Etapy:
+  Sprawdzanie: completed
+  Odczyt danych: completed
+  Planowanie: completed
+  Zapisywanie: completed
+Liczby postępu:
+  Czas uruchomienia: <CZAS>
+Podsumowanie:
+  Zlecenia: 6
+  Wykonawcy: 3
+Uporządkowany dzień:
+  pon 26.10.2026: 6
+Kopia INTERMAX: INTERMAX przed uporządkowaniem <CHWILA>.xlsx
+Ostrzeżenia: brak
+Zatrzymanie: brak
+Pliki wynikowe:
+  nowy: Kopie INTERMAX/INTERMAX przed uporządkowaniem <CHWILA>.xlsx
+  zmieniony: ZLECENIA INTERMAX OD 08_11_2021.xlsx
+
+=== intermax-kalendarz-1904 ===
+Wynik: OK
+Etapy:
+  Sprawdzanie: completed
+  Odczyt danych: completed
+  Planowanie: completed
+  Zapisywanie: completed
+Liczby postępu:
+  Czas uruchomienia: <CZAS>
+Podsumowanie:
+  Zlecenia: 6
+  Wykonawcy: 3
+Uporządkowany dzień:
+  pon 26.10.2026: 6
+Kopia INTERMAX: INTERMAX przed uporządkowaniem <CHWILA>.xlsx
+Ostrzeżenia: brak
+Zatrzymanie: brak
+Pliki wynikowe:
+  nowy: Kopie INTERMAX/INTERMAX przed uporządkowaniem <CHWILA>.xlsx
+  zmieniony: ZLECENIA INTERMAX OD 08_11_2021.xlsx
+
+=== intermax-bez-surowych-zlecen ===
+Wynik: BLAD_KRYTYCZNY
+Etapy:
+  Sprawdzanie: completed
+  Odczyt danych: completed
+  Planowanie: failed
+  Zapisywanie: pending
+Liczby postępu:
+  Czas uruchomienia: <CZAS>
+Podsumowanie: brak
+Ostrzeżenia: brak
+Zatrzymanie (stop): BRAK_SUROWYCH_ZLECEN
+  Co się stało: Na dole arkusza zleceń nie ma wklejonych zleceń do uporządkowania. INTERMAX nie został zmieniony.
+  Gdzie: plik ZLECENIA INTERMAX OD 08_11_2021.xlsx, folder intermax-bez-surowych-zlecen, arkusz ZLECENIA OD 06_2025
+  Co zrobić: Wklej zlecenia dnia z aplikacji na dół arkusza zleceń, zapisz i zamknij INTERMAX i uruchom ponownie.
+Pliki wynikowe: brak
+
+=== intermax-rejestr-nie-skoroszyt ===
+Wynik: BLAD_KRYTYCZNY
+Etapy:
+  Sprawdzanie: completed
+  Odczyt danych: failed
+  Planowanie: pending
+  Zapisywanie: pending
+Liczby postępu:
+  Czas uruchomienia: <CZAS>
+Podsumowanie: brak
+Ostrzeżenia: brak
+Zatrzymanie (stop): NIECZYTELNY_INTERMAX
+  Co się stało: Nie można odczytać INTERMAX jako skoroszytu Excela. INTERMAX nie został zmieniony.
+  Gdzie: plik ZLECENIA INTERMAX OD 08_11_2021.xlsx, folder intermax-rejestr-nie-skoroszyt
+  Co zrobić: Otwórz INTERMAX w Excelu i sprawdź, czy się otwiera. Jeśli tak, zapisz go, zamknij i uruchom ponownie. Jeśli błąd wraca, przekaż ten komunikat osobie utrzymującej narzędzie.
+Pliki wynikowe: brak
