@@ -378,6 +378,7 @@ def drive_update(run: Run, page: Page) -> None:
         _drive_failed_installation(run, page, clone, origin, newest, libraries, dad_files, run_configuration)
         try:
             _drive_new_version_not_starting(run, page, origin, tool["not_starting"], run_configuration)
+            _drive_start_from_shortcut(run, page)
             _drive_ok_on_old_version(run, page, tool["not_starting"])
         finally:
             restart_pacing.unlink(missing_ok=True)
@@ -557,6 +558,25 @@ def _drive_new_version_not_starting(
     expect(card.get_by_role("alert")).to_have_count(0)
     run.check(True, "on Konfiguracja the same Komunikat stands once, under the title, and the card shows the old version")
     run.capture(page, "137-aktualizacja-nie-wystartowala-konfiguracja")
+
+
+def _drive_start_from_shortcut(run: Run, page: Page) -> None:
+    run.step(FEATURE, "aktualizacja-start-ze-skrotu")
+    print("  Dad closed the browser while Centrum restarted and starts it from the shortcut: a new tab", flush=True)
+    tab = page.context.new_page()
+    try:
+        tab.goto(run.url)
+        expect(tab.get_by_role("heading", name="Okresy", exact=True)).to_be_visible()
+        message = tab.get_by_role("alert").filter(has_text=NEW_VERSION_FAILED)
+        expect(message).to_have_count(1)
+        expect(message).to_contain_text(TO_MAKS)
+        report = tab.get_by_role("button", name=REPORT_BUTTON, exact=True)
+        expect(report).to_be_visible()
+        run.check("bg-primary" in (report.get_attribute("class") or ""), "`Wyślij do Maksa` is the main action")
+        run.check(True, "a tab the restart did not reload shows the Komunikat under the title of Okresy, where Dad lands")
+        run.capture(tab, "132-aktualizacja-start-ze-skrotu")
+    finally:
+        tab.close()
 
 
 def _drive_ok_on_old_version(run: Run, page: Page, not_starting: str) -> None:
