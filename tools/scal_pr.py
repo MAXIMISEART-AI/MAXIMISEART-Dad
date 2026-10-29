@@ -40,10 +40,15 @@ decyduje, co jest kodem, cytatem albo komentarzem HTML.
 
 Issue się liczy, gdy GitHub zamienił jego odwołanie na link do issue tego repozytorium (bez względu na wielkość liter
 właściciela i nazwy), a link stoi na liście numerów zaraz po słowie „Naprawia”, pisanym dokładnie tak, od wielkiej
-litery, które zaczyna linię akapitu albo punktu listy. Linię kończy tylko ``<br>``, którym GitHub zastępuje koniec
-wiersza, oraz początek i koniec bloku: akapitu, punktu listy, nagłówka, cytatu, tabeli, ``<pre>``, ``<div>``,
-``<details>``, ``<summary>`` i ``<hr>``. Każdy inny znacznik (``<q>``, ``<kbd>``, emoji, wzór ``$…$`` i każdy, którego
-GitHub dopiero zacznie używać) należy do linii, a jego tekst się liczy, poza kodem. Liczy się więc ``Naprawia #490``,
+litery, które zaczyna linię akapitu albo punktu listy. Linia liczy się tylko wtedy, gdy jej tekst zaczyna się
+w akapicie albo punkcie listy, a wszystko, w czym ten blok stoi, to akapity, punkty i listy; w samym bloku tekst może
+stać jeszcze w pogrubieniu albo kursywie. Każde inne miejsce niczego nie zamyka, także takie, którego tu nie wymieniono
+i którego GitHub dopiero zacznie używać: nagłówek, tabela, ``<details>`` i ``<summary>``, cytat i alert GitHuba
+(``> [!NOTE]``), blok HTML (``<div>``, ``<section>``, ``<dl>``), przypis i ``<pre>``, także gdy GitHub owinie tekst
+w nich w akapit albo punkt listy. Linię kończy tylko ``<br>``, którym GitHub zastępuje koniec wiersza, oraz początek
+i koniec bloku: akapitu, punktu listy, nagłówka, cytatu, tabeli, ``<pre>``, ``<div>``, ``<details>``, ``<summary>``
+i ``<hr>``. Każdy inny znacznik (``<q>``, ``<kbd>``, emoji, wzór ``$…$`` i każdy, którego GitHub dopiero zacznie
+używać) należy do linii, a jego tekst się liczy, poza kodem i przekreśleniem. Liczy się więc ``Naprawia #490``,
 ``Naprawia #490, #491 i #492 oraz #493``, kilka linii, także pogrubionych, i adres issue. Lista kończy się na
 pierwszym tekście innym niż przecinek, „i”, „oraz” albo numer, którego GitHub nie zlinkował (nieistniejący): „Naprawia
 #490. Nie naprawia #491” zamyka tylko #490. Kończy ją też odwołanie do innego repozytorium: w ``Naprawia
@@ -51,10 +56,10 @@ MAXIMISEART-AI/MAXIMISEART-Dad-zgloszenia#12, #13`` GitHub linkuje ``#13`` do te
 Zgłoszenia. Zgłoszenie zostaje otwarte, bo zamknięte mówi Centrum taty, że poprawka czeka na aktualizację, a merge do
 ``main`` to jeszcze nie Wydanie. Nie zamyka: „Naprawia” w środku linii (także „Ten PR <q>nie</q> Naprawia #490”),
 „naprawia” małą literą (także w zawiniętej linii „Ten PR nie do końca⏎naprawia #490”), linii, która zaczyna się od
-kodu, obrazka albo pola punktu listy zadań (``- [ ] Naprawia #490``), nagłówka, tabeli, bloku HTML (``<div>``),
-``<summary>``, cytatu (także alertu GitHuba ``> [!NOTE]``), kodu (fragmentu, bloku i ``<pre>``), przekreślenia, PR-a,
-issue już zamkniętego ani issues, które GitHub zamyka sam (``closingIssuesReferences``: ``Closes``, ``Fixes``,
-``Resolves``).
+kodu, przekreślenia (także takich, które zaczęły się przed końcem poprzedniego wiersza: ``~~Ten PR⏎nie~~ Naprawia
+#490``), obrazka albo pola punktu listy zadań (``- [ ] Naprawia #490``), linii spoza akapitów i list (wyżej), kodu
+(fragmentu, bloku i ``<pre>``), przekreślenia, PR-a, issue już zamkniętego ani issues, które GitHub zamyka sam
+(``closingIssuesReferences``: ``Closes``, ``Fixes``, ``Resolves``).
 
 Merge do innej gałęzi niż domyślna (stos PR-ów) niczego nie zamyka i nie renderuje opisu, jak GitHub przy ``Closes``,
 a linia podaje ``bez zamykania „Naprawia”: baza <gałąź> to nie <domyślna>``. Gdy GitHub nie poda domyślnej gałęzi
@@ -104,7 +109,9 @@ _REFERENCE = rf"(?:{LINK}|(?:[\w.-]+/[\w.-]+)?#\d+)"
 FIXES = re.compile(rf"\s*Naprawia\s+({_REFERENCE}(?:\s*(?:,|\bi\b|\boraz\b)\s*{_REFERENCE})*)")
 REFERENCE = re.compile(_REFERENCE)
 BLOCKS = frozenset({"blockquote", "details", "div", "h1", "h2", "h3", "h4", "h5", "h6", "hr", "li", "p", "pre", "summary", "table"})
-HIDDEN = frozenset({"blockquote", "code", "del", "img", "input", "s", "strike"})
+LIST_OR_PARAGRAPH = frozenset({"li", "ol", "p", "ul"})
+EMPHASIS = frozenset({"em", "strong"})
+HIDDEN = frozenset({"code", "del", "s", "strike"})
 VOID = frozenset({"area", "br", "col", "embed", "hr", "img", "input", "source", "track", "wbr"})
 
 
@@ -182,53 +189,61 @@ class _Link:
 
 
 class _Lines(HTMLParser):
-    """Linie akapitów i punktów list w HTML opisu PR: ``LINK`` w miejscu linku do issue albo PR, ``NOT_TEXT`` w miejscu kodu, obrazka i pola wyboru.
+    """Linie akapitów i punktów list w HTML opisu PR: ``LINK`` w miejscu linku do issue albo PR, ``NOT_TEXT`` w miejscu kodu, przekreślenia, obrazka i pola wyboru.
 
-    Linię kończy ``<br>`` i początek albo koniec bloku z ``BLOCKS``, a każdy inny znacznik należy do linii.
+    Linię kończy ``<br>`` i początek albo koniec bloku z ``BLOCKS``, a każdy inny znacznik należy do linii. Linia
+    trafia do ``lines`` tylko wtedy, gdy jej tekst zaczyna się wewnątrz samych ``LIST_OR_PARAGRAPH`` i ``EMPHASIS``,
+    a najgłębszy z tych bloków to akapit albo punkt listy.
     """
 
     def __init__(self) -> None:
         super().__init__()
         self.lines: list[list[str | _Link]] = []
         self._line: list[str | _Link] = []
-        self._blocks: list[str] = []
-        self._hidden = 0
+        self._start: tuple[str, ...] | None = None
+        self._open: list[str] = []
         self._link: _Link | None = None
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         attributes = dict(attrs)
-        if tag == "div" and "markdown-alert" in (attributes.get("class") or "").split():
-            tag = "blockquote"  # alert GitHuba (``> [!NOTE]``) to cytat, który GitHub renderuje jako ``<div>``
         if tag in BLOCKS or tag == "br":
             self._end_line()
-        if tag in HIDDEN:
-            if not self._hidden:
-                self._line.append(NOT_TEXT)
-            self._hidden += tag not in VOID
-        elif tag == "a" and not self._hidden and "issue-link" in (attributes.get("class") or "").split():
+        if tag in {"img", "input"} or (tag in HIDDEN and not self._hidden()):
+            self._append(NOT_TEXT)
+        elif tag == "a" and not self._hidden() and "issue-link" in (attributes.get("class") or "").split():
             _, owner, name, _, number = urlsplit(attributes.get("data-url") or "").path.split("/")
             self._link = _Link(f"{owner}/{name}", int(number), attributes.get("data-hovercard-type") == "issue")
-        if tag in BLOCKS and tag not in VOID:
-            self._blocks.append(tag)
+        if tag not in VOID:
+            self._open.append(tag)
 
     def handle_endtag(self, tag: str) -> None:
         if tag in BLOCKS:
             self._end_line()
-            tag = self._blocks.pop()
-        if tag in HIDDEN:
-            self._hidden -= 1
-        elif tag == "a" and self._link is not None:
+        if tag in self._open:
+            del self._open[len(self._open) - 1 - self._open[::-1].index(tag) :]
+        if tag == "a" and self._link is not None:
             self._line.append(self._link)
             self._link = None
 
     def handle_data(self, data: str) -> None:
-        if not self._hidden and self._link is None:
-            self._line.append(data)
+        if not self._hidden() and self._link is None:
+            self._append(data)
+
+    def _hidden(self) -> bool:
+        return not HIDDEN.isdisjoint(self._open)
+
+    def _append(self, part: str) -> None:
+        if self._start is None and part.strip():
+            self._start = tuple(self._open)
+        self._line.append(part)
 
     def _end_line(self) -> None:
-        if self._blocks and self._blocks[-1] in {"p", "li"}:
+        blocks = [tag for tag in self._start or () if tag not in EMPHASIS]
+        if blocks and blocks[-1] in {"p", "li"} and LIST_OR_PARAGRAPH.issuperset(blocks):
             self.lines.append(self._line)
-        self._line = []
+        self._line, self._start = [], None
+        if self._hidden():
+            self._append(NOT_TEXT)  # kod albo przekreślenie przechodzi przez ``<br>`` na początek następnej linii
 
 
 def fixed_issues(body: str, repository: str) -> tuple[int, ...]:

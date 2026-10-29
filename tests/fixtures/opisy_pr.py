@@ -1,8 +1,8 @@
 """Opisy PR z „Naprawia” i ich HTML z renderera GitHuba dla testów ``tools/scal_pr.py``.
 
-``PRZYPADKI`` to opisy z numerami issues, które ``scal_pr.fixed_issues`` ma z nich wziąć: repro z czterech werdyktów
-FAIL PR #624 (parser regex nie odtwarzał, co GitHub renderuje jako kod, a znacznik spoza listy wierszowych kończył
-linię) i przypadki brzegowe. ``PRAWDZIWE`` to scalone PR-y z bazą ``main``, których issues z „Naprawia” zostawały
+``PRZYPADKI`` to opisy z numerami issues, które ``scal_pr.fixed_issues`` ma z nich wziąć: repro z pięciu werdyktów
+FAIL PR #624 (parser regex nie odtwarzał, co GitHub renderuje jako kod, znacznik spoza listy wierszowych kończył
+linię, a akapit w nagłówku, ``<summary>`` albo tabeli zamykał) i przypadki brzegowe. ``PRAWDZIWE`` to scalone PR-y z bazą ``main``, których issues z „Naprawia” zostawały
 otwarte przed #624, z numerami, które narzędzie ma zamknąć. ``SCALENIE`` to opisy testów przepływu
 ``tools/scal_pr.py``. Numery to prawdziwe issues i PR-y tego repo, bo renderer odróżnia je po ich stanie na GitHubie
 (``data-hovercard-type``).
@@ -33,6 +33,8 @@ PRZYPADKI: tuple[tuple[str, str, tuple[int, ...]], ...] = (
     ("linia-po-br", "Opis<br>Naprawia #490", (490,)),
     ("twarda-spacja", "Naprawia\u00a0#490", (490,)),
     ("pogrubienie-i-kursywa", "**Naprawia #490**\n*Naprawia #491*", (490, 491)),
+    ("pogrubienie-z-kursywa-w-punkcie-listy", "- ***Naprawia #490***", (490,)),
+    ("naprawia-w-innym-znaczniku-wierszowym", "<ins>Naprawia #490</ins>\n\nOpis\n<span>Naprawia #491</span>", ()),
     ("punkty-list", "- Naprawia #490\n* Naprawia #491\n+ Naprawia #492\n1. Naprawia #493", (490, 491, 492, 493)),
     ("ciag-dalszy-punktu-listy", "- Naprawia #490\n  Naprawia #491\n   Naprawia #492", (490, 491, 492)),
     ("zagniezdzona-lista", "- Naprawia #490\n  - Naprawia #491\n  - Nie naprawia #492", (490, 491)),
@@ -41,6 +43,8 @@ PRZYPADKI: tuple[tuple[str, str, tuple[int, ...]], ...] = (
     ("wiersz-wciety-bez-pustej-linii", "Opis\n    Naprawia #490", (490,)),
     ("lista-wcieta-o-cztery-spacje-pod-punktem", "- a\n    - Naprawia #490", (490,)),
     ("akapit-wciety-w-punkcie-listy", "- punkt\n\n    Naprawia #490", (490,)),
+    ("akapit-w-zagniezdzonej-liscie", "1. a\n   - b\n\n     Naprawia #490", (490,)),
+    ("lista-bez-punktu", "<ul>Naprawia #490</ul>\n\nOpis", ()),
     ("adres-issue", f"Naprawia https://github.com/{REPO}/issues/490", (490,)),
     ("pelne-odwolanie-do-tego-repo", f"Naprawia {REPO}#490", (490,)),
     ("pelne-odwolanie-innymi-literami", "Naprawia MAXIMISEARTAI/maximiseart-dad#490", (490,)),
@@ -79,6 +83,9 @@ PRZYPADKI: tuple[tuple[str, str, tuple[int, ...]], ...] = (
     ("przeczenie-z-dwiema-spacjami", "Nie  naprawia #490", ()),
     ("przeczenie-z-tabulatorem", "Nie\tnaprawia #490", ()),
     ("naglowek", "## Naprawia #490", ()),
+    ("akapit-w-naglowku", "<h2>\n\nNaprawia #490\n\n</h2>", ()),
+    ("akapit-w-naglowku-w-punkcie-listy", "- <h2>\n\n  Naprawia #490\n\n  </h2>", ()),
+    ("lista-w-naglowku", "<h3><ul><li>Naprawia #490</li></ul></h3>", ()),
     ("naglowki-w-punktach-listy", "- # Naprawia #490\n- ## Naprawia #491\n- ### Naprawia #492\n- #### Naprawia #493\n- ##### Naprawia #487\n- ###### Naprawia #488", ()),
     ("tabela-w-punkcie-listy", "- <table><tr><td>Naprawia #490</td></tr></table>", ()),
     ("blok-html-w-punkcie-listy", "- <div>Naprawia #490</div>", ()),
@@ -91,8 +98,23 @@ PRZYPADKI: tuple[tuple[str, str, tuple[int, ...]], ...] = (
     ("linia-po-linii-poziomej-w-punkcie-listy", "- Opis\n  ***\n  Naprawia #490", (490,)),
     ("akapit-html-w-punkcie-listy", "- Opis\n  <p>Naprawia #490</p>", (490,)),
     ("tabela", "| Naprawia #490 |\n|---|\n| Naprawia #491 |", ()),
+    ("akapit-w-komorce-tabeli", "| a |\n|---|\n| <p>Naprawia #490</p> |", ()),
+    ("lista-w-komorce-tabeli", "| a |\n|---|\n| <ul><li>Naprawia #490</li></ul> |", ()),
+    ("akapit-w-td", "<table><tr><td>\n\nNaprawia #490\n\n</td></tr></table>", ()),
+    ("akapit-w-th", "<table><tr><th>\n\nNaprawia #490\n\n</th></tr></table>", ()),
     ("blok-html", "<div>Naprawia #490</div>", ()),
-    ("details", "<details>\n<summary>Naprawia #490</summary>\n\nNaprawia #491\n</details>", (491,)),
+    ("akapit-w-bloku-html", "<div>\n\nNaprawia #490\n\n</div>", ()),
+    ("details", "<details>\n<summary>Naprawia #490</summary>\n\nNaprawia #491\n</details>", ()),
+    ("akapit-w-summary", "<details>\n<summary>\n\nNaprawia #490\n\n</summary>\n\nTreść\n</details>", ()),
+    ("pogrubiony-akapit-w-summary", "<details><summary>\n\n**Naprawia #490**\n\n</summary>\nx\n</details>", ()),
+    ("akapit-w-summary-bez-details", "<summary>\n\nNaprawia #490\n\n</summary>", ()),
+    ("lista-w-summary", "<details><summary><ul><li>Naprawia #490</li></ul></summary>x</details>", ()),
+    ("linia-po-details", "<details><summary>x</summary>y</details>\n\nNaprawia #490", (490,)),
+    ("akapit-w-section", "<section>\n\nNaprawia #490\n\n</section>", ()),
+    ("przypis", "Opis[^1]\n\n[^1]: Naprawia #490", ()),
+    ("akapit-w-dd", "<dl><dd>\n\nNaprawia #490\n\n</dd></dl>", ()),
+    ("dd-w-punkcie-listy", "- <dl><dd>Naprawia #490</dd></dl>", ()),
+    ("lista-w-cytacie", "> - Naprawia #490", ()),
     ("punkty-listy-zadan", "- [x] Naprawia #490\n- [ ] Naprawia #491\n- Naprawia #492", (492,)),
     ("obrazek-przed-naprawia", "![x](https://example.com/a.png) Naprawia #490\n\nNaprawia #491", (491,)),
     ("cytat", "> Naprawia #490", ()),
@@ -100,6 +122,8 @@ PRZYPADKI: tuple[tuple[str, str, tuple[int, ...]], ...] = (
     ("alert-w-punkcie-listy-to-cytat", "- > [!WARNING]\n  > Naprawia #490", ()),
     ("przekreslenie", "~~Naprawia #490~~", ()),
     ("przekreslony-numer", "Naprawia ~~#490~~, #491", ()),
+    ("przekreslenie-przez-koniec-wiersza", "~~Ten PR\nnie~~ Naprawia #490", ()),
+    ("kod-przez-br", "Ten PR <code>nie<br>x</code> Naprawia #490", ()),
     ("komentarz-html", "Opis\n<!-- Naprawia #490 -->", ()),
     ("komentarz-html-w-kilku-liniach", "<!--\nNaprawia #490\n-->\nNaprawia #491", (491,)),
     ("niedomkniety-komentarz-html", "Opis\n\n<!-- niedomknięty\nNaprawia #490", ()),
