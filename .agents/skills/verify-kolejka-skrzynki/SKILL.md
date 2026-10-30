@@ -86,19 +86,23 @@ and `_Server` in `server.py` (`DEFINITIONS` in `sprawdz_model_kolejki.py`). Only
 rest of their files, is drift. Name these three files here without their
 `src/…` path in backticks: such a path makes the whole file covered.
 
-**Sync commit: `2900e8c2`** (2026-10-30, #664 merged with `main` after #665:
-a queue file that `_queued` cannot read arms the `RETRY_S` wake, and after a
-refused comment the queue file keeps the number of the Uwaga's issue). The
-checker and the model share it: at this commit both were confirmed to
-describe the code above. The checker never fails a read and leaves `Rejected`
-out, so neither fix changes its schedules. Before them, `6f94edb8` was the
-sync of both, and since the checker's earlier sync `8122ab4c` only `15362856`
-changed a covered file: `Outbox` calls `on_rejected` after a refused content,
-which neither the checker nor the model describes. To see whether they need
-another look:
+**Sync commit: `b23f4180`** (2026-10-30, #666: a pass of the queue holds the
+system lock of `przejscie.lock` in the queue folder, `_folder_lock`, and a
+queue that finds it held by another Centrum process arms the `RETRY_S` wake).
+The checker and the model share it: at this commit both were confirmed to
+describe the code above. The checker runs one Centrum at a time and always
+gets the lock, so #666 changed only the model. Before it, `2900e8c2` (#664
+merged with `main` after #665: a queue file that `_queued` cannot read arms
+the `RETRY_S` wake, and after a refused comment the queue file keeps the
+number of the Uwaga's issue) was the sync of both; the checker never fails a
+read and leaves `Rejected` out, so neither fix changed its schedules. Before
+them, `6f94edb8` was the sync of both, and since the checker's earlier sync
+`8122ab4c` only `15362856` changed a covered file: `Outbox` calls
+`on_rejected` after a refused content, which neither the checker nor the
+model describes. To see whether they need another look:
 
 ```bash
-git log --oneline 2900e8c2..HEAD -- src/rozliczenia/centrum/outbox.py src/rozliczenia/centrum/keyed_box.py src/rozliczenia/centrum/report_box.py src/rozliczenia/centrum/atomic_file.py
+git log --oneline b23f4180..HEAD -- src/rozliczenia/centrum/outbox.py src/rozliczenia/centrum/keyed_box.py src/rozliczenia/centrum/report_box.py src/rozliczenia/centrum/atomic_file.py
 ```
 
 A change to the three definitions above shows as a `UWAGA:` line of
