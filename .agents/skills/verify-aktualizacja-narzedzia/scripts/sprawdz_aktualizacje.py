@@ -215,33 +215,7 @@ def _run(java: str, jar: Path, name: str, forgiven: frozenset[str]) -> str | Non
             config = re.sub(rf" {promise}\b", f" {promise}PozaZnanymi", config)
         config = config.replace(" Postep\n", " PostepPozaZnanymi\n")
         config = config.replace("Wybaczone = {}", f"Wybaczone = {{{tags}}}")
-    # TLC zapisuje ślady i stany obok specyfikacji, więc działa na kopii w katalogu tymczasowym.
-    with tempfile.TemporaryDirectory(prefix="tlc-") as work:
-        shutil.copy2(MODEL / SPEC, work)
-        Path(work, f"{name}.cfg").write_text(config, encoding="utf-8")
-        result = subprocess.run(
-            [
-                java,
-                "-XX:+UseParallelGC",
-                "-cp",
-                str(jar),
-                "tlc2.TLC",
-                "-workers",
-                "auto",
-                "-metadir",
-                str(Path(work, "stany")),
-                "-config",
-                f"{name}.cfg",
-                SPEC,
-            ],
-            cwd=work,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            check=False,
-        )
-    output = result.stdout + result.stderr
+    output = _tlc(java, jar, MODEL / SPEC, name, config)
     if "No error has been found" in output:
         return PASSES
     invariant = _violated(output)
@@ -259,6 +233,44 @@ def _run(java: str, jar: Path, name: str, forgiven: frozenset[str]) -> str | Non
         )
         return None
     return VIOLATES
+
+
+def _tlc(java: str, jar: Path, spec: Path, name: str, config: str) -> str:
+    """Wyjście TLC dla specyfikacji ``spec`` z konfiguracją ``config`` (treść pliku ``name.cfg``).
+
+    TLC zapisuje ślady i stany obok specyfikacji, a moduły standardowe (``Naturals.tla``) rozpakowuje pod stałą nazwą
+    do ``java.io.tmpdir`` i usuwa przy wyjściu, więc każdy przebieg ma własny katalog tymczasowy i w nim swój
+    ``java.io.tmpdir``. Ze wspólnym przebiegi naraz (mutacje skilla) czytają moduł, który inny przebieg właśnie
+    nadpisał albo usunął, i TLC kończy się błędem parsowania zamiast werdyktu.
+    """
+
+    with tempfile.TemporaryDirectory(prefix="tlc-") as work:
+        shutil.copy2(spec, work)
+        Path(work, f"{name}.cfg").write_text(config, encoding="utf-8")
+        result = subprocess.run(
+            [
+                java,
+                "-XX:+UseParallelGC",
+                f"-Djava.io.tmpdir={work}",
+                "-cp",
+                str(jar),
+                "tlc2.TLC",
+                "-workers",
+                "auto",
+                "-metadir",
+                str(Path(work, "stany")),
+                "-config",
+                f"{name}.cfg",
+                spec.name,
+            ],
+            cwd=work,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            check=False,
+        )
+    return result.stdout + result.stderr
 
 
 _LIVENESS = "Postep"

@@ -21,10 +21,7 @@ import json
 import os
 from pathlib import Path
 import re
-import shutil
-import subprocess
 import sys
-import tempfile
 from types import ModuleType
 from typing import NamedTuple
 
@@ -222,35 +219,10 @@ def _run(java: str, jar: Path, name: str, forgiven: frozenset[tuple[str, str]]) 
 
 
 def _tlc(java: str, jar: Path, name: str, config: str) -> str:
-    """Wyjście TLC dla specyfikacji modelu z konfiguracją ``config`` (treść pliku ``name.cfg``)."""
+    """Wyjście TLC dla specyfikacji modelu z konfiguracją ``config`` (treść pliku ``name.cfg``), jak w ``_tools``."""
 
-    # TLC zapisuje ślady i stany obok specyfikacji, więc działa na kopii w katalogu tymczasowym.
-    with tempfile.TemporaryDirectory(prefix="tlc-") as work:
-        shutil.copy2(MODEL / SPEC, work)
-        Path(work, f"{name}.cfg").write_text(config, encoding="utf-8")
-        result = subprocess.run(
-            [
-                java,
-                "-XX:+UseParallelGC",
-                "-cp",
-                str(jar),
-                "tlc2.TLC",
-                "-workers",
-                "auto",
-                "-metadir",
-                str(Path(work, "stany")),
-                "-config",
-                f"{name}.cfg",
-                SPEC,
-            ],
-            cwd=work,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            check=False,
-        )
-    return result.stdout + result.stderr
+    output: str = _tools()._tlc(java, jar, MODEL / SPEC, name, config)
+    return output
 
 
 def _violated(output: str) -> str | None:
