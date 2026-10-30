@@ -45,6 +45,28 @@ Pliki wynikowe:
   nowy: Kopie INTERMAX/INTERMAX przed uporządkowaniem <CHWILA>.xlsx
   zmieniony: ZLECENIA INTERMAX OD 08_11_2021.xlsx
 
+=== intermax-pierwszy-wiersz-na-miejscu ===
+Wynik: OK
+Etapy:
+  Sprawdzanie: completed
+  Odczyt danych: completed
+  Planowanie: completed
+  Zapisywanie: completed
+Liczby postępu:
+  Czas uruchomienia: <CZAS>
+Podsumowanie:
+  Zlecenia: 6
+  Wykonawcy: 3
+Uporządkowany dzień:
+  pon 26.10.2026: 6
+Kopia INTERMAX: INTERMAX przed uporządkowaniem <CHWILA>.xlsx
+Ostrzeżenia: brak
+Zatrzymanie: brak
+Uwagi techniczne: brak
+Pliki wynikowe:
+  nowy: Kopie INTERMAX/INTERMAX przed uporządkowaniem <CHWILA>.xlsx
+  zmieniony: ZLECENIA INTERMAX OD 08_11_2021.xlsx
+
 === intermax-kalendarz-1904 ===
 Wynik: OK
 Etapy:

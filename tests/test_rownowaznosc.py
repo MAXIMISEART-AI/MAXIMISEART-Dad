@@ -13,7 +13,7 @@ import pytest
 
 from tests.fixtures.git_repo import commit, git
 from tests.fixtures.potomne import potomne
-from tests.fixtures.rownowaznosc import rownowaznosc, stub_tree, write_workbook
+from tests.fixtures.rownowaznosc import METRICS, rownowaznosc, stub_tree, write_workbook
 from tests.fixtures.workbooks import rewrite_parts
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -45,9 +45,38 @@ EXPECTED = {
     "przygotowanie-rejestr-uciety": "kod 1, BLAD_KRYTYCZNY, USZKODZONY_REJESTR",
     "intermax": "kod 0, OK",
     "intermax-starszy-arkusz-zolte-komorki": "kod 0, OK",
+    "intermax-pierwszy-wiersz-na-miejscu": "kod 0, OK",
     "intermax-kalendarz-1904": "kod 0, OK",
     "intermax-bez-surowych-zlecen": "kod 1, BLAD_KRYTYCZNY, BRAK_SUROWYCH_ZLECEN",
     "intermax-rejestr-nie-skoroszyt": "kod 1, BLAD_KRYTYCZNY, NIECZYTELNY_INTERMAX",
+}
+# Scenariusz bazowy każdego procesu.
+BASES = {"settlement": "przebieg", "preparation": "przygotowanie", "intermax": "intermax"}
+# Scenariusze, które różnią się od bazowego argumentami procesu, a nie samymi wejściami.
+OWN_ARGUMENTS = {"przebieg-podglad", "przebieg-podglad-nieznany-wykonawca", "przygotowanie-podglad", "przygotowanie-uklad-folderow-taty"}
+COLLECTIVE = "08_14_09_2026/Rozliczenie 08_14_09_2026 - zbiorcze.xlsx"
+REGISTER = "ZLECENIA INTERMAX OD 08_11_2021.xlsx"
+# Wejścia, które każdy pozostały scenariusz zmienia wobec bazowego swojego procesu, przy tych samych argumentach.
+VARIANTS = {
+    "przebieg-ilosci": {COLLECTIVE},
+    "przebieg-wzorzec-syntetyczny": {"Wzorzec rozliczenia pracownika.xlsx"},
+    "przebieg-nieznany-wykonawca": {COLLECTIVE},
+    "przebieg-folder-rozliczen-istnieje": {f"08_14_09_2026/{SETTLEMENTS}/zostaje.txt"},
+    "przebieg-plik-zbiorczy-nie-skoroszyt": {COLLECTIVE},
+    "przebieg-plik-zbiorczy-uciety": {COLLECTIVE},
+    "przebieg-format-bez-definicji-L18": {COLLECTIVE},
+    "przebieg-format-bez-definicji-M18": {COLLECTIVE},
+    "przebieg-format-bez-definicji-AT18": {COLLECTIVE},
+    "przygotowanie-wzorce-syntetyczne": {"config/Wzorzec pliku zbiorczego.xlsx", "config/Wzorzec rozliczenia wewnętrznego.xlsx"},
+    "przygotowanie-niepelny-okres": {REGISTER},
+    "przygotowanie-plik-zbiorczy-istnieje": {"INEA/08_14_09_2026/Rozliczenie 08_14_09_2026 - zbiorcze.xlsx"},
+    "przygotowanie-rejestr-nie-skoroszyt": {REGISTER},
+    "przygotowanie-rejestr-uciety": {REGISTER},
+    "intermax-starszy-arkusz-zolte-komorki": {REGISTER},
+    "intermax-pierwszy-wiersz-na-miejscu": {REGISTER},
+    "intermax-kalendarz-1904": {REGISTER},
+    "intermax-bez-surowych-zlecen": {REGISTER},
+    "intermax-rejestr-nie-skoroszyt": {REGISTER},
 }
 
 
@@ -190,10 +219,13 @@ def test_inny_skoroszyt_rozni_sie_czescia_zipu_takze_samymi_stylami_a_inny_plik_
     (head / "uwagi.txt").write_text("po\n", encoding="utf-8")
     (base / "zly.xlsx").write_bytes(b"przed")
     (head / "zly.xlsx").write_bytes(b"po")
+    write_workbook(base / "okres" / "Uszkodzony w HEAD.xlsx", 1)
+    (head / "okres" / "Uszkodzony w HEAD.xlsx").write_bytes(b"to nie jest skoroszyt\n")
 
     assert rownowaznosc.file_differences(base, head) == [
         "okres/Plik zbiorczy.xlsx: części xl/worksheets/sheet1.xml",
         "okres/Style.xlsx: części xl/styles.xml",
+        "okres/Uszkodzony w HEAD.xlsx: bajty",
         "uwagi.txt: bajty",
         "zly.xlsx: bajty",
     ]
@@ -252,6 +284,8 @@ def test_inny_kod_wyjscia_json_tylko_po_jednej_stronie_i_rozne_pole_to_roznica(t
     )
     assert rownowaznosc.compare("s", _outcome(tmp_path, "c", 1, None), _outcome(tmp_path, "d", 0, ok))[0] == "s | RÓŻNICA | kod 1→0; JSON tylko w HEAD"
     assert rownowaznosc.compare("s", _outcome(tmp_path, "e", 0, ok), _outcome(tmp_path, "f", 0, {"result": "OK", "stop": 1}))[0] == "s | RÓŻNICA | JSON stop"
+    stopped = {"result": "BLAD_KRYTYCZNY", "stop": {"kind": "stop", "message": {"code": "ZLY_PLIK_ZBIORCZY"}}}
+    assert rownowaznosc.compare("s", _outcome(tmp_path, "g", 1, stopped), _outcome(tmp_path, "h", 0, ok))[0] == "s | RÓŻNICA | kod 1→0; JSON result, stop"
 
 
 def test_linia_roznicy_nazywa_piec_pierwszych_pol_json_a_reszte_liczy(tmp_path: Path) -> None:
@@ -265,9 +299,11 @@ def test_linia_roznicy_nazywa_piec_pierwszych_pol_json_a_reszte_liczy(tmp_path: 
 # --- przebieg narzędzia ------------------------------------------------------------------------------------------
 
 
-def test_strony_z_tym_samym_wynikiem_i_innym_czasem_daja_rownowaznosc_ok(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    base = stub_tree(tmp_path / "baza", {"result": "OK", "total_duration_ms": 5}, files={"wynik.txt": "to samo"})
-    head = stub_tree(tmp_path / "head", {"result": "OK", "total_duration_ms": 9}, files={"wynik.txt": "to samo"})
+def test_strony_z_tym_samym_wynikiem_innym_czasem_i_swoim_plikiem_metryk_daja_rownowaznosc_ok(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    # Plik metryk leży w folderze strony obok folderu scenariusza, więc uwaga o nim różni się ścieżką strony.
+    note = f"Nie zapisano metryk w {METRICS}."
+    base = stub_tree(tmp_path / "baza", {"result": "OK", "total_duration_ms": 5, "technical_notes": [note]}, files={"wynik.txt": "to samo"})
+    head = stub_tree(tmp_path / "head", {"result": "OK", "total_duration_ms": 9, "technical_notes": [note]}, files={"wynik.txt": "to samo"})
 
     code = _equivalence(tmp_path, base, head, _stub_scenario("pierwszy"), _stub_scenario("drugi"))
 
@@ -323,9 +359,10 @@ def test_bez_zadnego_porownanego_scenariusza_wynik_jest_niesprawdzony_z_kodem_2(
     assert (code, capsys.readouterr().out.splitlines()) == (2, ["stary | BEZ FIXTURE | tests.fixtures.intermax", "RÓWNOWAŻNOŚĆ NIESPRAWDZONA | 0 scenariuszy"])
 
 
-def test_brak_modulu_spoza_fixtures_to_blad_narzedzia_a_nie_pominiety_scenariusz(tmp_path: Path) -> None:
+@pytest.mark.parametrize("module", ["openpyxl_nowy", None])
+def test_brak_modulu_spoza_fixtures_to_blad_narzedzia_a_nie_pominiety_scenariusz(tmp_path: Path, module: str | None) -> None:
     def broken(folder: Path) -> list[str | Path]:
-        raise ModuleNotFoundError("No module named 'openpyxl_nowy'", name="openpyxl_nowy")
+        raise ModuleNotFoundError("No module named 'openpyxl_nowy'", name=module)
 
     tree = stub_tree(tmp_path / "drzewo", {"result": "OK"})
 
@@ -351,6 +388,45 @@ def test_kazdy_proces_ma_scenariusz_zakonczony_i_scenariusz_z_zatrzymaniem_na_pl
         names = [scenario.name for scenario in rownowaznosc.SCENARIOS if scenario.process == process]
         assert any(EXPECTED[name].startswith("kod 0") for name in names), process
         assert any("nie-skoroszyt" in name and "BLAD_KRYTYCZNY" in EXPECTED[name] for name in names), process
+
+
+def _changed_inputs(base: Path, variant: Path) -> set[str]:
+    changed: set[str] = set()
+    for difference in rownowaznosc.file_differences(base, variant):
+        side, _, names = difference.partition(": ")
+        changed |= set(names.split(", ")) if side.startswith("pliki tylko w ") else {side}
+    return changed
+
+
+def test_kazdy_wariant_scenariusza_zmienia_wobec_bazowego_tylko_wejscia_ktore_nazywa(tmp_path: Path) -> None:
+    # Wariant, który zgubi swoją zmianę, biegnie jak scenariusz bazowy, a jego linia TAK SAMO niczego nie sprawdza.
+    arguments = {scenario.name: rownowaznosc.built(scenario, tmp_path / scenario.name) for scenario in rownowaznosc.SCENARIOS}
+    variants = [scenario for scenario in rownowaznosc.SCENARIOS if scenario.name not in {*BASES.values(), *OWN_ARGUMENTS}]
+
+    assert {scenario.name: _changed_inputs(tmp_path / BASES[scenario.process], tmp_path / scenario.name) for scenario in variants} == VARIANTS
+    assert [scenario.name for scenario in variants if arguments[scenario.name] != arguments[BASES[scenario.process]]] == []
+
+
+def test_rozliczenia_pracownikow_ze_wzorca_syntetycznego_maja_komentarz_wzorca_taty(tmp_path: Path) -> None:
+    # Porównanie znaczeniowe nie widzi komentarzy, więc utratę komentarza w Rozliczeniu łapie tylko ten scenariusz.
+    scenario = next(scenario for scenario in rownowaznosc.SCENARIOS if scenario.name == "przebieg-wzorzec-syntetyczny")
+    arguments = rownowaznosc.built(scenario, tmp_path / "wejscia")
+
+    outcome = rownowaznosc.run(ROOT, scenario, arguments, tmp_path / "wejscia", tmp_path / "strona")
+
+    settlements = sorted((outcome.folder / "08_14_09_2026" / SETTLEMENTS).glob("*.xlsx"))
+    assert len(settlements) == 3
+    for path in settlements:
+        with zipfile.ZipFile(path) as archive:
+            assert "xl/comments1.xml" in archive.namelist(), path.name
+
+
+def test_proces_ktory_wisi_konczy_narzedzie_po_limicie_czasu_zamiast_czekac_bez_konca(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(rownowaznosc, "TIMEOUT", 1)
+    tree = stub_tree(tmp_path / "drzewo", {"result": "OK"}, sleep_s=30)
+
+    with pytest.raises(subprocess.TimeoutExpired):
+        _equivalence(tmp_path, tree, tree)
 
 
 def _script(copy: Path, *arguments: str) -> tuple[int, list[str]]:
@@ -441,3 +517,22 @@ def test_skrypt_z_baza_kopiuje_te_baze_bez_liczenia_domyslnej(monkeypatch: pytes
         rownowaznosc.main(["--baza", "abc123"])
 
     assert copied.value.args == (rownowaznosc.ROOT, "abc123")
+
+
+def test_nieznany_commit_glowy_to_blad_gita_a_nie_pusta_baza(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    git(repo, "init", "--quiet")
+    git(repo, "update-ref", "refs/remotes/origin/main", _commit_file(repo, "main"))
+
+    with pytest.raises(subprocess.CalledProcessError):
+        rownowaznosc.default_base(repo, "nieznany")
+
+
+def test_pomoc_wymienia_kazdy_scenariusz_do_wyboru(capsys: pytest.CaptureFixture[str]) -> None:
+    with pytest.raises(SystemExit):
+        rownowaznosc.main(["--help"])
+
+    # Pomoc łamie długą linię także na łączniku nazwy, więc bez białych znaków każda nazwa jest w całości.
+    shown = "".join(capsys.readouterr().out.split())
+    assert [scenario.name for scenario in rownowaznosc.SCENARIOS if scenario.name not in shown] == []

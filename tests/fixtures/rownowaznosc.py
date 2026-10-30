@@ -1,7 +1,9 @@
 """Weryfikacja różnicowa w testach: moduł ``tools/rownowaznosc.py`` i drzewa ze skryptem dla maszyn na niby.
 
 Drzewo na niby ma tylko ``tools/uruchom_proces.py``, który drukuje podany JSON, zapisuje podane pliki w folderze
-scenariusza i kończy się podanym kodem, więc test porównania nie zależy od procesów.
+scenariusza i kończy się podanym kodem, więc test porównania nie zależy od procesów. ``METRICS`` w JSON staje się
+ścieżką pliku metryk, którą skrypt dostał w ``--metrics``, zapisaną jak w JSON: backslashe ścieżki z Windows jako
+``\\\\``.
 """
 
 from __future__ import annotations
@@ -19,25 +21,28 @@ sys.path.insert(0, str(ROOT / "tools"))
 
 import rownowaznosc  # noqa: E402
 
-__all__ = ["rownowaznosc", "stub_tree", "write_workbook"]
+__all__ = ["METRICS", "rownowaznosc", "stub_tree", "write_workbook"]
 
-_STUB = """import json, pathlib, sys
+METRICS = "<METRYKI>"
+
+_STUB = """import json, pathlib, sys, time
+time.sleep({sleep_s})
 for name, text in {files!r}.items():
     path = pathlib.Path(name)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text, encoding="utf-8")
-sys.stdout.write({output!r})
+sys.stdout.write({output!r}.replace({metrics!r}, json.dumps(sys.argv[sys.argv.index("--metrics") + 1])[1:-1]))
 raise SystemExit({code})
 """
 
 
-def stub_tree(path: Path, result: object, *, code: int = 0, files: dict[str, str] | None = None) -> Path:
-    """Drzewo, którego skrypt dla maszyn drukuje ``result`` jako JSON (napis: dosłownie) i zapisuje ``files``."""
+def stub_tree(path: Path, result: object, *, code: int = 0, files: dict[str, str] | None = None, sleep_s: float = 0) -> Path:
+    """Drzewo, którego skrypt dla maszyn po ``sleep_s`` sekundach drukuje ``result`` jako JSON (napis: dosłownie) i zapisuje ``files``."""
 
     output = result if isinstance(result, str) else json.dumps(result)
     script = path / "tools" / "uruchom_proces.py"
     script.parent.mkdir(parents=True)
-    script.write_text(_STUB.format(files=files or {}, output=output, code=code), encoding="utf-8")
+    script.write_text(_STUB.format(sleep_s=sleep_s, files=files or {}, output=output, metrics=METRICS, code=code), encoding="utf-8")
     return path
 
 
