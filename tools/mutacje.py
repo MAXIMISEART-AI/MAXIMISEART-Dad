@@ -10,7 +10,8 @@ Mutacja zmienia jedną albo kilka kotwic, każdą obecną w swoim pliku dokładn
 NIEAKTUALNA. Pusta kotwica w pliku, którego nie ma, tworzy go razem z katalogami. Zanim narzędzie
 zepsuje kod, polecenie musi przejść na kopii bez mutacji, a jeśli mutacja oczekuje ostatniej
 linii wyjścia, polecenie bez mutacji nie może się nią kończyć. Mutacja jest WYKRYTA, gdy polecenie
-pada albo kończy się oczekiwaną linią; PRZEKROCZONY CZAS (``--limit-s``) nie jest wykryciem.
+pada albo kończy się oczekiwaną linią; PRZEKROCZONY CZAS (``--limit-s``) nie jest wykryciem. Mutacja, która nie
+zdąży zacząć się albo skończyć przed końcem czasu wywołującego (``deadline`` w ``verdicts``), dostaje BEZ WERDYKTU.
 Mutacje biegną po kolei, bo równoległe testy przekraczają swoje limity czasu; ``--rownolegle`` puszcza
 naraz najwyżej ``PARALLEL``, a ich polecenia dostają ``PYTEST_XDIST_AUTO_NUM_WORKERS=1`` (chyba że wywołujący je
 ustawił), bo gołe ``pytest -n auto`` w teście każdej z nich bierze wszystkie rdzenie komputera.
@@ -51,6 +52,7 @@ import shutil
 import subprocess
 import sys
 import threading
+import time
 
 import ciezkie_ci
 import potomne
@@ -60,6 +62,7 @@ TIMEOUT = 600
 # Tyle mutacji naraz dawał ThreadPoolExecutor (rdzenie + 4) na 4 vCPU runnera CI; na 16 rdzeniach Maca dawał 20.
 PARALLEL = 8
 PART = "MUTACJE_CZESC"
+NO_VERDICT = "BEZ WERDYKTU"
 
 
 @dataclass(frozen=True)
@@ -160,14 +163,18 @@ def _run(
     return done.returncode, lines[-1] if lines else f"kod wyjścia {done.returncode}"
 
 
-def _verdict(mutation: Mutation, *, limit_s: float, stop: threading.Event, concurrent: bool) -> tuple[str, str]:
+def _verdict(mutation: Mutation, *, limit_s: float, stop: threading.Event, concurrent: bool, deadline: float | None) -> tuple[str, str]:
+    left = limit_s if deadline is None else deadline - time.monotonic()
+    if left <= 0:
+        return NO_VERDICT, "czas minął, zanim się zaczęła"
     with checkout_copy() as copy:
         stale = _apply(copy, mutation.edits)
         if stale:
             return "NIEAKTUALNA", stale
-        code, last = _run(copy, mutation.command, limit_s, stop, concurrent=concurrent)
+        code, last = _run(copy, mutation.command, min(limit_s, left), stop, concurrent=concurrent)
     if code is None:
-        return "PRZEKROCZONY CZAS", last
+        # Polecenie przerwał koniec czasu wywołującego, a nie jego własny limit, więc nie wiadomo, czy mutacja je zawiesza.
+        return ("PRZEKROCZONY CZAS" if left >= limit_s else NO_VERDICT), last
     caught = last.startswith(mutation.expected) if mutation.expected is not None else code != 0
     return ("WYKRYTA" if caught else "NIEWYKRYTA"), last
 
@@ -187,13 +194,18 @@ def _baseline(mutations: Sequence[Mutation], limit_s: float) -> list[str]:
     return red
 
 
-def verdicts(mutations: Sequence[Mutation], *, workers: int, limit_s: float = TIMEOUT) -> Iterator[tuple[str, str]]:
-    """Werdykt i ostatnia linia wyjścia każdej mutacji po kolei, bez sprawdzenia podstawy; ``workers`` mutacji naraz."""
+def verdicts(
+    mutations: Sequence[Mutation], *, workers: int, limit_s: float = TIMEOUT, deadline: float | None = None
+) -> Iterator[tuple[str, str]]:
+    """Werdykt i ostatnia linia wyjścia każdej mutacji po kolei, bez sprawdzenia podstawy; ``workers`` mutacji naraz.
+
+    Z ``deadline`` (chwila ``time.monotonic()``) żadne polecenie nie biegnie dłużej niż do niej.
+    """
 
     stop = threading.Event()
     pool = ThreadPoolExecutor(max_workers=workers)
     try:
-        yield from pool.map(partial(_verdict, limit_s=limit_s, stop=stop, concurrent=workers > 1), mutations)
+        yield from pool.map(partial(_verdict, limit_s=limit_s, stop=stop, concurrent=workers > 1, deadline=deadline), mutations)
     except BaseException:
         # Przerwanie w głównym wątku nie dociera do wątków, które czekają na swoje polecenia.
         stop.set()

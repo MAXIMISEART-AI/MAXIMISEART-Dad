@@ -119,6 +119,52 @@ def test_mutacja_ktora_przezyla_testy_pliku_albo_nie_ma_testow_tez_trafia_do_zap
     assert sorted(entry["id"] for entry in written) == sorted(survived)
     assert all(entry["linie"] == [2] and len(entry["klucz"]) == 12 for entry in written)
 
+def test_czesc_konczy_sie_zapisem_w_limicie_czasu_czesci_takze_gdy_mutacja_zawiesza_testy(tmp_path: Path) -> None:
+    # Noc 41019818658: część 5/20 nie zmieściła się w 60 min zadania CI, więc GitHub ją anulował bez zapisu.
+    hangs = "import time\n\nfrom rozliczenia.warunek import oba\n\n\ndef test_oba() -> None:\n    while oba(True, False):\n        time.sleep(0.1)\n"
+    record = tmp_path / "zapis" / "czesc.json"
+
+    done = _run(_repo(tmp_path / "repo", hangs), "--rownolegle", "1", "--limit-czesci-s", "15", "--zapis", str(record))
+
+    assert done.returncode == 2, done.stdout + done.stderr
+    verdicts = [line for line in done.stdout.splitlines() if " → " in line]
+    # Pierwsza mutacja zawiesza testy do końca czasu części, więc druga już się nie zaczyna.
+    assert len(verdicts) == 2 and verdicts[0].startswith("BEZ WERDYKTU: src/rozliczenia/warunek.py:2 bez `b` w `and` → brak wyniku po "), done.stdout
+    assert verdicts[1] == "BEZ WERDYKTU: src/rozliczenia/warunek.py:2 zmiana linii 2 cofnięta do bazy → czas minął, zanim się zaczęła", done.stdout
+    written = json.loads(record.read_text(encoding="utf-8"))
+    assert written["wynik"] == "MUTACJE ZMIANY FAIL | limit czasu części 15 s minął przed werdyktem 2 mutacji | przeżyło 0 | mutacje=2 | wyjątki=0 | innego systemu=0"
+    # Testy zawieszone do końca czasu części to nie przeżyta mutacja, więc nie trafiają do issue.
+    assert written["przezyte"] == []
+
+
+def test_mutacja_ktora_zawiesza_dopiero_testy_pliku_konczy_sie_bez_werdyktu_w_limicie_czasu_czesci(tmp_path: Path) -> None:
+    # Stałą czyta test, który nie wykonał kodu pliku, więc jej mutację sprawdza dopiero drugi przebieg z testami pliku.
+    tests = (
+        "import subprocess\nimport sys\nimport time\n\nimport rozliczenia.warunek as warunek\n\n\n"
+        "def test_import_w_procesie() -> None:\n    subprocess.run([sys.executable, '-c', 'import rozliczenia.warunek'], check=True)\n\n\n"
+        "def test_stala() -> None:\n    while warunek.LIMIT != 5:\n        time.sleep(0.1)\n"
+    )
+    record = tmp_path / "zapis" / "czesc.json"
+
+    done = _run(_repo(tmp_path / "repo", tests, "LIMIT = 5\n", "LIMIT = 3\n"), "--limit-czesci-s", "15", "--zapis", str(record))
+
+    assert done.returncode == 2, done.stdout + done.stderr
+    verdict = next(line for line in done.stdout.splitlines() if " → " in line)
+    assert verdict.startswith("BEZ WERDYKTU: src/rozliczenia/warunek.py:1 zmiana linii 1 cofnięta do bazy → ") and verdict.endswith(" (testy pliku)"), done.stdout
+    assert json.loads(record.read_text(encoding="utf-8"))["przezyte"] == []
+
+
+def test_czesc_z_testem_zawieszonym_bez_mutacji_konczy_sie_zapisem_w_limicie_czasu_czesci(tmp_path: Path) -> None:
+    hangs = "import time\n\n" + ONE_CASE + "\n\ndef test_zawieszony() -> None:\n    while True:\n        time.sleep(0.1)\n"
+    record = tmp_path / "zapis" / "czesc.json"
+
+    done = _run(_repo(tmp_path / "repo", hangs), "--limit-czesci-s", "5", "--zapis", str(record))
+
+    assert done.returncode == 2, done.stdout + done.stderr
+    written = json.loads(record.read_text(encoding="utf-8"))
+    assert (written["wynik"], written["przezyte"]) == ("MUTACJE ZMIANY FAIL | limit czasu części 5 s minął w pokryciu, przed werdyktem 2 mutacji", [])
+
+
 @pytest.mark.parametrize(
     ("changed", "arguments", "verdict"),
     [
@@ -337,6 +383,23 @@ def test_mutacje_kodu_fixture_sesji_wykrywa_test_ktory_tylko_dostal_jej_wynik(tm
 
     assert done.returncode == 0, done.stdout + done.stderr
     assert "WYKRYTA: src/rozliczenia/warunek.py:2 zmiana linii 2 cofnięta do bazy" in done.stdout
+
+
+def test_mutacje_tabeli_modulu_wykrywa_test_funkcji_pliku_ktora_ja_czyta_przed_testami_calego_pliku(tmp_path: Path) -> None:
+    # Noc 41019818658, część 5/20: tabelę modułu wykonał w teście tylko import w procesie innego testu, więc każda jej
+    # mutacja czekała ok. 5 min na testy pliku, a część nie skończyła się w limicie 60 min zadania.
+    base = "def fabryka() -> str:\n    return 'x'\n\n\nTABELA = {'a': (fabryka, 'report')}\n\n\ndef krok(kod: str) -> str:\n    _, dalej = TABELA[kod]\n    return dalej\n"
+    tests = (
+        "import subprocess\nimport sys\n\nfrom rozliczenia.warunek import krok\n\n\n"
+        "def test_import_w_procesie() -> None:\n    subprocess.run([sys.executable, '-c', 'import rozliczenia.warunek'], check=True)\n\n\n"
+        "def test_krok() -> None:\n    assert krok('a') == 'retry'\n"
+    )
+
+    done = _run(_repo(tmp_path, tests, base.replace("'report'", "'retry'"), base))
+
+    assert done.returncode == 0, done.stdout + done.stderr
+    found = [line for line in done.stdout.splitlines() if line.startswith("WYKRYTA: src/rozliczenia/warunek.py:5 ")]
+    assert len(found) == 2 and all(line.endswith(" (testy kodu pliku)") for line in found), done.stdout
 
 
 def test_cofniecie_przywraca_usunieta_linie_zaczynajaca_sie_od_dwoch_minusow(tmp_path: Path) -> None:

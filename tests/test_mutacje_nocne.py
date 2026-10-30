@@ -233,6 +233,28 @@ def test_czesc_bez_zapisu_z_uszkodzonym_zapisem_albo_z_porazka_bez_przezytych_cz
     assert wyjscie[-1].endswith(f"; część 3/4: {testy_padaja}; część 4/4 bez zapisu: Expecting value: line 1 column 1 (char 0)")
 
 
+def test_przezyte_mutacje_czesci_po_limicie_czasu_trafiaja_do_issue_a_czesc_czerwieni_przebieg(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    repo, baza = _historia(tmp_path)
+    github = GitHubWPamieci()
+    po_limicie = "MUTACJE ZMIANY FAIL | limit czasu części 3300 s minął przed werdyktem 3 mutacji | przeżyło 1 | mutacje=28 | wyjątki=0 | innego systemu=0"
+    zapisy = _zapisy(tmp_path / "zapisy", {1: (OK, []), 2: (po_limicie, [_przezyta("src/a.py:1 stała")])})
+
+    kod = mutacje_nocne.zglos(github, repo, baza, zapisy, 2, RUN)
+
+    assert kod == 1
+    assert [issue["title"] for issue in github.issues] == ["Przeżyte mutacje z #11"]
+    assert capsys.readouterr().out.splitlines()[-1] == f"MUTACJE NOCNE FAIL | część 2/2: {po_limicie}"
+
+
+def test_czesc_konczy_sie_w_swoim_limicie_czasu_przed_limitem_zadania_ci_ktore_by_ja_anulowalo_bez_zapisu() -> None:
+    zadanie = _nocne()["jobs"]["change-mutations"]
+    krok = next(krok for krok in zadanie["steps"] if "tools/mutacje_zmiany.py" in krok.get("run", ""))
+
+    # Instalacja przed krokiem trwa ok. 10 s, a wgranie zapisu po nim kilka sekund (run 41019818658).
+    assert zadanie["timeout-minutes"] * 60 - mutacje_zmiany.PART_LIMIT_S >= 300
+    assert "--limit-czesci-s" not in krok["run"]
+
+
 
 @pytest.mark.parametrize(
     ("polecenie", "przyczyna"),

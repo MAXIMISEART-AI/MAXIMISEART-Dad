@@ -19,8 +19,9 @@ Workflow ``mutacje-nocne.yml`` biegnie raz na dobę na ``main`` i ręcznie (``wo
   ``MUTACJA <plik>:<linia> <opis> | klucz <klucz>`` (id jak w ``NIEWYKRYTA``, klucz z ``mutacje_zmiany.fingerprint``).
   Mutacji, której klucz issue już ma w treści albo komentarzu, nie dostaje drugi raz; nowe idą do istniejącego issue
   komentarzem, a zamknięte issue z nowymi wraca otwarte z ``ready-for-agent``.
-  Część bez zapisu albo z porażką inną niż przeżyte mutacje (testy padają bez mutacji, zły wyjątek) czerwieni run po
-  zgłoszeniu reszty, więc następna noc liczy od tej samej bazy. Zgłoszone mutacje się nie powtórzą, także gdy PR z
+  Część bez zapisu albo z porażką inną niż przeżyte mutacje (testy padają bez mutacji, zły wyjątek, limit czasu części
+  minął przed werdyktem którejś mutacji) czerwieni run po zgłoszeniu reszty, także przeżytych mutacji z jej zapisu,
+  więc następna noc liczy od tej samej bazy. Zgłoszone mutacje się nie powtórzą, także gdy PR z
   następnego dnia przesunie ich linie, bo klucz nie ma numerów linii.
 - Skrypty mutacji skilli nocy planuje ``tools/plan_ci.py plan --zdarzenie noc --baza <baza>`` (skrypty skilli, których
   folder, runner mutacji albo sprawdzenie zmieniło się od bazy, i części każdego n podstaw z ``ci-czesci``), a zadanie
@@ -160,9 +161,9 @@ def zapisy(katalog: Path, liczba: int) -> tuple[list[Przezyta], list[str]]:
         except (OSError, ValueError) as blad:
             problemy.append(f"część {numer}/{liczba} bez zapisu: {blad}")
             continue
-        if zapis.get("przezyte"):
-            przezyte += [Przezyta(wpis["id"], tuple(wpis["linie"]), wpis["klucz"]) for wpis in zapis["przezyte"]]
-        elif not str(zapis.get("wynik")).startswith("MUTACJE ZMIANY OK"):
+        # Część, której limit czasu minął przed werdyktem części mutacji, też zapisuje przeżyte z reszty.
+        przezyte += [Przezyta(wpis["id"], tuple(wpis["linie"]), wpis["klucz"]) for wpis in zapis.get("przezyte") or []]
+        if not str(zapis.get("wynik")).startswith(("MUTACJE ZMIANY OK", mutacje_zmiany.SURVIVED)):
             problemy.append(f"część {numer}/{liczba}: {zapis.get('wynik')}")
     return przezyte, problemy
 
