@@ -374,6 +374,8 @@ def _compound(draw: st.DrawFn) -> Case:
 # Człony ziarna 7015 z recenzji #687 z ``!`` na początku potoku, gdzie ``_compound`` je teraz stawia.
 PGREP_WAIT = "until ! pgrep -f bench.py >/dev/null; do sleep 1; done"
 NEGATED_PIPELINE = Case(f"{PGREP_WAIT}; ! {PGREP_WAIT} | {PGREP_WAIT}", frozenset({"pgrep"}))
+# Jedyna pętla stoi za ``!``: odmowa zależy tylko od tego, że hook widzi pętlę za ``!``.
+LOOP_AFTER_NEGATION = Case(f"echo a; ! {PGREP_WAIT} | cat", frozenset({"pgrep"}))
 
 
 PROGRAMS = (
@@ -576,6 +578,7 @@ def test_przekierowanie_za_petla_to_nie_tlo_a_pętla_puszczona_ampersandem_przec
 @example(case=Case("until gh api pulls/1 | grep -q true; do sleep 2; tail -1 actions/runs.log; done", frozenset()))
 @example(case=Case("gh pr checks 1; npx vitest run --watch=false", frozenset()))
 @example(case=NEGATED_PIPELINE)
+@example(case=LOOP_AFTER_NEGATION)
 @given(case=_compound())
 def test_polecenie_zlozone_dostaje_werdykt_najgorszego_czlonu(case: Case) -> None:
     assert _verdict_matches(case), case.text
