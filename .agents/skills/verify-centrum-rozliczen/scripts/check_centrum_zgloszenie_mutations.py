@@ -34,8 +34,8 @@ MUTATIONS = (
         (
             Edit(
                 OUTBOX,
-                "                    if self._stopped_on is not None and not self._retry_armed:\n",
-                "                    if False:\n",
+                "if (self._stopped_on is not None or self._read_failed or self._locked_out) and not self._retry_armed:\n",
+                "if (self._read_failed or self._locked_out) and not self._retry_armed:\n",
             ),
         ),
         ZGLOSZENIE,
