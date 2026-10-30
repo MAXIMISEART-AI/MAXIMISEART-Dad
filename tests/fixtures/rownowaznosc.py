@@ -2,7 +2,8 @@
 
 Drzewo na niby ma tylko ``tools/uruchom_proces.py``, który drukuje podany JSON, zapisuje podane pliki w folderze
 scenariusza i kończy się podanym kodem, więc test porównania nie zależy od procesów. ``METRICS`` w JSON staje się
-ścieżką pliku metryk, którą skrypt dostał w ``--metrics``.
+ścieżką pliku metryk, którą skrypt dostał w ``--metrics``, zapisaną jak w JSON: backslashe ścieżki z Windows jako
+``\\\\``.
 """
 
 from __future__ import annotations
@@ -30,7 +31,7 @@ for name, text in {files!r}.items():
     path = pathlib.Path(name)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text, encoding="utf-8")
-sys.stdout.write({output!r}.replace({metrics!r}, sys.argv[sys.argv.index("--metrics") + 1]))
+sys.stdout.write({output!r}.replace({metrics!r}, json.dumps(sys.argv[sys.argv.index("--metrics") + 1])[1:-1]))
 raise SystemExit({code})
 """
 
