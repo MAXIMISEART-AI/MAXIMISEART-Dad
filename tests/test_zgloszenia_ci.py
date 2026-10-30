@@ -163,7 +163,7 @@ def test_id_testu_z_backtickami_zostaje_w_bloku_kodu_a_dlugie_jest_przyciete() -
     assert drugi.tytul == f"Flaky test: {dlugi[: zgloszenia_ci.DLUGOSC_W_TYTULE - 1]}…"
 
 
-def test_run_z_forka_nie_zaklada_issue_flaky_testu() -> None:
+def test_run_z_forka_nie_zaklada_issue_flaky_testu_i_mowi_dlaczego(capsys: pytest.CaptureFixture[str]) -> None:
     github = Nagrany(
         {
             f"{REPO}/actions/runs/8": _run(8, "pull_request", "b" * 40, "success", fork="obcy"),
@@ -172,10 +172,14 @@ def test_run_z_forka_nie_zaklada_issue_flaky_testu() -> None:
     )
 
     assert zgloszenia_ci.akcje(github, Path.cwd(), 8, TERAZ) == []
+    assert "ZGŁOSZENIA | run 8 z forka: flaky testów nie zgłaszam" in capsys.readouterr().out.splitlines()
 
 
-def test_run_z_awaria_zglasza_najwyzej_dziesiec_flaky_testow_w_kolejnosci_artefaktow() -> None:
-    testy = [f"tests/test_x.py::test_{numer:02}" for numer in range(11)]
+@pytest.mark.parametrize(("liczba", "przycinam"), [(10, False), (11, True)])
+def test_run_z_awaria_zglasza_najwyzej_dziesiec_flaky_testow_w_kolejnosci_artefaktow_a_przyciecie_widac_w_logu(
+    capsys: pytest.CaptureFixture[str], liczba: int, przycinam: bool
+) -> None:
+    testy = [f"tests/test_x.py::test_{numer:02}" for numer in range(liczba)]
     github = Nagrany(
         {
             f"{REPO}/actions/runs/9": _run(9, "pull_request", "b" * 40, "success"),
@@ -187,6 +191,8 @@ def test_run_z_awaria_zglasza_najwyzej_dziesiec_flaky_testow_w_kolejnosci_artefa
     akcje = zgloszenia_ci.akcje(github, Path.cwd(), 9, TERAZ)
 
     assert [akcja.tytul for akcja in akcje if isinstance(akcja, Zaloz)] == [f"Flaky test: {test}" for test in testy[:10]]
+    przyciecie = [linia for linia in capsys.readouterr().out.splitlines() if "flaky testów w runie" in linia]
+    assert przyciecie == (["ZGŁOSZENIA | 11 flaky testów w runie, zgłaszam pierwsze 10"] if przycinam else [])
 
 
 def test_kazdy_test_repozytorium_da_sie_ponowic_i_zglosic() -> None:
