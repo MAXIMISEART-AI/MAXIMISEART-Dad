@@ -247,17 +247,22 @@ def _in_backticks(command: str) -> str:
     return re.sub(r"\\(?=[`$\\]|\Z)|`", lambda found: "\\" + found.group(), command)
 
 
+def _negated(member: str) -> str:
+    return f"! {member}"
+
+
 WRAPPERS: tuple[Callable[[str], str], ...] = (
     lambda member: f"( {member} )",
     lambda member: f"{{ {member}; }}",
     lambda member: f"x=$( {member} )",
     lambda member: f'echo "$( {member} )"',
     lambda member: f"if true; then {member}; fi",
-    lambda member: f"! {member}",
+    _negated,
     lambda member: f"bash -c {_single_quoted(member)}",
     lambda member: f"timeout 600 sh -c {_single_quoted(member)}",
 )
-CONNECTORS = ("; ", " && ", " || ", " | ", "\n", "\n  ")
+PIPE = " | "
+CONNECTORS = ("; ", " && ", " || ", PIPE, "\n", "\n  ")
 # Polecenia, które według docstringu hooka uruchamiają argument ``-c`` jako skrypt powłoki, także przez inne polecenie.
 SCRIPT_RUNNERS = (
     "sh",
@@ -356,14 +361,19 @@ def _compound(draw: st.DrawFn) -> Case:
     """Polecenie złożone z członów (``;``, ``&&``, ``||``, ``|``, nowa linia, podpowłoka, ``$(…)``, ``-c`` powłoki)."""
 
     members = draw(st.lists(_cases(), min_size=1, max_size=4))
-    wrappers = st.one_of(st.sampled_from(WRAPPERS), _shell_script(), _parameter_default())
-    wrapped = [
-        Case(draw(wrappers)(member.text), member.refusals) if draw(st.booleans()) else member for member in members
-    ]
-    text = wrapped[0].text
-    for member in wrapped[1:]:
-        text += draw(st.sampled_from(CONNECTORS)) + member.text
+    text = ""
+    for index, member in enumerate(members):
+        connector = draw(st.sampled_from(CONNECTORS)) if index else ""
+        # ``!`` stoi tylko na początku potoku: ``a | ! b`` to błąd składni w bashu i zsh (ziarno 7015 recenzji #687).
+        own = WRAPPERS if connector != PIPE else tuple(wrapper for wrapper in WRAPPERS if wrapper is not _negated)
+        wrappers = st.one_of(st.sampled_from(own), _shell_script(), _parameter_default())
+        text += connector + (draw(wrappers)(member.text) if draw(st.booleans()) else member.text)
     return Case(text, frozenset().union(*(member.refusals for member in members)))
+
+
+# Człony ziarna 7015 z recenzji #687 z ``!`` na początku potoku, gdzie ``_compound`` je teraz stawia.
+PGREP_WAIT = "until ! pgrep -f bench.py >/dev/null; do sleep 1; done"
+NEGATED_PIPELINE = Case(f"{PGREP_WAIT}; ! {PGREP_WAIT} | {PGREP_WAIT}", frozenset({"pgrep"}))
 
 
 PROGRAMS = (
@@ -565,6 +575,7 @@ def test_przekierowanie_za_petla_to_nie_tlo_a_pętla_puszczona_ampersandem_przec
 @example(case=Case("for id in 1 2; do sleep 1; gh run view $id; done; gh pr checks 1 || exit 1", frozenset()))
 @example(case=Case("until gh api pulls/1 | grep -q true; do sleep 2; tail -1 actions/runs.log; done", frozenset()))
 @example(case=Case("gh pr checks 1; npx vitest run --watch=false", frozenset()))
+@example(case=NEGATED_PIPELINE)
 @given(case=_compound())
 def test_polecenie_zlozone_dostaje_werdykt_najgorszego_czlonu(case: Case) -> None:
     assert _verdict_matches(case), case.text
@@ -723,6 +734,7 @@ def _bash_4() -> str | None:
 
 @pytest.mark.skipif(_bash_4() is None, reason="bez bash 4 (|& i &>>), np. /bin/bash 3.2 na Macu i Windows")
 @settings(derandomize=True, database=None, deadline=None, max_examples=60)
+@example(case=NEGATED_PIPELINE)
 @given(
     case=st.one_of(_compound(), _redirected().map(lambda cases: cases[0]), _redirected().map(lambda cases: cases[1]))
 )
