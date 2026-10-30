@@ -1,63 +1,79 @@
 # Coding Standards
 
-Rules for writing and reviewing code and tests.
-A rule that a check enforces sits in its section's table, one line per rule, beside the check that guards it.
+Rules for writing and reviewing code and tests in a repository where agents write every line.
+A rule that a check enforces sits in its section's table, one row per rule, beside the check that guards it: the reviewer does not repeat that check.
+A bullet is a judgement call that no check makes: the reviewer reports a broken bullet as Drobne, and as Ważne only with the behaviour defect it causes, proved as `docs/agents/przeglad.md` asks.
+
+## Fixing a Mistake Class
+
+A mistake is a class once it has happened twice: two review findings, two red runs, or a correction from Maks that repeats an earlier one.
+Fix a class at the highest level that works, and say in the PR why a higher level did not:
+
+1. Architecture: one owner for each decision and one supported way for each task, internals hidden so the wrong import fails, and the old way deleted so no agent copies it.
+2. A type, a lint rule or a structure test whose error names the file, type or function to use instead.
+   Turn a rule on when it has no violation left, like the Zapadki in `pyproject.toml`, and when the pattern is already common, fail only when a change adds more.
+3. A test of the behaviour.
+4. A bullet in this file, last, because nothing fails when an agent skips it.
+
+A new check fails on the commit of the PR whose review found the mistake, raises no false alarm on a few recent merged PRs (`--ostatnie 5`, one of them with Windows-only code), and the PR body shows both runs (`tools/na_scalonych_pr.py`, skill `pr`).
+Fix the class, not the instance: when a review finds one case, look for every case of the same fault in the change and in the repository, and fix them together.
+When a fix of a rule keeps growing a list of exceptions, replace the list with the shape the code accepts.
 
 ## Domain Language
 
-- Read `GLOSSARY.md` and the relevant ADR in `docs/adr/` before changing a domain seam.
-- Use the exact terms defined in `GLOSSARY.md` in issue titles, specifications, hypotheses, and test names.
-  `GLOSSARY.md` is the single source of truth for domain vocabulary.
-- Name tests after the domain behaviour they protect.
+- Name tests after the domain behaviour they protect, in the terms of `GLOSSARY.md`.
   Use an implementation name only when the test intentionally protects that module's interface.
-- When implementation reveals a missing domain term, sharpen `GLOSSARY.md` before adding another synonym in code or tests.
+- Write identifiers in `src/` in English, and docstrings, test names and every text tata or Maks reads in Polish, with the terms of `GLOSSARY.md` and no synonym of a defined term.
 
 | Rule | Guard |
 |---|---|
 | An ADR number is unique and matches the file's heading. | `tests/test_adr.py` |
 | A concept retired by an ADR (CLI, terminal, Rich, `run.py`, Dad's `.cmd` launchers) stays retired. | `tests/test_wycofane_pojecia.py` |
 
-## Module Depth
+## Design
 
+- Give each decision one owner: a rule, a limit or a mapping lives in one module, and every caller asks that module instead of keeping its own copy, which drifts.
 - Keep a coordinator responsible for sequencing, not for the details of the workbook it coordinates.
-- A module with one main operation should expose that operation as its seam.
-  Keep layout constants and helper functions private unless another module has a real reason to depend on them.
-- Add a shared module when it owns a coherent behaviour or a real variation, not to share two small constants.
-- Keep the interface smaller than the implementation: callers should not need to know how a workbook is loaded, repaired, or saved atomically.
-- In `src/`, a signature names its type instead of `Any`: the concrete type, `object`, or a `TypeVar` (ruff ANN401).
+- A module with one main operation exposes that operation as its seam and keeps layout constants and helper functions private, so callers do not know how a workbook is loaded, repaired, or saved atomically.
+- Model a domain variation as data: a new case is a new member of an Enum, a row of a table or a variant of a union, not one more branch in an `if` chain repeated across files.
+- Read text the program did not write (a shell command, Markdown, HTML, a cell of Dad's file) with a real parser or the tool that owns the format, such as `gh api markdown` for GitHub Markdown, and accept only the forms the code lists: an unknown form fails closed.
+  Hand-written parsers that grew by listing bad forms failed review 15 times on 7 PRs in October 2026 (#496, #624, #636, #648).
+- A gate or a checker passes only on the result it expects: it lists the units it must see, and a missing unit, a crash or any other outcome is a failure (#445, #479, #554, #667).
+- A best-effort step (a cleanup, a kill with a deadline, a notification) returns and records its failure, and never raises into its caller (#447, fixed in #458).
+- When a change adds a new way to do something, it moves every caller to it and deletes the old way.
 
 | Rule | Guard |
 |---|---|
 | The engine (`src/rozliczenia/*.py`) never imports Centrum rozliczeń, the modules in `STDLIB_ONLY` import only the standard library and each other when loaded, and the modules of the restart guardian's copy (`_COPIED` in `restart_guardian.py`) import only the standard library and `_COPIED`. | `tests/test_granice_importow.py` |
 | A `match` handles every variant of its subject or ends with `case _`, a condition is never a value that is always true (an Enum member, a `Path`, a dataclass, an `Iterable`), and a `# type: ignore` names its error code. | mypy codes `exhaustive-match`, `truthy-bool`, `truthy-iterable` and `ignore-without-code` (`enable_error_code` in `pyproject.toml`), for both systems in `tools/ci_lokalnie.py` |
+| In `src/`, a signature names its type instead of `Any`: the concrete type, `object`, or a `TypeVar`. | ruff `ANN401` (`pyproject.toml`) |
 
 ## Error Ownership
 
-- Write a Komunikat's text only in a process's catalog (`preparation_messages`, `settlement_messages`).
-  Workbook code (`workbook_files`, `template_file`) raises `WorkbookError`, and each caller translates the error with one catalog function.
+- Workbook code (`workbook_files`, `template_file`) raises `WorkbookError`, and the catalog of the process that called it translates the error into a Komunikat.
   The files that Sprawdzanie reads go through `input_checks`, which translates their reader errors once for both processes, the Diagnoza and the Konfiguracja.
-  That function ends its `match` on `Problem` with `assert_never`, so mypy rejects a new `Problem` until every catalog handles it.
+  `preparation_messages` ends its `match` on `Problem` with `assert_never`, so mypy rejects a new `Problem` until it is handled.
   Other code calls its catalog's factories directly, and a process summary reports its problems as warning Komunikaty in `warnings`.
-- Only a catalog decides on a Komunikat's code, and no code maps a code back to the fact that produced it.
-  The facts are typed (`preparation_plan.Plan.incomplete_period`, `preparation_files.CollectiveFilePlan`), and a catalog factory takes facts (row numbers, column letters, dates), not layout types.
-- Classify failures that can invalidate a write as typed critical exceptions.
-  This includes preparing or restoring `xl/externalLinks/*`, not only the final filesystem replacement.
+- A failure that can invalidate a workbook write, reading or restoring `xl/externalLinks/*` included, raises `WorkbookSaveError` with its `SaveProblem` (`workbook_save.py`), not a generic error.
 - Preserve `Nienadpisywanie`: existing input data is reported and never replaced automatically.
-- Code in `src/` does not `print` (ruff T201), because Dad never sees a console and a problem reaches him as a Komunikat; only `launcher.py` and `shortcut.py` print to the start console.
 - Pass `check=True` to `subprocess.run` unless the code after it reads `returncode`, and never write `check=False` only to silence ruff's PLW1510.
-- Pass `strict=True` to `zip` when both sides must have the same length (ruff B905), `strict=False` only with a comment naming the check that already reports a different length, and use `itertools.pairwise` for successive pairs (RUF007).
-- Name the time zone of every current day or moment (ruff DTZ): `datetime.now(timezone.utc)` for a moment that is stored or compared, and `datetime.now().astimezone().date()` for tata's local day.
 
 | Rule | Guard |
 |---|---|
+| A Komunikat is created only in a catalog module listed in `CATALOGS` or `OUTSIDE_CATALOGS` (`tests/test_komunikaty_expect.py`), and every public function of a catalog has a sample in `tests/expected/komunikaty.txt`. | `test_kazde_miejsce_tworzace_komunikat_ma_probke_w_pliku_expect` and `test_probki_pokrywaja_kazda_publiczna_funkcje_katalogu` in `tests/test_komunikaty_expect.py` |
 | A file or folder of Dad's in a bad state (corrupt, with a BOM, in UTF-16, without access) gives a Komunikat that names it, and a file without access is „niedostępny” in it, never „uszkodzony”: read a workbook through `_file_bytes` (`workbook_files.py`) and a period folder through `reading` (`period_folder.py`). | `tests/test_uszkodzone_wejscia.py`, `tests/test_jeden_odczyt_skoroszytu.py` |
 | Only `template_file.py`, `template_copy.py`, `row_look.py`, `workbook_save.py` and `intermax_file.py` write a workbook. | `tests/test_jeden_zapis_skoroszytu.py` |
-| The engine decides on the facts of a process's plan, never on a Komunikat's code: one place per process (`collective_preparation`, `engine`) translates the facts into warnings, Zatrzymania, the result and Decyzja taty. No code in `src/`, Centrum rozliczeń included, compares or matches a Komunikat's code, whether as a literal, a module or class constant, or in a set, tuple, list or dict. | `tests/test_decyzje_na_faktach.py`: `test_silnik_nie_decyduje_na_kodzie_komunikatu` for the engine, `test_kod_nie_porownuje_kodu_komunikatu` for all of `src/` |
+| The engine decides on the facts of a process's plan, never on a Komunikat's code: one place per process (`collective_preparation`, `engine`, `intermax_ordering`) translates the facts into warnings, Zatrzymania, the result and Decyzja taty. No code in `src/`, Centrum rozliczeń included, compares or matches a Komunikat's code, whether as a literal, a module or class constant, or in a set, tuple, list or dict. | `tests/test_decyzje_na_faktach.py`: `test_silnik_nie_decyduje_na_kodzie_komunikatu` for the engine, `test_kod_nie_porownuje_kodu_komunikatu` for all of `src/` |
 | An error that becomes a Komunikat carries facts, not a sentence for tata: its `__init__` takes no `str`, and an error without its own `__init__` is not a parameter of a Komunikat factory. | `test_blad_ktory_proces_tlumaczy_na_komunikat_niesie_fakty_a_nie_tekst` in `tests/test_komunikaty_expect.py` |
+| Code in `src/` does not `print`, because Dad never sees a console and a problem reaches him as a Komunikat; only `launcher.py` and `shortcut.py` print to the start console. | ruff `T201` (`per-file-ignores` in `pyproject.toml`) |
+| `zip` takes `strict=True` when both sides must have the same length, `strict=False` only with a comment naming the check that already reports a different length, and successive pairs come from `itertools.pairwise`. | ruff `B905`, `RUF007` |
+| Every current day or moment names its time zone: `datetime.now(timezone.utc)` for a moment that is stored or compared, and `datetime.now().astimezone().date()` for tata's local day. | ruff `DTZ` codes in `pyproject.toml` |
 
 ## Test Surface
 
-- Test each process through its operation (`run_settlements()`, `prepare_collective_file()`).
+- Judge a test by two edits: break the behaviour it names and it fails, restructure the internals with the same observable result and it passes.
+  Take the expected value from `GLOSSARY.md`, the ADR or the requirement, never from a run of the code under test.
+- Test each process through its operation (`run_settlements()`, `prepare_collective_file()`, `order_register()`).
   Give a module with one entry point (one operation or the HTTP API of Centrum rozliczeń) its own tests only for behaviour that entry point cannot reach.
 - A module whose interface at least two entry points call (two processes, or a process and Centrum rozliczeń) is a seam: test its rule matrix once, on its interface.
   Each entry point that uses it has one translation test (module error → that entry point's Komunikat) and does not repeat the matrix.
@@ -65,39 +81,37 @@ A rule that a check enforces sits in its section's table, one line per rule, bes
   Prove UI behaviour in the browser with `verify-centrum-rozliczen`, not with component unit tests.
 - Make the Rejestr zleceń or a Wzorzec fail in a test through a failing adapter of `input_checks.Readers`, not by patching a module attribute.
   The same `Readers` reach the Uruchomienie procesu, the Diagnoza and the Konfiguracja, so the fault reaches all three.
-- Use synthetic workbook fixtures only.
+- Use synthetic workbook fixtures only, shaped like Dad's real file in what the code reads (a row's style, a merged cell, the format Excel shows), not only in its values.
   Cover both successful and failure paths for each operation's behaviour matrix.
-- The test that owns a workbook write verifies values `A:AT`, preserved formulas and formatting, atomic replacement, and every entry under `xl/externalLinks/*`.
+- The test that owns a workbook write verifies every column the write touches (`A:AT` for the Rozliczenie pracownika), preserved formulas and formatting, atomic replacement, and every entry under `xl/externalLinks/*`.
   Other tests assert only the behaviour they name.
+- Before a change runs on real files, run the Przygotowanie pliku zbiorczego and the Przebieg rozliczeń as `Podgląd bez zapisu`; Uporządkowanie INTERMAX has no preview and saves a Kopia INTERMAX before it replaces the file.
 - Keep tests free of client addresses, order numbers, and row contents in output or logs.
   The one exception is the Zatrzymanie about gaps in `SKUTECZNE` (`ZLE_SKUTECZNE`, ADR 0004): its tests use synthetic `SKUTECZNE` values, because the Komunikat shows the exact cell content.
-- Before real files are used, run a preview without saving (`Podgląd bez zapisu`).
 - Name a file that a test reads or runs with a literal path (`ROOT / "docs" / "adr"`), not a path built from a variable.
   `tools/szybko.py` selects tests from imports and such literals, so a path built at run time hides the dependency.
 - Use an expect test (`assert_expected` in `tests/fixtures/expect.py`) for behaviour a human reads, such as Komunikaty and traces: it compares the text with a file in `tests/expected/`, named by a literal path.
   Write the new file with the command the failing test prints, `ZAPISZ_EXPECT=1 .venv/bin/python -m pytest '<test>'` in sh or `$env:ZAPISZ_EXPECT=1; .venv\Scripts\python.exe -m pytest '<test>'; Remove-Item Env:ZAPISZ_EXPECT` in PowerShell on Windows, and commit it with the change; CI never writes it.
 - Test a rule that matches text from Dad's files (a word or phrase in `URZĄDZENIA` or `CZYNNOŚCI`, an operator name, a period token) with a Hypothesis property, not only with examples: the text anywhere in the cell, glued to punctuation, in any letter case and with Polish letters, two words of the rule in one cell, and the word inside a longer word.
   Take the expected result from `GLOSSARY.md`, the ADR or the docstring, and keep the examples deterministic with `derandomize=True` and `database=None`, as `tests/test_wlasnosci_dopasowania_tekstu.py` does.
-- Expect the error a test is about, not any error of its class: `pytest.raises` of a broad exception (`ValueError`, `OSError`) takes `match=` on its message, and the block holds the one statement that raises (ruff PT011, PT012).
-- Prove that a new test or check fails on the broken code it guards with `tools/mutacje.py`, the repository's one mutation engine: use it rather than writing another; to check every commit of a branch use `tools/ci_lokalnie.py --kazdy-commit`, not `git rebase --exec`.
+- A test leaves no thread, process, lock or open file behind, and passes alone and in any order, because the xdist shards on the Mac and in CI hold different neighbours.
+- A test holds on Windows and on Python 3.11: `time.monotonic()` on Windows under Python 3.11 advances in steps of about 15.6 ms, a Windows path inside JSON escapes its backslashes, and the Windows console encodes in cp1252.
+- A refactor that splits a shared path gives each new branch a test that fails when that branch breaks, because tests that reached it only through the old shared path stop covering it without failing.
+- Prove that a new test or check fails on the broken code it guards with `tools/mutacje.py`, the repository's one mutation engine: use it rather than writing another.
   Run it once for each test or check added or changed in a round of work.
   A rebase, or a fix that leaves the test unchanged, does not need a new run.
-- A mutation that `tools/mutacje_zmiany.py` reports as `NIEWYKRYTA` is behaviour without a test.
-  The nightly run on `main` files each one as a line `MUTACJA <id>` in the issue `Przeżyte mutacje z #N` of the PR that last changed its line (ADR 0021): add the test that catches it, or answer the line with `MUTACJA <id> | nie warto, bo <reason>`.
+- A surviving mutation gets the test that catches it, or its line in the issue `Przeżyte mutacje z #N` answers `MUTACJA <id> | nie warto, bo <reason>`.
   Only a mutation that leaves the behaviour unchanged gets `# mutacje-zmiany: <reason> | do YYYY-MM-DD | zgoda <who>` on its line, with Maks's approval.
-- A PR that adds or changes a check (a structure test, a lint rule, a CI job, a checking tool) shows its result on real history in the PR body, from `tools/na_scalonych_pr.py`.
-  On the commits of the PRs whose review found the mistake (`--commit <SHA>`), it finds what the review found.
-  On a few recent merged PRs (`--ostatnie 5`), including one with Windows-only code, it raises no false alarm.
-  The reviewer reruns at least one of these.
 
 | Rule | Guard |
 |---|---|
-| Every changed line of `src/` and `tools/` has a test that fails when the line is broken, or its issue `Przeżyte mutacje z #N` says in a `MUTACJA` line why the test is not worth it („nie warto, bo …”), and the PR body promises only what the mutations confirm. | `tools/mutacje_zmiany.py` and `tools/mutacje_nocne.py` (nightly workflow `mutacje-nocne.yml`), `tests/test_mutacje_nocne.py` |
+| Every changed line of `src/` and `tools/` has a test that fails when the line is broken, or its line in the issue `Przeżyte mutacje z #N` says why the test is not worth it (`nie warto, bo …`); after the merge, the nightly run files each mutation no test catches as a line `MUTACJA <id>` in the issue `Przeżyte mutacje z #N` of the PR that last changed the line (ADR 0021, `docs/agents/pr-i-ci.md`). | `tools/mutacje_nocne.py` (nightly workflow `mutacje-nocne.yml`), `tests/test_mutacje_nocne.py` |
 | A change to a Komunikat's text changes `tests/expected/komunikaty.txt` in the same PR. | `tests/test_komunikaty_expect.py` |
 | A test module imports helpers only from `tests/fixtures`. | `tests/test_struktura_testow.py` |
-| A test waits for a state of Centrum rozliczeń or measures time with the test's clock, and checks the time of the code under test by equality on the fake clock `ManualClock` (`tests/fixtures/clock.py`), never by a fixed number of milliseconds. | `tests/test_struktura_testow.py` |
+| A test waits for a state with `wait_for` (`tests/fixtures/potomne.py`), never for a fixed number of seconds, and checks the time of the code under test by equality on the fake clock `ManualClock` (`tests/fixtures/clock.py`), never by a fixed number of milliseconds. | `tests/test_struktura_testow.py` |
 | Git in tests has one configuration, the same on every computer: a test builds `env=` from `os.environ` and leaves `GIT_CONFIG_GLOBAL`/`GIT_CONFIG_NOSYSTEM` alone, sets a computer configuration with something more through `computer_git_config` (`tests/fixtures/git_config.py`), and a process of the tool's code (`src/`) has an empty `user.name` and `user.email`, so its `git commit` fails as it does at Dad's. | fixture `git_bez_konfiguracji_komputera` in `tests/conftest.py`, `tests/test_git_w_testach.py` |
 | A test named in a rules table (this file, `AGENTS.md`, `docs/agents/pr-i-ci.md`, `docs/agents/skille.md`) that checks the whole repository runs on every `tools/szybko.py`. | `tests/test_szybko.py` |
+| `pytest.raises` of a broad exception (`ValueError`, `OSError`) takes `match=` on its message, and its block holds the one statement that raises. | ruff `PT011`, `PT012` |
 
 ## Tools and Platforms
 
@@ -113,29 +127,32 @@ A rule that a check enforces sits in its section's table, one line per rule, bes
 
 - The browser holds no domain logic: it displays what the server returns and sends tata's choices back.
   A rule needed in the UI belongs in the engine.
-- Change the contract on the server, and keep hand-written types for the UI's own state only.
-  A new endpoint gets a function in `src/api/centrum.ts` that goes through `call` with its schema.
-- Model the UI states of an Uruchomienie procesu as one discriminated union that mirrors the progress projection's snapshot.
+- Change the contract on the server, and keep hand-written types for the UI's own state only: the states of an Uruchomienie procesu come from the contract's `RunView` union (`frontend/src/api/centrum.ts`).
 - Use components from the official `@shadcn` registry and semantic theme tokens.
   Write all UI text in Polish, in the vocabulary of `GLOSSARY.md` and the user guide.
-- Display every contract field the UI receives, or remove it from the contract.
 - Take limits and value sets shared with the server from the generated schemas, never from a repeated literal.
   Key a cache or a remount by exactly the fields whose change requires a new read (tata's files, not the theme).
 - Build new UI to the accepted [v3 brief](https://github.com/maximiseartai/MAXIMISEART-Dad/issues/90#issuecomment-6257321289) with the `emil-design-eng` skill.
 
 | Rule | Guard |
 |---|---|
+| Every field of the contract's schemas (`frontend/src/api/openapi.json`) is used in `frontend/src` outside `generated/`, or `FIELDS_OUTSIDE_UI` lists it with its reason. | `npm run rules` (rule 1 in `frontend/scripts/rules.mjs`) in CI job `Frontend` |
+| The UI never branches on a process name, outside the files `PROCESS_COMPARISON_FILES` lists with their reasons. | `npm run rules` (rule 2 in `frontend/scripts/rules.mjs`) in CI job `Frontend` |
 | The frontend reaches the server (`fetch`, `EventSource`, `WebSocket`, `XMLHttpRequest`, `sendBeacon`) and calls `JSON.parse` only in the files of `NETWORK_FILES`, which parse every server response and stream event with a schema generated from the server models. | `npm run rules` (rule 3 in `frontend/scripts/rules.mjs`) in CI job `Frontend` |
 | After a change to the server models, and after a merge or a rebase, regenerate the contract and the Centrum build (`npm run regen` in `frontend/`), because the `merge=wygenerowane` driver keeps the current HEAD's version of them. | step „Require the committed contract and build to be fresh” of CI job `Frontend` |
 
+## Documents and Claims
+
+- A docstring, `--help`, ADR, `SKILL.md` or document states what the code does now, and only what a check or a run shows: a number names the run or the command it came from.
+- A change that makes a sentence of `AGENTS.md`, this file, `GLOSSARY.md`, a skill or an ADR untrue fixes that sentence in the same change.
+
 ## Review Context
 
-- Treat ADR 0001 as the constraint that Python remains the single source of settlement rules, and ADR 0003 as the constraint that there is no VBA adapter.
-- Treat ADR 0004 as the constraint that Centrum rozliczeń is an adapter of Uruchomienie procesu, not a second process: it talks to the same core as the machine script, keeps no rules of its own, renders only the progress projection's snapshots and the process's shared messages as three-part structures.
+- Treat ADR 0001 as the constraint that Python remains the single source of settlement rules, with no VBA adapter (ADR 0011).
+- Treat ADR 0004 as the constraint that Centrum rozliczeń is an adapter of Uruchomienie procesu, not a second process: it talks to the same core as the Skrypt dla maszyn, keeps no rules of its own, renders only the progress projection's snapshots and the process's shared messages as three-part structures.
   Review every Centrum change for localhost-only listening, `Host`/`Origin` checks, and file actions limited to paths the server derived from the periods folder.
-- Treat ADR 0010 as the constraint that Centrum rozliczeń is Dad's only entry: there are no `.cmd` launchers and Dad's manual describes only Centrum.
-- Treat ADR 0011 as the constraint that the processes have one conversation, Centrum rozliczeń: there is no CLI and no terminal adapter, and a Komunikat has only its three parts.
-  E2E, the timing guard and the benchmark run the processes through the machine script `tools/uruchom_proces.py`, which uses the same core as Centrum and prints the Centrum contract as JSON.
-- Finish a TODO, FIXME, XXX or HACK in the same change or name it in the report for Maks; ruff FIX001-FIX004 rejects it in the code.
-- Review standards separately from specification compliance.
-  A passing test suite does not replace a review of module depth, seam locality, or domain vocabulary.
+- E2E, the timing guard and the benchmark run the processes through the Skrypt dla maszyn `tools/uruchom_proces.py`, which uses the same core as Centrum rozliczeń and prints the Centrum contract as JSON.
+
+| Rule | Guard |
+|---|---|
+| A TODO, FIXME, XXX or HACK is finished in the same change or named in the report for Maks, never left in the code. | ruff `FIX001`–`FIX004` |
