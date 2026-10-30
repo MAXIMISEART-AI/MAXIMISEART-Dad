@@ -382,7 +382,9 @@ def test_tresc_ktorej_skrzynka_odmawia_zostaje_w_kolejce_a_nastepna_wychodzi_w_t
     assert wait_for(lambda: queue.files() == [])
 
 
-def test_druga_kolejka_na_tym_folderze_nie_wysyla_pliku_w_trakcie_wysylki_pierwszej(tmp_path: Path) -> None:
+def test_druga_kolejka_na_tym_folderze_nie_wysyla_pliku_w_trakcie_wysylki_pierwszej_ani_nie_nastawia_budzenia(
+    tmp_path: Path,
+) -> None:
     # Restart Centrum w tym samym procesie: kolejka poprzedniego startu dalej zakłada issue okresu.
     hold = threading.Event()
     queue = Queue(tmp_path, FakeReportBox(open_hold=hold))
@@ -399,6 +401,7 @@ def test_druga_kolejka_na_tym_folderze_nie_wysyla_pliku_w_trakcie_wysylki_pierws
 
     assert (searched, len(queue.box.issues)) == (1, 1)
     assert queue.files() == []
+    assert queue.clock.wakes == 0  # nowa kolejka nie przeszła folderu, więc nie ma czego ponawiać
 
 
 def test_przejscie_pominiete_przez_druga_kolejke_robi_pierwsza_po_swoim(tmp_path: Path) -> None:
@@ -417,7 +420,9 @@ def test_przejscie_pominiete_przez_druga_kolejke_robi_pierwsza_po_swoim(tmp_path
     assert wait_for(lambda: queue.files() == [])
 
 
-def test_kolejki_starego_i_nowego_centrum_na_jednym_folderze_zakladaja_jedno_issue_okresu(tmp_path: Path) -> None:
+def test_kolejki_starego_i_nowego_centrum_na_jednym_folderze_zakladaja_jedno_issue_okresu_bez_dalszych_budzen(
+    tmp_path: Path,
+) -> None:
     # Stare Centrum po zwolnieniu portu jeszcze wysyła Kontrolę ilości i kończy się w trakcie, a nowe już startuje na tym
     # samym folderze.
     queue = Queue(tmp_path, FakeReportBox())
@@ -436,6 +441,7 @@ def test_kolejki_starego_i_nowego_centrum_na_jednym_folderze_zakladaja_jedno_iss
 
     assert [issue["label"] for issue in box.issues()] == ["kontrola-ilosci"]
     assert queue.files() == []
+    assert queue.clock.wakes == 0  # przejście z blokadą kończy budzenie po cudzej blokadzie
 
 
 def test_start_centrum_bez_folderu_kolejki_go_nie_zaklada_i_nie_nastawia_budzenia(tmp_path: Path) -> None:
