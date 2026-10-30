@@ -1,4 +1,6 @@
-"""Weryfikacja różnicowa refaktoru: te same scenariusze syntetyczne na commicie bazy i na HEAD dają ten sam wynik.
+"""Sprawdza, że refaktor nie zmienia wyniku procesów: te same scenariusze syntetyczne na bazie i na HEAD; użyj przy refaktorze src/.
+
+Weryfikacja różnicowa refaktoru: te same scenariusze syntetyczne na commicie bazy i na HEAD dają ten sam wynik.
 
 Użycie (z katalogu repozytorium):
 

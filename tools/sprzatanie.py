@@ -1,4 +1,6 @@
-"""Raportuje, a z ``--usun`` usuwa lokalne worktree i gałęzie, których praca jest już w ``origin/main``; resztę opisuje z powodem.
+"""Raportuje, a z --usun usuwa worktree i gałęzie, których praca jest już w origin/main; użyj po merge'u albo gdy worktree się mnożą.
+
+Raportuje, a z ``--usun`` usuwa lokalne worktree i gałęzie, których praca jest już w ``origin/main``; resztę opisuje z powodem.
 
 Bez ``--usun`` niczego nie usuwa. Z ``--usun`` usuwa worktree (``git worktree remove`` bez ``--force``, potem jego
 gałąź), gdy naraz:

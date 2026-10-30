@@ -13,6 +13,30 @@
 - Issues i specyfikacje: użyj [`docs/agents/issue-tracker.md`](docs/agents/issue-tracker.md).
 - Triage: użyj [`docs/agents/triage-labels.md`](docs/agents/triage-labels.md).
 
+## Narzędzia
+
+Narzędzie uruchamiasz `.venv/bin/python tools/<nazwa>.py` (Windows: `py -3 tools/<nazwa>.py`), a jego `--help` mówi, jak go użyć.
+<!-- spis narzędzi: generuje tests/test_spis_narzedzi.py z ZAPISZ_EXPECT=1, nie edytuj ręcznie -->
+- `tools/benchmark_przebiegu.py`: Mierzy czas Przebiegu rozliczeń na lustrze folderów taty, bez danych klientów; użyj przed i po zmianie wydajności silnika.
+- `tools/ci_lokalnie.py`: Uruchamia lokalnie zadania CI (ruff, mypy, frontend, pytest, mutations); użyj, gdy zadanie CI padło i trzeba odtworzyć porażkę.
+- `tools/mutacje.py`: Dowodzi, że test albo sprawdzenie pada na zepsutym kodzie (mutacji); użyj raz dla każdego testu dodanego albo zmienionego w zmianie.
+- `tools/na_scalonych_pr.py`: Uruchamia polecenie na commitach scalenia wskazanych PR-ów; użyj, by pokazać, że nowe sprawdzenie łapie błąd bez fałszywego alarmu.
+- `tools/pomiar_regul_ilosci.py`: Mierzy Reguły ilości na Plikach zbiorczych wypełnionych przez tatę (spec #268); tylko na Macu Maksa, przed zmianą Reguł ilości.
+- `tools/porownanie_rozliczen.py`: Porównuje znaczeniowo dwa Foldery rozliczeń pracowników (spec #141); użyj jako bramki, gdy zmiana silnika ma dać te same rozliczenia.
+- `tools/praca_w_toku.py`: Pokazuje pracę innych checkoutów i otwartych PR-ów oraz pliki wspólne z bieżącym; użyj przed startem issue i przed aktualizacją z main.
+- `tools/quiet_machine.py`: Pokazuje, co trzyma maszynę (--status), i pilnuje jednego pomiaru wydajności naraz na cichym procesorze; użyj, gdy pomiar czeka.
+- `tools/rownowaznosc.py`: Sprawdza, że refaktor nie zmienia wyniku procesów: te same scenariusze syntetyczne na bazie i na HEAD; użyj przy refaktorze src/.
+- `tools/scal_pr.py`: Jedyna droga merge'a PR przez agenta: sprawdza gotowość (CI, werdykt PASS, opis) tuż przed gh pr merge; użyj zamiast gołego merge'a.
+- `tools/setup_worktree.py`: Tworzy własne .venv checkoutu albo worktree z dodatkiem dev; uruchom w nowym worktree przed pierwszym poleceniem Pythona.
+- `tools/skille_dla_zmiany.py`: Wypisuje skille verify-*, które obowiązują dla zmiany od bazy, każdy z powodem; użyj przed pushem i przed oceną gotowości PR.
+- `tools/sprzatanie.py`: Raportuje, a z --usun usuwa worktree i gałęzie, których praca jest już w origin/main; użyj po merge'u albo gdy worktree się mnożą.
+- `tools/syntetyczne_wzorce.py`: Zapisuje syntetyczne Wzorce w kształcie Wzorców taty; użyj, gdy benchmark, weryfikacja w Excelu albo CI nie ma prawdziwych Wzorców.
+- `tools/szybko.py`: Szybko sprawdza zmianę: ruff, mypy dla obu systemów, testy struktury i testy dotknięte zmianą; uruchom po każdej zmianie przed pushem.
+- `tools/uruchom_proces.py`: Skrypt dla maszyn: jedno Uruchomienie procesu z wynikiem JSON; użyj w E2E, benchmarku i weryfikacji skilli zamiast Centrum rozliczeń.
+- `tools/wydanie.py`: Narzędzie Wydań: plan i wydanie nowej wersji (tag v*, GitHub Release, ADR 0014); uruchamiaj tylko z workflow skilla wydanie.
+- `tools/wyrocznia_zgody.py`: Sprawdza, czy zainstalowany Claude Code oddaje hookowi zgoda.py pytanie o zgodę na rm; uruchom po każdej aktualizacji Claude Code.
+<!-- koniec spisu narzędzi -->
+
 ## PR: od pushu do merge'a
 
 - Dziecko `delegate_task` kończy zadanie na pushu i utworzeniu PR, a zwraca URL PR i pełny SHA HEAD. Rodzic wywołuje `watch_pull_request` i kończy turę, a T3 budzi go po końcu CI.

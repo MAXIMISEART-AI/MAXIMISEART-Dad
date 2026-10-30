@@ -1,4 +1,4 @@
-"""Benchmark Przebiegu rozliczeń na lustrze folderów taty, bez danych klientów.
+"""Mierzy czas Przebiegu rozliczeń na lustrze folderów taty, bez danych klientów; użyj przed i po zmianie wydajności silnika.
 
 Użycie (z katalogu repozytorium):
 

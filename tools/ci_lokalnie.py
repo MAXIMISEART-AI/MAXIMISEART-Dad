@@ -1,4 +1,6 @@
-"""Lokalnie te same sprawdzenia co CI: zadania ruff, mypy (w CI jedno zadanie ``ruff-mypy``), frontend, pytest i
+"""Uruchamia lokalnie zadania CI (ruff, mypy, frontend, pytest, mutations); użyj, gdy zadanie CI padło i trzeba odtworzyć porażkę.
+
+Lokalnie te same sprawdzenia co CI: zadania ruff, mypy (w CI jedno zadanie ``ruff-mypy``), frontend, pytest i
 mutations.
 
 Uruchamia każdy krok po kolei Pythonem, który uruchomił skrypt (w worktree: jego ``.venv``,

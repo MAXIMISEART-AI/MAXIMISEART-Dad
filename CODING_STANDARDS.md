@@ -122,6 +122,7 @@ When a fix of a rule keeps growing a list of exceptions, replace the list with t
 | A concurrent mutation run (`tools/mutacje.py --rownolegle`, a skill's `check_all`) runs at most `PARALLEL` mutations at once and gives each mutation's command `PYTEST_XDIST_AUTO_NUM_WORKERS=1` unless the caller set it, so a test's nested `pytest -n auto` does not multiply over the cores of the Mac that agents share. | `tests/test_mutacje.py` |
 | The files that the system Python runs before `.venv` (the list in `per-file-target-version` in `pyproject.toml`) work under the Python 3.9 of macOS. | ruff `per-file-target-version`, `tests/test_systemowy_python.py` |
 | A tool or skill script that runs as its own process adds `src` to `sys.path` itself, because CI on Windows does not install the package. | `tests/test_skrypty_bez_instalacji.py` |
+| `tools/` holds only the tools an agent or a human runs, and each opens its docstring with one line of 80–160 characters that says what it does and when to use it, which the generated `## Narzędzia` block of `AGENTS.md` lists; a script that only a workflow runs lives in `tools/ci/`, a module without an entry point of its own in `tools/lib/`, and neither `AGENTS.md` nor a skill points to `tools/ci/`. | `tests/test_spis_narzedzi.py` |
 
 ## Frontend
 

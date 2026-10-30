@@ -1,4 +1,6 @@
-"""Skrypt dla maszyn: jedno Uruchomienie procesu, wynik jako JSON.
+"""Skrypt dla maszyn: jedno Uruchomienie procesu z wynikiem JSON; użyj w E2E, benchmarku i weryfikacji skilli zamiast Centrum rozliczeń.
+
+Skrypt dla maszyn: jedno Uruchomienie procesu, wynik jako JSON.
 
 Użycie (z katalogu repozytorium):
 

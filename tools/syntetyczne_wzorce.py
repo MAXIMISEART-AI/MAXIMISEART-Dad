@@ -1,4 +1,4 @@
-"""Syntetyczne Wzorce kształtu Wzorców taty: do benchmarku Przebiegu rozliczeń i do CI.
+"""Zapisuje syntetyczne Wzorce w kształcie Wzorców taty; użyj, gdy benchmark, weryfikacja w Excelu albo CI nie ma prawdziwych Wzorców.
 
 Użycie (z katalogu repozytorium):
 

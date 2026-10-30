@@ -220,7 +220,7 @@ Then confirm the evidence directory still exists.
   scratch directory) and evidence hygiene check.
 - `scripts/check_centrum_<feature>_mutations.py`, one script per feature: shows the drive of
   that feature fails on broken variants of Centrum, each mutation on its own copy of the checkout;
-  each ends with `MUTACJE OK`, and CI runs them through `tools/ci/mutacje_skilli.py` (full CI on `main` and
+  each ends with `MUTACJE OK`, and CI runs them in its Mutation checks jobs (full CI on `main` and
   the night), so run one locally only to reproduce a red Mutation checks step or the night's issue:
   `scripts/check_centrum_aktualizacja_mutations.py`,
   `scripts/check_centrum_diagnoza_mutations.py`,

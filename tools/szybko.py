@@ -1,4 +1,4 @@
-"""Szybkie sprawdzenie zmiany: ruff, mypy dla obu systemów, testy struktury i testy dotknięte zmianą.
+"""Szybko sprawdza zmianę: ruff, mypy dla obu systemów, testy struktury i testy dotknięte zmianą; uruchom po każdej zmianie przed pushem.
 
 Agent uruchamia je po każdej zmianie; pełną bramką jest CI na GitHubie. Zmiana to pliki, którymi checkout,
 razem z niezacommitowanymi i nieśledzonymi plikami, różni się od ``merge-base`` HEAD z ``--baza`` (domyślnie
@@ -100,6 +100,7 @@ STRUCTURE = (
     "tests/test_skille_dla_zmiany.py::test_skill_z_poleceniami_w_ci_mowi_co_liczy_ci_a_co_zostaje_lokalnie",
     "tests/test_skrypty_bez_instalacji.py",
     "tests/test_slowo_flaky_test.py",
+    "tests/test_spis_narzedzi.py",
     "tests/test_struktura_testow.py",
     "tests/test_systemowy_python.py",
     "tests/test_uszkodzone_wejscia.py::test_macierz_obejmuje_kazda_operacje_kontraktu_centrum",

@@ -1,4 +1,6 @@
-"""Wypisuje skille ``verify-*``, które obowiązują dla zmiany od bazy (domyślnie ``origin/main``), każdy z powodem.
+"""Wypisuje skille verify-*, które obowiązują dla zmiany od bazy, każdy z powodem; użyj przed pushem i przed oceną gotowości PR.
+
+Wypisuje skille ``verify-*``, które obowiązują dla zmiany od bazy (domyślnie ``origin/main``), każdy z powodem.
 
 Zmiana to ``szybko.changed_since``: pliki z ``git diff`` od rozgałęzienia z bazą oraz pliki niezacommitowane i
 nieśledzone. Skill deklaruje we frontmatterze ``SKILL.md`` klucz ``pilnuje:``, listę globów ścieżek względem korzenia

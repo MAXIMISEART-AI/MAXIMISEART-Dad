@@ -1,4 +1,6 @@
-"""Narzędzie Wydań: mechaniczna część „wydaj nową wersję” (skill ``wydanie``, ADR 0014).
+"""Narzędzie Wydań: plan i wydanie nowej wersji (tag v*, GitHub Release, ADR 0014); uruchamiaj tylko z workflow skilla wydanie.
+
+Narzędzie Wydań: mechaniczna część „wydaj nową wersję” (skill ``wydanie``, ADR 0014).
 
 ``plan`` pobiera `main` i tagi Wydań tak jak Aktualizacja narzędzia (``tool_update.fetch_main_line``) i zapisuje
 plan Wydania w pliku JSON: najnowszy commit z linii pierwszych rodziców `main` z zielonym ``Required CI status``

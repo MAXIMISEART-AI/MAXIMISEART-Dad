@@ -1,4 +1,6 @@
-"""Wyrocznia hooka ``tools/hooks/zgoda.py``: czy zainstalowany Claude Code oddaje temu hookowi pytanie o zgodę na ``rm``.
+"""Sprawdza, czy zainstalowany Claude Code oddaje hookowi zgoda.py pytanie o zgodę na rm; uruchom po każdej aktualizacji Claude Code.
+
+Wyrocznia hooka ``tools/hooks/zgoda.py``: czy zainstalowany Claude Code oddaje temu hookowi pytanie o zgodę na ``rm``.
 
 Hook działa, dopóki Claude Code uruchamia hooki ``PermissionRequest`` przy pytaniu o zgodę, więc po aktualizacji
 Claude Code ta wyrocznia uruchamia go tak jak T3 (``stream-json`` na wejściu i wyjściu, ``--permission-prompt-tool
