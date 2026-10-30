@@ -2,7 +2,7 @@
 
 Konto GitHub (plan Free) uruchamia naraz najwyżej 20 zadań ze wszystkich workflowów, więc run, który sam zajmuje
 prawie cały limit, każe kolejnym pushom czekać w kolejce. Liczbę zadań pytest i Mutation checks ustala plan
-(``tools/plan_ci.py``), więc ci.yml i plan muszą się zgadzać co do zadań o stałej liczbie. Zadanie, którego nie ma w
+(``tools/ci/plan_ci.py``), więc ci.yml i plan muszą się zgadzać co do zadań o stałej liczbie. Zadanie, którego nie ma w
 ``needs`` Required, nie blokowałoby merge'a, choćby padło, więc Required czeka na każde zadanie runu.
 """
 
@@ -22,7 +22,7 @@ import yaml
 from tests.fixtures.ci_workflow import WORKFLOW, combinations, jobs
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "tools"))
+sys.path.insert(0, str(ROOT / "tools" / "ci"))
 
 import plan_ci  # noqa: E402
 
@@ -109,7 +109,7 @@ def _required(
             record = {"wersja": 1, "run": 1, "proba": 1, "szablon": "pytest", "zadanie": job.nazwa, "tor": job.tor, "zdarzenie": plan.zdarzenie,
                       "sha": "0" * 40, "narzut_s": 9.0, "jednostki": units, "bledy": [], "plan": plan.digest, "zadanie_planu": job.id}  # fmt: skip
             (downloads["czasy-zadanie-*"] / f"pytest-{index}-1.json").write_text(json.dumps(record), encoding="utf-8")
-    step = next(step for step in steps if "tools/plan_ci.py werdykt" in step.get("run", ""))
+    step = next(step for step in steps if "tools/ci/plan_ci.py werdykt" in step.get("run", ""))
     python, script, *arguments = shlex.split(step["run"])
     assert python == "python3"
     needs = {job: {"result": result, "outputs": {}} for job, result in results.items()}

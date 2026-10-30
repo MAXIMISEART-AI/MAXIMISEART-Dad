@@ -1,6 +1,6 @@
 """Skrypty skilli ``verify-*`` mają jeden kontrakt wywołania: katalog runu, warianty i dowolny bieżący katalog.
 
-Kontrakt trzyma ``tools/skrypt_skilla.py``. Test struktury pada, gdy skrypt skilla parsuje te argumenty po swojemu.
+Kontrakt trzyma ``tools/lib/skrypt_skilla.py``. Test struktury pada, gdy skrypt skilla parsuje te argumenty po swojemu.
 """
 
 from __future__ import annotations

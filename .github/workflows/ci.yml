@@ -126,7 +126,7 @@ jobs:
         run: python -m mypy --platform linux
 
   plan:
-    # Decides the pytest and Mutation checks jobs of this run (tools/plan_ci.py), from the unit times of the last green
+    # Decides the pytest and Mutation checks jobs of this run (tools/ci/plan_ci.py), from the unit times of the last green
     # main runs (artifact czasy-ci). Standard library only, so the runner's python3 runs it as is. Mutations of changed
     # lines do not run on a pull request: they run nightly on main (mutacje-nocne.yml, ADR 0021).
     name: Plan CI
@@ -134,7 +134,7 @@ jobs:
     timeout-minutes: 10
     permissions:
       contents: read
-      # tools/czasy_ci.py downloads the artifact czasy-ci of earlier runs.
+      # tools/ci/czasy_ci.py downloads the artifact czasy-ci of earlier runs.
       actions: read
     outputs:
       pytest: ${{ steps.plan.outputs.pytest }}
@@ -149,7 +149,7 @@ jobs:
         id: plan
         env:
           GH_TOKEN: ${{ github.token }}
-        run: python3 tools/plan_ci.py plan --zdarzenie "${{ github.event_name }}" --baza HEAD^1 --czasy .ci-plan/czasy --wyjscie .ci-plan/plan.json
+        run: python3 tools/ci/plan_ci.py plan --zdarzenie "${{ github.event_name }}" --baza HEAD^1 --czasy .ci-plan/czasy --wyjscie .ci-plan/plan.json
 
       - uses: actions/upload-artifact@v7
         with:
@@ -173,7 +173,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     permissions:
       contents: read
-      # tools/czasy_ci.py reads the step times of this job from the run's jobs API.
+      # tools/ci/czasy_ci.py reads the step times of this job from the run's jobs API.
       actions: read
     strategy:
       fail-fast: false
@@ -225,7 +225,7 @@ jobs:
       # also after red tests. On a pull request the tests that failed run once more; passing then makes them flaky.
       - name: Run the planned units
         id: units
-        run: python tools/plan_ci.py wykonaj --plan .ci-plan/plan.json --zadanie ${{ matrix.id }}
+        run: python tools/ci/plan_ci.py wykonaj --plan .ci-plan/plan.json --zadanie ${{ matrix.id }}
 
       # Tests that passed only on their retry; the workflow zgloszenia.yml files an issue "Flaky test: <test>" for each.
       - name: Upload the flaky tests
@@ -267,7 +267,7 @@ jobs:
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
-        run: python tools/czasy_ci.py zadanie --tor "${{ runner.os }}-${{ steps.python.outputs.python-version }}" --junit .ci-czasy/junit.xml --wykonanie .ci-czasy/wykonanie.json --wyjscie ".ci-czasy/zapis/${{ github.job }}-${{ strategy.job-index }}-${{ github.run_attempt }}.json"
+        run: python tools/ci/czasy_ci.py zadanie --tor "${{ runner.os }}-${{ steps.python.outputs.python-version }}" --junit .ci-czasy/junit.xml --wykonanie .ci-czasy/wykonanie.json --wyjscie ".ci-czasy/zapis/${{ github.job }}-${{ strategy.job-index }}-${{ github.run_attempt }}.json"
 
       - name: Upload the unit times
         if: ${{ !cancelled() }}
@@ -294,9 +294,9 @@ jobs:
     runs-on: ${{ matrix.os }}
     permissions:
       contents: read
-      # tools/czasy_ci.py reads the step times of this job from the run's jobs API.
+      # tools/ci/czasy_ci.py reads the step times of this job from the run's jobs API.
       actions: read
-    # tools/mutacje_skilli.py limits each script to 30 min; this catches a hang in the runner itself.
+    # tools/ci/mutacje_skilli.py limits each script to 30 min; this catches a hang in the runner itself.
     timeout-minutes: 60
     strategy:
       fail-fast: false
@@ -351,7 +351,7 @@ jobs:
       # Each baseline and mutation script (or part of one) of the job, also after a red one.
       - name: Run the planned units
         id: units
-        run: python tools/plan_ci.py wykonaj --plan .ci-plan/plan.json --zadanie ${{ matrix.id }}
+        run: python tools/ci/plan_ci.py wykonaj --plan .ci-plan/plan.json --zadanie ${{ matrix.id }}
 
       # A red baseline (e.g. Centrum --feature all) leaves its screenshots and logs here; mutation copies keep none.
       - name: Upload baseline evidence on failure
@@ -370,7 +370,7 @@ jobs:
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
-        run: python tools/czasy_ci.py zadanie --tor "${{ runner.os }}-${{ steps.python.outputs.python-version }}" --wykonanie .ci-czasy/wykonanie.json --wyjscie ".ci-czasy/zapis/${{ github.job }}-${{ strategy.job-index }}-${{ github.run_attempt }}.json"
+        run: python tools/ci/czasy_ci.py zadanie --tor "${{ runner.os }}-${{ steps.python.outputs.python-version }}" --wykonanie .ci-czasy/wykonanie.json --wyjscie ".ci-czasy/zapis/${{ github.job }}-${{ strategy.job-index }}-${{ github.run_attempt }}.json"
 
       - name: Upload the unit times
         if: ${{ !cancelled() }}
@@ -421,14 +421,14 @@ jobs:
       - name: Require every CI check to succeed and every planned unit to report
         env:
           NEEDS: ${{ toJSON(needs) }}
-        run: python3 tools/plan_ci.py werdykt --plan .ci-plan/plan.json --zapisy .ci-czasy/zapisy
+        run: python3 tools/ci/plan_ci.py werdykt --plan .ci-plan/plan.json --zapisy .ci-czasy/zapisy
 
       # On a push to main the unit times of every job of the run become the artifact czasy-ci, the one source of CI
-      # times (tools/czasy_ci.py). Measurement only: a failure here prints CZASY CI FAIL and leaves the verdict above.
+      # times (tools/ci/czasy_ci.py). Measurement only: a failure here prints CZASY CI FAIL and leaves the verdict above.
       - name: Merge the unit times into czasy-ci
         if: ${{ !cancelled() && github.event_name == 'push' }}
         continue-on-error: true
-        run: python3 tools/czasy_ci.py scal --katalog .ci-czasy/zapisy --wyjscie .ci-czasy/czasy-ci.json
+        run: python3 tools/ci/czasy_ci.py scal --katalog .ci-czasy/zapisy --wyjscie .ci-czasy/czasy-ci.json
 
       - name: Upload czasy-ci
         if: ${{ !cancelled() && github.event_name == 'push' }}

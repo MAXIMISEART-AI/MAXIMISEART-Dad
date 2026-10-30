@@ -23,6 +23,8 @@ import sys
 import tempfile
 import venv
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools/lib"))
+
 import potomne
 
 ROOT = Path(__file__).resolve().parents[1]

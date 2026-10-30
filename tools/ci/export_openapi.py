@@ -14,7 +14,7 @@ import sys
 from pathlib import Path
 from typing import Any, get_args
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 
 from rozliczenia.centrum.app import create_app
 from rozliczenia.centrum.contract import ApiOperation
@@ -22,7 +22,7 @@ from rozliczenia.centrum.log import CentrumLog
 from rozliczenia.centrum.platform import FileTypes
 from rozliczenia.centrum.shutdown import Shutdown
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 FRONTEND_SOURCE = ROOT / "frontend" / "src"
 OUTPUT = FRONTEND_SOURCE / "api" / "openapi.json"
 

@@ -7,7 +7,7 @@ skrypt o takiej nazwie trafia do CI i do ``tools/ci_lokalnie.py`` bez wpisu w ``
 Skrypt nie może zgubić się po cichu. FAIL dostaje plik ``.py`` w skillu z ``mutation`` w nazwie,
 który nie pasuje do wzorca, oraz skrypt mutacji wskazany w ``SKILL.md`` skilla, którego nie ma.
 FAIL dostaje też skrypt, który przekroczył limit czasu, skończył się kodem innym niż 0 albo nie
-wydrukował na końcu ``MUTACJE OK``. Skrypt biegnie przez ``tools/potomne.py``: jego procesy
+wydrukował na końcu ``MUTACJE OK``. Skrypt biegnie przez ``tools/lib/potomne.py``: jego procesy
 potomne giną po jego końcu i po limicie, a cały skrypt ginie razem z runnerem, choćby zabitym
 przez SIGKILL. Kończy się ``MUTACJE SKILLI OK`` albo ``MUTACJE SKILLI FAIL | <skrypty>``.
 
@@ -24,7 +24,7 @@ każdy krok swojego rodzaju, a skill bez klucza ``pilnuje`` albo z kluczem, któ
 Pominięty krok dostaje linię ``POMINIĘTY``.
 
 Krok to podstawa skilla albo jeden jego skrypt mutacji. W CI kroki dzieli między zadania Mutation checks plan runu
-(``tools/plan_ci.py``): bierze ten sam wybór (``wybor``), waży kroki czasami z ``czasy-ci``, a skrypt mutacji dłuższy niż
+(``tools/ci/plan_ci.py``): bierze ten sam wybór (``wybor``), waży kroki czasami z ``czasy-ci``, a skrypt mutacji dłuższy niż
 zadanie dzieli na części, które ``run`` uruchamia z ``MUTACJE_CZESC`` (``tools/mutacje.py``). Skrypty zgubione i zły
 klucz ``ci:`` plan zgłasza w ``Required CI status``.
 
@@ -33,15 +33,15 @@ i jego argumenty), którym CI sprawdza skill na niezmienionym kodzie. Runner uru
 (przed skryptami mutacji skilla, gdy biegną w tym samym zadaniu), także w skillu bez skryptu mutacji. Polecenie, które wybrany
 skrypt mutacji i tak uruchamia bez mutacji (podstawa ``check_all``), nie biegnie drugi raz. Podstawa przechodzi z kodem 0.
 Klucz ``ci-czesci: <n>`` mówi, że polecenie ``ci:`` dzieli się na najwyżej n części, które plan CI uruchamia jak części
-skryptu mutacji, z ``MUTACJE_CZESC=k/n`` (``tools/skrypt_skilla.py``, ``part``); bez klucza podstawa jest niepodzielna.
+skryptu mutacji, z ``MUTACJE_CZESC=k/n`` (``tools/lib/skrypt_skilla.py``, ``part``); bez klucza podstawa jest niepodzielna.
 Na pull request biegną części jednego n, więc taką podstawę wybiera też noc (``--noc``), przy tej samej zmianie co pull
 request, a jej plan uruchamia każdą część każdego n od 1 do ``ci-czesci``: część, która pada tylko przy innym n, wychodzi
 w nocy, zanim plan pull requestu po zmianie celu ściany wybierze to n.
 
-    py -3 tools/mutacje_skilli.py                  # Windows
-    .venv/bin/python tools/mutacje_skilli.py       # macOS i Linux
-    .venv/bin/python tools/mutacje_skilli.py --zmiany-od origin/main
-    .venv/bin/python tools/mutacje_skilli.py --zmiany-od origin/main --noc
+    py -3 tools/ci/mutacje_skilli.py                  # Windows
+    .venv/bin/python tools/ci/mutacje_skilli.py       # macOS i Linux
+    .venv/bin/python tools/ci/mutacje_skilli.py --zmiany-od origin/main
+    .venv/bin/python tools/ci/mutacje_skilli.py --zmiany-od origin/main --noc
 """
 
 from __future__ import annotations
@@ -60,10 +60,13 @@ import sys
 import time
 from typing import Any, NamedTuple
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tools"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tools/lib"))
+
 import potomne
 import szybko
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 SKILLS = ROOT / ".agents" / "skills"
 PATTERN = "check_*_mutations.py"
 # Wywołanie skryptu mutacji w SKILL.md; ścieżka bez ``.agents`` na początku liczy się od folderu skilla.
@@ -75,7 +78,7 @@ LIMIT_S = 30 * 60
 # Zmiana, po której na pull request biegnie każdy krok każdego skilla: biblioteki, zadanie CI, końce linii kopii.
 INFRASTRUCTURE = ("requirements.txt", ".github/workflows/ci.yml", ".gitattributes")
 # Runner mutacji: jego zmiana może zmienić werdykt każdego skryptu mutacji.
-RUNNER = ("tools/mutacje.py", "tools/mutacje_skilli.py")
+RUNNER = ("tools/mutacje.py", "tools/ci/mutacje_skilli.py")
 # Powód w ``Hits`` dla pliku w folderze skilla.
 FOLDER = "folder skilla"
 # Powody pominięcia kroku, który biegnie przy innym zdarzeniu niż wybór.

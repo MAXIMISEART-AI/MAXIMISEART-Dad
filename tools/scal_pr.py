@@ -9,10 +9,10 @@ Narzędzie scala PR numer N do jego bazy, gdy jednocześnie:
 4. opis PR ma każdy nagłówek ``##`` wzoru z ``.agents/skills/pr/SKILL.md``, każdy jako osobną linię i w kolejności
    wzoru, więc każdy PR ma te same sekcje, a sekcja dopisana do wzoru od razu obowiązuje;
 5. HEAD PR scala się z bieżącą bazą z ``origin`` bez konfliktu, a ruff i mypy dla obu systemów przechodzą na
-   scalonym drzewie (``scalenia_pr.merge_verdict``, jak status ``scalenie z main``, ale teraz, nie po pushu).
+   scalonym drzewie (``status_scalenia.merge_verdict``, jak status ``scalenie z main``, ale teraz, nie po pushu).
 
 Mutacje zmienionych linii nie biegną na PR i nie czeka na nie: biegną nocą na ``main`` (ADR 0021,
-``tools/mutacje_nocne.py``).
+``tools/ci/mutacje_nocne.py``).
 
 Werdykty to komentarze i recenzje PR kont z prawem zapisu (``OWNER``, ``MEMBER``, ``COLLABORATOR``), w kolejności
 utworzenia; nieopublikowana recenzja (``PENDING``) się nie liczy. Werdykt to komentarz albo recenzja, której pierwsza
@@ -96,8 +96,11 @@ import subprocess
 import sys
 from urllib.parse import urlsplit
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools/lib"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools/ci"))
+
 import potomne
-import scalenia_pr
+import status_scalenia
 
 ROOT = Path(__file__).resolve().parents[1]
 REQUIRED_CHECK = "Required CI status"
@@ -143,7 +146,7 @@ def _gh(*arguments: str, stdin: str | None = None) -> str:
         capture_output=True,
         text=True,
         encoding="utf-8",
-        timeout=scalenia_pr.GITHUB_TIMEOUT_S,
+        timeout=status_scalenia.GITHUB_TIMEOUT_S,
         check=True,
     )
     return done.stdout
@@ -330,7 +333,7 @@ def _pull(number: int) -> Pull:
 
 
 def _remote_base(base: str) -> str:
-    listed = potomne.run(["git", "ls-remote", "origin", f"refs/heads/{base}"], cwd=ROOT, timeout=scalenia_pr.GITHUB_TIMEOUT_S)
+    listed = potomne.run(["git", "ls-remote", "origin", f"refs/heads/{base}"], cwd=ROOT, timeout=status_scalenia.GITHUB_TIMEOUT_S)
     listed.check_returncode()
     return listed.stdout.partition("\t")[0]
 
@@ -338,15 +341,15 @@ def _remote_base(base: str) -> str:
 def _check(pull: Pull) -> str:
     """SHA bazy, z którą scalenie przeszło."""
 
-    checked = scalenia_pr.PullRequest(pull.number, pull.title, pull.head)
-    base = scalenia_pr.fetch(pull.base, [checked])
+    checked = status_scalenia.PullRequest(pull.number, pull.title, pull.head)
+    base = status_scalenia.fetch(pull.base, [checked])
     problems = [*pull.problems, *filter(None, [_verdict_problem(pull.verdicts, pull.head)])]
     if problems:
         raise _Refused("; ".join(problems))
     where = f"{pull.base} {base[:7]}"
     print(f"== #{pull.number} {pull.head[:7]} na {where}", flush=True)
     with potomne.commit_copy(ROOT, base) as copy:
-        verdict = scalenia_pr.merge_verdict(copy, where, base, None, checked)
+        verdict = status_scalenia.merge_verdict(copy, where, base, None, checked)
     if verdict.state != "success":
         raise _Refused(verdict.description)
     return base

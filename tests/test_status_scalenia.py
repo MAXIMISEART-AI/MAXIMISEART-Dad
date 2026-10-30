@@ -1,4 +1,4 @@
-"""``tools/scalenia_pr.py``: każdy otwarty PR do bazy, poza PR z forka, dostaje status, czy jego scalenie z bieżącą
+"""``tools/ci/status_scalenia.py``: każdy otwarty PR do bazy, poza PR z forka, dostaje status, czy jego scalenie z bieżącą
 bazą przechodzi.
 
 Testy biegną na prawdziwym Gicie z repozytorium bare jako ``origin`` (z ``refs/pull/N/head`` jak na GitHubie)
@@ -11,18 +11,17 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
-import shutil
 import subprocess
 import sys
 
 import pytest
 
-from tests.fixtures.git_repo import commit, git, repository
+from tests.fixtures.git_repo import commit, copy_files, git, repository
 from tests.fixtures.potomne import beating, wait_for, with_grandchild, worktrees
 
 pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="Atrapa gh to skrypt sh.")
 
-TOOL = Path(__file__).resolve().parents[1] / "tools" / "scalenia_pr.py"
+TOOL = Path(__file__).resolve().parents[1] / "tools" / "ci" / "status_scalenia.py"
 SUM = "def suma(a: int, b: int) -> int:\n    return a + b\n"
 SUM_OF_THREE = "def suma(a: int, b: int, c: int) -> int:\n    return a + b + c\n"
 TYPE_ERROR = 'LICZBA: int = "tekst"\n'
@@ -60,7 +59,7 @@ class FakeGitHub:
                 **files,
             },
         )
-        shutil.copy2(TOOL, self.checkout / "tools" / TOOL.name)
+        copy_files(self.checkout, ("tools/ci/status_scalenia.py",))
         git(self.checkout, "checkout", "--quiet", "-b", "main")
         self.start = commit(self.checkout, "start")
         git(self.checkout, "remote", "add", "origin", str(origin))
@@ -102,7 +101,7 @@ class FakeGitHub:
 
     def tool(self, *arguments: str) -> tuple[list[str], dict[str, str]]:
         environment = {**os.environ, "PATH": f"{self.bin}{os.pathsep}{os.environ['PATH']}"}
-        return [sys.executable, str(self.checkout / "tools" / TOOL.name), *arguments], environment
+        return [sys.executable, str(self.checkout / "tools" / "ci" / TOOL.name), *arguments], environment
 
     def run(self, *arguments: str) -> subprocess.CompletedProcess[str]:
         command, environment = self.tool(*arguments)

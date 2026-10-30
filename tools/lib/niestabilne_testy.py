@@ -1,9 +1,9 @@
 """Niestabilne testy (ADR 0020): ponowienie testu, który padł w bramce PR, zapis flaky testu i zapis testów z kwarantanny.
 
-Zadanie pytest (``tools/plan_ci.py wykonaj``) zapisuje dwa pliki, a dwa narzędzia je czytają z artefaktów runu:
+Zadanie pytest (``tools/ci/plan_ci.py wykonaj``) zapisuje dwa pliki, a dwa narzędzia je czytają z artefaktów runu:
 
 - ``FlakyTest``: test, który w zadaniu pytest bramki padł, a po jednym ponowieniu przeszedł. Lista trafia do
-  ``FLAKY_TESTY`` (artefakt ``flaky-testy-<zadanie>-<próba>``), a ``tools/zgloszenia_ci.py`` zakłada z niej issue
+  ``FLAKY_TESTY`` (artefakt ``flaky-testy-<zadanie>-<próba>``), a ``tools/ci/zgloszenia_ci.py`` zakłada z niej issue
   ``Flaky test: <test>``.
 - ``ZapisKwarantanny``: wynik każdego testu z kwarantanny, który biegł w zadaniu (artefakt ``kwarantanna-<zadanie>-<próba>``
   na pushu do `main`). Test z kwarantanny ma w junit własność ``WLASNOSC`` (``tests/conftest.py``). ``stan_kwarantanny``

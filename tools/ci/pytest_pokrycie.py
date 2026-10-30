@@ -1,7 +1,7 @@
-"""Plugin pytest dla ``tools/mutacje_zmiany.py``: które testy wykonują zmienione linie i pliki.
+"""Plugin pytest dla ``tools/ci/mutacje_zmiany.py``: które testy wykonują zmienione linie i pliki.
 
-``tools/mutacje_zmiany.py`` uruchamia testy z ``-p pokrycie_linii``, ze zmienną ``POKRYCIE_LINII`` i z
-``sitecustomize`` (``pokrycie_procesu.SITECUSTOMIZE``) na ``PYTHONPATH``. Zapis prowadzi ``tools/pokrycie_procesu.py``.
+``tools/ci/mutacje_zmiany.py`` uruchamia testy z ``-p pytest_pokrycie``, ze zmienną ``POKRYCIE_LINII`` i z
+``sitecustomize`` (``pokrycie_procesu.SITECUSTOMIZE``) na ``PYTHONPATH``. Zapis prowadzi ``tools/ci/pokrycie_procesu.py``.
 Plugin mówi mu, który test trwa i czy trwa fixture o zasięgu szerszym niż test, a w czasie testu wystawia jego nodeid
 w ``POKRYCIE_LINII_TEST``, żeby procesy Pythona uruchomione przez test zapisały się pod nim. Każdy proces pytest, także
 worker xdist, zapisuje swój plik przy końcu.

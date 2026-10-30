@@ -1,4 +1,4 @@
-"""``tools/mutacje_skilli.py`` nie przepuszcza skryptu mutacji, który zgubił się albo nie dał werdyktu.
+"""``tools/ci/mutacje_skilli.py`` nie przepuszcza skryptu mutacji, który zgubił się albo nie dał werdyktu.
 
 Każdy test buduje własne ``.agents/skills`` obok kopii narzędzia, więc narzędzie widzi tylko te skille.
 """
@@ -19,12 +19,12 @@ from types import ModuleType
 
 import pytest
 
-from tests.fixtures.git_repo import commit, git
+from tests.fixtures.git_repo import commit, copy_files, git
 from tests.fixtures.potomne import beating, wait_for
 
 ROOT = Path(__file__).resolve().parents[1]
 TOOLS = ROOT / "tools"
-TOOL = TOOLS / "mutacje_skilli.py"
+TOOL = TOOLS / "ci" / "mutacje_skilli.py"
 PASSING = 'print("WYKRYTA: proba")\nprint("MUTACJE OK")\n'
 CHECKED = "src/pakiet/sprawdzany.py"
 GUARDED = "---\nname: verify-x\npilnuje:\n  - src/pakiet/rout*.py\n---\n"
@@ -67,11 +67,12 @@ def _skill(root: Path, name: str, scripts: dict[str, str], skill_md: str = "") -
 def _tool(root: Path) -> list[str]:
     """Kopia narzędzia w ``root``; kopii, która już jest, nie nadpisuje, bo test może ją zmieniać."""
 
-    (root / "tools").mkdir(exist_ok=True)
-    for name in (TOOL.name, "potomne.py", "ciezkie_ci.py", "mutacje.py", "sciezki_w_kodzie.py", "szybko.py", "ci_lokalnie.py", "czasy_ci.py"):
-        if not (root / "tools" / name).exists():
-            shutil.copy(TOOLS / name, root / "tools" / name)
-    return [sys.executable, str(root / "tools" / TOOL.name)]
+    names = (
+        "tools/ci/mutacje_skilli.py", "tools/lib/potomne.py", "tools/lib/ciezkie_ci.py", "tools/mutacje.py", "tools/lib/sciezki_w_kodzie.py",
+        "tools/szybko.py", "tools/ci_lokalnie.py", "tools/ci/czasy_ci.py",
+    )
+    copy_files(root, [name for name in names if not (root / name).exists()])
+    return [sys.executable, str(root / "tools" / "ci" / "mutacje_skilli.py")]
 
 
 def _run(root: Path, *args: str) -> subprocess.CompletedProcess[str]:
@@ -292,11 +293,11 @@ def _ran(result: subprocess.CompletedProcess[str], skill: str) -> bool:
         (CHECKED, False),
         (ANCHORS, False),
         ("src/pakiet/pomocnik.py", False),
-        ("tools/potomne.py", False),
+        ("tools/lib/potomne.py", False),
         (".agents/skills/verify-a/scripts/sprawdz_a.py", True),
         (".agents/skills/verify-a/SKILL.md", True),
         ("requirements.txt", True),
-        ("tools/mutacje_skilli.py", True),
+        ("tools/ci/mutacje_skilli.py", True),
         ("tools/mutacje.py", True),
     ],
 )
@@ -468,7 +469,7 @@ def _load_copy(root: Path, monkeypatch: pytest.MonkeyPatch) -> ModuleType:
 
     _tool(root)
     monkeypatch.syspath_prepend(str(root / "tools"))
-    spec = importlib.util.spec_from_file_location("mutacje_skilli_w_kopii", root / "tools" / TOOL.name)
+    spec = importlib.util.spec_from_file_location("mutacje_skilli_w_kopii", root / "tools" / "ci" / TOOL.name)
     assert spec is not None and spec.loader is not None
     tool = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(tool)
@@ -613,7 +614,7 @@ def test_podstawa_ci_ktora_uruchamia_wybrany_skrypt_mutacji_nie_biegnie_drugi_ra
         ("src/pakiet/pomocnik.py", False),
         (".agents/skills/verify-d/SKILL.md", True),
         ("requirements.txt", True),
-        ("tools/mutacje_skilli.py", False),
+        ("tools/ci/mutacje_skilli.py", False),
     ],
 )
 def test_ze_zmianami_od_bazy_podstawa_ci_biegnie_przy_trafieniu_w_pilnuje_albo_folder_skilla(tmp_path: Path, changed: str, runs: bool) -> None:

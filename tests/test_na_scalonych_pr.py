@@ -10,7 +10,7 @@ import sys
 
 import pytest
 
-from tests.fixtures.git_repo import commit, git, repository
+from tests.fixtures.git_repo import commit, copy_files, git, repository
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = "import pathlib\nprint(pathlib.Path('src/dane.txt').read_text().strip(), '{}')\n"
@@ -129,11 +129,10 @@ def test_mutacje_zmiany_biegna_na_commicie_takze_poza_ci(tmp_path: Path) -> None
     """Próba narzędzia na scalonym commicie to nie sprawdzenie przed pushem, więc strażnik ciężkiego CI ją przepuszcza."""
 
     repo, _ = _repo(tmp_path)
-    for name in ("szybko.py", "mutacje_zmiany.py", "pokrycie_linii.py", "pokrycie_procesu.py"):
-        shutil.copy2(ROOT / "tools" / name, repo / "tools" / name)
+    copy_files(repo, ("tools/szybko.py", "tools/ci/mutacje_zmiany.py", "tools/ci/pytest_pokrycie.py", "tools/ci/pokrycie_procesu.py"))
     outside_ci = {name: value for name, value in os.environ.items() if name not in ("GITHUB_ACTIONS", "MAXIMISEART_NA_SCALONYCH_PR")}
 
-    done = _run(repo, "--commit", "HEAD", "--", "tools/mutacje_zmiany.py", "--baza", "HEAD^1", env=outside_ci)
+    done = _run(repo, "--commit", "HEAD", "--", "tools/ci/mutacje_zmiany.py", "--baza", "HEAD^1", env=outside_ci)
 
     assert done.returncode == 0, done.stdout + done.stderr
     assert "| kod 0 | MUTACJE ZMIANY OK | brak mutacji zmienionych linii src/ i tools/ od HEAD^1 |" in done.stdout

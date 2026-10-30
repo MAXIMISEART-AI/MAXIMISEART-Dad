@@ -7,22 +7,22 @@ na każdym pliki z wyboru ``tools/szybko.py`` dla zmiany od bazy, bez jego budż
 (węzeł ``plik::test`` biegnie sam, gdy jego pliku nie ma w wyborze). Zmiana pliku z ``szybko.FULL`` albo pod
 ``.github/workflows/`` wybiera wszystkie pliki. Na Windows 3.11 E2E biegnie przy zmianie pod ``src/``, a straż czasu
 przy zmianie w domknięciu jej skryptów (``STRAZ``); przy wyborze wszystkich plików oba.
-Praca Mutation checks to tor ``MUTACJE`` (Windows 3.14): kroki skilli z wyboru ``tools/mutacje_skilli.py`` (na pull
+Praca Mutation checks to tor ``MUTACJE`` (Windows 3.14): kroki skilli z wyboru ``tools/ci/mutacje_skilli.py`` (na pull
 request podstawy ``ci:``, których werdykt mogą zmienić zmiany od bazy, na pushu wszystkie kroki), każda podstawa ``ci:`` i
 każdy skrypt mutacji osobno. Zdarzenie ``noc`` (workflow ``mutacje-nocne.yml``, ADR 0021) nie ma pytest, a jego Mutation
 checks to skrypty mutacji skilli, których werdykt mogły zmienić zmiany ``main`` od bazy nocy, i każda część każdej
 liczby części podstawy z ``ci-czesci``, którą pull request uruchomiłby przy tych zmianach. Koszt jednostki to ściana, którą dodaje do zadania: plik waży sumę czasów swoich testów przez
-``WORKERY`` workerów xdist, krok swój czas. Czasy to mediany z ostatnich runów main (``tools/czasy_ci.py``). Plik albo
+``WORKERY`` workerów xdist, krok swój czas. Czasy to mediany z ostatnich runów main (``tools/ci/czasy_ci.py``). Plik albo
 krok skilla bez pomiaru waży medianę zmierzonych jednostek tego rodzaju na torze, a bez żadnych pomiarów wagę z
 ``DOMYSLNIE``: plan to wypisuje i biegnie dalej, bo brak czasów psuje tylko równowagę zadań, nie zbiór pracy.
 
 Ściana zadania to narzut (od startu zadania do pracy), start pytest, suma kosztów jego jednostek i koniec zadania;
 narzut i start też są z pomiarów. Plan dzieli każdy tor na najmniej zadań o ścianie najwyżej ``cel_s`` (LPT: najdłuższa jednostka do
 zadania o najmniejszej sumie). Plik dłuższy niż zadanie dzieli się na k udziałów o tej samej wadze: udział k biegnie
-z ``-p tools.pytest_czesc`` (testy pliku posortowane po id, po kolei). Skrypt mutacji dłuższy niż zadanie dzieli się tak samo na
+z ``-p tools.ci.pytest_czesc`` (testy pliku posortowane po id, po kolei). Skrypt mutacji dłuższy niż zadanie dzieli się tak samo na
 najwyżej tyle części, ile ma mutacji: część biegnie z ``MUTACJE_CZESC=k/n`` (``tools/mutacje.py``), z podstawą
 poleceń swoich mutacji. Podstawa ``ci:`` z ``ci-czesci: <n>`` dzieli się tak samo na najwyżej n części (część k
-skrypt bierze z ``MUTACJE_CZESC=k/n``, ``tools/skrypt_skilla.py``), a bez niego nie. Plan drukuje najdłuższą jednostkę
+skrypt bierze z ``MUTACJE_CZESC=k/n``, ``tools/lib/skrypt_skilla.py``), a bez niego nie. Plan drukuje najdłuższą jednostkę
 każdego toru po podziale: poniżej niej ściana zadania nie zejdzie.
 Zadanie Mutation checks instaluje Chromium tylko wtedy, gdy ma krok skilla, którego skrypty importują Playwright. Gdy
 run (``STALE_ZADANIA``, zadania pytest i Mutation checks) przekroczyłby ``ZADANIA_RUNU`` na pull request albo
@@ -41,14 +41,14 @@ próbie każdą swoją jednostkę (plik testów, krok CI, krok skilla) bez pora�
 składają się na całość (każda z 1..n dokładnie raz). Plan, którego nie ma, i skrypt mutacji,
 który wybór skilli zgubił albo zły klucz ``ci:`` (``bledy`` planu), są czerwonym werdyktem z przyczyną.
 
-    python3 tools/plan_ci.py plan --zdarzenie pull_request --baza HEAD^1 --czasy .ci-plan/czasy --wyjscie .ci-plan/plan.json
-    python3 tools/plan_ci.py plan --zdarzenie noc --baza <baza nocy> --czasy .ci-plan/czasy --wyjscie .ci-plan/plan.json
-    python tools/plan_ci.py wykonaj --plan .ci-plan/plan.json --zadanie windows-3.14-2       # albo mutacje-1
-    python3 tools/plan_ci.py werdykt --plan .ci-plan/plan.json --zapisy .ci-czasy/zapisy      # NEEDS: toJSON(needs)
+    python3 tools/ci/plan_ci.py plan --zdarzenie pull_request --baza HEAD^1 --czasy .ci-plan/czasy --wyjscie .ci-plan/plan.json
+    python3 tools/ci/plan_ci.py plan --zdarzenie noc --baza <baza nocy> --czasy .ci-plan/czasy --wyjscie .ci-plan/plan.json
+    python tools/ci/plan_ci.py wykonaj --plan .ci-plan/plan.json --zadanie windows-3.14-2       # albo mutacje-1
+    python3 tools/ci/plan_ci.py werdykt --plan .ci-plan/plan.json --zapisy .ci-czasy/zapisy      # NEEDS: toJSON(needs)
 
 Lokalnie plan na czasach z ``.git/czasy-ci`` (wspólnych z ``tools/szybko.py``) drukuje zadania i ich prognozę:
 
-    .venv/bin/python tools/plan_ci.py plan --baza origin/main
+    .venv/bin/python tools/ci/plan_ci.py plan --baza origin/main
 """
 
 from __future__ import annotations
@@ -68,6 +68,9 @@ import sys
 import tempfile
 import time
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tools"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tools/lib"))
+
 import czasy_ci
 import mutacje
 import mutacje_skilli
@@ -76,7 +79,7 @@ from niestabilne_testy import FlakyTest, ZapisKwarantanny
 import potomne
 import szybko
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 WERSJA = 1
 WORKERY = 4  # pytest -n auto na runnerze 4 vCPU
 JUNIT = Path(".ci-czasy", "junit.xml")
@@ -478,7 +481,7 @@ def _pytest(pliki: Mapping[str, list[tuple[int, int]]]) -> tuple[str, ...]:
     CZESCI.parent.mkdir(parents=True, exist_ok=True)
     CZESCI.write_text(json.dumps(czesci, indent=1), encoding="utf-8")
     # Bez '=' w argumentach: shim py (cmd) dzieli argument na '='.
-    return (sys.executable, "-m", "pytest", "-n", "auto", "-p", "tools.pytest_czesc", "--czesci", str(CZESCI), *pliki, "--junitxml", str(JUNIT))
+    return (sys.executable, "-m", "pytest", "-n", "auto", "-p", "tools.ci.pytest_czesc", "--czesci", str(CZESCI), *pliki, "--junitxml", str(JUNIT))
 
 
 def _polecenia(krok: Krok) -> list[tuple[tuple[str, ...], float]]:

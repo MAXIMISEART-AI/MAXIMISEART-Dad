@@ -104,7 +104,7 @@ def create_app(
         outbox.resume()
         yield
 
-    # Bez /docs i /openapi.json: kontrakt eksportuje tools/export_openapi.py, a Swagger ładowałby skrypty z sieci.
+    # Bez /docs i /openapi.json: kontrakt eksportuje tools/ci/export_openapi.py, a Swagger ładowałby skrypty z sieci.
     app = FastAPI(
         title="Centrum rozliczeń",
         version="kontrakt",

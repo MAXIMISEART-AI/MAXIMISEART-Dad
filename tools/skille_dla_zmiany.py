@@ -27,6 +27,9 @@ from collections.abc import Iterable
 from pathlib import Path
 import re
 import subprocess
+import sys
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools/ci"))
 
 from mutacje_skilli import ROOT, SKILLS, Step, hits, wybor
 import plan_ci

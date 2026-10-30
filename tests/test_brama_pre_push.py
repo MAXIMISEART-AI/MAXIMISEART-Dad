@@ -2,7 +2,7 @@
 
 Każdy test robi prawdziwy ``git push`` do tymczasowego repozytorium bare. Test kroków bramy uruchamia prawdziwe
 ``tools/ci_lokalnie.py`` na małym kodzie, a pozostałe atrapę ``.venv/bin/python``. W CI moduł biegnie w jednym
-z zadań ``pytest (Python 3.14, Linux, K/N)`` z planu runu (``tools/plan_ci.py``).
+z zadań ``pytest (Python 3.14, Linux, K/N)`` z planu runu (``tools/ci/plan_ci.py``).
 """
 
 from __future__ import annotations
@@ -16,12 +16,15 @@ import sys
 
 import pytest
 
-from tests.fixtures.git_repo import commit, repository
+from tests.fixtures.git_repo import commit, copy_files, repository
 from tests.fixtures.potomne import wait_for
 
 HOOK = Path(__file__).resolve().parents[1] / "tools" / "hooks" / "pre-push"
 WORK_IN_PROGRESS = HOOK.parents[1] / "praca_w_toku.py"
-SKILLS_FOR_CHANGE = ("skille_dla_zmiany.py", "mutacje_skilli.py", "plan_ci.py", "niestabilne_testy.py", "mutacje_zmiany.py", "pokrycie_procesu.py", "szybko.py", "ci_lokalnie.py", "mutacje.py", "sciezki_w_kodzie.py")
+SKILLS_FOR_CHANGE = (
+    "tools/skille_dla_zmiany.py", "tools/ci/mutacje_skilli.py", "tools/ci/plan_ci.py", "tools/lib/niestabilne_testy.py", "tools/ci/mutacje_zmiany.py",
+    "tools/ci/pokrycie_procesu.py", "tools/szybko.py", "tools/ci_lokalnie.py", "tools/mutacje.py", "tools/lib/sciezki_w_kodzie.py",
+)
 SKILL = "---\nname: verify-kod\ndescription: kod\npilnuje:\n  - kod/*\n---\n"
 BRANCH = "refs/heads/zmiana"
 AGENT_MARKERS = ("AI_AGENT", "CLAUDECODE")
@@ -173,7 +176,7 @@ def test_push_bez_venv_jest_odrzucony_ze_wskazaniem_setup_worktree(checkout: Pat
 @pytest.mark.parametrize("potomne_py", ["działa", "z błędem składni"])
 def test_push_czlowieka_przechodzi_bez_sprawdzania_i_bez_komunikatu(checkout: Path, potomne_py: str) -> None:
     if potomne_py == "z błędem składni":
-        (checkout / "tools" / "potomne.py").write_text("def (\n", encoding="utf-8")
+        (checkout / "tools" / "lib" / "potomne.py").write_text("def (\n", encoding="utf-8")
     _stub_ci_lokalnie(checkout, passes=False)
 
     pushed = _git(checkout, "push", "origin", f"HEAD:{BRANCH}", agent=None)
@@ -202,7 +205,7 @@ def test_push_agenta_drukuje_werdykt_aktualizacji_z_main(checkout: Path) -> None
 
 BROKEN_VERDICTS = {
     "werdykt pada": ("tools/praca_w_toku.py", 'raise SystemExit("git: zepsuty")\n', "(tools/praca_w_toku.py: git: zepsuty)"),
-    "potomne.py z błędem składni": ("tools/potomne.py", "def (\n", "(SyntaxError: "),
+    "potomne.py z błędem składni": ("tools/lib/potomne.py", "def (\n", "(SyntaxError: "),
     "werdykt wisi": ("tools/praca_w_toku.py", "import time\ntime.sleep(60)\n", "(TimeoutExpired: "),
 }
 
@@ -230,8 +233,7 @@ def test_nieudany_werdykt_aktualizacji_nie_zmienia_wyniku_pushu(checkout: Path, 
 def _with_skills_for_change(checkout: Path, *, main: bool) -> None:
     """Narzędzie skilli i skill ``verify-kod`` pilnujący ``kod/*`` w checkoucie, z ``main``: ``origin/main`` na tym commicie."""
 
-    for name in SKILLS_FOR_CHANGE:
-        shutil.copy2(HOOK.parents[1] / name, checkout / "tools" / name)
+    copy_files(checkout, SKILLS_FOR_CHANGE)
     (checkout / ".agents" / "skills" / "verify-kod").mkdir(parents=True)
     (checkout / ".agents" / "skills" / "verify-kod" / "SKILL.md").write_text(SKILL, encoding="utf-8")
     commit(checkout, "skill")

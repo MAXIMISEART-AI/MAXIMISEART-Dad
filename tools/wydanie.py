@@ -43,6 +43,8 @@ from pydantic import BaseModel, TypeAdapter
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools/lib"))
+
 import niestabilne_testy
 import potomne
 from rozliczenia.centrum import release_notes, tool_update

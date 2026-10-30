@@ -25,7 +25,7 @@ config/*
 !config/worker_mapping.example.yaml
 node_modules/
 .benchmark/
-# Czasy jednostek zadania CI (tools/czasy_ci.py), plan runu (tools/plan_ci.py) i flaky testy z kwarantanną (tools/niestabilne_testy.py), artefakty runu.
+# Czasy jednostek zadania CI (tools/ci/czasy_ci.py), plan runu (tools/ci/plan_ci.py) i flaky testy z kwarantanną (tools/lib/niestabilne_testy.py), artefakty runu.
 .ci-czasy/
 .ci-plan/
 .ci-niestabilne/

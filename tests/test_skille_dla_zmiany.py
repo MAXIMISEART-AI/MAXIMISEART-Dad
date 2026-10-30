@@ -9,7 +9,6 @@ from __future__ import annotations
 import importlib.util
 from pathlib import Path
 import re
-import shutil
 import subprocess
 import sys
 from types import ModuleType
@@ -17,7 +16,7 @@ from types import ModuleType
 import pytest
 import yaml
 
-from tests.fixtures.git_repo import commit, git
+from tests.fixtures.git_repo import commit, copy_files, git
 
 ROOT = Path(__file__).resolve().parents[1]
 TOOLS = ROOT / "tools"
@@ -38,8 +37,9 @@ REPO = {
 
 
 TOOLS_FOR_CHANGE = (
-    "skille_dla_zmiany.py", "mutacje_skilli.py", "plan_ci.py", "niestabilne_testy.py", "mutacje_zmiany.py", "pokrycie_procesu.py", "potomne.py", "szybko.py",
-    "ci_lokalnie.py", "czasy_ci.py", "ciezkie_ci.py", "mutacje.py", "sciezki_w_kodzie.py",
+    "tools/skille_dla_zmiany.py", "tools/ci/mutacje_skilli.py", "tools/ci/plan_ci.py", "tools/lib/niestabilne_testy.py",
+    "tools/ci/mutacje_zmiany.py", "tools/ci/pokrycie_procesu.py", "tools/lib/potomne.py", "tools/szybko.py", "tools/ci_lokalnie.py",
+    "tools/ci/czasy_ci.py", "tools/lib/ciezkie_ci.py", "tools/mutacje.py", "tools/lib/sciezki_w_kodzie.py",
 )
 
 
@@ -47,9 +47,7 @@ def _repo(root: Path, files: dict[str, str] = REPO) -> str:
     for name, text in files.items():
         (root / name).parent.mkdir(parents=True, exist_ok=True)
         (root / name).write_text(text, encoding="utf-8")
-    (root / "tools").mkdir(exist_ok=True)
-    for name in TOOLS_FOR_CHANGE:
-        shutil.copy(TOOLS / name, root / "tools" / name)
+    copy_files(root, TOOLS_FOR_CHANGE)
     git(root, "init", "--quiet")
     return commit(root, "baza")
 
@@ -198,11 +196,11 @@ AGREEING = {
 
 
 def _in_mutation_checks(root: Path, base: str, *, night: bool = False) -> list[str]:
-    """Polecenia kroków, które uruchomił ``tools/mutacje_skilli.py --zmiany-od`` (z ``night``: ``--noc``), w postaci linii
+    """Polecenia kroków, które uruchomił ``tools/ci/mutacje_skilli.py --zmiany-od`` (z ``night``: ``--noc``), w postaci linii
     ``LICZY CI`` albo ``LICZY NOC``."""
 
     out = subprocess.run(
-        [sys.executable, str(root / "tools" / "mutacje_skilli.py"), "--zmiany-od", base, *(["--noc"] * night)],
+        [sys.executable, str(root / "tools" / "ci" / "mutacje_skilli.py"), "--zmiany-od", base, *(["--noc"] * night)],
         cwd=root,
         capture_output=True,
         text=True,
@@ -332,7 +330,7 @@ def test_workflow_skilla_windows_biegnie_dla_tych_samych_sciezek_co_jego_pilnuje
 
 # Zdanie, które każe uruchomić coś przed oddaniem pracy albo pushem.
 BEFORE_PUSH = re.compile(r"before (handing|you hand|pushing|you push|opening|you open)|przed (pushem|oddaniem)", re.IGNORECASE)
-# Argumenty kontraktu skryptu skilla (``tools/skrypt_skilla.py``), które mówią, gdzie biec, a nie co sprawdzić.
+# Argumenty kontraktu skryptu skilla (``tools/lib/skrypt_skilla.py``), które mówią, gdzie biec, a nie co sprawdzić.
 PLACE = ("--run-dir", "--root")
 CI_AND_LOCAL = "## What CI runs and what stays local"
 

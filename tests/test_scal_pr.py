@@ -11,14 +11,13 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
-import shutil
 import subprocess
 import sys
 
 import pytest
 
 from tests.fixtures import opisy_pr
-from tests.fixtures.git_repo import commit, git, repository
+from tests.fixtures.git_repo import commit, copy_files, git, repository
 
 import scal_pr
 
@@ -134,8 +133,7 @@ class FakeGitHub:
                 **files,
             },
         )
-        for tool in ("scal_pr.py", "scalenia_pr.py"):
-            shutil.copy2(TOOLS / tool, self.checkout / "tools" / tool)
+        copy_files(self.checkout, ("tools/scal_pr.py", "tools/ci/status_scalenia.py"))
         git(self.checkout, "checkout", "--quiet", "-b", "main")
         self.start = commit(self.checkout, "start")
         git(self.checkout, "remote", "add", "origin", str(origin))
@@ -266,9 +264,9 @@ def _fake_gh(tmp_path: Path) -> Path:
 
 
 def _short_github_timeout(github: FakeGitHub) -> str:
-    """Commit na ``main`` z ``scalenia_pr.GITHUB_TIMEOUT_S`` równym 3 s, żeby ``gh``, które zawiesza, kończyło się szybko."""
+    """Commit na ``main`` z ``status_scalenia.GITHUB_TIMEOUT_S`` równym 3 s, żeby ``gh``, które zawiesza, kończyło się szybko."""
 
-    scalenia = github.checkout / "tools" / "scalenia_pr.py"
+    scalenia = github.checkout / "tools" / "ci" / "status_scalenia.py"
     scalenia.write_text(scalenia.read_text(encoding="utf-8").replace("GITHUB_TIMEOUT_S = 60", "GITHUB_TIMEOUT_S = 3"), encoding="utf-8")
     git(github.checkout, "commit", "--quiet", "--all", "--message", "gh po 3 s")
     git(github.checkout, "push", "--quiet", "origin", "main")

@@ -16,6 +16,8 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
+sys.path.insert(0, str(ROOT / "tools" / "lib"))
+sys.path.insert(0, str(ROOT / "tools" / "ci"))
 
 import mutacje  # noqa: E402
 import mutacje_skilli  # noqa: E402

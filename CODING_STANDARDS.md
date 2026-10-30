@@ -105,7 +105,7 @@ When a fix of a rule keeps growing a list of exceptions, replace the list with t
 
 | Rule | Guard |
 |---|---|
-| Every changed line of `src/` and `tools/` has a test that fails when the line is broken, or its line in the issue `Przeżyte mutacje z #N` says why the test is not worth it (`nie warto, bo …`); after the merge, the nightly run files each mutation no test catches as a line `MUTACJA <id>` in the issue `Przeżyte mutacje z #N` of the PR that last changed the line (ADR 0021, `docs/agents/pr-i-ci.md`). | `tools/mutacje_nocne.py` (nightly workflow `mutacje-nocne.yml`), `tests/test_mutacje_nocne.py` |
+| Every changed line of `src/` and `tools/` has a test that fails when the line is broken, or its line in the issue `Przeżyte mutacje z #N` says why the test is not worth it (`nie warto, bo …`); after the merge, the nightly run files each mutation no test catches as a line `MUTACJA <id>` in the issue `Przeżyte mutacje z #N` of the PR that last changed the line (ADR 0021, `docs/agents/pr-i-ci.md`). | `tools/ci/mutacje_nocne.py` (nightly workflow `mutacje-nocne.yml`), `tests/test_mutacje_nocne.py` |
 | A change to a Komunikat's text changes `tests/expected/komunikaty.txt` in the same PR. | `tests/test_komunikaty_expect.py` |
 | A test module imports helpers only from `tests/fixtures`. | `tests/test_struktura_testow.py` |
 | A test waits for a state with `wait_for` (`tests/fixtures/potomne.py`), never for a fixed number of seconds, and checks the time of the code under test by equality on the fake clock `ManualClock` (`tests/fixtures/clock.py`), never by a fixed number of milliseconds. | `tests/test_struktura_testow.py` |
@@ -118,7 +118,7 @@ When a fix of a rule keeps growing a list of exceptions, replace the list with t
 | Rule | Guard |
 |---|---|
 | Check the operating system with `sys.platform == "win32"`. | ruff `TID251` (`pyproject.toml`), mypy for both systems in `tools/ci_lokalnie.py` |
-| A command of a tool in `tools/` that takes time or starts its own processes runs through `potomne.run`, and a copy of a commit comes from `potomne.commit_copy` ([`tools/potomne.py`](tools/potomne.py)), because they die together with the tool, even one killed by SIGKILL. | `tests/test_potomne.py` |
+| A command of a tool in `tools/` that takes time or starts its own processes runs through `potomne.run`, and a copy of a commit comes from `potomne.commit_copy` ([`tools/lib/potomne.py`](tools/lib/potomne.py)), because they die together with the tool, even one killed by SIGKILL. | `tests/test_potomne.py` |
 | A concurrent mutation run (`tools/mutacje.py --rownolegle`, a skill's `check_all`) runs at most `PARALLEL` mutations at once and gives each mutation's command `PYTEST_XDIST_AUTO_NUM_WORKERS=1` unless the caller set it, so a test's nested `pytest -n auto` does not multiply over the cores of the Mac that agents share. | `tests/test_mutacje.py` |
 | The files that the system Python runs before `.venv` (the list in `per-file-target-version` in `pyproject.toml`) work under the Python 3.9 of macOS. | ruff `per-file-target-version`, `tests/test_systemowy_python.py` |
 | A tool or skill script that runs as its own process adds `src` to `sys.path` itself, because CI on Windows does not install the package. | `tests/test_skrypty_bez_instalacji.py` |

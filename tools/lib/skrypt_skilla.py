@@ -35,7 +35,7 @@ from typing import Any, TypeVar
 
 T = TypeVar("T")
 
-VERIFICATION = Path(__file__).resolve().parents[1] / ".verification"
+VERIFICATION = Path(__file__).resolve().parents[2] / ".verification"
 MARKER = ".katalog-runu"
 EVERY = "all"
 SKIPPED = 3

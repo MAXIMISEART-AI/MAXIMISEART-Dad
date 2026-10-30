@@ -1132,7 +1132,7 @@ PageId = Literal["okresy", "uruchomienia", "metryki", "konfiguracja", "powiadomi
 # Zimny start strony (otwarcie albo odświeżenie karty) albo przejście w menu.
 ViewKind = Literal["cold_start", "navigation"]
 # Operacje API, które przeglądarka mierzy: nazwy (`operation_id`) zamiast adresu z tokenem okresu. Trasy spoza
-# tej listy, każda z powodem, wymienia `OUTSIDE_TIMING` w tools/export_openapi.py, który pilnuje obu stron.
+# tej listy, każda z powodem, wymienia `OUTSIDE_TIMING` w tools/ci/export_openapi.py, który pilnuje obu stron.
 ApiOperation = Literal[
     "getHealth",
     "getSettings",

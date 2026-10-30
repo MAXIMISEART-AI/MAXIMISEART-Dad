@@ -6,18 +6,18 @@ patrz ``tools/setup_worktree.py``), i drukuje wynik kroku jedną linią; wyjści
 przy porażce. Kończy się ``CI LOKALNIE OK`` (z ``--tylko``: ``CI LOKALNIE OK | tylko <zadania>``)
 albo ``CI LOKALNIE FAIL | <kroki>``; przebieg wszystkich zadań drukuje przedtem nakładania z pracą
 w toku (``tools/praca_w_toku.py --nakladania``). Kroki pytest i mutacji skilli biegną tu w całości, a w CI plan
-(``tools/plan_ci.py``) dzieli je między zadania i dokłada do zadań Windows E2E i Timing guard, które mają swoje
+(``tools/ci/plan_ci.py``) dzieli je między zadania i dokłada do zadań Windows E2E i Timing guard, które mają swoje
 narzędzia (skill verify-rozliczenia, ``tools/benchmark_przebiegu.py``), bo trwają kilka minut.
 
 Ciężkie zadanie ``mutations``, także w przebiegu wszystkich zadań, liczy CI na GitHubie: poza CI biegnie tylko z
-``--odtwarzam <id albo URL runu>``, w którym padło na tej gałęzi (``tools/ciezkie_ci.py``). Mutacje zmienionych linii
+``--odtwarzam <id albo URL runu>``, w którym padło na tej gałęzi (``tools/lib/ciezkie_ci.py``). Mutacje zmienionych linii
 nie biegną w ``ci.yml``, tylko nocą na ``main`` (``mutacje-nocne.yml``, ADR 0021), więc narzędzie ich nie odtwarza.
 
 ``--kazdy-commit`` sprawdza każdy commit gałęzi od bazy (domyślnie ``origin/main``) we własnym
 tymczasowym worktree, domyślnie krokami ruff, mypy i pytest, i nie dotyka checkoutu: zastępuje
 ręczne ``git rebase --exec``. Niezacommitowanych zmian nie sprawdza.
 
-Kroki i kopie commitów nie przeżywają ``ci_lokalnie``, także zabitego przez SIGKILL (``tools/potomne.py``).
+Kroki i kopie commitów nie przeżywają ``ci_lokalnie``, także zabitego przez SIGKILL (``tools/lib/potomne.py``).
 
     py -3 tools/ci_lokalnie.py --tylko pytest               # Windows
     .venv/bin/python tools/ci_lokalnie.py --tylko pytest    # macOS i Linux
@@ -37,6 +37,8 @@ import subprocess
 import sys
 import time
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools/lib"))
+
 import ciezkie_ci
 from mutacje import environment
 import potomne
@@ -47,12 +49,12 @@ GENERATED = ("frontend/src/api", "src/rozliczenia/centrum/static")
 # Zadanie w ci.yml, w którym biegną kroki zadania narzędzia, gdy nazywa się inaczej.
 CI_JOB = {"ruff": "ruff-mypy", "mypy": "ruff-mypy"}
 JOBS_ELSEWHERE = {
-    "plan": "plan zadań pytest i Mutation checks runu (tools/plan_ci.py plan drukuje go lokalnie), nic nie sprawdza",
+    "plan": "plan zadań pytest i Mutation checks runu (tools/ci/plan_ci.py plan drukuje go lokalnie), nic nie sprawdza",
     "required": "zbiorczy status pozostałych zadań, nic do odtworzenia",
 }
 # Fragment polecenia `run:` w odtwarzanym zadaniu CI, którego narzędzie nie odtwarza, i co je zastępuje.
 COMMANDS_ELSEWHERE = {
-    "tools/czasy_ci.py": "pomiar czasów zadania (artefakt czasy-ci), nic nie sprawdza",
+    "tools/ci/czasy_ci.py": "pomiar czasów zadania (artefakt czasy-ci), nic nie sprawdza",
 }
 OUTPUT_ON_FAILURE = 40
 EVERY_COMMIT_JOBS = ("ruff", "mypy", "pytest")
@@ -81,9 +83,9 @@ def _steps(root: Path) -> list[Step]:
         # Gałęzie tylko dla Windows używają API, którego inne systemy nie mają.
         # Własny cache, bo zmiana --platform unieważnia wspólny i oba kroki sprawdzałyby za każdym razem całość.
         Step("mypy (Windows)", "mypy", "-m mypy --platform win32", (python, "-m", "mypy", "--platform", "win32", "--cache-dir", ".mypy_cache/win32"), root),
-        Step("pytest", "pytest", "tools/plan_ci.py wykonaj", (python, "-m", "pytest", "-q", "-n", "auto"), root),
+        Step("pytest", "pytest", "tools/ci/plan_ci.py wykonaj", (python, "-m", "pytest", "-q", "-n", "auto"), root),
         # W CI kroki skilli biegną z planu, w zadaniach Mutation checks; tu wszystkie po kolei.
-        Step("mutacje skilli", "mutations", "tools/plan_ci.py wykonaj", (python, "tools/mutacje_skilli.py"), root),
+        Step("mutacje skilli", "mutations", "tools/ci/plan_ci.py wykonaj", (python, "tools/ci/mutacje_skilli.py"), root),
         Step("npm ci", "frontend", "npm ci", (npm, "ci"), frontend),
         *(
             Step(f"npm run {script}", "frontend", f"npm run {script}", (npm, "run", script), frontend)

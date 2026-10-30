@@ -1,4 +1,4 @@
-"""Zapis pokrycia zmienionych plików w jednym procesie Pythona dla ``tools/mutacje_zmiany.py``.
+"""Zapis pokrycia zmienionych plików w jednym procesie Pythona dla ``tools/ci/mutacje_zmiany.py``.
 
 Bez pytest, bo ładuje go też ``sitecustomize`` każdego procesu, który uruchamia test (``in_child``). Ustawienia są
 w zmiennej ``POKRYCIE_LINII``: JSON ``{"linie": {ścieżka bezwzględna: [numery linii]}, "wynik": katalog}``. Proces
@@ -82,7 +82,7 @@ def _start(recorder: Recorder) -> None:
     monitoring: Any = getattr(sys, "monitoring", None)
     if monitoring is not None:
         tool = monitoring.COVERAGE_ID
-        monitoring.use_tool_id(tool, "pokrycie_linii")
+        monitoring.use_tool_id(tool, "pytest_pokrycie")
 
         def line(code: CodeType, number: int) -> object:
             # DISABLE wyłącza tylko to miejsce kodu, więc każda inna linia kosztuje jedno wywołanie na proces.

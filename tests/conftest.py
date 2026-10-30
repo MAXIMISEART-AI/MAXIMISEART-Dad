@@ -21,7 +21,10 @@ from rozliczenia.centrum.log import CentrumLog
 from tests.fixtures.git_config import hermetic_git
 from tests.fixtures.kwarantanna import KWARANTANNA
 
+# Testy importują narzędzia tak, jak skrypt z ``tools/`` widzi je na ``sys.path``: narzędzia agenta, biblioteki i CI.
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools/lib"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools/ci"))
 
 import niestabilne_testy
 
@@ -30,7 +33,7 @@ _CHECKED_CONTENT_TYPES = ("application/json", "text/event-stream")
 
 def pytest_itemcollected(item: pytest.Item) -> None:
     """Test z ``KWARANTANNA`` biegnie jako ``xfail(strict=False)``: jego porażka nie czerwieni CI, a junit ma jego wynik
-    z własnością ``kwarantanna``, z której ``tools/plan_ci.py`` zapisuje wyniki testów z kwarantanny zadania."""
+    z własnością ``kwarantanna``, z której ``tools/ci/plan_ci.py`` zapisuje wyniki testów z kwarantanny zadania."""
 
     entry = KWARANTANNA.get(item.nodeid)
     if entry is not None:

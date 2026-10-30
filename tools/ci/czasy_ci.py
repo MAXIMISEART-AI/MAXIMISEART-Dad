@@ -16,7 +16,7 @@ podziału na zadania, więc para tor i klucz wskazuje tę samą pracę w każdym
     krok:pytest              ściana pytest zadania
     krok:e2e                 krok E2E (verify-rozliczenia --variant all)
     krok:timing              trzy polecenia straży czasu razem
-    krok:praca               ściana kroku, w którym ``tools/plan_ci.py wykonaj`` biegnie przez jednostki zadania
+    krok:praca               ściana kroku, w którym ``tools/ci/plan_ci.py wykonaj`` biegnie przez jednostki zadania
     skill:<skill>/ci         podstawa skilla w zadaniu Mutation checks
     skill:<skill>/<skrypt>   skrypt mutacji skilla; jego części z różnych zadań runu dają kilka obserwacji klucza
 
@@ -25,7 +25,7 @@ podaje API zadań runu (``$GITHUB_API_URL/repos/<repo>/actions/runs/<run>/attemp
 z dokładnością do sekundy), w którym zadanie znajduje się po nazwie swojego runnera. Narzut to sekundy od startu zadania do startu pierwszego kroku jednostki.
 Krok jednostki, który właśnie się skończył, API pokazuje przez chwilę bez wyniku (``conclusion: null``), więc zadanie
 czyta API ponownie, do 5 odczytów co sekundę; krok wciąż bez wyniku to błąd, a nie krok pominięty. Jednostki, które
-mierzy sam ``tools/plan_ci.py wykonaj`` (pytest, E2E, straż czasu, kroki skilli), i plan, z którego biegły (``plan`` to
+mierzy sam ``tools/ci/plan_ci.py wykonaj`` (pytest, E2E, straż czasu, kroki skilli), i plan, z którego biegły (``plan`` to
 jego ``digest``), zapis bierze z jego pliku ``--wykonanie``.
 
 Scalenie. Na pushu do main ``Required CI status`` pobiera zapisy runu i poleceniem ``scal`` tworzy ``czasy-ci.json``
@@ -46,8 +46,8 @@ Odczyt. ``z_mainu`` daje ``Czasy`` z artefaktów ``czasy-ci`` ostatnich ``ILE_RU
 ``Czasy`` są puste, a ``blad`` mówi dlaczego: czytający waży wtedy pracę domyślnie, zamiast padać. Obserwacje
 zadania z kilku prób runu liczą się z ostatniej.
 
-    python tools/czasy_ci.py zadanie --tor Windows-3.14.0 --junit junit.xml --wykonanie wykonanie.json --wyjscie zapis.json
-    python3 tools/czasy_ci.py scal --katalog zapisy --wyjscie czasy-ci.json
+    python tools/ci/czasy_ci.py zadanie --tor Windows-3.14.0 --junit junit.xml --wykonanie wykonanie.json --wyjscie zapis.json
+    python3 tools/ci/czasy_ci.py scal --katalog zapisy --wyjscie czasy-ci.json
 """
 
 from __future__ import annotations
@@ -104,7 +104,7 @@ class Zapis:
     narzut_s: float | None
     jednostki: tuple[Jednostka, ...]
     bledy: tuple[str, ...]
-    plan: str | None = None  # digest planu, z którego zadanie biegło (tools/plan_ci.py)
+    plan: str | None = None  # digest planu, z którego zadanie biegło (tools/ci/plan_ci.py)
     zadanie_planu: str | None = None
 
 
@@ -393,7 +393,7 @@ def main(argv: list[str] | None = None) -> int:
     zadanie = polecenia.add_parser("zadanie", help="Zapis czasów jednego zadania runu (w zadaniu CI).")
     zadanie.add_argument("--tor", required=True, help="System runnera i wersja Pythona, np. Windows-3.14.0.")
     zadanie.add_argument("--junit", type=Path, help="Junit pytest (junit_family = xunit1 w pyproject.toml).")
-    zadanie.add_argument("--wykonanie", type=Path, help="Wynik tools/plan_ci.py wykonaj: jego jednostki i plan.")
+    zadanie.add_argument("--wykonanie", type=Path, help="Wynik tools/ci/plan_ci.py wykonaj: jego jednostki i plan.")
     zadanie.add_argument("--wyjscie", type=Path, required=True)
     scal = polecenia.add_parser("scal", help="Scalenie zapisów zadań runu w czasy-ci.json (w Required na main).")
     scal.add_argument("--katalog", type=Path, required=True)

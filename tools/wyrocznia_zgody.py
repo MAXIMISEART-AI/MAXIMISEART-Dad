@@ -38,6 +38,8 @@ import threading
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools/hooks"))
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools/lib"))
+
 import potomne
 import zgoda
 
