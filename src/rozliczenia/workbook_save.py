@@ -45,7 +45,11 @@ class SaveProblem(Enum):
 
 
 class WorkbookSaveError(Exception):
-    """Skoroszyt ``target`` nie został zapisany i pozostał bez zmian; ``problem`` mówi dlaczego, bez zdania dla taty."""
+    """Skoroszyt ``target`` nie został zapisany i pozostał bez zmian; ``problem`` mówi dlaczego, bez zdania dla taty.
+
+    ``str(error)`` to krok i nazwa pliku bez folderu, np. ``podmiana: Plik.xlsx``, więc zapis wyjątku do logu nie
+    przenosi pełnej ścieżki z nazwą konta.
+    """
 
     def __init__(self, target: Path, problem: SaveProblem) -> None:
         super().__init__(f"{problem.value}: {target.name}")

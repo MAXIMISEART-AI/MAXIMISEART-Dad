@@ -936,6 +936,18 @@ def test_nieudany_krok_zapisu_nazywa_skoroszyt_i_krok_a_skoroszyt_zostaje_bez_zm
     assert [path.name for path in tmp_path.iterdir()] == ["Plik zbiorczy.xlsx"]
 
 
+def test_tekst_bledu_zapisu_to_krok_i_nazwa_pliku_bez_folderu(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Zapis wyjątku do logu nie przenosi pełnej ścieżki, a z nią nazwy konta taty (ADR 0004)."""
+
+    target_path = linked_template(tmp_path / "Plik zbiorczy.xlsx")
+    lock_file(monkeypatch, target_path.name)
+
+    with pytest.raises(WorkbookSaveError) as raised:
+        save_workbook(Workbook(), target_path)
+
+    assert str(raised.value) == "podmiana: Plik zbiorczy.xlsx"
+
+
 def _register_row() -> RegisterRow:
     """Wiersz Rejestru zleceń: komórka pod każdym nagłówkiem docelowym go nazywa."""
 
