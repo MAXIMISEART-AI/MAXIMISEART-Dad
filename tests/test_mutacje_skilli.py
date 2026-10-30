@@ -440,6 +440,29 @@ def test_nazwy_mutacji_w_tabeli_kazdego_skryptu_skilla_sa_rozne(monkeypatch: pyt
     assert {script: sorted(set(found)) for script, found in names.items()} == {script: sorted(found) for script, found in names.items()}
 
 
+def test_kotwica_kazdej_mutacji_skilla_trafia_w_swoj_plik_dokladnie_raz(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Skrypty mutacji skilli nie biegną na pull request, więc zmiana kodu, po której mutacja jest NIEAKTUALNA, czerwieni
+    dopiero ``main`` (#667 i #669 zmieniły warunek budzenia w ``outbox.py``). Test nanosi zmiany każdej mutacji tym samym
+    ``_apply`` co ``tools/mutacje.py``, na kopii plików, które ona zmienia, bez uruchamiania jej polecenia."""
+
+    tool = _load_tool(monkeypatch)
+    engine = importlib.import_module("mutacje")
+    scripts = sorted((ROOT / ".agents" / "skills").glob(f"*/scripts/{tool.PATTERN}"))
+    stale = []
+    for script in scripts:
+        for number, mutation in enumerate(tool._mutations(script)):
+            copy = tmp_path / script.parents[1].name / script.stem / str(number)
+            for edit in mutation.edits:
+                if (ROOT / edit.file).is_file() and not (copy / edit.file).exists():
+                    (copy / edit.file).parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copyfile(ROOT / edit.file, copy / edit.file)
+            if found := engine._apply(copy, mutation.edits):
+                stale.append(f"{script.relative_to(ROOT).as_posix()}: {mutation.name} → {found}")
+
+    assert scripts
+    assert stale == []
+
+
 def _load_copy(root: Path, monkeypatch: pytest.MonkeyPatch) -> ModuleType:
     """Kopia narzędzia w ``root`` wczytana jako moduł, więc widzi tylko skille ``root``."""
 
