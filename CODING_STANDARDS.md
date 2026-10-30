@@ -11,11 +11,11 @@ Fix a class at the highest level that works, and say in the PR why a higher leve
 
 1. Architecture: one owner for each decision and one supported way for each task, internals hidden so the wrong import fails, and the old way deleted so no agent copies it.
 2. A type, a lint rule or a structure test whose error names the file, type or function to use instead.
-   When the pattern is already common, fail only when a change adds more, like the Zapadki in `pyproject.toml`.
+   Turn a rule on when it has no violation left, like the Zapadki in `pyproject.toml`, and when the pattern is already common, fail only when a change adds more.
 3. A test of the behaviour.
 4. A bullet in this file, last, because nothing fails when an agent skips it.
 
-A new check fails on the commit of the PR whose review found the mistake, and the PR body shows that run (`tools/na_scalonych_pr.py`, skill `pr`).
+A new check fails on the commit of the PR whose review found the mistake, raises no false alarm on a few recent merged PRs (`--ostatnie 5`, one of them with Windows-only code), and the PR body shows both runs (`tools/na_scalonych_pr.py`, skill `pr`).
 Fix the class, not the instance: when a review finds one case, look for every case of the same fault in the change and in the repository, and fix them together.
 When a fix of a rule keeps growing a list of exceptions, replace the list with the shape the code accepts.
 
@@ -85,6 +85,7 @@ When a fix of a rule keeps growing a list of exceptions, replace the list with t
   Cover both successful and failure paths for each operation's behaviour matrix.
 - The test that owns a workbook write verifies every column the write touches (`A:AT` for the Rozliczenie pracownika), preserved formulas and formatting, atomic replacement, and every entry under `xl/externalLinks/*`.
   Other tests assert only the behaviour they name.
+- Before a change runs on real files, run the Przygotowanie pliku zbiorczego and the Przebieg rozliczeń as `Podgląd bez zapisu`; Uporządkowanie INTERMAX has no preview and saves a Kopia INTERMAX before it replaces the file.
 - Keep tests free of client addresses, order numbers, and row contents in output or logs.
   The one exception is the Zatrzymanie about gaps in `SKUTECZNE` (`ZLE_SKUTECZNE`, ADR 0004): its tests use synthetic `SKUTECZNE` values, because the Komunikat shows the exact cell content.
 - Name a file that a test reads or runs with a literal path (`ROOT / "docs" / "adr"`), not a path built from a variable.
@@ -99,11 +100,12 @@ When a fix of a rule keeps growing a list of exceptions, replace the list with t
 - Prove that a new test or check fails on the broken code it guards with `tools/mutacje.py`, the repository's one mutation engine: use it rather than writing another.
   Run it once for each test or check added or changed in a round of work.
   A rebase, or a fix that leaves the test unchanged, does not need a new run.
-- Only a mutation that leaves the behaviour unchanged gets `# mutacje-zmiany: <reason> | do YYYY-MM-DD | zgoda <who>` on its line, with Maks's approval; every other surviving mutation needs the test that catches it.
+- A surviving mutation gets the test that catches it, or its line in the issue `Przeżyte mutacje z #N` answers `MUTACJA <id> | nie warto, bo <reason>`.
+  Only a mutation that leaves the behaviour unchanged gets `# mutacje-zmiany: <reason> | do YYYY-MM-DD | zgoda <who>` on its line, with Maks's approval.
 
 | Rule | Guard |
 |---|---|
-| Every changed line of `src/` and `tools/` has a test that fails when the line is broken; after the merge, the nightly run files each mutation no test catches as a line `MUTACJA <id>` in the issue `Przeżyte mutacje z #N` of the PR that last changed the line (ADR 0021, `docs/agents/pr-i-ci.md`). | `tools/mutacje_nocne.py` (nightly workflow `mutacje-nocne.yml`), `tests/test_mutacje_nocne.py` |
+| Every changed line of `src/` and `tools/` has a test that fails when the line is broken, or its line in the issue `Przeżyte mutacje z #N` says why the test is not worth it (`nie warto, bo …`); after the merge, the nightly run files each mutation no test catches as a line `MUTACJA <id>` in the issue `Przeżyte mutacje z #N` of the PR that last changed the line (ADR 0021, `docs/agents/pr-i-ci.md`). | `tools/mutacje_nocne.py` (nightly workflow `mutacje-nocne.yml`), `tests/test_mutacje_nocne.py` |
 | A change to a Komunikat's text changes `tests/expected/komunikaty.txt` in the same PR. | `tests/test_komunikaty_expect.py` |
 | A test module imports helpers only from `tests/fixtures`. | `tests/test_struktura_testow.py` |
 | A test waits for a state with `wait_for` (`tests/fixtures/potomne.py`), never for a fixed number of seconds, and checks the time of the code under test by equality on the fake clock `ManualClock` (`tests/fixtures/clock.py`), never by a fixed number of milliseconds. | `tests/test_struktura_testow.py` |
