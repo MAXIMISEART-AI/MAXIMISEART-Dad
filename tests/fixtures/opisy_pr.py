@@ -127,6 +127,7 @@ PRZYPADKI: tuple[tuple[str, str, tuple[int, ...]], ...] = (
     ("przekreslony-numer-w-strike", "Naprawia <strike>#490</strike>, #491", ()),
     ("przekreslenie-przez-koniec-wiersza", "~~Ten PR\nnie~~ Naprawia #490", ()),
     ("kod-przez-br", "Ten PR <code>nie<br>x</code> Naprawia #490", ()),
+    ("kod-przez-br-ze-spacja", "Ten PR <code>nie<br> </code>Naprawia #490", ()),
     ("komentarz-html", "Opis\n<!-- Naprawia #490 -->", ()),
     ("komentarz-html-w-kilku-liniach", "<!--\nNaprawia #490\n-->\nNaprawia #491", (491,)),
     ("niedomkniety-komentarz-html", "Opis\n\n<!-- niedomknięty\nNaprawia #490", ()),
