@@ -153,7 +153,6 @@ def _undefined_number_format(cell: str) -> Callable[[Path], None]:
         workbook = load_workbook(path)
         active_worksheet(workbook)[cell].number_format = "0.000"
         workbook.save(path)
-        workbook.close()
         with zipfile.ZipFile(path) as archive:
             found = re.search(rb'<cellXfs count="(\d+)"', archive.read("xl/styles.xml"))
         assert found is not None
@@ -194,7 +193,7 @@ def _preparation(
             syntetyczne_wzorce.write_internal_template(made.internal_template_path)
             syntetyczne_wzorce.write_settlement_template(made.collective_template_path, "MIASTO", 128)
         if existing_file:
-            made.period_directory.mkdir(parents=True)
+            made.period_directory.mkdir()
             shutil.copy2(made.collective_template_path, made.period_directory / COLLECTIVE_FILE_NAME)
         if change is not None:
             change(made.register_path)
@@ -246,7 +245,8 @@ SCENARIOS: tuple[Scenario, ...] = (
     Scenario("przygotowanie-rejestr-nie-skoroszyt", "preparation", _preparation(change=_not_a_workbook)),
     Scenario("przygotowanie-rejestr-uciety", "preparation", _preparation(change=_cut("xl/worksheets/sheet2.xml"))),
     Scenario("intermax", "intermax", _intermax()),
-    Scenario("intermax-starszy-arkusz-zolte-komorki", "intermax", _intermax(older_sheet=True, yellow="cells", shifted=False)),
+    Scenario("intermax-starszy-arkusz-zolte-komorki", "intermax", _intermax(older_sheet=True, yellow="cells")),
+    Scenario("intermax-pierwszy-wiersz-na-miejscu", "intermax", _intermax(shifted=False)),
     Scenario("intermax-kalendarz-1904", "intermax", _intermax(epoch_1904=True)),
     Scenario("intermax-bez-surowych-zlecen", "intermax", _intermax(raw=())),
     Scenario("intermax-rejestr-nie-skoroszyt", "intermax", _intermax(_not_a_workbook)),
