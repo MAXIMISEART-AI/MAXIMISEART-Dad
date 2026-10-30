@@ -49,7 +49,9 @@ naraz z ``--rownolegle`` workerami xdist, i dopiero ta porażka daje ``NIEWYKRYT
 wykonały jakikolwiek kod jej pliku albo uruchomiły proces i dochodzą do pliku importem albo nazwą pliku, katalogu
 lub globu w teście albo jego fixture, a wszystkie testy dotknięte plikiem, gdy linię wykonano
 dla wielu testów naraz albo leży w funkcji z ``@cache``, ``@lru_cache`` albo ``@cached_property`` (wynik pierwszego wywołania dostają też
-inne testy). Kodu procesu zapis nie widzi, gdy proces ma ``-I`` albo własne środowisko bez zmiennych zapisu, i gdy
+inne testy). Taką mutację przed testami pliku sprawdzają jeszcze, po kilka mutacji naraz jak w pierwszym przebiegu,
+testy, które wykonały jakikolwiek kod jej pliku (linia ``(testy kodu pliku)``): tabelę modułu wykonuje import, a
+czytają ją funkcje pliku. Kodu procesu zapis nie widzi, gdy proces ma ``-I`` albo własne środowisko bez zmiennych zapisu, i gdy
 wykonuje kopię pliku spoza checkoutu: tak test uruchamia narzędzie z ``tools/`` skopiowane do repozytorium w katalogu
 tymczasowym. Wtedy mutację tej linii od razu sprawdzają te same testy. Test, który dochodzi do pliku tylko przez
 ścieżkę nazwaną w innym narzędziu i nie wykonał jego kodu, nie biegnie: to każdy test z repozytorium Gita, bo
@@ -67,7 +69,10 @@ następnej zmianie jego pliku, a komentarz ``mutacje-zmiany:`` w innej postaci k
 
 Kończy się ``MUTACJE ZMIANY OK | …`` (kod 0) albo ``MUTACJE ZMIANY FAIL | …``: kodem 1, gdy przeżyły mutacje, a
 kodem 2, gdy wynik mutacji nic nie mówi (nieznana baza, zły wyjątek, testy padają bez mutacji, odmowa
-``tools/ciezkie_ci.py``). W CI biegnie nocą na Linuksie, na ``main``, od bazy z ``tools/mutacje_nocne.py``, w częściach
+``tools/ciezkie_ci.py``) albo limit czasu części (``--limit-czesci-s``) minął przed werdyktem którejś mutacji. Po
+limicie żadne polecenie już nie biegnie, a mutacje bez wyniku dostają linię ``BEZ WERDYKTU``, więc część kończy się
+zapisem z przeżytymi mutacjami przed limitem czasu zadania CI.
+W CI biegnie nocą na Linuksie, na ``main``, od bazy z ``tools/mutacje_nocne.py``, w częściach
 workflow ``mutacje-nocne.yml``. Z ``--zapis`` każda część zapisuje swoją ostatnią linię i przeżyte mutacje: nazwę
 (``<plik>:<linia> <opis>``, jak w linii ``NIEWYKRYTA``), zmienione linie, które mutacja psuje (``Mutant.lines``), i klucz
 (``fingerprint``), a ``tools/mutacje_nocne.py`` zakłada z nich issue PR-u, który ostatni zmienił te linie.
@@ -122,6 +127,10 @@ import szybko
 ROOT = Path(__file__).resolve().parents[1]
 BASE = "origin/main"
 WORKERS = 4
+# Zadanie części w mutacje-nocne.yml ma 60 min; 5 min zostaje na instalację i wgranie zapisu.
+PART_LIMIT_S = 3300
+# Ostatnia linia części, w której przeżyły mutacje (kod 1): wynik, który ``tools/mutacje_nocne.py`` tylko zgłasza.
+SURVIVED = "MUTACJE ZMIANY FAIL | przeżyło"
 # Linia poleceń Windows ma najwyżej 32 767 znaków; dłuższa lista testów idzie jako pliki testów.
 COMMAND_LIMIT = 20_000
 EXCEPTION = re.compile(r"#\s*mutacje-zmiany:(?P<rest>.*)$")
@@ -702,8 +711,13 @@ def runners(paths: Iterable[str]) -> dict[str, frozenset[str]]:
     return {path: frozenset(found[path]) for path in paths}
 
 
-def _coverage(tests: Sequence[str], lines: dict[str, frozenset[int]]) -> tuple[subprocess.CompletedProcess[str], Coverage]:
-    """Uruchamia testy raz z pluginem ``pokrycie_linii``; zwraca wynik i pokrycie zmienionych plików."""
+def _coverage(
+    tests: Sequence[str], lines: dict[str, frozenset[int]], timeout: float
+) -> tuple[subprocess.CompletedProcess[str], Coverage]:
+    """Uruchamia testy raz z pluginem ``pokrycie_linii``; zwraca wynik i pokrycie zmienionych plików.
+
+    Po ``timeout`` sekundach rzuca ``subprocess.TimeoutExpired``.
+    """
 
     with tempfile.TemporaryDirectory(prefix="mutacje-zmiany-") as folder:
         settings = {"linie": {str(ROOT / path): sorted(numbers) for path, numbers in lines.items()}, "wynik": folder}
@@ -720,7 +734,7 @@ def _coverage(tests: Sequence[str], lines: dict[str, frozenset[int]]) -> tuple[s
             "POKRYCIE_LINII": json.dumps(settings),
         }
         command = [sys.executable, "-m", "pytest", "-q", "-n", "auto", "-p", "pokrycie_linii", "-p", "no:cacheprovider", *tests]
-        done = potomne.run(command, cwd=ROOT, env=env)
+        done = potomne.run(command, cwd=ROOT, env=env, timeout=timeout)
         coverage = Coverage()
 
         def relative(absolute: str) -> str:
@@ -764,6 +778,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--baza", default=BASE, help=f"Gałąź, od której liczy się zmiana (domyślnie {BASE}).")
     parser.add_argument("--rownolegle", type=int, default=WORKERS, help="Ile mutacji biegnie naraz, każda w swojej kopii.")
     parser.add_argument("--limit-s", type=float, default=900, help="Limit czasu testów jednej mutacji w sekundach.")
+    parser.add_argument(
+        "--limit-czesci-s", type=float, default=PART_LIMIT_S, help=f"Limit czasu całej części w sekundach (domyślnie {PART_LIMIT_S})."
+    )
     parser.add_argument("--czesc", metavar="K/N", type=_part, default=(1, 1), help="Tylko K-ty z N kolejnych kawałków listy mutacji.")
     parser.add_argument("--zapis", type=Path, help="Plik JSON z ostatnią linią i nazwami przeżytych mutacji (artefakt CI).")
     ciezkie_ci.argument(parser)
@@ -794,6 +811,8 @@ def entry(mutant: Mutant, text: str) -> dict[str, object]:
 def _mutate(args: argparse.Namespace, survived: list[tuple[Mutant, str]]) -> tuple[int, str]:
     """Kod wyjścia i ostatnia linia; przeżyte mutacje z treścią ich pliku przed mutacją dopisuje do ``survived``."""
 
+    deadline = time.monotonic() + args.limit_czesci_s
+    out_of_time = f"MUTACJE ZMIANY FAIL | limit czasu części {args.limit_czesci_s:g} s minął"
     number, count = args.czesc
     try:
         fork = _git("merge-base", "HEAD", args.baza).strip()
@@ -822,13 +841,16 @@ def _mutate(args: argparse.Namespace, survived: list[tuple[Mutant, str]]) -> tup
     clock = [time.monotonic()]
     coverage = Coverage()
     if tests:
-        done, coverage = _coverage(tests, {path: changed_lines(hunks[path]) for path in paths})
+        try:
+            done, coverage = _coverage(tests, {path: changed_lines(hunks[path]) for path in paths}, deadline - time.monotonic())
+        except subprocess.TimeoutExpired:
+            return 2, f"{out_of_time} w pokryciu, przed werdyktem {len(found)} mutacji"
         if done.returncode != 0:
             print("\n".join((done.stdout + done.stderr).rstrip().splitlines()[-30:]))
             return 2, "MUTACJE ZMIANY FAIL | testy dotknięte zmianą padają bez mutacji, więc mutacje niczego nie dowiodą"
         print(f"Pokrycie: {len(coverage.lines)} testów wykonało zmienione linie, {len(coverage.spawners)} uruchomiło proces.", flush=True)
     today = datetime.datetime.now(datetime.UTC).date()
-    narrow: list[tuple[Mutant, mutacje.Mutation, list[str]]] = []  # i testy drugiego przebiegu, gdy pierwszy przeżyje
+    narrow: list[tuple[Mutant, mutacje.Mutation, list[list[str]]]] = []  # i testy dalszych przebiegów, gdy pierwszy przeżyje
     excused = other_system = 0
     for mutant in found:
         name = _name(mutant)
@@ -846,41 +868,59 @@ def _mutate(args: argparse.Namespace, survived: list[tuple[Mutant, str]]) -> tup
             print(f"NIEWYKRYTA: {name} → żaden test nie zależy od {mutant.path}")
             continue
         # Kod, którego wynik dostają też testy, które go nie wykonały (import, fixture szersza niż test, ``@cache``),
-        # sprawdzają wszystkie testy pliku; inny kod testy, które wykonały jakikolwiek kod jego pliku.
+        # sprawdzają wszystkie testy pliku; inny kod testy, które wykonały jakikolwiek kod jego pliku. Taki kod czytają
+        # zwykle funkcje jego pliku, więc ich testy biegną przed tysiącami testów pliku.
         shared = mutant.shared_state or bool(mutant.lines & coverage.shared.get(mutant.path, set()))
         candidates = set(by_file[mutant.path])
         touching = [test for test in coverage.touching(mutant.path, near[mutant.path]) if test.split("::")[0] in candidates]
-        second = by_file[mutant.path] if shared else touching or by_file[mutant.path]
-        first = coverage.covering(mutant) or second
+        covering = coverage.covering(mutant)
+        steps = [covering, touching, by_file[mutant.path]] if shared else [covering, touching or by_file[mutant.path]]
+        first, *later = [list(tests) for tests in dict.fromkeys(map(tuple, steps)) if tests]
         edit = mutacje.Edit(Path(mutant.path), texts[mutant.path], mutant.source)
-        narrow.append((mutant, mutacje.Mutation(name, (edit,), _command(first)), [] if first == second else second))
+        narrow.append((mutant, mutacje.Mutation(name, (edit,), _command(first)), later))
     clock.append(time.monotonic())
-    # Pokrycie tylko przyspiesza: mutacja, która przeżyła testy swoich linii, biegnie ze wszystkimi testami pliku.
-    # Takich jest kilka, a testów pliku tysiące, więc biegną po jednej, każda z workerami xdist.
+    # Pokrycie tylko przyspiesza: mutacja, która przeżyła testy swoich linii, biegnie z coraz większym zbiorem testów.
+    # Przebieg przed ostatnim biegnie po kilka mutacji naraz jak pierwszy. Ostatni ma testy pliku, często tysiące, a
+    # takich mutacji jest kilka, więc biegną po jednej, każda z workerami xdist.
     wide: list[tuple[Mutant, mutacje.Mutation]] = []
-    for (mutant, mutation, second), (verdict, last) in zip(narrow, mutacje.verdicts([m for _, m, _ in narrow], workers=args.rownolegle, limit_s=args.limit_s), strict=True):
-        if verdict != "WYKRYTA" and not second:
-            survived.append((mutant, texts[mutant.path]))
-        if verdict == "WYKRYTA" or not second:
-            print(f"{verdict}: {mutation.name} → {last}", flush=True)
-        else:
-            wide.append((mutant, mutacje.Mutation(mutation.name, mutation.edits, _command(second, args.rownolegle))))
+    unchecked = middle = 0
+    queued, label = narrow, ""
+    while queued:
+        verdicts = mutacje.verdicts([m for _, m, _ in queued], workers=args.rownolegle, limit_s=args.limit_s, deadline=deadline)
+        further: list[tuple[Mutant, mutacje.Mutation, list[list[str]]]] = []
+        for (mutant, mutation, remaining), (verdict, last) in zip(queued, verdicts, strict=True):
+            if verdict == mutacje.NO_VERDICT:
+                unchecked += 1
+            elif verdict != "WYKRYTA" and not remaining:
+                survived.append((mutant, texts[mutant.path]))
+            if verdict in ("WYKRYTA", mutacje.NO_VERDICT) or not remaining:
+                print(f"{verdict}: {mutation.name} → {last}{label}", flush=True)
+            elif remaining[1:]:
+                further.append((mutant, replace(mutation, command=_command(remaining[0])), remaining[1:]))
+            else:
+                wide.append((mutant, replace(mutation, command=_command(remaining[0], args.rownolegle))))
+        middle += len(further)
+        queued, label = further, " (testy kodu pliku)"
     clock.append(time.monotonic())
-    for (mutant, mutation), (verdict, last) in zip(wide, mutacje.verdicts([m for _, m in wide], workers=1, limit_s=args.limit_s), strict=True):
-        if verdict != "WYKRYTA":
+    for (mutant, mutation), (verdict, last) in zip(wide, mutacje.verdicts([m for _, m in wide], workers=1, limit_s=args.limit_s, deadline=deadline), strict=True):
+        if verdict == mutacje.NO_VERDICT:
+            unchecked += 1
+        elif verdict != "WYKRYTA":
             survived.append((mutant, texts[mutant.path]))
         print(f"{verdict}: {mutation.name} → {last} (testy pliku)", flush=True)
     clock.append(time.monotonic())
-    uncovered = sum(not second for _, _, second in narrow)
+    uncovered = sum(not later for _, _, later in narrow)
     coverage_s, narrow_s, wide_s = (later - earlier for earlier, later in itertools.pairwise(clock))
     print(
-        f"CZAS | pokrycie {coverage_s:.0f} s | testy linii {narrow_s:.0f} s ({len(narrow)} mutacji, w tym {uncovered} bez drugiego)"
-        f" | testy pliku {wide_s:.0f} s ({len(wide)} mutacji)",
+        f"CZAS | pokrycie {coverage_s:.0f} s | testy linii {narrow_s:.0f} s ({len(narrow)} mutacji, w tym {uncovered} bez drugiego"
+        f" i {middle} z testami kodu pliku) | testy pliku {wide_s:.0f} s ({len(wide)} mutacji)",
         flush=True,
     )
     summary = f"mutacje={len(found)} | wyjątki={excused} | innego systemu={other_system}"
+    if unchecked:
+        return 2, f"{out_of_time} przed werdyktem {unchecked} mutacji | przeżyło {len(survived)} | {summary}"
     if survived:
-        return 1, f"MUTACJE ZMIANY FAIL | przeżyło {len(survived)} | {summary}"
+        return 1, f"{SURVIVED} {len(survived)} | {summary}"
     return 0, f"MUTACJE ZMIANY OK | {summary}"
 
 

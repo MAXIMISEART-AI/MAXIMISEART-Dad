@@ -41,7 +41,8 @@ Dlaczego PR dostaje mniej sprawdzeń niż `main`, mówi [ADR 0020](../adr/0020-c
 - Issue naprawiasz testem, który zabija mutację (dowód z `tools/mutacje.py`), albo linią `MUTACJA <plik>:<linia> <opis> | nie warto, bo <powód>`, a potem je zamykasz.
   Issue skryptu skilla naprawiasz poprawką sprawdzenia skilla albo tabeli mutacji, albo linią `SKRYPT <skrypt> | nie warto, bo <powód>`.
 - Ani `Required CI status`, ani `tools/scal_pr.py` na mutacje nie czekają.
-- Część bez wyniku (testy padają bez mutacji, zły wyjątek `# mutacje-zmiany:`) jest czerwona i czerwieni przebieg, więc następna noc liczy od tej samej bazy, a przeżyte mutacje zostawiają część zieloną.
+- Część bez wyniku (testy padają bez mutacji, zły wyjątek `# mutacje-zmiany:`, limit czasu części minął przed werdyktem którejś mutacji) jest czerwona i czerwieni przebieg, więc następna noc liczy od tej samej bazy, a przeżyte mutacje zostawiają część zieloną.
+  Limit czasu części (`PART_LIMIT_S` w `tools/mutacje_zmiany.py`, 55 min) kończy ją przed 60 min jej zadania, więc zapis z przeżytymi mutacjami zostaje, a mutacje bez wyniku mają w logu linię `BEZ WERDYKTU`.
   Zadanie skryptów skilli bez zapisu też czerwieni przebieg.
   Czerwoną część odtwarzasz na commicie runu: `git checkout --detach <headSha runu>` i `.venv/bin/python tools/mutacje_zmiany.py --baza <baza z planu> --czesc K/N --odtwarzam <run>`.
 
