@@ -1,4 +1,4 @@
-"""Drukuje plan runu CI gałęzi: zadania pytest i Mutation checks z ich plikami i krokami skilli; użyj przed pushem albo gdy krok CI pobiegł inaczej, niż myślisz.
+"""Drukuje plan runu CI gałęzi (plan --baza origin/main): zadania pytest i Mutation checks, ich pliki i kroki skilli; użyj przed pushem albo gdy CI biegło inaczej.
 
 Plan CI: ile zadań pytest i Mutation checks startuje w runie ``ci.yml`` i co biegnie w każdym.
 
