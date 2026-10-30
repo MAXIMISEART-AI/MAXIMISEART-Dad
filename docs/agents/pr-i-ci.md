@@ -12,13 +12,13 @@ Dlaczego PR dostaje mniej sprawdzeń niż `main`, mówi [ADR 0020](../adr/0020-c
   Lokalne `tools/szybko.py` uruchamia z tego wyboru zawsze pliki w odległości najwyżej 1 od zmiany, a dalsze tylko w swoim budżecie czasu, i resztę wypisuje jako „zostawione CI”.
   Pomija przy tym plik testu, który już przeszedł, jeśli od tamtej pory nie zmienił się ani on, ani nic, od czego zależy.
 - Zmiana pliku z `szybko.FULL` albo pod `.github/workflows/` wybiera wszystkie pliki testów, E2E i straż czasu.
-- E2E biegnie na Windows 3.11 przy zmianie pod `src/`, a straż czasu przy zmianie w domknięciu jej skryptów (`STRAZ` w `tools/ci/plan_ci.py`).
+- E2E biegnie na Windows 3.11 przy zmianie pod `src/`, a straż czasu przy zmianie w domknięciu jej skryptów (`STRAZ` w `tools/plan_ci.py`).
 - Mutation checks biegną tylko wtedy, gdy `tools/ci/mutacje_skilli.py` wybrał dla zmiany podstawę skilla (polecenie `ci:`).
   Kiedy ją wybiera, mówi [`docs/agents/skille.md`](skille.md).
 - Skrypty mutacji skilli (`check_*_mutations.py`) na PR nie biegną, tylko w pełnym CI `main` i nocą na `main` (sekcja `Change mutations` niżej).
 - Mutacje zmienionych linii na PR nie biegną, tylko nocą na `main` (sekcja `Change mutations` niżej).
 - Nowy push do PR anuluje run jego starszego commitu.
-- Co biegnie na swojej gałęzi, drukuje `.venv/bin/python tools/ci/plan_ci.py plan --baza origin/main` (Windows: `py -3 tools/ci/plan_ci.py plan --baza origin/main`).
+- Co biegnie na swojej gałęzi, drukuje `.venv/bin/python tools/plan_ci.py plan --baza origin/main` (Windows: `py -3 tools/plan_ci.py plan --baza origin/main`).
   Linia `PLAN CI` podaje źródło plików (`wybór <n> plików` albo `FULL (<pliki>)`), a linie `WYBRANY` i `POMINIĘTY` kroki skilli z powodem.
 
 ## Pełne CI na `main`
@@ -29,11 +29,11 @@ Dlaczego PR dostaje mniej sprawdzeń niż `main`, mówi [ADR 0020](../adr/0020-c
 ## Change mutations
 
 - Biegną raz na dobę (workflow `mutacje-nocne.yml`, ADR 0021) na `main`, na liniach plików `src/**/*.py` i `tools/**/*.py` zmienionych od commitu ostatniego udanego przebiegu, a bez niego od 24 h wstecz.
-  W tym samym przebiegu biegną skrypty mutacji skilli, których folder, runner mutacji albo sprawdzenie zmieniło się od tej bazy, w zadaniach z planu `tools/ci/plan_ci.py plan --zdarzenie noc`.
+  W tym samym przebiegu biegną skrypty mutacji skilli, których folder, runner mutacji albo sprawdzenie zmieniło się od tej bazy, w zadaniach z planu `tools/plan_ci.py plan --zdarzenie noc`.
   Biegnie w nim też każda część każdego n od 1 do `ci-czesci` podstawy z `ci-czesci:`, którą zmiana od bazy wybrałaby na pull request, bo pull request uruchamia jej części tylko jednego n.
   Ręczne uruchomienie workflow przyjmuje `od`, czyli commit, od którego liczyć zmiany.
-- `tools/ci/mutacje_nocne.py` dzieli mutacje na części po najwyżej 25, więc każda trwa ok. 10–15 min.
-  Bazę i liczbę części drukuje bez testów `.venv/bin/python tools/ci/mutacje_nocne.py plan`.
+- `tools/mutacje_nocne.py` dzieli mutacje na części po najwyżej 25, więc każda trwa ok. 10–15 min.
+  Bazę i liczbę części drukuje bez testów `.venv/bin/python tools/mutacje_nocne.py plan`.
 - Każdą przeżytą mutację ostatnie zadanie przypisuje PR-owi, który ostatni zmienił zmienione linie, które ona psuje, i dopisuje linią `MUTACJA <plik>:<linia> <opis> | klucz <klucz>` do issue `Przeżyte mutacje z #N` z etykietą `ready-for-agent`.
   Klucz nie ma numerów linii, więc mutacja nie trafia do issue drugi raz, także gdy następny PR przesunie jej linie.
 - Skrypt mutacji skilla, który padł, ostatnie zadanie dopisuje linią `SKRYPT <skrypt>` do issue `Przeżyte mutacje skilli z #N` PR-u, który ostatni zmienił folder skilla od bazy, tak samo bez powtórzeń.
@@ -42,9 +42,9 @@ Dlaczego PR dostaje mniej sprawdzeń niż `main`, mówi [ADR 0020](../adr/0020-c
   Issue skryptu skilla naprawiasz poprawką sprawdzenia skilla albo tabeli mutacji, albo linią `SKRYPT <skrypt> | nie warto, bo <powód>`.
 - Ani `Required CI status`, ani `tools/scal_pr.py` na mutacje nie czekają.
 - Część bez wyniku (testy padają bez mutacji, zły wyjątek `# mutacje-zmiany:`, limit czasu części minął przed werdyktem którejś mutacji) jest czerwona i czerwieni przebieg, więc następna noc liczy od tej samej bazy, a przeżyte mutacje zostawiają część zieloną.
-  Limit czasu części (`PART_LIMIT_S` w `tools/ci/mutacje_zmiany.py`, 55 min) kończy ją przed 60 min jej zadania, więc zapis z przeżytymi mutacjami zostaje, a mutacje bez wyniku mają w logu linię `BEZ WERDYKTU`.
+  Limit czasu części (`PART_LIMIT_S` w `tools/mutacje_zmiany.py`, 55 min) kończy ją przed 60 min jej zadania, więc zapis z przeżytymi mutacjami zostaje, a mutacje bez wyniku mają w logu linię `BEZ WERDYKTU`.
   Zadanie skryptów skilli bez zapisu też czerwieni przebieg.
-  Czerwoną część odtwarzasz na commicie runu: `git checkout --detach <headSha runu>` i `.venv/bin/python tools/ci/mutacje_zmiany.py --baza <baza z planu> --czesc K/N --odtwarzam <run>`.
+  Czerwoną część odtwarzasz na commicie runu: `git checkout --detach <headSha runu>` i `.venv/bin/python tools/mutacje_zmiany.py --baza <baza z planu> --czesc K/N --odtwarzam <run>`.
 
 ## Zadanie CI padło
 
@@ -54,7 +54,7 @@ Dlaczego PR dostaje mniej sprawdzeń niż `main`, mówi [ADR 0020](../adr/0020-c
 
 ## Plan runu, zadania pytest i Mutation checks
 
-- Ile zadań pytest startuje na każdym torze i które pliki testów (albo udziały długiego pliku) bierze każde, ustala zadanie `Plan CI` (`tools/ci/plan_ci.py`) z czasów ostatnich zielonych runów `main`, a E2E i straż czasu dokłada do zadań Windows.
+- Ile zadań pytest startuje na każdym torze i które pliki testów (albo udziały długiego pliku) bierze każde, ustala zadanie `Plan CI` (`tools/plan_ci.py`) z czasów ostatnich zielonych runów `main`, a E2E i straż czasu dokłada do zadań Windows.
 - Plan dzieli kroki skilli (na PR podstawy `ci:`, na `main` także każdy skrypt `check_*_mutations.py`) między zadania Mutation checks w tym samym limicie zadań runu i z tym samym celem ściany co pytest, a skrypt mutacji dłuższy niż zadanie dzieli na części, najwyżej po jednej na mutację.
 - Podstawę `ci:` plan dzieli tak samo, na najwyżej tyle części, ile mówi klucz `ci-czesci:` w `SKILL.md`, a podstawę bez niego nie dzieli wcale.
   Linia każdego toru w planie nazywa najdłuższą jednostkę po podziale, poniżej której ściana zadania nie zejdzie.

@@ -1,4 +1,4 @@
-"""``tools/ci/mutacje_zmiany.py`` psuje zmienione linie ``src/`` i ``tools/`` i pada, gdy żaden test tego nie widzi.
+"""``tools/mutacje_zmiany.py`` psuje zmienione linie ``src/`` i ``tools/`` i pada, gdy żaden test tego nie widzi.
 
 Przebiegi idą w małym repozytorium z narzędziami checkoutu: baza ma ``return a``, zmiana ``return a and b``.
 """
@@ -43,7 +43,7 @@ def _repo(tmp_path: Path, test: str, changed: str = CHANGED, base: str = BASE, c
     if other:
         files["src/rozliczenia/inny.py"] = other
     repo = repository(tmp_path, files)
-    copy_files(repo, ("tools/szybko.py", "tools/ci/mutacje_zmiany.py", "tools/ci/pytest_pokrycie.py", "tools/ci/pokrycie_procesu.py"))
+    copy_files(repo, ("tools/szybko.py", "tools/mutacje_zmiany.py", "tools/ci/pytest_pokrycie.py", "tools/ci/pokrycie_procesu.py"))
     commit(repo, "baza")
     git(repo, "branch", "--quiet", "baza")
     (repo / MODULE).write_text(changed, encoding="utf-8")
@@ -55,7 +55,7 @@ def _run(repo: Path, *arguments: str, trial: bool = False, log: Path | None = No
 
     with log.open("w", encoding="utf-8") if log else contextlib.nullcontext() as output:
         return subprocess.run(
-            [sys.executable, str(repo / "tools" / "ci" / "mutacje_zmiany.py"), "--baza", "baza", "--rownolegle", "2", *arguments],
+            [sys.executable, str(repo / "tools" / "mutacje_zmiany.py"), "--baza", "baza", "--rownolegle", "2", *arguments],
             cwd=repo,
             # Jeden worker xdist: testy biegną w kolejności z pliku, więc fixture sesji ustawia zawsze pierwszy z nich.
             # Narzędzie biegnie jak w zadaniu CI, bo poza nim odmawia startu (tools/lib/ciezkie_ci.py).
@@ -279,7 +279,7 @@ def test_mutacje_kodu_w_procesie_z_flaga_izolacji_wykrywa_test_ktory_go_uruchomi
 
 
 INNE = "def oba(a: bool, b: bool) -> bool:\n    return a and b\n"
-# Tak jak tools/ci_lokalnie.py nazywa tools/ci/mutacje_zmiany.py, a git_repo.py kopiuje tools/ci_lokalnie.py.
+# Tak jak tools/ci_lokalnie.py nazywa tools/mutacje_zmiany.py, a git_repo.py kopiuje tools/ci_lokalnie.py.
 KROKI = 'KROK = "tools/pomoc/inne.py"\n'
 KROKI_TEST = "import subprocess\n\nNARZEDZIE = '{tool}'\n\n\ndef test_krok() -> None:\n    subprocess.run(['git', '--version'], check=True, capture_output=True)\n"
 

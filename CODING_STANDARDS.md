@@ -105,7 +105,7 @@ When a fix of a rule keeps growing a list of exceptions, replace the list with t
 
 | Rule | Guard |
 |---|---|
-| Every changed line of `src/` and `tools/` has a test that fails when the line is broken, or its line in the issue `Przeżyte mutacje z #N` says why the test is not worth it (`nie warto, bo …`); after the merge, the nightly run files each mutation no test catches as a line `MUTACJA <id>` in the issue `Przeżyte mutacje z #N` of the PR that last changed the line (ADR 0021, `docs/agents/pr-i-ci.md`). | `tools/ci/mutacje_nocne.py` (nightly workflow `mutacje-nocne.yml`), `tests/test_mutacje_nocne.py` |
+| Every changed line of `src/` and `tools/` has a test that fails when the line is broken, or its line in the issue `Przeżyte mutacje z #N` says why the test is not worth it (`nie warto, bo …`); after the merge, the nightly run files each mutation no test catches as a line `MUTACJA <id>` in the issue `Przeżyte mutacje z #N` of the PR that last changed the line (ADR 0021, `docs/agents/pr-i-ci.md`). | `tools/mutacje_nocne.py` (nightly workflow `mutacje-nocne.yml`), `tests/test_mutacje_nocne.py` |
 | A change to a Komunikat's text changes `tests/expected/komunikaty.txt` in the same PR. | `tests/test_komunikaty_expect.py` |
 | A test module imports helpers only from `tests/fixtures`. | `tests/test_struktura_testow.py` |
 | A test waits for a state with `wait_for` (`tests/fixtures/potomne.py`), never for a fixed number of seconds, and checks the time of the code under test by equality on the fake clock `ManualClock` (`tests/fixtures/clock.py`), never by a fixed number of milliseconds. | `tests/test_struktura_testow.py` |
@@ -122,7 +122,7 @@ When a fix of a rule keeps growing a list of exceptions, replace the list with t
 | A concurrent mutation run (`tools/mutacje.py --rownolegle`, a skill's `check_all`) runs at most `PARALLEL` mutations at once and gives each mutation's command `PYTEST_XDIST_AUTO_NUM_WORKERS=1` unless the caller set it, so a test's nested `pytest -n auto` does not multiply over the cores of the Mac that agents share. | `tests/test_mutacje.py` |
 | The files that the system Python runs before `.venv` (the list in `per-file-target-version` in `pyproject.toml`) work under the Python 3.9 of macOS. | ruff `per-file-target-version`, `tests/test_systemowy_python.py` |
 | A tool or skill script that runs as its own process adds `src` to `sys.path` itself, because CI on Windows does not install the package. | `tests/test_skrypty_bez_instalacji.py` |
-| `tools/` holds only the tools an agent or a human runs, and each opens its docstring with one line of 80–160 characters that says what it does and when to use it, which the generated `## Narzędzia` block of `AGENTS.md` lists; a script that only a workflow runs lives in `tools/ci/`, a module without an entry point of its own in `tools/lib/`, and neither `AGENTS.md` nor a skill points to `tools/ci/`. | `tests/test_spis_narzedzi.py` |
+| `tools/` holds only the tools an agent or a human runs, and each opens its docstring with one line of 80–160 characters that says what it does and when to use it, which the generated `## Narzędzia` block of `AGENTS.md` lists; a script that only a workflow runs lives in `tools/ci/`, a module without an entry point of its own in `tools/lib/`, and neither `AGENTS.md` nor a skill points to `tools/ci/`, and no command in `docs/agents/`, `README.md` or a tool's docstring runs a script from `tools/ci/`, because a script the agent runs itself belongs in `tools/` and its list. | `tests/test_spis_narzedzi.py` |
 
 ## Frontend
 

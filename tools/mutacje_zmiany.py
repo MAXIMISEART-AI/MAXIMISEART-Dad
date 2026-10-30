@@ -1,4 +1,6 @@
-"""Psuje zmienione linie ``src/`` i ``tools/`` i sprawdza, że test to zauważa, jak nocne mutacje ``main`` (ADR 0021).
+"""Psuje linie zmienione od bazy jak nocne mutacje main; użyj, gdy część nocnych mutacji padła i odtwarzasz ją na commicie runu (--odtwarzam).
+
+Psuje zmienione linie ``src/`` i ``tools/`` i sprawdza, że test to zauważa, jak nocne mutacje ``main`` (ADR 0021).
 
 Zmiana to linie plików ``src/**/*.py`` i ``tools/**/*.py``, którymi checkout (z niezacommitowanymi i nieśledzonymi
 plikami) różni się od ``merge-base`` HEAD z ``--baza`` (domyślnie ``origin/main``). Na każdej zmienionej linii narzędzie
@@ -55,7 +57,7 @@ czytają ją funkcje pliku. Kodu procesu zapis nie widzi, gdy proces ma ``-I`` a
 wykonuje kopię pliku spoza checkoutu: tak test uruchamia narzędzie z ``tools/`` skopiowane do repozytorium w katalogu
 tymczasowym. Wtedy mutację tej linii od razu sprawdzają te same testy. Test, który dochodzi do pliku tylko przez
 ścieżkę nazwaną w innym narzędziu i nie wykonał jego kodu, nie biegnie: to każdy test z repozytorium Gita, bo
-``tests/fixtures/git_repo.py`` kopiuje ``tools/ci_lokalnie.py``, a ten nazywa ``tools/ci/mutacje_zmiany.py``.
+``tests/fixtures/git_repo.py`` kopiuje ``tools/ci_lokalnie.py``, a ten nazywa ``tools/mutacje_zmiany.py``.
 Kod, który biegnie tylko w takim procesie z ``-I`` uruchomionym przez inne narzędzie, dostaje więc ``NIEWYKRYTA``,
 nawet gdy test tamtego narzędzia by go wykrył: potrzebuje testu, który sam nazywa jego plik.
 Linia ``CZAS`` mówi, ile trwała każda faza.
@@ -72,10 +74,10 @@ kodem 2, gdy wynik mutacji nic nie mówi (nieznana baza, zły wyjątek, testy pa
 ``tools/lib/ciezkie_ci.py``) albo limit czasu części (``--limit-czesci-s``) minął przed werdyktem którejś mutacji. Po
 limicie żadne polecenie już nie biegnie, a mutacje bez wyniku dostają linię ``BEZ WERDYKTU``, więc część kończy się
 zapisem z przeżytymi mutacjami przed limitem czasu zadania CI.
-W CI biegnie nocą na Linuksie, na ``main``, od bazy z ``tools/ci/mutacje_nocne.py``, w częściach
+W CI biegnie nocą na Linuksie, na ``main``, od bazy z ``tools/mutacje_nocne.py``, w częściach
 workflow ``mutacje-nocne.yml``. Z ``--zapis`` każda część zapisuje swoją ostatnią linię i przeżyte mutacje: nazwę
 (``<plik>:<linia> <opis>``, jak w linii ``NIEWYKRYTA``), zmienione linie, które mutacja psuje (``Mutant.lines``), i klucz
-(``fingerprint``), a ``tools/ci/mutacje_nocne.py`` zakłada z nich issue PR-u, który ostatni zmienił te linie.
+(``fingerprint``), a ``tools/mutacje_nocne.py`` zakłada z nich issue PR-u, który ostatni zmienił te linie.
 
 Granica: nie zastępuje mutacji z opisu PR. Obietnicę, której żadna z tych mutacji nie psuje (inny klucz
 wyszukiwania, kolejność kroków), samo usunięcie linii, dekoratory, argument pozycyjny, kod poza ``src/`` i ``tools/``
@@ -84,13 +86,13 @@ systemu łapie tylko przegląd z mutacjami z ``tools/mutacje.py``.
 
 Pod ``tools/na_scalonych_pr.py`` pliki ``tools/``, które ten podmienił narzędziami z checkoutu, nie są zmianą, a zmianę
 commitu w takim pliku narzędzie zgłasza linią ``NIESPRAWDZONA``: zmianę ``tools/`` z historii sprawdza tylko próba
-z ``--narzedzia`` wskazującym commit, który do narzędzi tego commitu dokłada samo nowe ``tools/ci/mutacje_zmiany.py``.
+z ``--narzedzia`` wskazującym commit, który do narzędzi tego commitu dokłada samo nowe ``tools/mutacje_zmiany.py``.
 
 Poza CI biegnie tylko do odtworzenia części, która padła (kod 2) w runie Actions (``tools/lib/ciezkie_ci.py``). Run
 nocny odtwarza się na jego commicie, z bazą i częścią z jego planu:
 
     git checkout --detach <headSha runu>
-    .venv/bin/python tools/ci/mutacje_zmiany.py --baza <baza z planu> --czesc K/N --odtwarzam <id albo URL runu>
+    .venv/bin/python tools/mutacje_zmiany.py --baza <baza z planu> --czesc K/N --odtwarzam <id albo URL runu>
 
 Z ``--czesc K/N`` biegnie K-ty z N kolejnych kawałków listy mutacji, posortowanej po plikach i liniach, więc N zadań
 CI dzieli mutacje bez listy w workflow, a każde liczy pokrycie tylko na testach swoich kilku plików.
@@ -118,8 +120,8 @@ import tempfile
 import time
 import tokenize
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tools"))
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tools/lib"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools/ci"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools/lib"))
 
 import ciezkie_ci
 import mutacje
@@ -127,12 +129,12 @@ import pokrycie_procesu
 import potomne
 import szybko
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(__file__).resolve().parents[1]
 BASE = "origin/main"
 WORKERS = 4
 # Zadanie części w mutacje-nocne.yml ma 60 min; 5 min zostaje na instalację i wgranie zapisu.
 PART_LIMIT_S = 3300
-# Ostatnia linia części, w której przeżyły mutacje (kod 1): wynik, który ``tools/ci/mutacje_nocne.py`` tylko zgłasza.
+# Ostatnia linia części, w której przeżyły mutacje (kod 1): wynik, który ``tools/mutacje_nocne.py`` tylko zgłasza.
 SURVIVED = "MUTACJE ZMIANY FAIL | przeżyło"
 # Linia poleceń Windows ma najwyżej 32 767 znaków; dłuższa lista testów idzie jako pliki testów.
 COMMAND_LIMIT = 20_000
@@ -695,7 +697,7 @@ def runners(paths: Iterable[str]) -> dict[str, frozenset[str]]:
 
     Tylko taki test uruchamia proces z kodem pliku, którego zapis nie widzi (``-I``, kopia narzędzia). Plik nazwany
     tylko w innym narzędziu się nie liczy: ``tests/fixtures/git_repo.py`` kopiuje ``tools/ci_lokalnie.py``, które
-    nazywa ``tools/ci/mutacje_zmiany.py``, więc inaczej każdy test z repozytorium Gita (``git`` to też proces) sprawdzał
+    nazywa ``tools/mutacje_zmiany.py``, więc inaczej każdy test z repozytorium Gita (``git`` to też proces) sprawdzał
     każdą mutację tego pliku.
     """
 
@@ -807,7 +809,7 @@ def _name(mutant: Mutant) -> str:
 
 
 def entry(mutant: Mutant, text: str) -> dict[str, object]:
-    """Przeżyta mutacja pliku o treści ``text`` w zapisie ``--zapis``, który czyta ``tools/ci/mutacje_nocne.py``."""
+    """Przeżyta mutacja pliku o treści ``text`` w zapisie ``--zapis``, który czyta ``tools/mutacje_nocne.py``."""
 
     return {"id": _name(mutant), "linie": sorted(mutant.lines), "klucz": fingerprint(mutant, text)}
 

@@ -1,4 +1,4 @@
-"""Uruchamia lokalnie zadania CI (ruff, mypy, frontend, pytest, mutations); użyj, gdy zadanie CI padło i trzeba odtworzyć porażkę.
+"""Odtwarza lokalnie porażkę zadania CI z PR: ruff-mypy, frontend, pytest, mutations; nie plan runu (plan_ci) ani części nocnych mutacji (mutacje_zmiany).
 
 Lokalnie te same sprawdzenia co CI: zadania ruff, mypy (w CI jedno zadanie ``ruff-mypy``), frontend, pytest i
 mutations.
@@ -8,7 +8,7 @@ patrz ``tools/setup_worktree.py``), i drukuje wynik kroku jedną linią; wyjści
 przy porażce. Kończy się ``CI LOKALNIE OK`` (z ``--tylko``: ``CI LOKALNIE OK | tylko <zadania>``)
 albo ``CI LOKALNIE FAIL | <kroki>``; przebieg wszystkich zadań drukuje przedtem nakładania z pracą
 w toku (``tools/praca_w_toku.py --nakladania``). Kroki pytest i mutacji skilli biegną tu w całości, a w CI plan
-(``tools/ci/plan_ci.py``) dzieli je między zadania i dokłada do zadań Windows E2E i Timing guard, które mają swoje
+(``tools/plan_ci.py``) dzieli je między zadania i dokłada do zadań Windows E2E i Timing guard, które mają swoje
 narzędzia (skill verify-rozliczenia, ``tools/benchmark_przebiegu.py``), bo trwają kilka minut.
 
 Ciężkie zadanie ``mutations``, także w przebiegu wszystkich zadań, liczy CI na GitHubie: poza CI biegnie tylko z
@@ -51,7 +51,7 @@ GENERATED = ("frontend/src/api", "src/rozliczenia/centrum/static")
 # Zadanie w ci.yml, w którym biegną kroki zadania narzędzia, gdy nazywa się inaczej.
 CI_JOB = {"ruff": "ruff-mypy", "mypy": "ruff-mypy"}
 JOBS_ELSEWHERE = {
-    "plan": "plan zadań pytest i Mutation checks runu (tools/ci/plan_ci.py plan drukuje go lokalnie), nic nie sprawdza",
+    "plan": "plan zadań pytest i Mutation checks runu (tools/plan_ci.py plan drukuje go lokalnie), nic nie sprawdza",
     "required": "zbiorczy status pozostałych zadań, nic do odtworzenia",
 }
 # Fragment polecenia `run:` w odtwarzanym zadaniu CI, którego narzędzie nie odtwarza, i co je zastępuje.
@@ -85,9 +85,9 @@ def _steps(root: Path) -> list[Step]:
         # Gałęzie tylko dla Windows używają API, którego inne systemy nie mają.
         # Własny cache, bo zmiana --platform unieważnia wspólny i oba kroki sprawdzałyby za każdym razem całość.
         Step("mypy (Windows)", "mypy", "-m mypy --platform win32", (python, "-m", "mypy", "--platform", "win32", "--cache-dir", ".mypy_cache/win32"), root),
-        Step("pytest", "pytest", "tools/ci/plan_ci.py wykonaj", (python, "-m", "pytest", "-q", "-n", "auto"), root),
+        Step("pytest", "pytest", "tools/plan_ci.py wykonaj", (python, "-m", "pytest", "-q", "-n", "auto"), root),
         # W CI kroki skilli biegną z planu, w zadaniach Mutation checks; tu wszystkie po kolei.
-        Step("mutacje skilli", "mutations", "tools/ci/plan_ci.py wykonaj", (python, "tools/ci/mutacje_skilli.py"), root),
+        Step("mutacje skilli", "mutations", "tools/plan_ci.py wykonaj", (python, "tools/ci/mutacje_skilli.py"), root),
         Step("npm ci", "frontend", "npm ci", (npm, "ci"), frontend),
         *(
             Step(f"npm run {script}", "frontend", f"npm run {script}", (npm, "run", script), frontend)

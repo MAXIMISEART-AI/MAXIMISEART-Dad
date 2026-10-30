@@ -33,7 +33,7 @@ _CHECKED_CONTENT_TYPES = ("application/json", "text/event-stream")
 
 def pytest_itemcollected(item: pytest.Item) -> None:
     """Test z ``KWARANTANNA`` biegnie jako ``xfail(strict=False)``: jego porażka nie czerwieni CI, a junit ma jego wynik
-    z własnością ``kwarantanna``, z której ``tools/ci/plan_ci.py`` zapisuje wyniki testów z kwarantanny zadania."""
+    z własnością ``kwarantanna``, z której ``tools/plan_ci.py`` zapisuje wyniki testów z kwarantanny zadania."""
 
     entry = KWARANTANNA.get(item.nodeid)
     if entry is not None:

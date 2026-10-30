@@ -24,7 +24,7 @@ każdy krok swojego rodzaju, a skill bez klucza ``pilnuje`` albo z kluczem, któ
 Pominięty krok dostaje linię ``POMINIĘTY``.
 
 Krok to podstawa skilla albo jeden jego skrypt mutacji. W CI kroki dzieli między zadania Mutation checks plan runu
-(``tools/ci/plan_ci.py``): bierze ten sam wybór (``wybor``), waży kroki czasami z ``czasy-ci``, a skrypt mutacji dłuższy niż
+(``tools/plan_ci.py``): bierze ten sam wybór (``wybor``), waży kroki czasami z ``czasy-ci``, a skrypt mutacji dłuższy niż
 zadanie dzieli na części, które ``run`` uruchamia z ``MUTACJE_CZESC`` (``tools/mutacje.py``). Skrypty zgubione i zły
 klucz ``ci:`` plan zgłasza w ``Required CI status``.
 

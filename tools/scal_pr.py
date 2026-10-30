@@ -14,7 +14,7 @@ Narzędzie scala PR numer N do jego bazy, gdy jednocześnie:
    scalonym drzewie (``status_scalenia.merge_verdict``, jak status ``scalenie z main``, ale teraz, nie po pushu).
 
 Mutacje zmienionych linii nie biegną na PR i nie czeka na nie: biegną nocą na ``main`` (ADR 0021,
-``tools/ci/mutacje_nocne.py``).
+``tools/mutacje_nocne.py``).
 
 Werdykty to komentarze i recenzje PR kont z prawem zapisu (``OWNER``, ``MEMBER``, ``COLLABORATOR``), w kolejności
 utworzenia; nieopublikowana recenzja (``PENDING``) się nie liczy. Werdykt to komentarz albo recenzja, której pierwsza

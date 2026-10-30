@@ -1,6 +1,6 @@
 """Ciężkie zadania CI (mutacje zmiany, mutacje skilli) liczy GitHub, a lokalnie biegną tylko do odtworzenia porażki.
 
-``tools/ci/mutacje_zmiany.py`` i ``tools/ci_lokalnie.py`` z ciężkim zadaniem poza CI odmawiają startu, chyba że
+``tools/mutacje_zmiany.py`` i ``tools/ci_lokalnie.py`` z ciężkim zadaniem poza CI odmawiają startu, chyba że
 ``--odtwarzam`` wskazuje run Actions tej gałęzi, w którym to zadanie padło; tak samo ``tools/mutacje.py`` z listą
 dłuższą niż 100 mutacji. Atrapa ``gh`` podaje run bez sieci.
 """
@@ -38,7 +38,7 @@ def _repo(tmp_path: Path) -> Path:
     """Repozytorium z narzędziami na gałęzi ``praca``, odbitej od ``main`` z jednym commitem."""
 
     repo = repository(tmp_path / "repo", {".gitignore": "__pycache__/\n", "src/rozliczenia/__init__.py": ""})
-    copy_files(repo, ("tools/szybko.py", "tools/ci/mutacje_zmiany.py", "tools/ci/pytest_pokrycie.py", "tools/ci/pokrycie_procesu.py"))
+    copy_files(repo, ("tools/szybko.py", "tools/mutacje_zmiany.py", "tools/ci/pytest_pokrycie.py", "tools/ci/pokrycie_procesu.py"))
     git(repo, "checkout", "--quiet", "-b", "main")
     commit(repo, "baza")
     git(repo, "checkout", "--quiet", "-b", "praca")
@@ -79,7 +79,7 @@ NIGHT = "Liczy je noc na main (mutacje-nocne.yml, ADR 0021), a przeżyte mutacje
 @pytest.mark.parametrize(
     ("arguments", "advice"),
     [
-        (("tools/ci/mutacje_zmiany.py", "--baza", "main"), NIGHT),
+        (("tools/mutacje_zmiany.py", "--baza", "main"), NIGHT),
         (("tools/ci_lokalnie.py",), PUSH),
         (("tools/ci_lokalnie.py", "--tylko", "mutations"), PUSH),
         (("tools/ci_lokalnie.py", "--kazdy-commit", "main", "--tylko", "mutations"), PUSH),
@@ -364,7 +364,7 @@ def test_odtwarzam_z_wiersza_polecen_trafia_do_straznika(tmp_path: Path) -> None
     """``--odtwarzam`` obu narzędzi dochodzi do strażnika: z wymyślonym id odmawia z jego powodem, nie bez flagi."""
 
     repo = _repo(tmp_path)
-    for tool in ("tools/ci/mutacje_zmiany.py", "tools/ci_lokalnie.py"):
+    for tool in ("tools/mutacje_zmiany.py", "tools/ci_lokalnie.py"):
         done = _tool(repo, tool, "--odtwarzam", "nie-run", *(("--tylko", "mutations") if "ci_lokalnie" in tool else ()))
 
         assert done.returncode == 2, done.stdout + done.stderr

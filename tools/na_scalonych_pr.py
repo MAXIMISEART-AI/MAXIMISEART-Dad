@@ -5,13 +5,13 @@ które dostały werdykt FAIL, ma znaleźć to, co znalazł przegląd, a na zwyk�
 alarmu. Dla każdego PR-u narzędzie robi kopię commitu scalenia (``potomne.commit_copy``), nadpisuje w niej ``tools/``
 plikami z tego checkoutu z chwili startu (także niezacommitowanymi), uruchamia polecenie w korzeniu kopii Pythonem, który uruchomił
 narzędzie, z ``PYTHONPATH`` na ``src`` kopii i ``MAXIMISEART_NA_SCALONYCH_PR=1`` (``tools/lib/ciezkie_ci.py`` przepuszcza wtedy
-``tools/ci/mutacje_zmiany.py``), i drukuje jedną linię na PR: numer, commit, czas, kod wyjścia i ostatnią
+``tools/mutacje_zmiany.py``), i drukuje jedną linię na PR: numer, commit, czas, kod wyjścia i ostatnią
 linię wyjścia. W kopii ``HEAD^1`` to ``main`` sprzed scalenia, więc ``--baza HEAD^1`` to zmiana samego PR-u, jak w CI.
 Pełne wyjście każdego PR-u leży w ``--wyniki`` (domyślnie katalog ``na-scalonych-pr`` w katalogu gita worktree).
 
-    .venv/bin/python tools/na_scalonych_pr.py --pr 393 --pr 384 -- tools/ci/mutacje_zmiany.py --baza HEAD^1
-    .venv/bin/python tools/na_scalonych_pr.py --ostatnie 5 -- tools/ci/mutacje_zmiany.py --baza HEAD^1
-    .venv/bin/python tools/na_scalonych_pr.py --commit 04f08b45 -- tools/ci/mutacje_zmiany.py --baza e7cf937b
+    .venv/bin/python tools/na_scalonych_pr.py --pr 393 --pr 384 -- tools/mutacje_zmiany.py --baza HEAD^1
+    .venv/bin/python tools/na_scalonych_pr.py --ostatnie 5 -- tools/mutacje_zmiany.py --baza HEAD^1
+    .venv/bin/python tools/na_scalonych_pr.py --commit 04f08b45 -- tools/mutacje_zmiany.py --baza e7cf937b
 
 ``--narzedzia origin/main`` bierze narzędzia z commitu zamiast z checkoutu, np. dla pomiaru przed zmianą narzędzia.
 ``--commit`` bierze dowolny commit, np. HEAD PR-u z werdyktem FAIL, który w tej postaci nie wszedł do ``main``; wtedy
@@ -126,7 +126,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--narzedzia", metavar="REV", help="Narzędzia z tego commitu zamiast z checkoutu, np. origin/main dla porównania.")
     args = parser.parse_args(arguments[:split])
     if not command or not (args.pr or args.ostatnie or args.commit):
-        parser.error("podaj PR-y (--pr, --ostatnie albo --commit) i polecenie po --, np. -- tools/ci/mutacje_zmiany.py --baza HEAD^1")
+        parser.error("podaj PR-y (--pr, --ostatnie albo --commit) i polecenie po --, np. -- tools/mutacje_zmiany.py --baza HEAD^1")
     try:
         prs = merged(args.pr, args.ostatnie) if args.pr or args.ostatnie else []
     except (ValueError, subprocess.CalledProcessError) as error:

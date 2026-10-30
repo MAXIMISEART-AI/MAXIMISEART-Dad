@@ -3,7 +3,9 @@
 Spis jest w kontekście agenta od początku sesji, więc agent nie musi wiedzieć, że narzędzie istnieje, zanim go szuka.
 W ``tools/`` leżą tylko narzędzia, które agent albo człowiek uruchamia; skrypty, które uruchamia workflow, leżą
 w ``tools/ci/``, a moduły bez własnego wywołania w ``tools/lib/``, więc spis ich nie ma, a ``AGENTS.md`` i skille nie
-wskazują ``tools/ci/``. Pierwsze zdanie docstringu (zarazem pierwsza linia ``--help``) mówi w jednej linii
+wskazują ``tools/ci/``. Skrypt, który agent uruchamia sam według ``docs/agents/``, ``README.md`` albo docstringu
+narzędzia (plan runu, odtworzenie części nocnych mutacji), leży w ``tools/``, bo inaczej spis go nie ma, a agent bierze
+najbliższą pozycję spisu: polecenie ``python … tools/ci/…`` w tych dokumentach to błąd. Pierwsze zdanie docstringu (zarazem pierwsza linia ``--help``) mówi w jednej linii
 ``MIN_CHARS``–``MAX_CHARS`` znaków, co narzędzie robi i kiedy go użyć, a pierwsze ``SAME_WORDS`` słów odróżnia je od
 każdego innego narzędzia. Blok między ``START`` i ``END`` zapisuje ten test z ``ZAPISZ_EXPECT=1``, jak plik expect.
 
@@ -23,12 +25,15 @@ ROOT = Path(__file__).resolve().parents[1]
 AGENTS_MD = ROOT / "AGENTS.md"
 TOOLS = ROOT / "tools"
 SKILLS = ROOT / ".agents" / "skills"
+AGENT_DOCS = [ROOT / "README.md", *sorted((ROOT / "docs" / "agents").glob("*.md"))]
 START = "<!-- spis narzędzi: generuje tests/test_spis_narzedzi.py z ZAPISZ_EXPECT=1, nie edytuj ręcznie -->"
 END = "<!-- koniec spisu narzędzi -->"
 MIN_CHARS = 80
 MAX_CHARS = 160
 SAME_WORDS = 3
 CI_TOOLS = "tools/ci/"
+# Polecenie, które uruchamia skrypt z tools/ci/: interpreter (python3, .venv/bin/python, py -3) albo `--` przed nim.
+RUNS_CI_TOOL = re.compile(r"(?:python[\d.]*|py -3|--)\s+tools/ci/")
 
 
 def _tools() -> list[Path]:
@@ -97,5 +102,24 @@ def test_agents_md_ani_skill_nie_wskazuja_agentowi_skryptow_ci() -> None:
             *found,
             f"Skrypty {CI_TOOLS} uruchamia workflow; agent odtwarza ich zadanie według docs/agents/pr-i-ci.md, więc AGENTS.md i "
             "skille wskazują narzędzie z tools/ albo nazywają zadanie CI.",
+        ]
+    )
+
+
+def test_dokument_agenta_nie_kaze_mu_uruchamiac_skryptu_ci() -> None:
+    documents = {path: path.read_text(encoding="utf-8") for path in AGENT_DOCS}
+    documents |= {path: ast.get_docstring(ast.parse(path.read_text(encoding="utf-8"))) or "" for path in _tools()}
+    found = [
+        f"{path.relative_to(ROOT).as_posix()}: {line.strip()}"
+        for path, text in documents.items()
+        for line in text.splitlines()
+        if RUNS_CI_TOOL.search(line)
+    ]
+
+    assert found == [], "\n".join(
+        [
+            *found,
+            f"Agent uruchamia ten skrypt sam, więc przenieś go z {CI_TOOLS} do tools/ (wtedy trafi do spisu) "
+            "albo każ agentowi użyć narzędzia z tools/, które go uruchamia.",
         ]
     )

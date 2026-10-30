@@ -1,4 +1,6 @@
-"""Plan CI: ile zadań pytest i Mutation checks startuje w runie ``ci.yml`` i co biegnie w każdym.
+"""Drukuje plan runu CI gałęzi: zadania pytest i Mutation checks z ich plikami i krokami skilli; użyj przed pushem albo gdy krok CI pobiegł inaczej, niż myślisz.
+
+Plan CI: ile zadań pytest i Mutation checks startuje w runie ``ci.yml`` i co biegnie w każdym.
 
 Pracę pytest wyznacza ``zakres`` (ADR 0020). Na pushu to pełne CI ``main``: trzy tory (``TORY``: Windows 3.11, Windows
 3.14, Linux 3.14), na każdym każdy plik testów ``tests/``, oraz kroki CI (``KROKI``) na swoich torach: E2E na obu
@@ -41,14 +43,14 @@ próbie każdą swoją jednostkę (plik testów, krok CI, krok skilla) bez pora�
 składają się na całość (każda z 1..n dokładnie raz). Plan, którego nie ma, i skrypt mutacji,
 który wybór skilli zgubił albo zły klucz ``ci:`` (``bledy`` planu), są czerwonym werdyktem z przyczyną.
 
-    python3 tools/ci/plan_ci.py plan --zdarzenie pull_request --baza HEAD^1 --czasy .ci-plan/czasy --wyjscie .ci-plan/plan.json
-    python3 tools/ci/plan_ci.py plan --zdarzenie noc --baza <baza nocy> --czasy .ci-plan/czasy --wyjscie .ci-plan/plan.json
-    python tools/ci/plan_ci.py wykonaj --plan .ci-plan/plan.json --zadanie windows-3.14-2       # albo mutacje-1
-    python3 tools/ci/plan_ci.py werdykt --plan .ci-plan/plan.json --zapisy .ci-czasy/zapisy      # NEEDS: toJSON(needs)
+    python3 tools/plan_ci.py plan --zdarzenie pull_request --baza HEAD^1 --czasy .ci-plan/czasy --wyjscie .ci-plan/plan.json
+    python3 tools/plan_ci.py plan --zdarzenie noc --baza <baza nocy> --czasy .ci-plan/czasy --wyjscie .ci-plan/plan.json
+    python tools/plan_ci.py wykonaj --plan .ci-plan/plan.json --zadanie windows-3.14-2       # albo mutacje-1
+    python3 tools/plan_ci.py werdykt --plan .ci-plan/plan.json --zapisy .ci-czasy/zapisy      # NEEDS: toJSON(needs)
 
 Lokalnie plan na czasach z ``.git/czasy-ci`` (wspólnych z ``tools/szybko.py``) drukuje zadania i ich prognozę:
 
-    .venv/bin/python tools/ci/plan_ci.py plan --baza origin/main
+    .venv/bin/python tools/plan_ci.py plan --baza origin/main
 """
 
 from __future__ import annotations
@@ -68,8 +70,8 @@ import sys
 import tempfile
 import time
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tools"))
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tools/lib"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools/ci"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools/lib"))
 
 import czasy_ci
 import mutacje
@@ -79,7 +81,7 @@ from niestabilne_testy import FlakyTest, ZapisKwarantanny
 import potomne
 import szybko
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(__file__).resolve().parents[1]
 WERSJA = 1
 WORKERY = 4  # pytest -n auto na runnerze 4 vCPU
 JUNIT = Path(".ci-czasy", "junit.xml")

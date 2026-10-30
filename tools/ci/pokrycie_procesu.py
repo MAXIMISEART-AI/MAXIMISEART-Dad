@@ -1,4 +1,4 @@
-"""Zapis pokrycia zmienionych plików w jednym procesie Pythona dla ``tools/ci/mutacje_zmiany.py``.
+"""Zapis pokrycia zmienionych plików w jednym procesie Pythona dla ``tools/mutacje_zmiany.py``.
 
 Bez pytest, bo ładuje go też ``sitecustomize`` każdego procesu, który uruchamia test (``in_child``). Ustawienia są
 w zmiennej ``POKRYCIE_LINII``: JSON ``{"linie": {ścieżka bezwzględna: [numery linii]}, "wynik": katalog}``. Proces

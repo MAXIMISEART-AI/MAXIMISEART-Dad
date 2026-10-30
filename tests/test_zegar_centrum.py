@@ -17,7 +17,7 @@ from rozliczenia.centrum.keyed_box import KeyedBox
 ROOT = Path(__file__).resolve().parents[1]
 
 # Budzik za godzinę i sprawdzenie klucza w Skrzynce, która nie odpowiada; potem koniec programu. Moduł ``KeyedBox``
-# z importu tego pliku: mutacje zmiany (``tools/ci/mutacje_zmiany.py``) wybierają testy pliku po grafie importów.
+# z importu tego pliku: mutacje zmiany (``tools/mutacje_zmiany.py``) wybierają testy pliku po grafie importów.
 EXIT_WITH_BACKGROUND_THREADS = f"""
 import threading
 

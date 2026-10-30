@@ -248,7 +248,7 @@ def test_przezyte_mutacje_czesci_po_limicie_czasu_trafiaja_do_issue_a_czesc_czer
 
 def test_czesc_konczy_sie_w_swoim_limicie_czasu_przed_limitem_zadania_ci_ktore_by_ja_anulowalo_bez_zapisu() -> None:
     zadanie = _nocne()["jobs"]["change-mutations"]
-    krok = next(krok for krok in zadanie["steps"] if "tools/ci/mutacje_zmiany.py" in krok.get("run", ""))
+    krok = next(krok for krok in zadanie["steps"] if "tools/mutacje_zmiany.py" in krok.get("run", ""))
 
     # Instalacja przed krokiem trwa ok. 10 s, a wgranie zapisu po nim kilka sekund (run 41019818658).
     assert zadanie["timeout-minutes"] * 60 - mutacje_zmiany.PART_LIMIT_S >= 300
@@ -473,7 +473,7 @@ def test_noc_biegnie_raz_na_dobe_i_recznie_z_opcjonalnym_od_a_dwa_przebiegi_nie_
 def test_kazda_czesc_mutuje_od_bazy_planu_i_wgrywa_zapis_pod_nazwa_ktora_czyta_zgloszenie() -> None:
     zadania = _nocne()["jobs"]
     czesc = zadania["change-mutations"]
-    krok = next(krok for krok in czesc["steps"] if "tools/ci/mutacje_zmiany.py" in krok.get("run", ""))
+    krok = next(krok for krok in czesc["steps"] if "tools/mutacje_zmiany.py" in krok.get("run", ""))
     polecenie = shlex.split(krok["run"])
     zapis = polecenie[polecenie.index("--zapis") + 1]
     wgranie = next(krok for krok in czesc["steps"] if "upload-artifact" in krok.get("uses", ""))
@@ -498,7 +498,7 @@ def test_czesc_pada_tylko_przy_awarii_a_przezyte_mutacje_zostawia_zgloszeniu(tmp
     """Kod 1 to przeżyte mutacje, które zgłasza ostatnie zadanie; inna porażka czerwieni część, więc ``--odtwarzam``
     (``tools/lib/ciezkie_ci.py`` chce zadania ``failure``) ma co odtworzyć."""
 
-    krok = next(krok for krok in _nocne()["jobs"]["change-mutations"]["steps"] if "tools/ci/mutacje_zmiany.py" in krok.get("run", ""))
+    krok = next(krok for krok in _nocne()["jobs"]["change-mutations"]["steps"] if "tools/mutacje_zmiany.py" in krok.get("run", ""))
     atrapa = tmp_path / "bin" / "python"
     atrapa.parent.mkdir()
     atrapa.write_text(f"#!/bin/sh\nexit {kod_narzedzia}\n", encoding="utf-8")
@@ -780,10 +780,10 @@ def _kroki_do_planu(zadanie: dict[str, Any]) -> list[dict[str, Any]]:
 def test_noc_planuje_skrypty_skilli_od_bazy_a_ich_zadanie_wgrywa_zapis_pod_nazwa_ktora_czyta_zgloszenie() -> None:
     zadania = _nocne()["jobs"]
     plan_nocy = zadania["plan"]
-    krok_planu = next(krok for krok in plan_nocy["steps"] if "tools/ci/plan_ci.py plan" in krok.get("run", ""))
+    krok_planu = next(krok for krok in plan_nocy["steps"] if "tools/plan_ci.py plan" in krok.get("run", ""))
     polecenie_planu = shlex.split(krok_planu["run"])
     skille = zadania["skill-mutations"]
-    wykonanie = next(krok for krok in skille["steps"] if "tools/ci/plan_ci.py wykonaj" in krok.get("run", ""))
+    wykonanie = next(krok for krok in skille["steps"] if "tools/plan_ci.py wykonaj" in krok.get("run", ""))
     wgranie = next(krok for krok in skille["steps"] if "upload-artifact" in krok.get("uses", ""))
     zgloszenie = zadania["zgloszenie"]
     pobrania = {krok["with"].get("pattern") or krok["with"]["name"]: krok["with"]["path"] for krok in zgloszenie["steps"] if "download-artifact" in krok.get("uses", "")}

@@ -33,7 +33,7 @@ takiego limitu nie ma.
 Z ``MUTACJE_CZESC=K/N`` w środowisku ``check_all`` sprawdza tylko K-tą z N części tabeli: mutacje w kolejności nazw,
 co N-tą od K-tej, więc część nie zależy od kolejności tabeli, a N części sprawdza każdą mutację dokładnie raz. Podstawa
 części to tylko polecenia jej mutacji, a część bez mutacji kończy się ``MUTACJE OK``. Tak plan CI
-(``tools/ci/plan_ci.py``) dzieli długi skrypt mutacji skilla na zadania bez zmiany skryptu.
+(``tools/plan_ci.py``) dzieli długi skrypt mutacji skilla na zadania bez zmiany skryptu.
 """
 
 from __future__ import annotations

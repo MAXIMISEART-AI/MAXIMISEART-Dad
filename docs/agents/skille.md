@@ -17,7 +17,7 @@
 - Zmiana `requirements.txt`, `.github/workflows/ci.yml` albo `.gitattributes` uruchamia każdy krok każdego skilla, a skill bez czytelnego `pilnuje:` biegnie przy każdej zmianie.
 - Importów ani plików, które krok czyta, wybór nie liczy, więc to, czego `pilnuje:` nie obejmuje, łapie dopiero pełne CI `main`, na którym biegnie każdy krok.
 - Glob, który wymienia moduły z nazwy, nie obejmuje nowego modułu, więc nowy moduł silnika dopisz do `pilnuje:`, które obejmuje też `tools/uruchom_proces.py`, albo z powodem do `POZA_VERIFY_ROZLICZENIA` w `tests/test_mutacje_skilli.py`.
-- Wybrane i pominięte kroki dla swojej gałęzi, każdy z powodem, drukuje bez uruchamiania `.venv/bin/python tools/ci/plan_ci.py plan --baza origin/main` w liniach `WYBRANY` i `POMINIĘTY`, a skrypty, które po merge'u uruchomi noc, `.venv/bin/python tools/ci/plan_ci.py plan --zdarzenie noc --baza origin/main`.
+- Wybrane i pominięte kroki dla swojej gałęzi, każdy z powodem, drukuje bez uruchamiania `.venv/bin/python tools/plan_ci.py plan --baza origin/main` w liniach `WYBRANY` i `POMINIĘTY`, a skrypty, które po merge'u uruchomi noc, `.venv/bin/python tools/plan_ci.py plan --zdarzenie noc --baza origin/main`.
 
 ## Nowy albo zmieniony skill
 
