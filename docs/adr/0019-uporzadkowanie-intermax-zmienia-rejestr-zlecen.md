@@ -95,7 +95,7 @@ od 2021 roku: około 42 tys. wierszy, cztery arkusze, około 6,5 MB, w OneDrive.
   Centrum przywraca wybraną Kopię z Konfiguracji, a przedtem robi Kopię stanu
   bieżącego `INTERMAX przed przywróceniem RRRR-MM-DD GG-MM-SS.xlsx`.
   Przywracanie to osobne zadanie, gotowe przed pierwszym Uporządkowaniem u
-  taty.
+  taty; weszło w #522.
 - **INTERMAX musi być zapisany i zamknięty.** Otwarty plik albo plik, który
   OneDrive dalej trzyma po krótkiej ponownej próbie, daje Zatrzymanie „dla
   taty”. Przed każdą ponowną próbą narzędzie czyta INTERMAX jeszcze raz, a

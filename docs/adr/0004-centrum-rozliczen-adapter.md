@@ -21,6 +21,19 @@ linii terminala (`terminal_line`).
 Uzupełnienia pliku zbiorczego regułę prywatności (przeglądarka dostaje wybrane
 pola wierszy Ilości do uzupełnienia) i pozwala czytać Plik zbiorczy otwarty w
 Excelu.
+Zdanie „Własne pliki Centrum to tylko ustawienia taty i dziennik pochodzenia
+Uruchomień” zmieniają też
+[ADR 0009](0009-aktualizacja-narzedzia-z-centrum.md) (Centrum zmienia katalog
+narzędzia przez Aktualizację narzędzia),
+[ADR 0015](0015-logi-uruchomienia-uwagi-taty-i-powiadomienia.md) (Logi
+Uruchomienia i stan Powiadomień),
+[ADR 0017](0017-karta-uruchomienia-z-logow.md) (plik ostatniego startu) i
+[ADR 0019](0019-uporzadkowanie-intermax-zmienia-rejestr-zlecen.md) (Kopie
+INTERMAX). ADR 0019 dodaje też trzeci proces, Uporządkowanie INTERMAX, z tym
+samym rdzeniem Uruchomienia procesu.
+[ADR 0013](0013-kontrola-ilosci-wysylana-automatycznie.md) dopuszcza treść
+wybranych kolumn Wiersza danych tylko w Kontroli ilości, wysyłanej do Skrzynki
+Zgłoszeń; przeglądarka jej nie dostaje.
 
 ## Decyzja
 

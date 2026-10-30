@@ -4,6 +4,16 @@
 
 Zaakceptowana. Rozstrzyga eksperyment 1 (#147) wspinaczki „Przebieg rozliczeń
 poniżej minuty” (#141); pomiar w dzienniku wspinaczki (#163).
+Interfejsy z sekcji sprzed „Zmiany z 2026-10-24” (`WorkerSettlementTemplate`,
+`CollectiveFileTemplate` i `Layout` w `workbook_files`) już nie istnieją: każdy
+plik z Wzorca powstaje przez `template_file.TemplateFile` (konstruktory
+`worker_settlement`, `collective_file`, `internal_settlement`).
+Od #519 rekord metryk niesie drogę zapisu każdego pliku z Wzorca (`routes`,
+[ADR 0002](0002-progress-event-observation.md)).
+[ADR 0018](0018-ilosci-tylko-dla-inea-nie-przechodza-do-rozliczenia-pracownika.md)
+zostawia puste w Rozliczeniu pracownika komórki `AP` i `AK` Ilości tylko dla
+INEA, więc nie każda wartość Wiersza danych Pliku zbiorczego trafia do
+Rozliczenia pracownika.
 
 ## Kontekst
 

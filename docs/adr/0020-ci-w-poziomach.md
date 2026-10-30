@@ -4,8 +4,10 @@
 
 Zaakceptowana (decyzje Maksa z 26.10).
 Część o Change mutations na PR (poziom 2) zastępuje [ADR 0021](0021-mutacje-noca.md): mutacje biegną nocą na `main`, a przeżyte trafiają do issue PR-u.
-Opisuje stan docelowy, który wchodzi krokami, jeden PR na krok.
-Dopóki kroki nie wejdą, CI działa tak, jak opisuje Kontekst.
+ADR 0021 zastępuje też zdanie poziomu 2, że skrypty mutacji skilla biegną na PR, gdy zmienił się folder skilla: na PR biegną same podstawy `ci:` (#566), a skrypty pełne CI `main` i noc.
+Zdanie poziomu 3, że Change mutations na `main` nie biegną, też przestało obowiązywać: biegną nocą na `main` (#564).
+Opisuje stan docelowy, który wchodził krokami, jeden PR na krok; wszystkie kroki weszły 26.10 (#541, #542, #551, #552, #553, #554), więc Kontekst opisuje CI sprzed tego ADR.
+Od #540 (26.10) repozytorium jest w organizacji GitHuba `maximiseartai`, więc odpada powód „wymagają organizacji GitHuba zamiast konta osobistego” przy odrzuconych runnerach Blacksmith; pozostałe powody zostają.
 Opiera się na [ADR 0014](0014-tata-dostaje-tylko-wydania.md), według którego tata dostaje tylko Wydanie z commitu `main` z zielonym `Required CI status`.
 
 ## Kontekst

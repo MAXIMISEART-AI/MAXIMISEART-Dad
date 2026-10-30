@@ -11,6 +11,9 @@ który wdraża Reguły ilości bez trybu cienia. Zmienia dwa zdania
 - „Bez treści wierszy”: Kontrola ilości zawiera treść wybranych kolumn
   Wiersza danych.
 
+Kontrolę ilości wysyła dziś wspólna kolejka Skrzynki Zgłoszeń
+([ADR 0015](0015-logi-uruchomienia-uwagi-taty-i-powiadomienia.md)).
+
 ## Kontekst
 
 Plik zbiorczy ma dwa stany: Ilości usług wpisane przez Przygotowanie pliku
@@ -34,7 +37,8 @@ Maks dowiedział się o błędnej regule, zanim tata sam ją zgłosi.
   sprawdzenia. Nie powstaje ze Skryptu dla maszyn. Tata niczego nie klika i
   nic nie widzi. Gdy brakuje sieci albo klucza, Kontrola zostaje w
   `config/zgloszenia/` i Centrum ponawia ją przy następnym starcie, bez
-  Komunikatu.
+  Komunikatu. Od #438 kolejka Skrzynki Zgłoszeń ponawia ją też sama minutę
+  po nieudanej próbie (ADR 0015).
 - **Jeden okres to jedno issue** z etykietą `kontrola-ilosci`, także przy zera
   różnic. Powtórzony Przebieg okresu dopisuje komentarz do otwartego issue.
 - **Treść:**

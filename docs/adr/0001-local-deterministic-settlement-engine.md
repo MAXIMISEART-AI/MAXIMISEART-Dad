@@ -3,7 +3,13 @@
 ## Status
 
 Zaakceptowana. Ścieżka VBA zastąpiona przez
-[ADR 0003](0003-cli-only-launcher.md).
+[ADR 0003](0003-cli-only-launcher.md), a rezygnacja z niej zostaje w mocy
+według [ADR 0011](0011-bez-cli-i-adapterow-terminala.md). Ścieżkę launchera
+`.cmd` usunął [ADR 0010](0010-centrum-jedynym-wejsciem-taty.md): tata uruchamia
+procesy tylko w Centrum rozliczeń
+([ADR 0004](0004-centrum-rozliczen-adapter.md)), a poza nim jest tylko Skrypt
+dla maszyn (ADR 0011). Z tej decyzji zostaje lokalny, deterministyczny silnik
+Python jako jedyne źródło reguł procesów.
 
 ## Decyzja
 

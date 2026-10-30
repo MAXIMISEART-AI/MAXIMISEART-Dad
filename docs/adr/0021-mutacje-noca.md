@@ -4,6 +4,7 @@
 
 Zaakceptowana (decyzja Maksa z 29.10: „nie możemy na każdy nowy PR odpalać mutacji”).
 Zastępuje część [ADR 0020](0020-ci-w-poziomach.md) o Change mutations na PR: poziom bramki PR i `tools/scal_pr.py` przestają na nie czekać.
+Zastępuje też część ADR 0020 o skryptach mutacji skilli na PR: biegną nocą na `main` i w pełnym CI `main`.
 Opiera się na [ADR 0014](0014-tata-dostaje-tylko-wydania.md) i ADR 0020, według których granicą bezpieczeństwa taty jest Wydanie, a nie PR.
 
 ## Kontekst

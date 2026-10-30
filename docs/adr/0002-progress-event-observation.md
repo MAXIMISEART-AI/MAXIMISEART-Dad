@@ -11,6 +11,10 @@ oraz CLI: jedynym podglądem postępu jest Centrum rozliczeń, a projekcja zwrac
 sam snapshot bez faktów, które czytał tylko terminal. Zmieniona 2026-10-22:
 rekord przerwanego Uruchomienia procesu niesie Rodzaj Zatrzymania i kod
 Komunikatu (patrz „Zmiana z 2026-10-22: rodzaj Zatrzymania w metrykach”).
+Od #519 (2026-10-26) schemat metryk ma wersję 3: pole `routes` mówi, ile
+plików z Wzorca powstało każdą drogą zapisu
+([ADR 0008](0008-zapis-rozliczenia-pracownika-przez-podmiane-wierszy-danych.md)),
+a rekordy wersji 1 i 2 nadal się czytają (`telemetry.py`).
 
 ## Decyzja
 

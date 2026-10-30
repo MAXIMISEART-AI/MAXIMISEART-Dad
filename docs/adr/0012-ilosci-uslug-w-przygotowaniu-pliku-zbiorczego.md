@@ -4,6 +4,12 @@
 
 Zaakceptowana. Zmienia zakres z README: „automatyczne uzupełnianie ilości 0/1
 w kolumnach `N:AP` Pliku zbiorczego” przestaje być poza zakresem narzędzia.
+Dopełniają go
+[ADR 0013](0013-kontrola-ilosci-wysylana-automatycznie.md) (Kontrola ilości),
+[ADR 0016](0016-uzupelnienie-pliku-zbiorczego-w-centrum.md) (Uzupełnienie
+pliku zbiorczego w Centrum, które Pliku zbiorczego nie zmienia) i
+[ADR 0018](0018-ilosci-tylko-dla-inea-nie-przechodza-do-rozliczenia-pracownika.md)
+(Ilości tylko dla INEA nie przechodzą do Rozliczenia pracownika).
 
 ## Kontekst
 
