@@ -22,6 +22,7 @@ from rozliczenia.centrum.report_box import COMMENT_LIMIT, Refused, Rejected, Unr
 from tests.fixtures.centrum import FakeIssue, FakeReportBox
 from tests.fixtures.clock import ManualClock
 from tests.fixtures.potomne import wait_for
+from tests.fixtures.stare_centrum import SharedBox, old_centrum, queue_on
 
 KEY = "github_pat_SYNTETYCZNY_KLUCZ"
 THREAD = PeriodThread(
@@ -90,7 +91,9 @@ class Queue:
         return names
 
     def files(self) -> list[str]:
-        return sorted(path.name for path in self.directory.glob("*"))
+        """Pliki kolejki i ich pliki tymczasowe (``*.json.tmp``), bez pliku blokady folderu."""
+
+        return sorted(path.name for path in self.directory.glob("*.json*"))
 
     def log(self) -> str:
         return self.log_path.read_text(encoding="utf-8") if self.log_path.is_file() else ""
@@ -414,39 +417,36 @@ def test_przejscie_pominiete_przez_druga_kolejke_robi_pierwsza_po_swoim(tmp_path
     assert wait_for(lambda: queue.files() == [])
 
 
-def test_zamykana_kolejka_konczy_rozpoczeta_wysylke_a_reszte_nastepny_start_dopisuje_do_tego_samego_issue_okresu(
-    tmp_path: Path,
-) -> None:
-    # Zamknięcie Centrum w trakcie wysyłki: nowe Centrum zajmie port dopiero po stop, więc jego kolejka nie wysyła
-    # razem z tą i nie zakłada drugiego issue okresu.
-    hold = threading.Event()
-    queue = Queue(tmp_path, FakeReportBox(open_hold=hold))
-    first, waiting = queue.queued("pierwsza\n", "druga\n")
-    queue.outbox.resume()
-    assert queue.box.opening.wait(30)
+def test_kolejki_starego_i_nowego_centrum_na_jednym_folderze_zakladaja_jedno_issue_okresu(tmp_path: Path) -> None:
+    # Stare Centrum po zwolnieniu portu jeszcze wysyła Kontrolę ilości i kończy się w trakcie, a nowe już startuje na tym
+    # samym folderze.
+    queue = Queue(tmp_path, FakeReportBox())
+    queue.queued("różnice\n")
+    box = SharedBox(tmp_path / "skrzynka")
+    old = old_centrum(queue.directory, tmp_path / "skrzynka", tmp_path / "logs" / "stare-centrum.log")
+    new = queue_on(queue.directory, box, queue.log_path, queue.clock)
 
     try:
-        closing = threading.Thread(target=queue.outbox.stop, daemon=True)
-        closing.start()
-        closing.join(0.2)
-        waited = closing.is_alive()
-        queue.outbox.post(post(["po zamknięciu\n"]))
+        new.resume()
+        assert not new.wait_delivered("", THREAD.label, timeout_s=30)
     finally:
-        hold.set()
-    closing.join(30)
-    left = queue.files()
-    queue.outbox = queue.restarted()
+        old.finish()
+    queue.clock.advance(seconds=RETRY_S)
+    assert not new.wait_delivered("", THREAD.label, timeout_s=30)
+
+    assert [issue["label"] for issue in box.issues()] == ["kontrola-ilosci"]
+    assert queue.files() == []
+
+
+def test_start_centrum_bez_folderu_kolejki_go_nie_zaklada_i_nie_nastawia_budzenia(tmp_path: Path) -> None:
+    queue = Queue(tmp_path, FakeReportBox())
+
     queue.outbox.resume()
     queue.passed()
 
-    assert waited, "stop nie czekał na wysyłkę, którą kolejka zaczęła"
-    assert first not in left
-    assert waiting in left
-    assert len(left) == 2
-    assert [(issue.body, issue.comments) for issue in queue.box.issues] == [
-        (f"{THREAD.line}\n\nCzęść 1/1\n\npierwsza\n", ["Część 1/1\n\ndruga\n", "Część 1/1\n\npo zamknięciu\n"])
-    ]
-    assert queue.files() == []
+    assert not queue.directory.exists()
+    assert queue.clock.wakes == 0
+    assert "nieoczekiwany-wyjatek" not in queue.log()
 
 
 def test_wysylka_dodana_w_trakcie_przejscia_wychodzi_bez_kolejnego_budzenia(tmp_path: Path) -> None:

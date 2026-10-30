@@ -45,13 +45,12 @@ PROMISES = {
     "CzesciWKolejnosci": "część k stoi w issue przed częścią k-1 tej samej wysyłki.",
     LIVENESS: "awarie się skończyły, a plik wysyłki bez znacznika zostaje w kolejce.",
 }
-# Kod, na którym stoją akcje Start, Zatrzymaj, Zamknij i KoniecProcesu (dwa procesy Centrum przy restarcie), w plikach,
-# które Centrum zmienia często: rozjazd liczą tylko te definicje, a nie cały plik, jak tabela pokrycia w ``SKILL.md``.
+# Kod, na którym stoją akcje Start, Zamknij i KoniecProcesu (stare i nowe Centrum naraz), w plikach, które Centrum
+# zmienia często: rozjazd liczą tylko te definicje, a nie cały plik, jak tabela pokrycia w ``SKILL.md``.
 DEFINITIONS = {
     "src/rozliczenia/centrum/app.py": ("lifespan",),
     "src/rozliczenia/centrum/launcher.py": ("listen_locally", "_listen_when_released"),
     "src/rozliczenia/centrum/server.py": ("_GRACEFUL_SHUTDOWN_S", "serve", "_Server"),
-    "src/rozliczenia/centrum/shutdown.py": ("Shutdown",),
 }
 _STATE = re.compile(r"^State \d+: ")
 _STUTTERING = re.compile(r"^State \d+: Stuttering")
@@ -161,10 +160,7 @@ def _moved_definitions(tools: ModuleType, root: Path, skill_md: str) -> str | No
         ]
     if not moved:
         return None
-    return (
-        f"kod procesów Centrum zmienił się od {sync.group(1)}: {', '.join(moved)}. "
-        "Sprawdź Start, Zatrzymaj, Zamknij i KoniecProcesu."
-    )
+    return f"kod procesów Centrum zmienił się od {sync.group(1)}: {', '.join(moved)}. Sprawdź Start, Zamknij i KoniecProcesu."
 
 
 def _definition(source: str | None, name: str) -> str | None:

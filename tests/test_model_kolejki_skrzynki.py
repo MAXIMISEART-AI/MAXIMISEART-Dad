@@ -43,7 +43,6 @@ DRIFT = "MODEL KOLEJKI: ROZJAZD MODELU Z KODEM"
 APP = ROOT / "src" / "rozliczenia" / "centrum" / "app.py"
 LAUNCHER = ROOT / "src" / "rozliczenia" / "centrum" / "launcher.py"
 SERVER = ROOT / "src" / "rozliczenia" / "centrum" / "server.py"
-SHUTDOWN = ROOT / "src" / "rozliczenia" / "centrum" / "shutdown.py"
 PASSED = "Model checking completed. No error has been found.\n"
 
 
@@ -237,18 +236,17 @@ def _no_change(text: str) -> str:
         (LAUNCHER, lambda text: text.replace("def listen_locally(port: int) -> socket.socket:\n", "def listen_locally(port: int) -> socket.socket:\n    _ = 0\n"), "src/rozliczenia/centrum/launcher.py listen_locally"),
         (SERVER, lambda text: text.replace("def serve(", "def serve_later("), "src/rozliczenia/centrum/server.py serve"),
         (SERVER, lambda text: text.replace("class _Server(uvicorn.Server):\n", "class _Server(uvicorn.Server):\n    DODANE = 1\n"), "src/rozliczenia/centrum/server.py _Server"),
-        (SHUTDOWN, lambda text: text.replace("        self._finish()\n", "        pass\n"), "src/rozliczenia/centrum/shutdown.py Shutdown"),
         (APP, lambda text: "POZA = 1\n" + text, None),
         (APP, lambda text: text.replace("        outbox.resume()\n", "        outbox.resume()  # komentarz\n"), None),
         (SERVER, _no_change, None),
     ],
-    ids=["lifespan", "listen-when-released", "graceful-shutdown", "listen-locally", "serve", "server", "shutdown", "poza-definicjami", "komentarz", "bez-zmian"],
+    ids=["lifespan", "listen-when-released", "graceful-shutdown", "listen-locally", "serve", "server", "poza-definicjami", "komentarz", "bez-zmian"],
 )
 def test_rozjazd_liczy_w_plikach_procesu_centrum_tylko_definicje_procesow_centrum(
     tmp_path: Path, path: Path, edit: Callable[[str], str], moved: str | None
 ) -> None:
     module = _load()
-    for source in (APP, LAUNCHER, SERVER, SHUTDOWN):
+    for source in (APP, LAUNCHER, SERVER):
         copy = tmp_path / source.relative_to(ROOT)
         copy.parent.mkdir(parents=True, exist_ok=True)
         copy.write_text(source.read_text(encoding="utf-8"), encoding="utf-8")
@@ -264,7 +262,7 @@ def test_rozjazd_liczy_w_plikach_procesu_centrum_tylko_definicje_procesow_centru
     if moved is None:
         assert found is None
     else:
-        assert found == f"kod procesów Centrum zmienił się od {sync[:8]}: {moved}. Sprawdź Start, Zatrzymaj, Zamknij i KoniecProcesu."
+        assert found == f"kod procesów Centrum zmienił się od {sync[:8]}: {moved}. Sprawdź Start, Zamknij i KoniecProcesu."
 
 
 @pytest.mark.parametrize(

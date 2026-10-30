@@ -100,8 +100,7 @@ def create_app(
         # Klucz do Zgłoszeń: pierwsze sprawdzenie w tle, żeby Konfiguracja nie czekała na Skrzynkę.
         box.check_in_background()
         # Kontrole ilości, Logi i Uwagi taty, których poprzednia praca Centrum nie wysłała (brak sieci albo klucza),
-        # wychodzą w tle. Przy zamykaniu kolejka kończy rozpoczętą wysyłkę, zanim następne Centrum dostanie port.
-        shutdown.finish_before_release(outbox.stop)
+        # wychodzą w tle.
         outbox.resume()
         yield
 

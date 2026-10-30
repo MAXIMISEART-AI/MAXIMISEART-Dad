@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 from collections.abc import Callable
 import logging
 import socket
@@ -48,7 +47,7 @@ def serve(
         log.started(port=port, version=version_label(tool_commit()), console=console)
         threading.Thread(target=on_ready, args=(url,), name="centrum-gotowosc", daemon=True).start()
 
-    server = _Server(config, started=started, stopping=lambda: log.stopped(port=port), finish=shutdown.before_release)
+    server = _Server(config, started=started, stopping=lambda: log.stopped(port=port))
 
     def stop_when_asked() -> None:
         shutdown.wait()
@@ -66,27 +65,17 @@ def serve(
 
 
 class _Server(uvicorn.Server):
-    """Uvicorn, który zgłasza start zaraz po zajęciu portu, a zamykanie i pracę w tle kończy, zanim go zwolni.
+    """Uvicorn, który zgłasza start zaraz po zajęciu portu, a zamykanie, zanim go zwolni.
 
-    ``shutdown`` uvicorn zamyka gniazdo, a po nim opiekun ponownego startu albo skrót od razu startuje nowe
-    Centrum, więc ``stop`` po ``shutdown`` trafiłby do dziennika po ``start`` nowego, a kolejka Skrzynki
-    Zgłoszeń tego procesu wysyłałaby razem z kolejką nowego (dwa issue okresu). ``finish`` czeka więc na
-    nią w osobnym wątku przed zamknięciem gniazda, a do tego czasu Centrum odpowiada jak zwykle. Uvicorn
-    woła ``shutdown`` tylko po udanym starcie.
+    ``shutdown`` uvicorn zamyka gniazdo, a po nim opiekun ponownego startu od razu startuje nowe Centrum,
+    więc ``stop`` po ``shutdown`` trafiłby do dziennika po ``start`` nowego. Uvicorn woła ``shutdown``
+    tylko po udanym starcie.
     """
 
-    def __init__(
-        self,
-        config: uvicorn.Config,
-        *,
-        started: Callable[[], None],
-        stopping: Callable[[], None],
-        finish: Callable[[], None],
-    ) -> None:
+    def __init__(self, config: uvicorn.Config, *, started: Callable[[], None], stopping: Callable[[], None]) -> None:
         super().__init__(config)
         self._started = started
         self._stopping = stopping
-        self._finish = finish
 
     async def startup(self, sockets: list[socket.socket] | None = None) -> None:
         await super().startup(sockets=sockets)
@@ -95,7 +84,6 @@ class _Server(uvicorn.Server):
 
     async def shutdown(self, sockets: list[socket.socket] | None = None) -> None:
         self._stopping()
-        await asyncio.to_thread(self._finish)
         await super().shutdown(sockets=sockets)
 
 

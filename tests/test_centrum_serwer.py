@@ -1,9 +1,8 @@
-"""Serwer Centrum rozliczeń: ``start`` i ``stop`` w dzienniku, póki Centrum trzyma port, i kolejka Skrzynki Zgłoszeń,
-która przy zamknięciu kończy rozpoczętą wysyłkę, zanim Centrum zwolni port dla następnego."""
+"""Serwer Centrum rozliczeń: ``start`` i ``stop`` w dzienniku, póki Centrum trzyma port, i port, który zamknięte Centrum
+zwalnia od razu, także gdy jego kolejka Skrzynki Zgłoszeń jeszcze wysyła."""
 
 from __future__ import annotations
 
-import asyncio
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -16,7 +15,6 @@ from rozliczenia.centrum.app import create_app
 from rozliczenia.centrum.launcher import listen_locally
 from rozliczenia.centrum.log import CentrumLog
 from rozliczenia.centrum.outbox import PeriodThread, Post
-from rozliczenia.centrum.report_box import Unreachable
 from rozliczenia.centrum.server import serve
 from rozliczenia.centrum.shutdown import Shutdown
 
@@ -30,7 +28,6 @@ from tests.fixtures.centrum import (
     new_line,
 )
 from tests.fixtures.clock import ManualClock
-from tests.fixtures.potomne import wait_for
 
 KONTROLA = Post.of(
     PeriodThread(
@@ -62,28 +59,6 @@ class _PortAtStop(CentrumLog):
     def stopped(self, *, port: int) -> None:
         self.port_free_at_stop = _port_free(port)
         super().stopped(port=port)
-
-
-class _PortWhileClosing(CentrumLog):
-    """Dziennik, który w następnym kroku pętli serwera po ``stop`` sprawdza port, a potem puszcza skrzynkę (``hold``).
-
-    Uvicorn zamyka gniazdo zaraz po ``stop``, bez oddania pętli po drodze, więc ten krok przychodzi przed zamknięciem
-    tylko wtedy, gdy zamykanie serwera najpierw na coś czeka.
-    """
-
-    port_free_while_closing: bool | None = None
-
-    def __init__(self, path: Path, hold: threading.Event) -> None:
-        super().__init__(path)
-        self._hold = hold
-
-    def stopped(self, *, port: int) -> None:
-        super().stopped(port=port)
-        asyncio.get_running_loop().call_soon(self._check, port)
-
-    def _check(self, port: int) -> None:
-        self.port_free_while_closing = _port_free(port)
-        self._hold.set()
 
 
 def _events(path: Path) -> list[str]:
@@ -118,18 +93,14 @@ def _centrum(tmp_path: Path, box: FakeReportBox, log: CentrumLog, clock: ManualC
     return app, shutdown
 
 
-def _serving(app: FastAPI, shutdown: Shutdown, log: CentrumLog) -> threading.Thread:
-    """``serve`` na wolnym porcie w osobnym wątku, do zamknięcia przez ``shutdown``."""
+def _serving(app: FastAPI, shutdown: Shutdown, log: CentrumLog) -> tuple[threading.Thread, int]:
+    """``serve`` na wolnym porcie w osobnym wątku, do zamknięcia przez ``shutdown``, i ten port."""
 
     listener = listen_locally(0)
     kwargs = {"listener": listener, "on_ready": lambda _url: None, "shutdown": shutdown, "log": log}
     thread = threading.Thread(target=serve, args=(app,), kwargs=kwargs, name="centrum-test", daemon=True)
     thread.start()
-    return thread
-
-
-def _queued(tmp_path: Path) -> list[str]:
-    return sorted(path.name for path in (tmp_path / "config" / "zgloszenia" / "kolejka").glob("*.json"))
+    return thread, int(listener.getsockname()[1])
 
 
 def test_zamkniecie_po_starcie_zapisuje_stop_zanim_port_jest_wolny(tmp_path: Path) -> None:
@@ -162,46 +133,25 @@ def test_nieudany_start_nie_zapisuje_ani_startu_ani_stopu(tmp_path: Path) -> Non
     listen_locally(port).close()
 
 
-def test_zamykane_centrum_zwalnia_port_dopiero_po_wysylce_ktora_kolejka_juz_zaczela(tmp_path: Path) -> None:
-    # Port to jedyne, co dzieli stare i nowe Centrum: wolny w trakcie wysyłki pozwoliłby kolejce nowego założyć drugie
-    # issue okresu obok kolejki starego.
+def test_zamkniete_centrum_zwalnia_port_od_razu_takze_gdy_kolejka_czeka_na_skrzynke(tmp_path: Path) -> None:
+    # Skrót i opiekun ponownego startu startują nowe Centrum, gdy tylko port jest wolny, a zapytanie do Skrzynki nie ma
+    # górnego limitu (wolna sieć): port trzymany do końca wysyłki dałby tacie kartę Centrum, które zaraz zniknie.
     hold = threading.Event()
     box = FakeReportBox(open_hold=hold)
-    log = _PortWhileClosing(tmp_path / "logs" / "centrum-rozliczen.log", hold)
+    log = CentrumLog(tmp_path / "logs" / "centrum-rozliczen.log")
     app, shutdown = _centrum(tmp_path, box, log, ManualClock())
     since = new_line()
-    served = _serving(app, shutdown, log)
+    served, port = _serving(app, shutdown, log)
 
     try:
         assert box.opening.wait(30), "kolejka nie zaczęła wysyłki z poprzedniej pracy Centrum"
         shutdown.request()
         served.join(30)
+        closed = not served.is_alive()
+        port_free = _port_free(port)
     finally:
         hold.set()
         join_threads_since(since)
 
-    assert log.port_free_while_closing is False
-    assert [issue.label for issue in box.issues] == ["kontrola-ilosci"]
-    assert _queued(tmp_path) == []
-
-
-def test_kolejka_zamknietego_centrum_nie_wysyla_po_budzeniu(tmp_path: Path) -> None:
-    box = FakeReportBox(search_failure=Unreachable())
-    clock = ManualClock()
-    log = CentrumLog(tmp_path / "logs" / "centrum-rozliczen.log")
-    app, shutdown = _centrum(tmp_path, box, log, clock)
-    since = new_line()
-    served = _serving(app, shutdown, log)
-
-    try:
-        assert wait_for(lambda: clock.wakes == 1), "kolejka bez sieci nie nastawiła ponowienia"
-    finally:
-        shutdown.request()
-        served.join(30)
-    box.search_failure = None
-    clock.advance(minutes=1)
-    join_threads_since(since)
-
-    assert [label for label, _closed in box.listed if label == "kontrola-ilosci"] == ["kontrola-ilosci"]
-    assert box.issues == []
-    assert _queued(tmp_path) == [QUEUED]
+    assert closed, "Centrum czekało z zamknięciem na wysyłkę kolejki"
+    assert port_free
