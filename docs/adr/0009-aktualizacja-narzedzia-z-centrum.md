@@ -32,6 +32,8 @@ potem [ADR 0010](0010-centrum-jedynym-wejsciem-taty.md).
 Wersję, na którą Centrum przesuwa klon i z którą porównuje Aktualność
 narzędzia, zmienia [ADR 0014](0014-tata-dostaje-tylko-wydania.md): najnowsze
 Wydanie zamiast `main`.
+[ADR 0015](0015-logi-uruchomienia-uwagi-taty-i-powiadomienia.md) zastępuje
+Powiadomienie o naprawie z Kontekstu Powiadomieniem o nowej wersji.
 
 ## Kontekst
 

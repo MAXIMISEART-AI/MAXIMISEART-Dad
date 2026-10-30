@@ -17,6 +17,14 @@ Zaakceptowana. Zmienia trzy zdania
 Pozostałe zasady ADR 0004 (tylko `127.0.0.1`, kontrola `Host` i `Origin`,
 pliki wyłącznie z wyliczonych ścieżek) zostają bez zmian.
 
+Zdania tego ADR zmieniają później:
+[ADR 0009](0009-aktualizacja-narzedzia-z-centrum.md) (pobranie narzędzia z
+`github.com` przez Git i Aktualność narzędzia w Konfiguracji),
+[ADR 0013](0013-kontrola-ilosci-wysylana-automatycznie.md) (Kontrola ilości
+idzie do Skrzynki bez kliknięcia taty i z treścią wybranych kolumn) i
+[ADR 0015](0015-logi-uruchomienia-uwagi-taty-i-powiadomienia.md) (Logi
+Uruchomienia, Uwagi taty i lista Wydań).
+
 ## Decyzja
 
 Przy Zatrzymaniu, którego tata nie usunie sam, Centrum rozliczeń wysyła

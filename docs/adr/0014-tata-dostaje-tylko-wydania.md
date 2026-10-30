@@ -17,6 +17,10 @@ opiera się [ADR 0015](0015-logi-uruchomienia-uwagi-taty-i-powiadomienia.md)
 Pozostałe zasady ADR 0009 (wszystko albo nic, dziennik „Aktualizacja w toku”,
 opiekun ponownego startu, pliki taty, tylko po kliknięciu) zostają.
 
+Tworzenie Wydania (#316) weszło w #326: `tools/wydanie.py` i skill `wydanie`.
+Od #554 sprawdza też, że testy z kwarantanny przeszły na commicie Wydania
+([ADR 0020](0020-ci-w-poziomach.md)).
+
 ## Kontekst
 
 Centrum aktualizuje narzędzie z `main` po kliknięciu taty (ADR 0009). Na
