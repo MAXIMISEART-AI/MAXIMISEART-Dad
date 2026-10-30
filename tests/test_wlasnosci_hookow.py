@@ -9,7 +9,9 @@ Tu oczekiwanie bierze się z docstringów hooków i tabeli reguł w ``AGENTS.md`
 ``pgrep -f`` na pierwszym planie dostaje odmowę, a reszta przechodzi. To, czym napis jest dla powłoki, rozstrzyga
 wyrocznia niezależna od hooka: ``shlex`` (tekst jest jednym argumentem, cudzysłów nie zmienia słów polecenia) i
 ``bash -n`` (wygenerowane polecenie jest poprawne składniowo). Przykłady są deterministyczne (``derandomize=True``,
-bez bazy przykładów), a czas mierzy stosunek czasów dwóch długości wejścia, więc nie zależy od szybkości runnera.
+bez bazy przykładów) tylko przy tych samych modułach w procesie: Hypothesis losuje też stałe z kodu repozytorium,
+który proces już załadował, więc inny zestaw testów (noc mutacji zmian) dostaje inne przykłady. Czas mierzy stosunek
+czasów dwóch długości wejścia, więc nie zależy od szybkości runnera.
 """
 
 from __future__ import annotations
@@ -21,6 +23,7 @@ import importlib.util
 import io
 import json
 from pathlib import Path
+import re
 import shlex
 import shutil
 import string
@@ -236,6 +239,14 @@ def _single_quoted(text: str) -> str:
     return "'" + text.replace("'", "'\\''") + "'"
 
 
+def _in_backticks(command: str) -> str:
+    """``command`` do wstawienia w `` `…` ``: powłoka zamyka je pierwszym gołym `` ` ``, także w ``${…}`` (POSIX), więc
+    zagnieżdżony `` ` `` dostaje ukośnik. Drugi dostaje też ukośnik przed `` ` ``, ``$`` i ``\\``, bo w `` `…` `` znika,
+    i ten na końcu, bo zjadłby zamykający `` ` ``."""
+
+    return re.sub(r"\\(?=[`$\\]|\Z)|`", lambda found: "\\" + found.group(), command)
+
+
 WRAPPERS: tuple[Callable[[str], str], ...] = (
     lambda member: f"( {member} )",
     lambda member: f"{{ {member}; }}",
@@ -320,7 +331,13 @@ def _shell_script(draw: st.DrawFn) -> Callable[[str], str]:
 # Bash wykonuje ``$(…)`` i `` `…` `` w słowie ``${…}``, także zagnieżdżonego, więc skrypt ``-c`` w nim to polecenie
 # (runda 1 #648: ``echo ${x:-$(bash -c '…')}`` przechodziło).
 PARAMETER_OPERATORS = (":-", ":=", ":+", "-")
-PARAMETER_WORDS = ("$( {} )", "`{}`", "${{y:-$( {} )}}", "${{y:+`{}`}}", "a;b$( {} )")
+PARAMETER_WORDS: tuple[Callable[[str], str], ...] = (
+    lambda script: f"$( {script} )",
+    lambda script: f"`{_in_backticks(script)}`",
+    lambda script: f"${{y:-$( {script} )}}",
+    lambda script: f"${{y:+`{_in_backticks(script)}`}}",
+    lambda script: f"a;b$( {script} )",
+)
 
 
 @st.composite
@@ -331,7 +348,7 @@ def _parameter_default(draw: st.DrawFn) -> Callable[[str], str]:
     assignment = draw(st.sampled_from(("echo ", "X=")))
     operator = draw(st.sampled_from(PARAMETER_OPERATORS))
     word = draw(st.sampled_from(PARAMETER_WORDS))
-    return lambda member: f"{assignment}${{x{operator}{word.format(script(member))}}}"
+    return lambda member: f"{assignment}${{x{operator}{word(script(member))}}}"
 
 
 @st.composite
@@ -531,6 +548,8 @@ def test_przekierowanie_za_petla_to_nie_tlo_a_pętla_puszczona_ampersandem_przec
 @example(case=Case("echo ${x:-$(bash -c 'until ! gh pr checks 1 | grep -q pending; do sleep 30; done')}", frozenset({"ci"})))
 @example(case=Case("X=${X:-$(bash -c 'until ! gh pr checks 1 | grep -q pending; do sleep 30; done')}", frozenset({"ci"})))
 @example(case=Case("echo ${x:-`bash -c 'until ! gh pr checks 1 | grep -q pending; do sleep 30; done'`}", frozenset({"ci"})))
+# `` ` `` w `` `…` `` zagnieżdża dopiero ukośnik (noc 30.10), a skrypt ``-c`` za nim biegnie w bashu i zsh.
+@example(case=Case("echo ${x:-`sh ${x:+\\`echo -l\\`;b} -c 'gh pr checks 1 --watch'`}", frozenset({"watch"})))
 @example(
     case=Case(
         "for l in ${(@f)$(bash -c 'until ! gh pr checks 1 | grep -q pending; do sleep 30; done')}; do echo $l; done",
@@ -614,12 +633,20 @@ GLUED = (
 @example(glued=("true|", ""), prefix="bash -c", wait=LOOP)
 @example(glued=("cd x&&", ""), prefix="bash -c", wait=LOOP)
 @example(glued=("sleep 1&", ""), prefix="bash -c", wait=LOOP)
+# Noc 30.10: `` ` `` w słowie przed ``-c`` zagnieżdża się w `` `…` `` tylko z ukośnikiem. Bez niego zamyka podstawienie
+# (`` `sh ${x:+` ``), więc ani bash, ani zsh nie uruchamia skryptu, a hook słusznie go przepuszczał.
+@example(
+    glued=("echo `", "`"),
+    prefix="sh ${x:+`echo -l`;b} -c",
+    wait=Template("gh pr checks {} --watch", ("1",), frozenset({"watch"})),
+)
 @given(glued=st.sampled_from(GLUED), prefix=_script_prefix(), wait=_waits())
 def test_slowo_powloki_przyklejone_do_separatora_zaczyna_skrypt_c(
     glued: tuple[str, str], prefix: str, wait: Template
 ) -> None:
     opening, closing = glued
-    command = f"{opening}{prefix} {_single_quoted(wait.text())}{closing}"
+    script = f"{prefix} {_single_quoted(wait.text())}"
+    command = f"{opening}{_in_backticks(script) if opening.endswith('`') else script}{closing}"
 
     assert _judged(command) == wait.refusals, command
 
