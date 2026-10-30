@@ -526,7 +526,7 @@ def test_katalog_logow_bez_prawa_zapisu_daje_ten_sam_wynik_bez_komunikatu(tmp_pa
     assert blocked.read_text(encoding="utf-8") == ""
     log = centrum.log_path.read_text(encoding="utf-8")
     assert 'nieoczekiwany-wyjatek typ=FileExistsError miejsce="po wyniku Uruchomienia procesu"' in log
-    queue = (tmp_path / "config" / "zgloszenia" / "kolejka").glob("*")
+    queue = (tmp_path / "config" / "zgloszenia" / "kolejka").glob("*.json")
     labels = sorted(re.sub(r"^\w+-\d{4}-(.+)-\w{8}\.json$", r"\1", path.name) for path in queue)
     assert labels == ["kontrola-ilosci", "logi-uruchomienia"], "Kontrola ilości i Logi w kolejce"
     [record] = centrum.metric_records()

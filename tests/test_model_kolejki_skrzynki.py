@@ -210,11 +210,11 @@ def test_konfiguracja_bez_znaleziska_z_kontrprzykladem_to_nowe_naruszenie(
     assert capsys.readouterr().out.splitlines()[-1] == "MODEL KOLEJKI: NOWE NARUSZENIE (1)"
 
 
-def test_w_ci_zmieniona_definicja_znaleziska_dwa_procesy_konczy_sprawdzenie_rozjazdem(
+def test_w_ci_zmieniona_definicja_procesow_centrum_konczy_sprawdzenie_rozjazdem(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     module = _load()
-    moved = "kod znaleziska dwa_procesy zmienił się od abcdef1: src/rozliczenia/centrum/app.py lifespan."
+    moved = "kod procesów Centrum zmienił się od abcdef1: src/rozliczenia/centrum/app.py lifespan."
     monkeypatch.setattr(module, "_tools", lambda: SimpleNamespace(_drift=lambda root, skill_md: None))
     monkeypatch.setattr(module, "_moved_definitions", lambda tools, root, skill_md: moved)
     monkeypatch.setenv("GITHUB_ACTIONS", "true")
@@ -242,7 +242,7 @@ def _no_change(text: str) -> str:
     ],
     ids=["lifespan", "listen-when-released", "graceful-shutdown", "listen-locally", "serve", "server", "poza-definicjami", "komentarz", "bez-zmian"],
 )
-def test_rozjazd_liczy_w_plikach_procesu_centrum_tylko_definicje_znaleziska_dwa_procesy(
+def test_rozjazd_liczy_w_plikach_procesu_centrum_tylko_definicje_procesow_centrum(
     tmp_path: Path, path: Path, edit: Callable[[str], str], moved: str | None
 ) -> None:
     module = _load()
@@ -262,7 +262,7 @@ def test_rozjazd_liczy_w_plikach_procesu_centrum_tylko_definicje_znaleziska_dwa_
     if moved is None:
         assert found is None
     else:
-        assert found == f"kod znaleziska dwa_procesy zmienił się od {sync[:8]}: {moved}. Sprawdź Start, Zamknij i KoniecProcesu."
+        assert found == f"kod procesów Centrum zmienił się od {sync[:8]}: {moved}. Sprawdź Start, Zamknij i KoniecProcesu."
 
 
 @pytest.mark.parametrize(

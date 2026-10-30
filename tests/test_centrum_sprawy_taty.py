@@ -502,7 +502,7 @@ OTHER_TARGETS = {
 
 
 def _queued(tmp_path: Path) -> list[Path]:
-    return sorted((tmp_path / "kolejka").glob("*")) if (tmp_path / "kolejka").exists() else []
+    return sorted((tmp_path / "kolejka").glob("*.json")) if (tmp_path / "kolejka").exists() else []
 
 
 @pytest.mark.parametrize("target", OTHER_TARGETS.values(), ids=OTHER_TARGETS.keys())
