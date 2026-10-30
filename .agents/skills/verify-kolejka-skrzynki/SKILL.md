@@ -69,7 +69,7 @@ step of this code that the checker can fail, lose or kill:
 | the delivery marker | `Outbox._send_all`: `replace_atomically(path, _queue_text(post, delivered_parts=len(post.parts)))` in `suppress(OSError)` |
 | the removal of a queue file | `Outbox._remove` (`path.unlink`, `_undeleted`) |
 | a pass of the queue | `Outbox._drain` (`_claimed`, `_send_all`, `_released`), run only when the real `Outbox.send_in_background` starts the queue thread (called by `Outbox.post`, `Outbox.resume` and `Outbox._woken`); the checker replaces only `threading.Thread` in `outbox.py`, which hands it the target |
-| the `RETRY_S` wake | `Outbox._drain`: `self._clock.after(RETRY_S, self._woken)` when `_stopped_on` is set and no wake is armed; the checker calls an armed wake when nothing else asked for a pass, and a restart drops it with its process |
+| the `RETRY_S` wake | `Outbox._drain`: `self._clock.after(RETRY_S, self._woken)` when `_stopped_on` or `_read_failed` is set and no wake is armed; the checker calls an armed wake when nothing else asked for a pass, and a restart drops it with its process |
 | a restart of Centrum | a new `Outbox` and `KeyedBox` on the same folder, then `Outbox.resume` |
 
 Covered files: `src/rozliczenia/centrum/outbox.py`,
@@ -87,19 +87,19 @@ that Centrum changes often: `lifespan` in `app.py`, `listen_locally` and
 rest of their files, is drift. Name these four files here without their
 `src/…` path in backticks: such a path makes the whole file covered.
 
-**Sync commit: `da260363`** (2026-10-30, #666: a closing Centrum's queue ends
-the wysyłka it started before the port is free). The checker and the model
-share it: at this commit both were confirmed to describe the code above. The
-checker never calls `Outbox.stop`, so #666 changed only the model, as #665
-(`0ab6ff1b`: after a refused comment the queue file keeps the number of the
-Uwaga's issue) did before it, because the checker leaves `Rejected` out.
-Before them, `6f94edb8` was the sync of both, and since the checker's earlier sync
-`8122ab4c` only `15362856` changed a covered file: `Outbox` calls
-`on_rejected` after a refused content, which neither the checker nor the
-model describes. To see whether they need another look:
+**Sync commit: `2900e8c2`** (2026-10-30, #664 merged with `main` after #665:
+a queue file that `_queued` cannot read arms the `RETRY_S` wake, and after a
+refused comment the queue file keeps the number of the Uwaga's issue). The
+checker and the model share it: at this commit both were confirmed to
+describe the code above. The checker never fails a read and leaves `Rejected`
+out, so neither fix changes its schedules. Before them, `6f94edb8` was the
+sync of both, and since the checker's earlier sync `8122ab4c` only `15362856`
+changed a covered file: `Outbox` calls `on_rejected` after a refused content,
+which neither the checker nor the model describes. To see whether they need
+another look:
 
 ```bash
-git log --oneline da260363..HEAD -- src/rozliczenia/centrum/outbox.py src/rozliczenia/centrum/keyed_box.py src/rozliczenia/centrum/report_box.py src/rozliczenia/centrum/atomic_file.py
+git log --oneline 2900e8c2..HEAD -- src/rozliczenia/centrum/outbox.py src/rozliczenia/centrum/keyed_box.py src/rozliczenia/centrum/report_box.py src/rozliczenia/centrum/atomic_file.py
 ```
 
 A change to the definitions above shows as a `UWAGA:` line of
@@ -354,8 +354,8 @@ The comment above each action and branch in the model names the same code.
 | --- | --- |
 | `Start` | `app.py` `lifespan` → `outbox.py` `Outbox.resume`: unlink every `*.tmp`, then `send_in_background` (`lifespan` also gives `Outbox.stop` to `Shutdown.finish_before_release`). Only a process with the port starts (`launcher.py` `listen_locally`); a second queue of one process starts while the first runs |
 | `Nadaj` | `outbox.py` `Outbox.post`: the name from the moment and `next(self._sequence)`, `replace_atomically` (`write_text` of `.json.tmp`, then `replace`; `OSError` → `False`, also the `FileNotFoundError` of `replace` when `resume` of a new process removed the `.tmp`), then `send_in_background` |
-| `Petla` | `Outbox._drain`: `_claimed` (taken → ask for another pass and skip `_send_all`), then `sorted(glob("*.json"))` in `_send_all` |
-| `Plik`, `Zatrzymane` | `Outbox._send_all` for one file: `_closing` (`stop`) → `return` (`Zatrzymane`), `_undeleted` → `_remove`, `_rejected` → skip, `_queued` (an `OSError` or a missing file → `_skip_unreadable`), `delivered` → `_remove`, else `_deliver` (with the file's issue number, `_deliver_to_known`); the end of the list sets `_stopped_on = None` |
+| `Petla` | `Outbox._drain`: `_claimed` (taken → ask for another pass and skip `_send_all`), then `_read_failed = False` and `sorted(glob("*.json"))` in `_send_all` |
+| `Plik`, `Zatrzymane` | `Outbox._send_all` for one file: `_closing` (`stop`) → `return` (`Zatrzymane`), `_undeleted` → `_remove`, `_rejected` → skip, `_queued` (an `OSError` or a missing file → `_read_failed` and `_skip_unreadable`), `delivered` → `_remove`, else `_deliver` (with the file's issue number, `_deliver_to_known`); the end of the list sets `_stopped_on = None` |
 | `Szukaj` | `keyed_box.py` `KeyedBox.labelled_issues` / `find_issue` (`report_box.py` `newest_with_line`) in `_deliver_to_period`, `_deliver_report` (a found Zgłoszenie is `Delivered(found, ())`), `_deliver_to_known` (also for the issue number in the file: the comments of `Post.opening`) |
 | `Zaloz` | `KeyedBox.open_issue` in `_deliver_new_issue`, `_deliver_report`, `_deliver_to_period`, with `Post.opening` |
 | `Komentuj` | `KeyedBox.comment` in `_comment_all`, one part per step; the first failure ends the wysyłka |
@@ -364,7 +364,7 @@ The comment above each action and branch in the model names the same code.
 | `Znacznik`, `Zamiana` | `_send_all` after `Delivered`: `_stopped_on = None`, then the marker in `suppress(OSError)`: `atomic_file.py` `replace_atomically` (`write_text` of `.json.tmp`, then `replace`; an `OSError` unlinks the `.tmp`) |
 | `Usun` | `Outbox._remove`: `unlink(missing_ok=True)`, an `OSError` adds the name to `_undeleted` |
 | `Zwolnij` | `Outbox._drain` `finally`: `_released`; a request of the other queue sets `_again` |
-| `Decyzja` | `Outbox._drain` under `_changed`: `_again` → another pass, else `_draining = False` and `clock.after(RETRY_S, _woken)` when `_stopped_on` is set and no wake is armed |
+| `Decyzja` | `Outbox._drain` under `_changed`: `_again` → another pass, else `_draining = False` and `clock.after(RETRY_S, _woken)` when `_stopped_on` or `_read_failed` is set and no wake is armed |
 | `Budzenie` | `Outbox._woken` (`_retry_armed = False`, `send_in_background`), also in a process that already closed its port |
 | `Zatrzymaj` | `server.py` `_Server.shutdown` → `shutdown.py` `Shutdown.before_release` → `Outbox.stop`: `_closing`, then wait for `_draining = False`; until then the process has the port and answers HTTP requests |
 | `Zamknij`, `KoniecProcesu` | `Outbox.stop` returns and uvicorn closes the socket (the port is free for a new Centrum), waits up to `_GRACEFUL_SHUTDOWN_S` (5 s) for open connections, then the process ends and the daemon queue thread dies with it |
@@ -437,7 +437,7 @@ configuration is checked in full.
 | `znane` | a comment in 2 parts to the known issue of an Uwaga; 2 network failures, 1 lost answer, 2 file errors, 1 switch-off | passes |
 | `dwie-kolejki` | two queues of one folder in one process, one Kontrola in 2 parts; 1 network failure, 1 file error, 1 switch-off | passes |
 | `dwa-procesy` | one Kontrola; the old Centrum closes while its queue sends, and the new one starts once the port is free, before the old process ends; no other failure | passes |
-| `odczyt` | one Kontrola; 1 network failure, 1 read error of the queue file, 1 switch-off | known finding `odczyt` |
+| `odczyt` | one Kontrola; 1 network failure, 1 read error of the queue file, 1 switch-off | passes |
 | `odmowa-tresci` | one Uwaga in 2 parts; 2 refused contents, 1 file error, 1 switch-off | passes |
 
 Every configuration checks `TypeOK`, `JednoIssue`, `WszystkieCzesci`,
@@ -455,11 +455,6 @@ its bound.
    lost), the next start finds #1 by its odcisk line, `_deliver_report`
    returns `Delivered(found, ())`, and the marker and removal follow. Part 2
    never reaches the Skrzynka.
-3. **`odczyt`, Zbieganie (`odczyt`)**: `_queued` gets an `OSError` reading a
-   queue file (something holds it open), `_skip_unreadable` skips it, the pass
-   ends with `_stopped_on = None`, so `_drain` arms no `RETRY_S` wake. The
-   file waits for the next wysyłka or the next start of Centrum, with the
-   network working.
 
 A known finding lives in `model/oczekiwane.json` with the promise it breaks
 and the cause it is excused after. When a change fixes it, the check ends with `ZNALEZISKO ZNIKNĘŁO`.
@@ -525,23 +520,18 @@ one guard or step whose code it names, on a copy of the checkout
 - WszystkieCzesci: a failed comment skipped instead of ending the wysyłka; a
   Zgłoszenie that never posts its comments, with the network working; and, in
   the configurations with a refused comment or a read error, a refused
-  comment that removes the file instead of `_rejected` (`odmowa-tresci`) and an unreadable file
-  removed instead of skipped by `_skip_unreadable` (`odczyt`, which excuses
-  only Zbieganie after `odczyt`); a `post` that returns True although
+  comment that removes the file instead of `_rejected` (`odmowa-tresci`) and
+  an unreadable file removed instead of skipped by `_skip_unreadable`
+  (`odczyt`); a `post` that returns True although
   `os.replace` raised OSError (`okres`) or although `resume` of the new
   Centrum removed its `.json.tmp` (`dwa-procesy`).
 - CzesciWKolejnosci: comments posted from the last part.
 - Zbieganie: a network failure that skips the file to the next start; a pass
-  that stops without `_stopped_on`; no `RETRY_S` wake; a wake that does not
+  that stops without `_stopped_on`; no `RETRY_S` wake; no `RETRY_S` wake after
+  an unreadable file (`_read_failed`, `odczyt`); a wake that does not
   ask for a pass (`_woken`); `post` without `send_in_background`; `_again`
   ignored; a pass that does not clear `_draining`; `resume` without
   `send_in_background`.
 
 One mutation fixes a known finding in the model (a found Zgłoszenie gets its
-other parts) and must end with `MODEL KOLEJKI: ZNALEZISKO ZNIKNĘŁO`. Known finding `odczyt` has no such
-fix mutation, so nothing shows that its fix would end with `ZNALEZISKO
-ZNIKNĘŁO`. That its configuration breaks no other promise stands on the
-mutation above in `odczyt`, which breaks WszystkieCzesci after the finding's
-cause and ends with `NOWE NARUSZENIE`. A second break of the same promise
-after the same cause (another file that waits after a read error) the
-finding excuses, and that is not checked.
+other parts) and must end with `MODEL KOLEJKI: ZNALEZISKO ZNIKNĘŁO`.

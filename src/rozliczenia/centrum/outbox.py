@@ -322,12 +322,17 @@ def _parse(text: str) -> _Queued | None:
 
 
 def _queued(path: Path) -> _Queued | None:
-    """Plik kolejki; pliku, którego nie da się odczytać, nie ma w tym przejściu."""
+    """Plik kolejki albo ``None``: uszkodzona treść albo nieznany schemat.
+
+    ``OSError`` (plik trzyma np. OneDrive albo antywirus) przechodzi do wołającego: ten sam plik może się dać odczytać
+    za chwilę, a treść, której się nie da, zostanie taka sama.
+    """
 
     try:
-        return _parse(path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeError):
+        text = path.read_text(encoding="utf-8")
+    except UnicodeError:
         return None
+    return _parse(text)
 
 
 def _string(value: object) -> str:
@@ -540,11 +545,11 @@ class Outbox:
     drugiej, nie wysyła nic, a druga po swoim przejściu robi następne. Kolejka zamykanego Centrum (``stop``) kończy
     wysyłkę, którą zaczęła, i nie wysyła już nic, zanim nowe Centrum dostanie port.
 
-    Przejście, które stanęło na przyczynie dla całej kolejki, nastawia jedno budzenie ``clock`` za ``RETRY_S``, chyba
-    że już jest nastawione; budzenie rusza wysyłkę w tle. Odrzucona treść i wysyłka czekająca w ``prepare`` budzenia
-    nie nastawiają: ponowienie im nie pomoże. Linia „skrzynka-czeka” trafia do dziennika tylko przy zmianie przyczyny
-    (zeruje ją każde dostarczenie i przejście do końca), bo budzenie co minutę zapełniłoby ostatnie wpisy, które niesie
-    Diagnoza.
+    Przejście, które stanęło na przyczynie dla całej kolejki albo pominęło plik, którego nie dało się odczytać,
+    nastawia jedno budzenie ``clock`` za ``RETRY_S``, chyba że już jest nastawione; budzenie rusza wysyłkę w tle.
+    Uszkodzona treść pliku, odrzucona treść i wysyłka czekająca w ``prepare`` budzenia nie nastawiają: ponowienie im
+    nie pomoże. Linia „skrzynka-czeka” trafia do dziennika tylko przy zmianie przyczyny (zeruje ją każde dostarczenie
+    i przejście do końca), bo budzenie co minutę zapełniłoby ostatnie wpisy, które niesie Diagnoza.
     """
 
     def __init__(
@@ -575,6 +580,7 @@ class Outbox:
         self._retry_armed = False
         self._closing = False  # stop: żadne przejście nie bierze już następnego pliku
         self._stopped_on: WaitingCause | None = None  # tylko wątek kolejki
+        self._read_failed = False  # tylko wątek kolejki: ostatnie przejście pominęło plik, którego nie dało się odczytać
         self._first_comments: dict[tuple[str, Label], str | None] = {} if addresses is None else _read_addresses(addresses)
         self._undeleted: set[str] = set()  # wysłane w tej pracy Centrum, usunięcie się nie udało i jest w dzienniku
         self._unreadable: set[str] = set()  # nieczytelne, już w dzienniku tej pracy Centrum
@@ -686,7 +692,7 @@ class Outbox:
             with self._changed:
                 if not self._again:
                     self._draining = False
-                    if self._stopped_on is not None and not self._retry_armed:
+                    if (self._stopped_on is not None or self._read_failed) and not self._retry_armed:
                         self._retry_armed = True
                         self._clock.after(RETRY_S, self._woken)
                     self._changed.notify_all()
@@ -701,9 +707,11 @@ class Outbox:
     def _send_all(self) -> None:
         """Pliki kolejki po nazwie (czas utworzenia); porażka skrzynki zatrzymuje przejście albo pomija plik (``_waiting``).
 
-        ``_stopped_on`` to potem przyczyna, na której przejście stanęło, albo ``None``.
+        ``_stopped_on`` to potem przyczyna, na której przejście stanęło, albo ``None``, a ``_read_failed`` mówi, czy
+        przejście pominęło plik, którego nie dało się odczytać.
         """
 
+        self._read_failed = False
         for path in sorted(self._directory.glob("*.json")):
             with self._lock:
                 if self._closing:
@@ -713,7 +721,11 @@ class Outbox:
                 continue
             if path.name in self._rejected:
                 continue
-            queued = _queued(path)
+            try:
+                queued = _queued(path)
+            except OSError:
+                self._read_failed = True
+                queued = None
             if queued is None:
                 self._skip_unreadable(path)
                 continue
