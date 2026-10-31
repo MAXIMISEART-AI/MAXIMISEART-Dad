@@ -64,7 +64,10 @@ Mutacja, po której pytest-timeout kończy test (``ZAWIESZENIE``), liczy się ja
 wykryta: pytest-timeout czerwieni test w CI`` (``mutacje.in_ci``) i nie biegnie z szerszymi testami. Mutacja, po której
 testy nie kończą się w ``--limit-s`` (``PRZEKROCZONY CZAS``), biegnie dalej jak przeżyta, bo test tylko wolniejszy CI
 przechodzi.
-Linia ``CZAS`` mówi, ile trwała każda faza.
+Mutację, która przeżyła ostatni przebieg testów albo nie ma żadnego testu, sprawdza jeszcze brama typów
+(``mutacje.type_gate``): ruff i mypy obu systemów, kroki bramy pre-push. Mutacja, na której któryś pada, to ``WYKRYTA
+PRZEZ BRAMĘ TYPÓW`` z nazwą kroku i jego błędem, i nie trafia do zapisu ani do issue.
+Linia ``CZAS`` mówi, ile trwała każda faza, także brama typów.
 
 Mutacja, która przeżywa, to obietnica bez testu: dopisz test, który ją wykrywa. Mutacja równoważna (kod robi to samo)
 dostaje wyjątek w linii mutacji albo w samodzielnym komentarzu tuż nad nią:
@@ -861,6 +864,8 @@ def _mutate(args: argparse.Namespace, survived: list[tuple[Mutant, str]]) -> tup
         print(f"Pokrycie: {len(coverage.lines)} testów wykonało zmienione linie, {len(coverage.spawners)} uruchomiło proces.", flush=True)
     today = datetime.datetime.now(datetime.UTC).date()
     narrow: list[tuple[Mutant, mutacje.Mutation, list[list[str]]]] = []  # i testy dalszych przebiegów, gdy pierwszy przeżyje
+    # Mutacje, które przeżyły testy, z werdyktem, jego linią i dopiskiem przebiegu; sprawdza je jeszcze brama typów.
+    passed: list[tuple[Mutant, mutacje.Mutation, mutacje.Verdict, str, str]] = []
     excused = other_system = 0
     for mutant in found:
         name = _name(mutant)
@@ -873,9 +878,9 @@ def _mutate(args: argparse.Namespace, survived: list[tuple[Mutant, str]]) -> tup
             other_system += 1
             print(f"POMINIĘTA: {name} → kod innego systemu niż {sys.platform}")
             continue
+        edit = mutacje.Edit(Path(mutant.path), texts[mutant.path], mutant.source)
         if not by_file[mutant.path]:
-            survived.append((mutant, texts[mutant.path]))
-            print(f"NIEWYKRYTA: {name} → żaden test nie zależy od {mutant.path}")
+            passed.append((mutant, mutacje.Mutation(name, (edit,), ()), mutacje.Verdict.SURVIVED, f"żaden test nie zależy od {mutant.path}", ""))
             continue
         # Kod, którego wynik dostają też testy, które go nie wykonały (import, fixture szersza niż test, ``@cache``),
         # sprawdzają wszystkie testy pliku; inny kod testy, które wykonały jakikolwiek kod jego pliku. Taki kod czytają
@@ -886,7 +891,6 @@ def _mutate(args: argparse.Namespace, survived: list[tuple[Mutant, str]]) -> tup
         covering = coverage.covering(mutant)
         steps = [covering, touching, by_file[mutant.path]] if shared else [covering, touching or by_file[mutant.path]]
         first, *later = [list(tests) for tests in dict.fromkeys(map(tuple, steps)) if tests]
-        edit = mutacje.Edit(Path(mutant.path), texts[mutant.path], mutant.source)
         narrow.append((mutant, mutacje.Mutation(name, (edit,), _command(first)), later))
     clock.append(time.monotonic())
     # Pokrycie tylko przyspiesza: mutacja, która przeżyła testy swoich linii, biegnie z coraz większym zbiorem testów.
@@ -904,7 +908,8 @@ def _mutate(args: argparse.Namespace, survived: list[tuple[Mutant, str]]) -> tup
             if verdict == mutacje.NO_VERDICT:
                 unchecked += 1
             elif not caught and not remaining:
-                survived.append((mutant, texts[mutant.path]))
+                passed.append((mutant, mutation, verdict, shown, label))
+                continue
             if caught or verdict == mutacje.NO_VERDICT or not remaining:
                 print(f"{verdict}: {mutation.name} → {last}{label}", flush=True)
             elif remaining[1:]:
@@ -916,17 +921,28 @@ def _mutate(args: argparse.Namespace, survived: list[tuple[Mutant, str]]) -> tup
     clock.append(time.monotonic())
     for (mutant, mutation), (verdict, shown) in zip(wide, mutacje.verdicts([m for _, m in wide], workers=1, limit_s=args.limit_s, deadline=deadline), strict=True):
         caught, last = mutacje.in_ci(verdict, shown)
+        if not caught and verdict != mutacje.NO_VERDICT:
+            passed.append((mutant, mutation, verdict, shown, " (testy pliku)"))
+            continue
+        unchecked += verdict == mutacje.NO_VERDICT
+        print(f"{verdict}: {mutation.name} → {last} (testy pliku)", flush=True)
+    clock.append(time.monotonic())
+    found_by_tests = [(verdict, shown) for _, _, verdict, shown, _ in passed]
+    gated = mutacje.type_gate([mutation for _, mutation, *_ in passed], found_by_tests, workers=args.rownolegle, limit_s=args.limit_s, deadline=deadline)
+    for (mutant, mutation, _, _, label), (verdict, shown) in zip(passed, gated, strict=True):
+        caught, last = mutacje.in_ci(verdict, shown)
         if verdict == mutacje.NO_VERDICT:
             unchecked += 1
         elif not caught:
             survived.append((mutant, texts[mutant.path]))
-        print(f"{verdict}: {mutation.name} → {last} (testy pliku)", flush=True)
+        print(f"{verdict}: {mutation.name} → {last}{label}", flush=True)
     clock.append(time.monotonic())
     uncovered = sum(not later for _, _, later in narrow)
-    coverage_s, narrow_s, wide_s = (later - earlier for earlier, later in itertools.pairwise(clock))
+    coverage_s, narrow_s, wide_s, gate_s = (later - earlier for earlier, later in itertools.pairwise(clock))
     print(
         f"CZAS | pokrycie {coverage_s:.0f} s | testy linii {narrow_s:.0f} s ({len(narrow)} mutacji, w tym {uncovered} bez drugiego"
-        f" i {middle} z testami kodu pliku) | testy pliku {wide_s:.0f} s ({len(wide)} mutacji)",
+        f" i {middle} z testami kodu pliku) | testy pliku {wide_s:.0f} s ({len(wide)} mutacji)"
+        f" | brama typów {gate_s:.0f} s ({len(passed)} mutacji)",
         flush=True,
     )
     summary = f"mutacje={len(found)} | wyjątki={excused} | innego systemu={other_system}"

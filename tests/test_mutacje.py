@@ -18,7 +18,7 @@ import time
 
 import pytest
 
-from tests.fixtures.git_repo import commit, git, repository
+from tests.fixtures.git_repo import TYPE_GATE_ON_SRC, commit, git, repository
 from tests.fixtures.potomne import beating
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -511,26 +511,38 @@ def test_naraz_biegnie_najwyzej_osiem_mutacji(tmp_path: Path) -> None:
         ),
         pytest.param("NIC = 0", "NIC = 1", 1, [r"NIEWYKRYTA: m → 2 passed in .*", "MUTACJE: 1 bez oczekiwanego wyniku"]),
         pytest.param(
+            "NIC = 0",
+            'NIC: int = "zero"',
+            0,
+            [r'WYKRYTA PRZEZ BRAMĘ TYPÓW: m → mypy: src/rozliczenia/__init__\.py:3: error: Incompatible types in assignment .*\[assignment\]', "MUTACJE OK"],
+        ),
+        pytest.param(
+            "WOLNO = False", "WOLNO: bool = 1", 0, [r"WYKRYTA PRZEZ BRAMĘ TYPÓW: m → mypy: src/rozliczenia/__init__\.py:2: error: .*\[assignment\]", "MUTACJE OK"]
+        ),
+        pytest.param("WISI = False", "import os\nWISI = False", 0, [r"WYKRYTA PRZEZ BRAMĘ TYPÓW: m → ruff: F401 .*`os` imported but unused", "MUTACJE OK"]),
+        pytest.param(
             "tego nie ma",
             "",
             1,
             [re.escape("NIEAKTUALNA: m → kotwicy nie ma dokładnie raz w src/rozliczenia/__init__.py: 'tego nie ma'"), "MUTACJE: 1 bez oczekiwanego wyniku"],
         ),
     ],
-    ids=["zawieszenie", "przekroczony-czas", "niewykryta", "nieaktualna"],
+    ids=["zawieszenie", "przekroczony-czas", "niewykryta", "brama-mypy", "przekroczony-czas-brama-mypy", "brama-ruff", "nieaktualna"],
 )
-def test_skrypt_mutacji_skilla_liczy_zawieszenie_jak_wykryta_a_inne_werdykty_jako_porazke(
+def test_skrypt_mutacji_skilla_liczy_zawieszenie_i_brame_typow_jak_wykryta_a_inne_werdykty_jako_porazke(
     tmp_path: Path, anchor: str, replacement: str, code: int, lines: list[str]
 ) -> None:
     """pytest-timeout czerwieni CI, więc noc nie zgłasza skryptu skilla, którego mutacja wiesza test do tego limitu; test
-    tylko wolniejszy niż limit narzędzia w CI przechodzi, więc jego mutacja jest porażką, jak przed werdyktem ZAWIESZENIE."""
+    tylko wolniejszy niż limit narzędzia w CI przechodzi, więc jego mutacja jest porażką, jak przed werdyktem ZAWIESZENIE.
+    Mutację, którą testy przepuściły, a odrzuca ruff albo mypy bramy pre-push, CI też by nie wpuściło (#703)."""
 
     tests = (
         "import time\n\nimport pytest\nimport rozliczenia\n\n\n"
         "@pytest.mark.timeout(1)\ndef test_wisi():\n    if rozliczenia.WISI:\n        time.sleep(60)\n\n\n"
         "def test_wolno():\n    if rozliczenia.WOLNO:\n        time.sleep(60)\n"
     )
-    repo = repository(tmp_path / "repo", {PACKAGE: "WISI = False\nWOLNO = False\nNIC = 0\n", "tests/test_wisi.py": tests})
+    files = {"pyproject.toml": TYPE_GATE_ON_SRC, PACKAGE: "WISI = False\nWOLNO = False\nNIC = 0\n", "tests/test_wisi.py": tests}
+    repo = repository(tmp_path / "repo", files)
     commit(repo, "baza")
     command = ("-m", "pytest", "-q", "-n", "0", "-p", "no:cacheprovider", "tests/test_wisi.py")
     script = (
@@ -697,3 +709,60 @@ def test_jak_ci_nie_przyjmuje_wlasnego_polecenia(tmp_path: Path, entry: dict[str
     answered = _mutacje("--jak-ci", "--baza", "nie-ma-takiej-galezi", "--plik", str(plan), *command)
 
     assert (answered.returncode, answered.stderr.splitlines()[-1].partition(": error: ")[2]) == (2, error)
+
+
+def _check_all(repo: Path, anchor: str, replacement: str) -> subprocess.CompletedProcess[str]:
+    """``check_all`` skryptu mutacji skilla z jedną mutacją pakietu i poleceniem, które tylko go importuje."""
+
+    script = (
+        "import sys\nsys.path.insert(0, 'tools')\nfrom pathlib import Path\nfrom mutacje import Edit, Mutation, check_all\n"
+        f"mutation = Mutation('m', (Edit(Path({PACKAGE!r}), {anchor!r}, {replacement!r}),), {IMPORT!r})\n"
+        "raise SystemExit(check_all([mutation]))\n"
+    )
+    return subprocess.run([sys.executable, "-c", script], cwd=repo, capture_output=True, text=True, encoding="utf-8", timeout=120, check=False)
+
+
+def test_brama_typow_czerwona_bez_mutacji_zostawia_przezyta_mutacje_przezyta(tmp_path: Path) -> None:
+    """Brama, która pada bez mutacji, niczego nie dowodzi, więc nie zabiera mutacji z issue."""
+
+    repo = repository(tmp_path / "repo", {"pyproject.toml": TYPE_GATE_ON_SRC, PACKAGE: 'ZLE: int = "x"\nNIC = 0\n'})
+    commit(repo, "baza")
+
+    answered = _check_all(repo, "NIC = 0", 'NIC: int = "zero"')
+
+    shown = answered.stdout.splitlines()
+    assert answered.returncode == 1, answered.stdout + answered.stderr
+    assert re.fullmatch(r"BRAMA TYPÓW CZERWONA: mypy: src/rozliczenia/__init__\.py:1: error: .* \(bez mutacji, więc przeżyte mutacje zostają przeżyte\)", shown[0]), shown
+    assert shown[1:] == ["NIEWYKRYTA: m → kod wyjścia 0", "MUTACJE: 1 bez oczekiwanego wyniku"]
+
+
+def test_przeglad_z_wiersza_polecen_nie_liczy_bramy_typow_jako_wykrycia(tmp_path: Path) -> None:
+    """Przegląd dowodzi, że jego polecenie łapie mutację; mypy sprawdza się poleceniem ``-- -m mypy``."""
+
+    repo = repository(tmp_path / "repo", {"pyproject.toml": TYPE_GATE_ON_SRC, PACKAGE: "NIC = 0\n"})
+    commit(repo, "baza")
+
+    answered = _in_repository(repo, "--zmiana", PACKAGE, "NIC = 0", 'NIC: int = "zero"', "--", *IMPORT)
+
+    assert (answered.returncode, answered.stdout.splitlines()) == (1, ["NIEWYKRYTA: mutacja → kod wyjścia 0", "MUTACJE: 1 bez oczekiwanego wyniku"]), answered.stderr
+
+
+def test_brama_typow_bez_wyniku_przed_koncem_czasu_wywolujacego_daje_bez_werdyktu(tmp_path: Path) -> None:
+    """Noc liczy BEZ WERDYKTU jak część bez wyniku, więc przeżyta, której brama nie sprawdziła, nie trafia do issue."""
+
+    repo = repository(tmp_path / "repo", {"pyproject.toml": TYPE_GATE_ON_SRC, PACKAGE: "NIC = 0\n"})
+    commit(repo, "baza")
+    script = (
+        "import sys, time\nsys.path.insert(0, 'tools')\nfrom pathlib import Path\nimport mutacje\n"
+        f"mutation = mutacje.Mutation('m', (mutacje.Edit(Path({PACKAGE!r}), 'NIC = 0', 'NIC = 1'),), {IMPORT!r})\n"
+        "found = [(mutacje.Verdict.SURVIVED, 'kod wyjścia 0'), (mutacje.Verdict.CAUGHT, 'kod wyjścia 1')]\n"
+        "for verdict, last in mutacje.type_gate([mutation, mutation], found, workers=1, deadline=time.monotonic()):\n"
+        "    print(f'{verdict}: {last}')\n"
+    )
+
+    answered = subprocess.run([sys.executable, "-c", script], cwd=repo, capture_output=True, text=True, encoding="utf-8", timeout=120, check=False)
+
+    assert answered.stdout.splitlines() == [
+        "BEZ WERDYKTU: kod wyjścia 0 (brama typów, ruff: czas minął, zanim się zaczął, bez mutacji)",
+        "WYKRYTA: kod wyjścia 1",
+    ], answered.stdout + answered.stderr

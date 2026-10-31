@@ -10,12 +10,13 @@ import datetime
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
 
 import pytest
 
-from tests.fixtures.git_repo import commit, copy_files, git, repository
+from tests.fixtures.git_repo import TYPE_GATE_ON_SRC, commit, copy_files, git, repository
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tools" / "ci"))
@@ -36,8 +37,12 @@ ALL_CASES = (
 )
 
 
-def _repo(tmp_path: Path, test: str, changed: str = CHANGED, base: str = BASE, conftest: str = "", other: str = "") -> Path:
+def _repo(
+    tmp_path: Path, test: str, changed: str = CHANGED, base: str = BASE, conftest: str = "", other: str = "", pyproject: str = ""
+) -> Path:
     files = {".gitignore": "__pycache__/\n", "src/rozliczenia/__init__.py": "", MODULE: base, "tests/test_warunek.py": test}
+    if pyproject:
+        files["pyproject.toml"] = pyproject
     if conftest:
         files["tests/conftest.py"] = conftest
     if other:
@@ -116,6 +121,51 @@ def test_mutacja_ktora_przezyla_testy_pliku_albo_nie_ma_testow_tez_trafia_do_zap
     written = json.loads(record.read_text(encoding="utf-8"))["przezyte"]
     assert sorted(entry["id"] for entry in written) == sorted(survived)
     assert all(entry["linie"] == [2] and len(entry["klucz"]) == 12 for entry in written)
+
+# Jak #674: zmiana dopisuje ``case`` brakującego wariantu, a gołe ``return`` po ``match`` w bazie robi to samo, więc testy
+# przepuszczają cofnięcie, które odrzuca mypy (``exhaustive-match``). Jak #675: ``__all__`` nie czyta ani test, ani mypy.
+MATCH_BASE = (
+    "from enum import Enum\n\n__all__ = [\"Kolor\"]\n\n\n"
+    "class Kolor(Enum):\n    CZERWONY = 1\n    ZIELONY = 2\n\n\n"
+    "def nazwa(kolor: Kolor) -> str:\n    match kolor:\n        case Kolor.CZERWONY:\n            return \"czerwony\"\n    return \"zielony\"\n"
+)
+MATCH_CHANGED = MATCH_BASE.replace('["Kolor"]', '["Kolor", "nazwa"]').replace(
+    '    return "zielony"\n', '        case Kolor.ZIELONY:\n            return "zielony"\n'
+)
+MATCH_TEST = (
+    "from rozliczenia.warunek import Kolor, nazwa\n\n\n"
+    "def test_nazwa() -> None:\n    assert [nazwa(kolor) for kolor in Kolor] == [\"czerwony\", \"zielony\"]\n"
+)
+
+
+def test_mutacja_ktora_przezyla_testy_a_odrzuca_ja_mypy_nie_trafia_do_zapisu_a_rownowazna_trafia(tmp_path: Path) -> None:
+    record = tmp_path / "zapis" / "czesc.json"
+
+    # ``inny.py`` nie ma testu, a jego cofnięcie i ``return None`` odrzuca mypy.
+    repo = _repo(tmp_path / "repo", MATCH_TEST, MATCH_CHANGED, MATCH_BASE, other='def inna() -> int:\n    return "jeden"\n', pyproject=TYPE_GATE_ON_SRC)
+    (repo / "src" / "rozliczenia" / "inny.py").write_text("def inna() -> int:\n    return 1\n", encoding="utf-8")
+
+    done = _run(repo, "--zapis", str(record))
+
+    assert done.returncode == 1, done.stdout + done.stderr
+    verdicts = sorted(line for line in done.stdout.splitlines() if "warunek.py" in line and "cofnięta do bazy" in line)
+    assert len(verdicts) == 2, done.stdout
+    assert verdicts[0].startswith("NIEWYKRYTA: src/rozliczenia/warunek.py:3 zmiana linii 3 cofnięta do bazy → 1 passed"), done.stdout
+    assert re.fullmatch(
+        r"WYKRYTA PRZEZ BRAMĘ TYPÓW: src/rozliczenia/warunek.py:15 zmiana linii 15–16 cofnięta do bazy → "
+        r"mypy: src/rozliczenia/warunek\.py:12: error: .*\[exhaustive-match\]",
+        verdicts[1],
+    ), done.stdout
+    untested = sorted(line for line in done.stdout.splitlines() if "inny.py" in line)
+    assert [line.partition(" → ")[0] for line in untested] == [
+        "WYKRYTA PRZEZ BRAMĘ TYPÓW: src/rozliczenia/inny.py:2 `return 1`",
+        "WYKRYTA PRZEZ BRAMĘ TYPÓW: src/rozliczenia/inny.py:2 zmiana linii 2 cofnięta do bazy",
+    ], done.stdout
+    assert re.search(r"\| brama typów \d+ s \(4 mutacji\)$", next(line for line in done.stdout.splitlines() if line.startswith("CZAS |"))), done.stdout
+    written = json.loads(record.read_text(encoding="utf-8"))
+    assert [entry["id"] for entry in written["przezyte"]] == ["src/rozliczenia/warunek.py:3 zmiana linii 3 cofnięta do bazy"]
+    assert written["wynik"].startswith("MUTACJE ZMIANY FAIL | przeżyło 1 |"), written
+
 
 def test_czesc_konczy_sie_zapisem_w_limicie_czasu_czesci_takze_gdy_mutacja_zawiesza_testy(tmp_path: Path) -> None:
     # Noc 41019818658: część 5/20 nie zmieściła się w 60 min zadania CI, więc GitHub ją anulował bez zapisu.

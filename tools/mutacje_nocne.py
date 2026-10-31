@@ -326,7 +326,7 @@ def akcje(github: GitHub, przypisane: dict[Autor, list[Przezyta]], run: str) -> 
         issue = istniejace.get(kto.tytul)
         if issue is None:
             tresc = [
-                f"Nocne mutacje `main` ([run]({run})) przeżyły testy na liniach, które ostatnio zmienił {kto.nazwa}:",
+                f"Nocne mutacje `main` ([run]({run})) przeżyły testy oraz ruff i mypy na liniach, które ostatnio zmienił {kto.nazwa}:",
                 "",
                 *blok_kodu(linie),
                 "",

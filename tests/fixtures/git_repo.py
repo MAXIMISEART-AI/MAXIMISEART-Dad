@@ -12,7 +12,24 @@ import tempfile
 ROOT = Path(__file__).resolve().parents[2]
 AUTHOR = {name: value for role in ("AUTHOR", "COMMITTER") for name, value in ((f"GIT_{role}_NAME", "test"), (f"GIT_{role}_EMAIL", "test@example.com"))}
 
-__all__ = ["built_once", "commit", "copy_files", "git", "repository"]
+__all__ = ["TYPE_GATE_ON_SRC", "built_once", "commit", "copy_files", "git", "repository"]
+
+# ``pyproject.toml`` repozytorium testu, w którym kroki ruff i mypy bramy typów mutacji (``ci_lokalnie.static_steps``)
+# sprawdzają tylko jego ``src``: ``pyproject.toml`` checkoutu nazywa pliki, których repozytorium testu nie ma, więc tam
+# mypy pada już bez mutacji.
+TYPE_GATE_ON_SRC = """\
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+
+[tool.ruff]
+include = ["src/**/*.py"]
+
+[tool.mypy]
+strict = true
+files = ["src"]
+enable_error_code = ["exhaustive-match"]
+"""
 
 
 def git(repo: Path, *arguments: str) -> str:

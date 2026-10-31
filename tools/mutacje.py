@@ -23,6 +23,15 @@ liczą tak noc (``tools/mutacje_zmiany.py``) i ``check_all`` skryptów mutacji s
 (test tylko wolniejszy), więc noc i skrypty skilli liczą go jak przeżytą. W narzędziu z wiersza poleceń, którego używa
 przegląd PR, oba są porażką.
 
+Mutację, którą polecenie przepuściło (NIEWYKRYTA, PRZEKROCZONY CZAS), noc i ``check_all`` skryptów skilli sprawdzają
+jeszcze bramą typów (``type_gate``): krokami ruff i mypy obu systemów bramy pre-push (``tools/ci_lokalnie.py --tylko
+ruff,mypy``) na kopii z mutacją. Gdy któryś pada, mutacja jest WYKRYTA PRZEZ BRAMĘ TYPÓW z nazwą kroku i pierwszą linią
+jego błędu, a ``in_ci`` liczy ją jak WYKRYTA, bo takiej zmiany nie wpuszczą brama pre-push i zadanie CI „Ruff, mypy”.
+Brama biegnie tylko dla takich mutacji, raz najpierw bez mutacji, a gdy wtedy pada, linia ``BRAMA TYPÓW CZERWONA``
+zostawia werdykty bez zmian; tak jest w zadaniach skryptów skilli w CI, które instalują tylko ``requirements.txt``, bez
+ruff i mypy (``ci.yml`` i ``mutacje-nocne.yml``), więc tam brama nic nie zmienia. Narzędzie z wiersza poleceń bramy nie uruchamia: przegląd dowodzi swojego polecenia, a mypy
+sprawdza poleceniem ``-- -m mypy``.
+
 Narzędzie z wiersza poleceń uruchamia każdą mutację NIEWYKRYTA na HEAD także na merge-base HEAD z ``--baza`` (bez
 niezacommitowanych zmian), z podstawą jej polecenia na merge-base. Gdy tam jest WYKRYTA, dostaje REGRES: zmiana
 osłabiła test, który ją łapał. Gdy merge-base to HEAD bez niezacommitowanych zmian, drugiego przebiegu nie ma, a gdy
@@ -63,7 +72,7 @@ from __future__ import annotations
 
 import argparse
 from collections import defaultdict
-from collections.abc import Collection, Iterable, Iterator, Sequence
+from collections.abc import Callable, Collection, Iterable, Iterator, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
@@ -80,6 +89,7 @@ import sys
 import tempfile
 import threading
 import time
+from typing import TypeVar
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools/lib"))
 # plan_ci i szybko importuje dopiero --jak-ci: plan_ci sam importuje ten moduł.
@@ -92,6 +102,8 @@ ROOT = Path(__file__).resolve().parents[1]
 TIMEOUT = 600
 # Tyle mutacji naraz dawał ThreadPoolExecutor (rdzenie + 4) na 4 vCPU runnera CI; na 16 rdzeniach Maca dawał 20.
 PARALLEL = 8
+# Cache mypy kroków bramy typów (``--cache-dir`` kroku Windows leży w nim), który kopia bez mutacji daje kopiom mutacji.
+MYPY_CACHE = ".mypy_cache"
 PART = "MUTACJE_CZESC"
 BASE = "origin/main"
 # Linie, którymi pytest-timeout kończy test po limicie, w pytest_timeout.py 2.4: ``PYTEST_FAILURE_MESSAGE`` metody
@@ -105,6 +117,7 @@ class Verdict(StrEnum):
     """Werdykt mutacji; tylko WYKRYTA dowodzi, że polecenie łapie zepsuty kod."""
 
     CAUGHT = "WYKRYTA"  # polecenie pada albo kończy się oczekiwaną linią
+    TYPE_GATE = "WYKRYTA PRZEZ BRAMĘ TYPÓW"  # polecenie przechodzi, ale ruff albo mypy, które czerwienią CI, padają
     SURVIVED = "NIEWYKRYTA"  # polecenie przechodzi po mutacji
     REGRESSION = "REGRES"  # NIEWYKRYTA na HEAD, a WYKRYTA na merge-base: zmiana osłabiła test
     HANG = "ZAWIESZENIE"  # test skończony przez pytest-timeout, co czerwieni CI
@@ -122,12 +135,13 @@ def in_ci(verdict: Verdict, last: str) -> tuple[bool, str]:
     """Czy CI złapałoby mutację z tym werdyktem, i ostatnia linia do logu.
 
     ZAWIESZENIE (pytest-timeout) dostaje dopisek ``HANG_CAUGHT``; PRZEKROCZONY CZAS nie jest wykryciem, bo test, który
-    tylko przekroczył ``--limit-s`` narzędzia, w CI przechodzi.
+    tylko przekroczył ``--limit-s`` narzędzia, w CI przechodzi. WYKRYTA PRZEZ BRAMĘ TYPÓW (``type_gate``) jest wykryciem:
+    zmianę, na której pada ruff albo mypy, odrzucają brama pre-push i zadanie CI „Ruff, mypy”.
     """
 
     if verdict is Verdict.HANG:
         return True, f"{last} ({HANG_CAUGHT})"
-    return verdict is Verdict.CAUGHT, last
+    return verdict in {Verdict.CAUGHT, Verdict.TYPE_GATE}, last
 
 
 @dataclass(frozen=True)
@@ -225,22 +239,30 @@ class _Ran:
     code: int | None  # None: polecenie przekroczyło limit
     last: str  # ostatnia linia wyjścia
     hang: str | None  # linia pytest-timeout
+    first: str  # pierwsza linia wyjścia
 
 
 def _run(
     copy: Path, command: Sequence[str], limit_s: float, stop: threading.Event | None = None, *, concurrent: bool = False
 ) -> _Ran:
-    """Uruchamia polecenie w kopii; zwraca kod wyjścia, ostatnią linię i linię pytest-timeout, jeśli była."""
+    """Uruchamia polecenie Pythona w kopii; zwraca kod wyjścia, ostatnią linię i linię pytest-timeout, jeśli była."""
 
+    return _run_program(copy, [sys.executable, *command], limit_s, stop, concurrent=concurrent)
+
+
+def _run_program(
+    copy: Path, command: Sequence[str], limit_s: float, stop: threading.Event | None = None, *, concurrent: bool = False
+) -> _Ran:
     try:
         env = environment(copy, concurrent=concurrent)
-        done = potomne.run([sys.executable, *command], cwd=copy, env=env, timeout=limit_s, stop=stop)
+        done = potomne.run(command, cwd=copy, env=env, timeout=limit_s, stop=stop)
     except subprocess.TimeoutExpired:
-        return _Ran(None, f"brak wyniku po {limit_s:g} s", None)
+        return _Ran(None, f"brak wyniku po {limit_s:g} s", None, "")
     lines = (done.stdout.strip() or done.stderr.strip()).splitlines()
     hangs = (PYTEST_TIMEOUT.fullmatch(line.strip()) for line in f"{done.stdout}\n{done.stderr}".splitlines())
     hang = next((found["hang"] or found["thread"] for found in hangs if found), None)
-    return _Ran(done.returncode, lines[-1] if lines else f"kod wyjścia {done.returncode}", hang)
+    last = lines[-1] if lines else f"kod wyjścia {done.returncode}"
+    return _Ran(done.returncode, last, hang, lines[0] if lines else last)
 
 
 def _verdict(
@@ -292,17 +314,102 @@ def verdicts(
     biegną na kopii tego commitu bez niezacommitowanych zmian checkoutu.
     """
 
+    run = partial(_verdict, limit_s=limit_s, concurrent=workers > 1, deadline=deadline, commit=commit)
+    yield from _each(run, mutations, workers)
+
+
+_Item = TypeVar("_Item")
+_Result = TypeVar("_Result")
+
+
+def _each(run: Callable[..., _Result], items: Sequence[_Item], workers: int) -> Iterator[_Result]:
+    """``run(item, stop=...)`` każdego elementu po kolei, ``workers`` naraz; przerwanie ustawia ``stop`` każdego."""
+
     stop = threading.Event()
     pool = ThreadPoolExecutor(max_workers=workers)
     try:
-        run = partial(_verdict, limit_s=limit_s, stop=stop, concurrent=workers > 1, deadline=deadline, commit=commit)
-        yield from pool.map(run, mutations)
+        yield from pool.map(partial(run, stop=stop), items)
     except BaseException:
         # Przerwanie w głównym wątku nie dociera do wątków, które czekają na swoje polecenia.
         stop.set()
         raise
     finally:
         pool.shutdown(cancel_futures=True)
+
+
+def _left(limit_s: float, deadline: float | None) -> float:
+    return limit_s if deadline is None else min(limit_s, deadline - time.monotonic())
+
+
+def _gate(copy: Path, *, limit_s: float, stop: threading.Event, deadline: float | None) -> tuple[Verdict, str] | None:
+    """Kroki bramy typów w kopii do pierwszego, który pada: WYKRYTA PRZEZ BRAMĘ TYPÓW z nazwą kroku i pierwszą linią
+    jego wyjścia, BEZ WERDYKTU, gdy krok nie skończył się w czasie, a None, gdy każdy przechodzi."""
+
+    # Przez import_module: ci_lokalnie importuje ten moduł.
+    for step in importlib.import_module("ci_lokalnie").static_steps(copy):
+        left = _left(limit_s, deadline)
+        ran = _run_program(copy, step.command, left, stop) if left > 0 else _Ran(None, "czas minął, zanim się zaczął", None, "")
+        if ran.code is None:
+            return Verdict.NO_VERDICT, f"brama typów, {step.name}: {ran.last}"
+        if ran.code:
+            return Verdict.TYPE_GATE, f"{step.name}: {ran.first}"
+    return None
+
+
+def _gated(
+    mutation: Mutation, *, cache: Path, limit_s: float, stop: threading.Event, deadline: float | None
+) -> tuple[Verdict, str] | None:
+    if _left(limit_s, deadline) <= 0:
+        return Verdict.NO_VERDICT, "czas minął przed bramą typów"
+    with checkout_copy() as copy:
+        stale = _apply(copy, mutation.edits)
+        if stale:
+            return Verdict.STALE, stale
+        if cache.is_dir():
+            shutil.copytree(cache, copy / MYPY_CACHE)
+        return _gate(copy, limit_s=limit_s, stop=stop, deadline=deadline)
+
+
+def type_gate(
+    mutations: Sequence[Mutation],
+    found: Sequence[tuple[Verdict, str]],
+    *,
+    workers: int,
+    limit_s: float = TIMEOUT,
+    deadline: float | None = None,
+) -> list[tuple[Verdict, str]]:
+    """Werdykty ``found`` po bramie typów: mutację, którą polecenie przepuściło (NIEWYKRYTA, PRZEKROCZONY CZAS),
+    sprawdzają jeszcze kroki ruff i mypy obu systemów bramy pre-push (``ci_lokalnie.static_steps``).
+
+    Gdy któryś pada na kopii z mutacją, mutacja jest WYKRYTA PRZEZ BRAMĘ TYPÓW z nazwą kroku i pierwszą linią jego
+    wyjścia. Najpierw kroki biegną raz na kopii bez mutacji: gdy tam któryś pada, brama niczego nie dowodzi, więc linia
+    ``BRAMA TYPÓW CZERWONA`` i werdykty bez zmian; jej cache mypy dostaje każda kopia mutacji, więc mypy sprawdza od nowa
+    tylko moduły, które mutacja zmienia, i te, które od nich zależą. Krok bez wyniku przed ``limit_s`` albo ``deadline``
+    daje BEZ WERDYKTU.
+    """
+
+    gated = [index for index, (verdict, _) in enumerate(found) if verdict in {Verdict.SURVIVED, Verdict.OVER_LIMIT}]
+    if not gated:
+        return list(found)
+    result = list(found)
+    with tempfile.TemporaryDirectory(prefix="brama-typow-") as folder:
+        cache = Path(folder) / MYPY_CACHE
+        with checkout_copy() as copy:
+            red = _gate(copy, limit_s=limit_s, stop=threading.Event(), deadline=deadline)
+            if (copy / MYPY_CACHE).is_dir():
+                shutil.copytree(copy / MYPY_CACHE, cache)
+        if red is not None and red[0] is Verdict.NO_VERDICT:
+            for index in gated:
+                result[index] = (Verdict.NO_VERDICT, f"{found[index][1]} ({red[1]}, bez mutacji)")
+            return result
+        if red is not None:
+            print(f"BRAMA TYPÓW CZERWONA: {red[1]} (bez mutacji, więc przeżyte mutacje zostają przeżyte)", flush=True)
+            return result
+        run = partial(_gated, cache=cache, limit_s=limit_s, deadline=deadline)
+        for index, gate in zip(gated, _each(run, [mutations[index] for index in gated], workers), strict=True):
+            if gate is not None:
+                result[index] = gate
+    return result
 
 
 def _part(mutations: Sequence[Mutation], part: str) -> list[Mutation]:
@@ -358,8 +465,9 @@ def _against_base(
 def check_all(mutations: Sequence[Mutation], *, parallel: bool = True, limit_s: float = TIMEOUT, base: str | None = None) -> int:
     """Podstawa i werdykt każdej mutacji; kod 0, gdy CI złapałoby każdą (``in_ci``).
 
-    Z ``base``, czyli w przeglądzie z wiersza poleceń, porażką jest wszystko poza WYKRYTA, także ZAWIESZENIE, a mutacja
-    NIEWYKRYTA biegnie też na merge-base HEAD z ``base`` (REGRES).
+    Bez ``base`` (skrypty mutacji skilli) mutację, którą polecenie przepuściło, sprawdza jeszcze ``type_gate``. Z
+    ``base``, czyli w przeglądzie z wiersza poleceń, porażką jest wszystko poza WYKRYTA, także ZAWIESZENIE, a mutacja
+    NIEWYKRYTA biegnie też na merge-base HEAD z ``base`` (REGRES), bez bramy typów.
     """
 
     if not mutations:
@@ -383,6 +491,8 @@ def check_all(mutations: Sequence[Mutation], *, parallel: bool = True, limit_s: 
     found = list(verdicts(mutations, workers=workers, limit_s=limit_s))
     if base is not None:
         found = _against_base(mutations, found, base, workers=workers, limit_s=limit_s)
+    else:
+        found = type_gate(mutations, found, workers=workers, limit_s=limit_s)
     for mutation, (verdict, shown) in zip(mutations, found, strict=True):
         caught, last = (verdict is Verdict.CAUGHT, shown) if base is not None else in_ci(verdict, shown)
         failures += not caught

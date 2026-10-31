@@ -30,6 +30,11 @@ Luka w teście nie jest defektem, który trafi do taty: ten zatrzymuje Wydanie z
 - Każda przeżyta mutacja trafia do issue `Przeżyte mutacje z #N` z etykietą `ready-for-agent` PR-u, który ostatni zmienił zmienione linie, które ona psuje (`git blame` na `main`, commit scalenia, a bez numeru w jego temacie API GitHuba).
   Jedno issue na PR, a ta sama mutacja nie trafia do niego drugi raz, także gdy jej linie się przesuną: porównuje się klucz z pliku i zmienionego kodu, bez numerów linii.
   Issue naprawia agent testem, który zabija mutację, albo linią `MUTACJA <id> | nie warto, bo <powód>`.
+- Przeżyta to mutacja, której nie wykrył ani test, ani brama typów (#703, zgoda Maksa w wątku T3 31.10).
+  Mutację, która przeżyła testy, sprawdzają jeszcze ruff i mypy obu systemów, te same kroki co brama pre-push (`tools/mutacje.py`, `type_gate`).
+  Gdy któryś pada, mutacja jest `WYKRYTA PRZEZ BRAMĘ TYPÓW` i nie trafia do issue, bo takiej zmiany nie wpuszczą brama pre-push ani zadanie CI „Ruff, mypy”; tak było z #674, który agent wyjaśniał ręcznie.
+  Tak samo liczy `check_all` skryptów mutacji skilli.
+  Brama biegnie tylko dla mutacji, które przeżyły testy, i raz bez mutacji, która daje im cache mypy; gdy bez mutacji pada, przeżyte zostają przeżyte.
 - Część, która nie dała wyniku, jest czerwona, a przebieg z nią jest czerwony i nie przesuwa bazy, więc następna noc sprawdza te linie jeszcze raz.
   Przeżyte mutacje to wynik, więc zostawiają część zieloną.
 - Skrypty mutacji skilli też nie biegną na PR: Mutation checks na PR to same podstawy `ci:` skilli, których `pilnuje:` albo folder trafia zmiana.
