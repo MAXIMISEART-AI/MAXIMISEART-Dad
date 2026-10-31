@@ -1,4 +1,5 @@
-"""Struktura testów: moduły niczego nie eksportują, a test czeka na stan i mierzy czas bez stałej liczby sekund.
+"""Struktura testów: moduły niczego nie eksportują, test czeka na stan i mierzy czas bez stałej liczby sekund, a eksplorator
+przeplotów skilla biegnie we własnym procesie.
 
 Wspólne dane i pomocniki są w ``tests.fixtures``.
 """
@@ -6,10 +7,12 @@ Wspólne dane i pomocniki są w ``tests.fixtures``.
 from __future__ import annotations
 
 import ast
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from itertools import pairwise
 from pathlib import Path
 import re
+
+import pytest
 
 from tests.fixtures.skladnia import dotted, imports
 
@@ -184,15 +187,15 @@ def _unpacked(target: ast.expr, value: ast.expr | None) -> Iterator[tuple[str, a
             yield name.id, None
 
 
-def _bindings(tree: ast.Module) -> dict[str, list[ast.expr | None]]:
-    """Każda wartość przypisana nazwie w module; ``None``, gdy nazwę wiąże coś innego niż przypisanie.
+def _bindings(nodes: Iterable[ast.AST]) -> dict[str, list[ast.expr | None]]:
+    """Każda wartość przypisana nazwie w węzłach; ``None``, gdy nazwę wiąże coś innego niż przypisanie.
 
     ``took += x`` to ``took = took + x``: dla ``_constant`` nazwa zależy od siebie, więc nie jest stałą, a dla
     ``_measured`` niesie odczyt zegara z ``x``.
     """
 
     bound: dict[str, list[ast.expr | None]] = {}
-    for node in ast.walk(tree):
+    for node in nodes:
         if isinstance(node, ast.Assign):
             for target in node.targets:
                 for bound_name, value in _unpacked(target, node.value):
@@ -271,7 +274,7 @@ def _constant_time_bounds(tree: ast.Module) -> Iterator[tuple[ast.Compare, str]]
     """
 
     names = imports(tree)
-    bound = _bindings(tree)
+    bound = _bindings(ast.walk(tree))
     parents = {child: node for node in ast.walk(tree) for child in ast.iter_child_nodes(node)}
     for statement in ast.walk(tree):
         if not isinstance(statement, ast.Assert):
@@ -320,5 +323,233 @@ def test_zmierzony_czas_nie_jest_ograniczony_stala_liczba() -> None:
             "prawdziwy czas, ogranicz go zegarem testu (time.perf_counter() przed i po); gdy podróbka trzyma "
             "odpowiedź, sprawdź stan (jeszcze nie odpowiedziała), a granicę końca kontra zawieszenia wpisz do "
             "CONSTANT_TIME_BOUNDS pod kluczem z nawiasu, z powodem.",
+        ]
+    )
+
+
+EXPLORER_FILE = re.compile(r"(explore_\w+)(?:\.py)?")
+EXPLORER_RUNS = frozenset({"explore", "main"})
+IN_PROCESS_EXPLORERS = {
+    "explore_publication": (
+        "prowadzi greenlety na wątku testu: nie ma wątku sprawdzenia, który mógłby porzucić z prawdziwą blokadą, "
+        "a limit pytest przerywa go jak każdy wiszący test (werdykt #660 r3, punkt 4)"
+    ),
+}
+Scope = ast.Module | ast.FunctionDef | ast.AsyncFunctionDef | ast.Lambda
+SCOPES = (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)
+
+
+def _own_nodes(scope: Scope) -> Iterator[ast.AST]:
+    """Węzły zakresu, jego parametry i ciało, bez wnętrza zagnieżdżonych funkcji i klas."""
+
+    pending = list(ast.iter_child_nodes(scope))
+    while pending:
+        node = pending.pop()
+        yield node
+        if not isinstance(node, (*SCOPES, ast.ClassDef)):
+            pending.extend(ast.iter_child_nodes(node))
+
+
+Frames = dict[Scope, dict[str, frozenset[str]]]
+# Nazwa w zakresie i funkcja, które wyrażenie już rozwija, żeby rekurencja w module testu się kończyła.
+Seen = frozenset[tuple[str, Scope] | ast.FunctionDef | ast.AsyncFunctionDef]
+
+
+class _Explorers:
+    """Które eksploratory (``explore_<co>``) może wskazywać wyrażenie modułu testu.
+
+    Eksplorator wskazuje napis z nazwą jego pliku albo modułu (``"explore_runs.py"``), import (``import explore_runs``)
+    i nazwa przypisana takiemu wyrażeniu w swoim zakresie albo w module. Wynik wywołania wskazuje to, co jego argumenty
+    i obiekt, na którym biegnie metoda (``spec_from_file_location(..., EXPLORER)``, ``module_from_spec(spec)``),
+    a wywołanie funkcji z tego modułu także to, co wskazuje jej ``return``, z parametrami związanymi z argumentami tego
+    wywołania albo z wartościami domyślnymi (``_load()``, ``_load(EXPLORER)``, ale nie ``_load(SCRIPT)``). Atrybut
+    eksploratora (``explorer.runs``) nie jest już eksploratorem. Napis z kodem dla ``subprocess`` (``"-c", "import
+    explore_runs"``) nie jest napisem z nazwą pliku, więc nie wskazuje niczego.
+    """
+
+    def __init__(self, tree: ast.Module) -> None:
+        self.names = imports(tree)
+        self.parents = {child: node for node in ast.walk(tree) for child in ast.iter_child_nodes(node)}
+        self.scopes = {node: _bindings(_own_nodes(node)) for node in ast.walk(tree) if isinstance(node, SCOPES)}
+        self.functions = {
+            node.name: node for node in ast.walk(tree) if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        }
+
+    def _scope(self, node: ast.AST) -> Scope:
+        while not isinstance(node, SCOPES):
+            node = self.parents[node]
+        return node
+
+    def _name(self, name: ast.Name, seen: Seen, frames: Frames) -> frozenset[str]:
+        imported = self.names.get(name.id, "").rpartition(".")[2]
+        if EXPLORER_FILE.fullmatch(imported):
+            return frozenset({imported})
+        node: ast.AST = name
+        while node in self.parents:
+            scope = self._scope(self.parents[node])
+            if name.id in frames.get(scope, {}):
+                return frames[scope][name.id]
+            if name.id in self.scopes[scope]:
+                if (name.id, scope) in seen:
+                    return frozenset()
+                values = [value for value in self.scopes[scope][name.id] if value is not None]
+                return frozenset().union(*(self.of(value, seen | {(name.id, scope)}, frames) for value in values))
+            node = scope
+        return frozenset()
+
+    def _parameters(
+        self, function: ast.FunctionDef | ast.AsyncFunctionDef, call: ast.Call, seen: Seen, frames: Frames
+    ) -> dict[str, frozenset[str]]:
+        """Co wskazuje każdy parametr ``function`` w wywołaniu ``call``: jego argument albo wartość domyślna.
+
+        Znana granica: argument ``*args`` wiąże się z jednym parametrem, a ``**kwargs`` z żadnym.
+        """
+
+        arguments = function.args
+        positional = [*arguments.posonlyargs, *arguments.args]
+        with_default = positional[len(positional) - len(arguments.defaults) :]
+        defaults = {parameter.arg: default for parameter, default in zip(with_default, arguments.defaults, strict=True)}
+        defaults |= {
+            parameter.arg: default
+            for parameter, default in zip(arguments.kwonlyargs, arguments.kw_defaults, strict=True)
+            if default is not None
+        }
+        count = min(len(positional), len(call.args))
+        given = {parameter.arg: argument for parameter, argument in zip(positional[:count], call.args[:count], strict=True)}
+        given |= {keyword.arg: keyword.value for keyword in call.keywords if keyword.arg is not None}
+        return {name: self.of(default, seen) for name, default in defaults.items()} | {
+            name: self.of(argument, seen, frames) for name, argument in given.items()
+        }
+
+    def of(self, expression: ast.AST, seen: Seen = frozenset(), frames: Frames | None = None) -> frozenset[str]:
+        frames = frames or {}
+        if isinstance(expression, ast.Constant) and isinstance(expression.value, str):
+            matched = EXPLORER_FILE.fullmatch(expression.value)
+            return frozenset({matched.group(1)}) if matched else frozenset()
+        if isinstance(expression, ast.Name):
+            return self._name(expression, seen, frames)
+        if isinstance(expression, (ast.Attribute, Definition)):
+            return frozenset()
+        found = frozenset().union(*(self.of(child, seen, frames) for child in ast.iter_child_nodes(expression)))
+        if not isinstance(expression, ast.Call):
+            return found
+        if isinstance(expression.func, ast.Attribute):
+            found |= self.of(expression.func.value, seen, frames)
+        function = self.functions.get(expression.func.id) if isinstance(expression.func, ast.Name) else None
+        if function is not None and function not in seen:
+            inside = {**frames, function: self._parameters(function, expression, seen, frames)}
+            returned = [node.value for node in ast.walk(function) if isinstance(node, ast.Return) and node.value]
+            found |= frozenset().union(*(self.of(value, seen | {function}, inside) for value in returned))
+        return found
+
+    def run_in_process(self, call: ast.Call) -> frozenset[str]:
+        """Eksploratory, których ``explore`` albo ``main`` biegnie w tym wywołaniu w procesie testu.
+
+        ``explorer.explore(...)``, ``explore_runs.main(...)``, ``main(...)`` po ``from explore_runs import main``
+        i ``runpy.run_path(EXPLORER)``. Znana granica: wywołanie przez inną nazwę (``run = explorer.main``)
+        i przez ``getattr``.
+        """
+
+        function = call.func
+        if isinstance(function, ast.Attribute) and function.attr in EXPLORER_RUNS:
+            return self.of(function.value)
+        if isinstance(function, ast.Name):
+            owner, _, attribute = self.names.get(function.id, "").rpartition(".")
+            if attribute in EXPLORER_RUNS and EXPLORER_FILE.fullmatch(owner.rpartition(".")[2]):
+                return frozenset({owner.rpartition(".")[2]})
+        if dotted(function, self.names, "") in {"runpy.run_path", "runpy.run_module"}:
+            return frozenset().union(*(self.of(argument) for argument in call.args[:1]))
+        return frozenset()
+
+
+def _explorers_in_process(tree: ast.Module) -> Iterator[tuple[ast.Call, str]]:
+    explorers = _Explorers(tree)
+    calls = sorted((node for node in ast.walk(tree) if isinstance(node, ast.Call)), key=lambda call: call.lineno)
+    for call in calls:
+        for explorer in sorted(explorers.run_in_process(call)):
+            yield call, explorer
+
+
+LOADER = """
+import importlib.util
+from pathlib import Path
+
+EXPLORER = Path("scripts") / "explore_runs.py"
+SCRIPT = Path("scripts") / "sprawdz_model.py"
+
+
+def _load(path=EXPLORER):
+    spec = importlib.util.spec_from_file_location(path.stem, path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_wczytuje_eksplorator():
+    module = _load(EXPLORER)
+
+
+def test_ta_sama_nazwa_w_innym_zakresie():
+    module = _load(SCRIPT)
+    module.main([])
+"""
+
+
+@pytest.mark.parametrize(
+    ("test", "in_process"),
+    [
+        pytest.param("_load().explore(SCOPE)", ["explore_runs"], id="wynik-wczytania-z-domyslna-sciezka"),
+        pytest.param("explorer = _load(EXPLORER)\nexplorer.main([])", ["explore_runs"], id="nazwa-wczytanego-modulu"),
+        pytest.param("import explore_runs as er\ner.main([])", ["explore_runs"], id="import-z-inna-nazwa"),
+        pytest.param("from explore_outbox import explore\nexplore(SCOPE)", ["explore_outbox"], id="import-funkcji"),
+        pytest.param("from scripts import explore_runs\nexplore_runs.main([])", ["explore_runs"], id="import-z-pakietu"),
+        pytest.param("import runpy\nrunpy.run_path(str(EXPLORER))", ["explore_runs"], id="runpy"),
+        pytest.param("_load(SCRIPT).main([])", [], id="inny-skrypt-przez-ten-sam-pomocnik"),
+        pytest.param("_load().runs.main()", [], id="atrybut-eksploratora"),
+        pytest.param(
+            "import subprocess, sys\nsubprocess.run([sys.executable, '-c', 'import explore_runs; explore_runs.main([])'], timeout=9)",
+            [],
+            id="kod-w-napisie-dla-subprocess",
+        ),
+        pytest.param("import subprocess, sys\nsubprocess.run([sys.executable, str(EXPLORER)], timeout=9)", [], id="sciezka-dla-subprocess"),
+    ],
+)
+def test_eksplorator_w_procesie_testu_to_wywolanie_explore_albo_main_modulu_eksploratora(test: str, in_process: list[str]) -> None:
+    body = "".join(f"    {line}\n" for line in test.splitlines())
+    tree = ast.parse(f"{LOADER}\n\ndef test_przyklad():\n{body}")
+
+    assert [explorer for _, explorer in _explorers_in_process(tree)] == in_process
+
+
+def test_eksplorator_przeplotow_biegnie_we_wlasnym_procesie_testu_z_limitem() -> None:
+    """Eksplorator przeplotów skilla ``verify-*`` (``.agents/skills/*/scripts/explore_*.py``) biegnie w teście przez
+    ``subprocess`` z limitem, nie w procesie pytest.
+
+    Wątek modelu, który czeka na prawdziwą blokadę spoza modelu, staje na zawsze, a eksplorator porzuca go razem z tą
+    blokadą. W workerze pytest stawał wtedy każdy następny test Centrum, który brał tę blokadę, a sesja wisiała bez
+    linii LUKA (#651, przegląd #660 rundy 1 i 2). Objaw widać tylko przy defekcie, więc żaden zielony test go nie
+    pokaże. Sprawdzenie czyta AST modułów testów (``_Explorers``), nie tekst: kod w napisie dla ``subprocess`` nie
+    jest wywołaniem. Wyjątki są w ``IN_PROCESS_EXPLORERS`` z powodem.
+    """
+
+    found, excepted = [], set()
+    for path in sorted(TESTS.rglob("*.py")):
+        name = path.relative_to(TESTS).as_posix()
+        for call, explorer in _explorers_in_process(ast.parse(path.read_text(encoding="utf-8"))):
+            if explorer in IN_PROCESS_EXPLORERS:
+                excepted.add(explorer)
+            else:
+                found.append(f"tests/{name}:{call.lineno}: {ast.unparse(call.func)}(…) uruchamia {explorer} w procesie testu")
+    found += [
+        f"IN_PROCESS_EXPLORERS: {explorer} nie biegnie już w procesie testu, usuń wpis"
+        for explorer in sorted(IN_PROCESS_EXPLORERS.keys() - excepted)
+    ]
+
+    assert not found, "\n".join(
+        [
+            *found,
+            "Uruchom eksplorator we własnym procesie z limitem poniżej limitu pytest, jak _in_own_process w "
+            "tests/test_jedno_uruchomienie_naraz.py (skrypt w -c albo ścieżka do explore_*.py), i sprawdź kod wyjścia "
+            "i linie wyjścia; eksplorator, który nie może porzucić wątku, wpisz do IN_PROCESS_EXPLORERS z powodem.",
         ]
     )
