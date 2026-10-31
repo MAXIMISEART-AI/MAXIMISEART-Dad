@@ -10,7 +10,7 @@ only after every workbook is ready.
 - `prepare-copy` preserves Wzorzec rozliczenia pracownika sheets, formulas, rates, formatting, and external links (the live fixture has no external link; `tests/test_workbook_files.py::test_plik_z_wzorca_przez_openpyxl_ma_wiersze_danych_formuly_formatowanie_i_kazdy_link_zewnetrzny` proves that part for a Rozliczenie pracownika written by openpyxl, and `test_rozliczenie_pracownika_z_wzorca_zachowuje_wspolne_formuly_calcchain_i_flagi_przeliczania` for one written by the copy).
 - `prepare-empty` creates an empty workbook for a configured worker without source rows.
 - `prepare-atomic` stages the folder and publishes it only after all workbooks succeed.
-- `prepare-rollback` removes staging files after a workbook failure, including a Wzorzec rozliczenia pracownika that changed after Sprawdzanie (`BLAD_KOPII_WZORCA`, `BLAD_SZABLONU_PRACOWNIKA`, see `safety-gates.md`); an unknown worker or a Wiersz danych without `WYKONAWCA` blocks a real run during planning, before staging starts.
+- `prepare-rollback` removes staging files after a workbook failure, including a Wzorzec rozliczenia pracownika that changed after Sprawdzanie (`BLAD_KOPII_WZORCA`, `BLAD_SZABLONU_PRACOWNIKA`, see `safety-gates.md`) and a failed save (`OSError`, `WorkbookSaveError`: `BLAD_SZABLONU_PRACOWNIKA`); any other exception is an unexpected stop „do Maksa”; an unknown worker or a Wiersz danych without `WYKONAWCA` blocks a real run during planning, before staging starts.
 
 ## How to get to it (user POV)
 
