@@ -72,11 +72,15 @@ The check holds that copy to five rules, for any Wiersze danych:
 
 ## Does the change touch it?
 
-Coverage, confirmed at **sync commit `11588db1`** (2026-10-25, `main` after #474). From the previous
-sync commit `5714940`, the covered code moved into `template_file.py`, `workbook_save.py` and
-`workbook_parts.py` (each move changed the checker with it), `template_copy.Row` became a dataclass
-with `DataCell`s, cells outside A:L read as General (`6b070dfa`), and Ilości tylko dla INEA reach the
-copy as empty cells with Wyróżnienia (`395949dc`), which the generator already draws (`data_rows` draws Wyróżnienia apart from values). No rule changed.
+Coverage, confirmed at **sync commit `054308111`** (2026-10-31, `main` after #710). From the previous
+sync commit `11588db1`, `template_copy.py` did not change. `WorkbookSaveError` carries its target and
+`SaveProblem` instead of a sentence (`b41bf175e`), which the checker never reads (a refusal is its
+exception type); `TemplateFile` knows its `TemplateKind` (`c4d0ffc1b`); `write_atomically` takes an
+optional `replace`, which only INTERMAX passes (`7d848832e`); the synthetic Wzorce open at A1 in 75%
+(`1bbca36e0`, the sheet view only). The openpyxl path now also refuses a Wzorzec rozliczenia pracownika
+whose written Wiersze danych are merged (`_ensure_unmerged`, `6aa0f6e21`, `e411c8df5`), as the copy
+already sent such a Wzorzec down the old path; no Wzorzec here has merged Wiersze danych, so the check
+does not reach that refusal. No rule changed.
 The coverage at this commit:
 
 | Code | What the check covers |
@@ -95,7 +99,7 @@ Run the check when a diff touches any of these. To see whether the covered code 
 sync commit:
 
 ```bash
-git diff --stat 11588db1 -- src/rozliczenia/template_copy.py src/rozliczenia/workbook_parts.py src/rozliczenia/highlights.py src/rozliczenia/row_look.py src/rozliczenia/hyperlinks.py src/rozliczenia/workbook_files.py src/rozliczenia/template_file.py src/rozliczenia/workbook_save.py tools/porownanie_rozliczen.py tools/syntetyczne_wzorce.py tests/fixtures/settlement.py tests/fixtures/workbooks.py
+git diff --stat 054308111 -- src/rozliczenia/template_copy.py src/rozliczenia/workbook_parts.py src/rozliczenia/highlights.py src/rozliczenia/row_look.py src/rozliczenia/hyperlinks.py src/rozliczenia/workbook_files.py src/rozliczenia/template_file.py src/rozliczenia/workbook_save.py tools/porownanie_rozliczen.py tools/syntetyczne_wzorce.py tests/fixtures/settlement.py tests/fixtures/workbooks.py
 ```
 
 Changes elsewhere (reading the Plik zbiorczy, `engine.py`, publication of the Folder rozliczeń
@@ -203,7 +207,8 @@ Not covered:
   raw text, so they share that quirk. The quirk is not checked. A Plik zbiorczy read by openpyxl
   practically never carries a raw `\r` (Excel stores it as `_x000D_`).
 - Only the Wzorce above. Wzorce of other shapes go the old way (`UnsupportedShape`), and that
-  routing decision is not checked.
+  routing decision is not checked. Neither is the refusal of a Wzorzec whose written Wiersze danych
+  are merged (`_ensure_unmerged` on the openpyxl path), which `tests/test_settlement_engine.py` covers.
 - Ilości usług (`RegisterRow.quantities`, `SheetLayout.quantity_columns`). Only the Plik zbiorczy gets
   them, so every Rozliczenie pracownika here has none; `tests/test_ilosci_uslug.py` compares the
   copy with the openpyxl path for them.
