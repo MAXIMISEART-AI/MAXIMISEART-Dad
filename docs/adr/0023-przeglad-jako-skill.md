@@ -32,8 +32,12 @@ Przypadki, które po tej decyzji są Ważne:
 
 - #496: hook `PermissionRequest` miał oddawać agentowi odmowę, zanim Claude Code zapyta człowieka o zgodę na `rm`, a przepuszczał `cd <katalog> && \rm -f logi/*` i `cd <katalog> && env rm -f logi/*`, na których Claude Code dalej pytał, bo słowo polecenia musiało być dosłownie `rm`.
   Repo zachowywało się dobrze, a dziura była w samym hooku.
-- #408 i #670: w pomiarze zaliczone do czystych, a część recenzentów dawała im Ważne za przypadek, który sprawdzenie z PR przepuszcza wbrew swojej regule.
-  Ten spór rozstrzyga ta decyzja: takie znalezisko jest Ważne, a pomiar liczy je odtąd jako przypadki z błędem, nie jako fałszywe Ważne.
+- #670: PR dodał test struktury kotwic mutacji skilli, który trafia też do testów nocnych mutacji zmienionych linii i zabija mutanta tylko dlatego, że zmienił się tekst linii.
+  Noc nie zakłada wtedy issue `Przeżyte mutacje z #N`, choć zmiany nie pilnuje żaden test zachowania.
+  Na tym SHA produkt zachowywał się dobrze, więc pomiar liczył #670 jako czysty, a znalezisko recenzenta jako fałszywe Ważne.
+  Ta decyzja rozstrzyga ten spór: takie znalezisko jest Ważne, a pomiar liczy je odtąd jako przypadek z błędem.
+- #408 to inny przypadek z tego samego sporu: zmieniony test przestał łapać brak zabicia drzewa Gita (mutacja `WYKRYTA` na merge-base, `NIEWYKRYTA` na HEAD).
+  To „test, który przestał sprawdzać to, co sprawdzał”, czyli Ważne już według dotychczasowej reguły, a nie dziura w sprawdzeniu w rozumieniu tej decyzji.
 
 ## Dowód
 
