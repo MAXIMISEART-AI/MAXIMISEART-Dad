@@ -42,17 +42,22 @@ touches any of these, or the exception mapping in `write_period_files`, or makes
 `prepare_collective_file()` publish without going through `write_period_files`.
 Changes to workbook content (`_write_period_file`, styles, Rejestr reading) do
 not matter here: the check replaces workbook writing with one step that creates
-the staged file.
+the staged file and returns the file's kind and a route, as `_write_period_file`
+returns them for the metrics record (`RouteCounts`).
 
-**Sync commit: `11588db1`** (2026-10-25, `main` after #474). At this commit the
-checker was confirmed to describe the code above. Before it the skill recorded
-none; from `cb4e044d`, the last change to its scripts, `preparation_files.py`
-changed only the row type (`RegisterRow`) and the Wzorce calls, and
+**Sync commit: `054308111`** (2026-10-31, `main` after #710). At this commit the
+checker was confirmed to describe the code above. From the previous sync commit
+`11588db1`, `write_period_files` returns the routes of both files
+(`c4d0ffc1b`, `e4824c09c`), so the checker's workbook step returns a kind and a
+route too; Sprawdzanie stops on Surowe zlecenia in the period (#471,
+`c086a9acd`) before Odczyt danych, outside the check; the warning about columns
+from the description became unconditional (`6aa0f6e21`). The publication steps,
+`_publish`, the rollback and the exception mapping did not change, and
 `prepare_collective_file` still publishes only through `write_period_files`. To
 see whether the checker needs another look:
 
 ```bash
-git log --oneline 11588db1..HEAD -- src/rozliczenia/preparation_files.py src/rozliczenia/collective_preparation.py
+git log --oneline 054308111..HEAD -- src/rozliczenia/preparation_files.py src/rozliczenia/collective_preparation.py
 ```
 
 Read each listed commit against the steps above. Move the sync commit forward

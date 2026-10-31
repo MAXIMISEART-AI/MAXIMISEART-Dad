@@ -51,6 +51,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "src"))
 from rozliczenia import preparation_files
 from rozliczenia.period_folder import PeriodFolder
 from rozliczenia.settlement_period import parse_period_token
+from rozliczenia.template_file import Route, TemplateFile, TemplateKind
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
 
@@ -498,13 +499,14 @@ class _StagingDirectory:
 
 @contextmanager
 def harness(disk: VirtualDisk, scheduler: Scheduler) -> Iterator[None]:
-    def write_period_file(template: object, target: Path, rows: object) -> None:
+    def write_period_file(template: TemplateFile, target: Path, rows: object) -> tuple[TemplateKind, Route]:
         scheduler.step(
             "zapis skoroszytu",
             (target,),
             mutating=True,
             perform=lambda: disk.create(target, is_dir=False, owner=disk.actor),
         )
+        return template.kind, Route.COPY
 
     class TempfileShim:
         @staticmethod
