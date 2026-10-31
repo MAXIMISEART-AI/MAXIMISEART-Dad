@@ -8,9 +8,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from datetime import datetime, timedelta
-import errno
 import json
-import os
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -32,6 +30,7 @@ from tests.fixtures.centrum_intermax import (
     ordering_centrum,
 )
 from tests.fixtures.intermax import ACTIVITIES, DEVICES, ORDER_SHEET, Intermax, Order
+from tests.fixtures.intermax_disk import denied, failing_replace
 
 COPY = "INTERMAX przed uporządkowaniem 2026-10-26 14-05-07.xlsx"
 SUMMARY: dict[str, Any] = {
@@ -133,29 +132,9 @@ def test_centrum_bez_wskazanego_folderu_kopii_kladzie_kopie_intermax_w_folderze_
     assert (tool / "Kopie INTERMAX" / COPY).read_bytes() == original
 
 
-def _replace_refused(monkeypatch: pytest.MonkeyPatch, times: int | None) -> list[int]:
-    """OneDrive odmawia podmiany INTERMAX ``times`` razy (``None``: zawsze); zwraca listę prób podmiany."""
-
-    replace_file = os.replace
-    attempts: list[int] = []
-
-    def refused(source: str | os.PathLike[str], target: str | os.PathLike[str]) -> None:
-        if Path(target).name == REGISTER_NAME:
-            attempts.append(1)
-            assert len(attempts) < 100, "ponowna próba bez przerwy na zegarze Centrum"
-            if times is None or len(attempts) <= times:
-                raise OSError(errno.EACCES, os.strerror(errno.EACCES))
-        replace_file(source, target)
-
-    monkeypatch.setattr(os, "replace", refused)
-    return attempts
-
-
-def test_po_chwilowej_odmowie_onedrive_uporzadkuj_z_centrum_ponawia_podmiane_na_zegarze_centrum(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_po_chwilowej_odmowie_onedrive_uporzadkuj_z_centrum_ponawia_podmiane_na_zegarze_centrum(tmp_path: Path) -> None:
     centrum = ordering_centrum(tmp_path)
-    attempts = _replace_refused(monkeypatch, 2)
+    centrum.disk.replace, attempts = failing_replace(denied, times=2)
     started_at = centrum.surroundings.clock.seconds
 
     view = centrum.run_to_end()
@@ -166,11 +145,11 @@ def test_po_chwilowej_odmowie_onedrive_uporzadkuj_z_centrum_ponawia_podmiane_na_
 
 
 def test_gdy_onedrive_dalej_trzyma_intermax_centrum_mowi_tacie_o_synchronizacji_po_pieciu_sekundach_zegara(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
 ) -> None:
     centrum = ordering_centrum(tmp_path)
     original = centrum.register.read_bytes()
-    attempts = _replace_refused(monkeypatch, None)
+    centrum.disk.replace, attempts = failing_replace(denied)
     started_at = centrum.surroundings.clock.seconds
 
     view = _stopped(centrum)
