@@ -22,6 +22,8 @@ import ast
 from pathlib import Path
 import re
 
+import pytest
+
 from tests.fixtures.expect import assert_expected
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -49,7 +51,12 @@ def _first_paragraph(path: Path) -> list[str]:
 
 
 def _required_subcommands(path: Path) -> list[str]:
-    """Podkomendy ``add_parser`` narzędzia, którego ``add_subparsers`` ma ``required=True``; pusta lista bez takich."""
+    """Podkomendy ``add_parser`` narzędzia, którego ``add_subparsers`` ma ``required=True``; pusta lista bez takich.
+
+    Nazwę podkomendy czyta tylko ze stałej w ``add_parser("<nazwa>")``: narzędzie z ``required=True``, które dodaje
+    podkomendę inaczej (w pętli, ze zmiennej) albo nie dodaje żadnej, to ``ValueError``, bo test nie wie, którą z nich
+    pierwsze zdanie ma wymienić, a pusta lista przepuściłaby je bez sprawdzenia.
+    """
 
     calls = [
         (node.func.attr, node)
@@ -61,8 +68,16 @@ def _required_subcommands(path: Path) -> list[str]:
         and any(keyword.arg == "required" and isinstance(keyword.value, ast.Constant) and keyword.value.value is True for keyword in call.keywords)
         for method, call in calls
     )
-    names = [call.args[0].value for method, call in calls if method == "add_parser" and call.args and isinstance(call.args[0], ast.Constant)]
-    return [name for name in names if isinstance(name, str)] if required else []
+    if not required:
+        return []
+    parsers = [call for method, call in calls if method == "add_parser"]
+    names = [call.args[0].value for call in parsers if call.args and isinstance(call.args[0], ast.Constant) and isinstance(call.args[0].value, str)]
+    if not parsers or len(names) != len(parsers):
+        raise ValueError(
+            f"{path.name}: add_subparsers(required=True), a nazwy każdej podkomendy nie da się odczytać ze stałej w "
+            'add_parser("<nazwa>"); dodaj każdą podkomendę osobnym add_parser ze stałą nazwą'
+        )
+    return names
 
 
 def _names_subcommand_in_brackets(sentence: str, subcommands: list[str]) -> bool:
@@ -150,13 +165,20 @@ def test_dokument_agenta_nie_kaze_mu_uruchamiac_skryptu_ci() -> None:
     )
 
 
-def test_pierwsze_zdanie_narzedzia_z_obowiazkowa_podkomenda_ja_wymienia() -> None:
+def _without_subcommand_in_first_sentence(paths: list[Path]) -> dict[Path, list[str]]:
+    """Narzędzia z obowiązkową podkomendą, których pierwsze zdanie docstringu nie wymienia żadnej w nawiasie."""
+
     missing = {}
-    for path in _tools():
+    for path in paths:
         subcommands = _required_subcommands(path)
         sentence = " ".join(_first_paragraph(path))
         if subcommands and not _names_subcommand_in_brackets(sentence, subcommands):
-            missing[path.relative_to(ROOT).as_posix()] = subcommands
+            missing[path] = subcommands
+    return missing
+
+
+def test_pierwsze_zdanie_narzedzia_z_obowiazkowa_podkomenda_ja_wymienia() -> None:
+    missing = {path.relative_to(ROOT).as_posix(): subcommands for path, subcommands in _without_subcommand_in_first_sentence(_tools()).items()}
 
     assert missing == {}, (
         f"te narzędzia wymagają podkomendy, a pierwsze zdanie docstringu (pozycja spisu) żadnej nie wymienia w nawiasie: {missing}; "
@@ -164,12 +186,43 @@ def test_pierwsze_zdanie_narzedzia_z_obowiazkowa_podkomenda_ja_wymienia() -> Non
     )
 
 
-def test_podkomendy_sa_obowiazkowe_tylko_z_required_true(tmp_path: Path) -> None:
-    parser = "import argparse\ncommands = argparse.ArgumentParser().add_subparsers({})\ncommands.add_parser('plan')\ncommands.add_parser('wykonaj')\n"
-    (tmp_path / "wymaga.py").write_text(parser.format("dest='polecenie', required=True"), encoding="utf-8")
-    (tmp_path / "nie_wymaga.py").write_text(parser.format("dest='polecenie'"), encoding="utf-8")
+PARSER = "import argparse\ncommands = argparse.ArgumentParser().add_subparsers({})\ncommands.add_parser('plan')\ncommands.add_parser('wykonaj')\n"
 
-    assert (_required_subcommands(tmp_path / "wymaga.py"), _required_subcommands(tmp_path / "nie_wymaga.py")) == (["plan", "wykonaj"], [])
+
+def test_podkomendy_sa_obowiazkowe_tylko_z_required_true(tmp_path: Path) -> None:
+    arguments = {"wymaga": "dest='polecenie', required=True", "bez_required": "dest='polecenie'", "required_false": "dest='polecenie', required=False"}
+    for name, argument in arguments.items():
+        (tmp_path / f"{name}.py").write_text(PARSER.format(argument), encoding="utf-8")
+
+    assert [_required_subcommands(tmp_path / f"{name}.py") for name in arguments] == [["plan", "wykonaj"], [], []]
+
+
+@pytest.mark.parametrize(
+    ("docstring", "missing"),
+    [
+        ("Drukuje plan runu CI i wykonuje jego zadanie (plan --baza origin/main), gdy agent chce zobaczyć plan.", False),
+        ("Drukuje plan runu CI i wykonuje jego zadanie, gdy agent chce zobaczyć plan.\n\nPodkomendy: (plan --baza origin/main) i (wykonaj).", True),
+    ],
+    ids=["podkomenda w pierwszym zdaniu", "podkomenda tylko w dalszym akapicie"],
+)
+def test_podkomenda_liczy_sie_tylko_w_pierwszym_zdaniu_docstringu(tmp_path: Path, docstring: str, missing: bool) -> None:
+    tool = tmp_path / "narzedzie.py"
+    tool.write_text(f'"""{docstring}\n"""\n\n' + PARSER.format("required=True"), encoding="utf-8")
+
+    assert _without_subcommand_in_first_sentence([tool]) == ({tool: ["plan", "wykonaj"]} if missing else {})
+
+
+@pytest.mark.parametrize(
+    "parsers",
+    ["for name in ('plan', 'wykonaj'):\n    commands.add_parser(name)\n", "commands.add_parser('plan')\ncommands.add_parser(NAME)\n", ""],
+    ids=["w petli", "jedna ze zmiennej", "bez podkomend"],
+)
+def test_obowiazkowa_podkomenda_spoza_stalej_nie_przechodzi_po_cichu(tmp_path: Path, parsers: str) -> None:
+    tool = tmp_path / "narzedzie.py"
+    tool.write_text("import argparse\ncommands = argparse.ArgumentParser().add_subparsers(required=True)\n" + parsers, encoding="utf-8")
+
+    with pytest.raises(ValueError, match=r"nazwy każdej podkomendy nie da się odczytać ze stałej"):
+        _required_subcommands(tool)
 
 
 def test_podkomenda_liczy_sie_tylko_cala_w_nawiasie() -> None:

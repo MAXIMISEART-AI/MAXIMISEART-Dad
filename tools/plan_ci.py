@@ -573,7 +573,8 @@ def _krok_pytest(plan: Plan, zadanie: Zadanie, pliki: Mapping[str, list[tuple[in
     # Linia limitu mówi, że krok przerwał limit, a nie porażka testu, i gdzie szukać miejsca zawieszenia.
     po_limicie = (
         f" ({ZAPAS_PYTEST:.0f} × ściana zadania {zadanie.sciana_s:.0f} s z planu, najmniej {LIMIT_PYTEST_MIN_S} s): to nie porażka testu, tylko"
-        " test albo proces, który się zawiesił; wyżej stosy wątków testu, który wisiał ponad faulthandler_timeout z pyproject.toml"
+        " test albo proces, który się zawiesił; test, który wisiał ponad faulthandler_timeout z pyproject.toml, zostawił wyżej"
+        " stosy swoich wątków, a zawieszenie przy imporcie albo zbieraniu testów stosów nie zostawia"
     )
     status = _uruchom("krok:pytest", [(_pytest(pliki), limit)], po_limicie)["status"]
     if status != "ok" and plan.zdarzenie == "pull_request" and (testy := niestabilne_testy.padniete(JUNIT)):
