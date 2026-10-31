@@ -9,9 +9,11 @@ import subprocess
 import sys
 import zipfile
 
+from openpyxl import load_workbook
 import pytest
 
 from tests.fixtures.git_repo import commit, git
+from tests.fixtures.intermax import ORDER_SHEET, YELLOW
 from tests.fixtures.potomne import potomne
 from tests.fixtures.rownowaznosc import METRICS, rownowaznosc, stub_tree, write_workbook
 from tests.fixtures.workbooks import rewrite_parts
@@ -405,6 +407,19 @@ def test_kazdy_wariant_scenariusza_zmienia_wobec_bazowego_tylko_wejscia_ktore_na
 
     assert {scenario.name: _changed_inputs(tmp_path / BASES[scenario.process], tmp_path / scenario.name) for scenario in variants} == VARIANTS
     assert [scenario.name for scenario in variants if arguments[scenario.name] != arguments[BASES[scenario.process]]] == []
+
+
+def test_rejestr_wariantu_starszy_arkusz_zolte_komorki_ma_starszy_arkusz_zlecen_i_zolte_komorki_zamiast_wiersza(tmp_path: Path) -> None:
+    # Każda z dwóch zmian sama zmienia Rejestr wobec scenariusza bazowego, więc utratę drugiej łapie tylko ten test.
+    scenario = next(scenario for scenario in rownowaznosc.SCENARIOS if scenario.name == "intermax-starszy-arkusz-zolte-komorki")
+    rownowaznosc.built(scenario, tmp_path / "wejscia")
+
+    workbook = load_workbook(tmp_path / "wejscia" / REGISTER)
+
+    assert [name for name in workbook.sheetnames if name.startswith("ZLECENIA OD ")] == ["ZLECENIA OD 08_11_2021", ORDER_SHEET]
+    yellow = [cell.coordinate for row in workbook[ORDER_SHEET].iter_rows() for cell in row if cell.fill.fgColor.rgb == YELLOW.fgColor.rgb]
+    assert yellow != []
+    assert [number for number, row in workbook[ORDER_SHEET].row_dimensions.items() if row.fill.fgColor.rgb == YELLOW.fgColor.rgb] == []
 
 
 def test_rozliczenia_pracownikow_ze_wzorca_syntetycznego_maja_komentarz_wzorca_taty(tmp_path: Path) -> None:
