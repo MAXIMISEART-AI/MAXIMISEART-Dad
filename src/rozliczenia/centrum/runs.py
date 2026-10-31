@@ -2,8 +2,8 @@
 
 Centrum jest rozmówcą rdzenia Uruchomienia procesu (``process_run``) i
 podglądem projekcji postępu (ADR 0002, ADR 0004). Ten moduł nie zna żadnego
-procesu: proces podaje gotowe ``PreparedRun`` (rdzeń procesu z jego plikiem
-metryk, wejście procesu i widok Uruchomienia procesu z ``run_view``), a moduł
+procesu: proces podaje gotowe ``PreparedRun`` (wpis procesu z katalogu procesów, rdzeń
+procesu z jego plikiem metryk i wejście procesu), a moduł
 prowadzi z nim rdzeń i publikuje widoki dla przeglądarki. Widok podsumowania robi rdzeń
 w swojej osłonie, więc jego awaria to błąd po silniku z Komunikatem z katalogu
 procesu, ten sam wynik co w metrykach. Zatrzymania, ostrzeżenia i decyzja taty
@@ -35,6 +35,7 @@ from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
 
 from rozliczenia.centrum import contract
+from rozliczenia.centrum.catalog import ProcessDeclaration
 from rozliczenia.centrum.log import CentrumLog
 from rozliczenia.centrum.run_origins import CentrumRuns
 from rozliczenia.centrum.run_view import ProcessView, Shown, WarnedSummary
@@ -79,20 +80,19 @@ SummaryT = TypeVar("SummaryT", bound=WarnedSummary)
 
 @dataclass(frozen=True)
 class PreparedRun(Generic[InputsT, SummaryT]):
-    """Uruchomienie procesu gotowe do startu."""
+    """Uruchomienie procesu gotowe do startu: wpis procesu z katalogu, okres, rdzeń procesu i jego wejście."""
 
-    key: contract.ProcessKey
+    declaration: ProcessDeclaration[InputsT, SummaryT]
     period: str
     process: Process[InputsT, SummaryT]
     inputs: InputsT
-    view: ProcessView[InputsT, SummaryT]
 
     @property
     def dry_run(self) -> bool:
         return self.inputs.dry_run
 
     def progress_view(self, snapshot: ProgressSnapshot) -> contract.Progress:
-        return self.view.progress(snapshot, dry_run=self.dry_run)
+        return self.declaration.view.progress(snapshot, dry_run=self.dry_run)
 
 
 Ending = Literal["finished", "stop", "declined", "unexpected", "after_engine"]
@@ -364,7 +364,7 @@ class RunHost:
             self._events = []
             self._publish_locked(run.running_view())
             view = self._events[-1].view
-        self._log.run_started(process=prepared.key, mode=run.info.mode, period=prepared.period)
+        self._log.run_started(process=prepared.declaration.key, mode=run.info.mode, period=prepared.period)
         try:
             self._run_started(run.info, run.started_at)
         except Exception as failure:  # zapis startu na dysku nie może zmienić Uruchomienia
@@ -403,7 +403,7 @@ class RunHost:
         """Zapamiętuje rekord metryk, który dopisało Uruchomienie ``run_id``, jako Uruchomienie z Centrum."""
 
         metrics = MetricsStore(prepared.process.metrics_path(), prepared.process.counter_names)
-        self._centrum_runs.remember(prepared.key, run_id, metrics, since, datetime.now(timezone.utc))
+        self._centrum_runs.remember(prepared.declaration.key, run_id, metrics, since, datetime.now(timezone.utc))
 
     def failed(self, failure: Exception) -> None:
         """Wyniku Uruchomienia nie dało się pokazać: do dziennika tylko typ wyjątku, bez jego tekstu."""
@@ -460,15 +460,7 @@ class _Run:
         self._host = host
         self._prepared = prepared
         self._stops = stops
-        self.info = contract.RunInfo(
-            id=uuid.uuid4().hex,
-            process=prepared.key,
-            title=prepared.process.name,
-            period=prepared.period,
-            dry_run=prepared.dry_run,
-            confirms_readiness=prepared.view.confirms_readiness,
-            register_name=prepared.view.register_name,
-        )
+        self.info = prepared.declaration.run_info(run_id=uuid.uuid4().hex, period=prepared.period, dry_run=prepared.dry_run)
         self.started_at = datetime.now(timezone.utc)
         self._progress = prepared.progress_view(ProgressProjection().snapshot)
         self._stale = False
@@ -495,18 +487,18 @@ class _Run:
                 prepared.process,
                 prepared.inputs,
                 self,
-                view=prepared.view.shown,
+                view=prepared.declaration.view.shown,
                 metrics_path=prepared.process.metrics_path(),
             )
             self._host.remember(prepared, self.info.id, since)
             ended = self._ended(core, None if isinstance(core.ending, Finished) else core.ending, since)
-            result = ended.card(prepared.view)
+            result = ended.card(prepared.declaration.view)
         except Exception as failure:
             self._host.failed(failure)
             stop = Stop("after_engine", _RESULT_NOT_SHOWN, CallTrace.of(failure))
             core = None if core is None else replace(core, ending=stop, view=None, technical_notes=())
             ended = self._ended(core, stop, since)
-            result = ended.card(prepared.view)
+            result = ended.card(prepared.declaration.view)
         self.stopped = ended.stopped
         self._host.after(ended)
         self._host.finished(ended)
@@ -610,13 +602,13 @@ _STREAM_RESPONSES: dict[int | str, dict[str, Any]] = {
 
 
 class ProcessEntry(Protocol):
-    """Proces, który Centrum umie uruchomić: jego rdzeń, co pokazać przed startem i jak przygotować Uruchomienie."""
+    """Adapter startu procesu z okresem: co pokazać przed startem i jak przygotować Uruchomienie.
+
+    Klucz procesu podaje jego wpis w katalogu procesów (``catalog``).
+    """
 
     @property
     def key(self) -> contract.ProcessKey: ...
-
-    @property
-    def process(self) -> Process[Any, Any]: ...
 
     def setup(self) -> contract.ProcessSetup: ...
 

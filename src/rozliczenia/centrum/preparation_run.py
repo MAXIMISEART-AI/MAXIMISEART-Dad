@@ -11,21 +11,21 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 from typing import Any, Final
 
-from rozliczenia.centrum import contract, run_view
+from rozliczenia.centrum import contract
+from rozliczenia.centrum.catalog import PREPARATION
 from rozliczenia.centrum.configuration import ConfigurationFiles, InputWorkbook, open_in_excel
 from rozliczenia.centrum.metrics import previewed_periods
 from rozliczenia.centrum.period_board import observed_period_folder, requested_period
+from rozliczenia.centrum.processes import Processes
 from rozliczenia.centrum.runs import PreparedRun
-from rozliczenia.collective_preparation import PreparationSummary
-from rozliczenia.settings import Settings, SettingsStore
+from rozliczenia.settings import SettingsStore
 from rozliczenia.period_folder import PeriodFolders, period_status_label, scan_period_folders
 from rozliczenia.preparation_process import PreparationInputs
 from rozliczenia.input_checks import Readers
-from rozliczenia.process_run import Process
 from rozliczenia.settlement_period import SettlementPeriod, last_complete_period
 from rozliczenia.telemetry import MetricsStore
 
-_VIEW: Final = run_view.PREPARATION
+_VIEW: Final = PREPARATION.view
 _CHOSEN_WEEKS: Final = 8
 
 
@@ -35,30 +35,27 @@ class PreparationEntry:
 
     store: SettingsStore
     configuration: ConfigurationFiles
-    process: Process[PreparationInputs, PreparationSummary]
+    processes: Processes
     today: Callable[[], date]
     readers: Readers
 
     @property
     def key(self) -> contract.PeriodProcessKey:
-        return "preparation"
-
-    @property
-    def view(self) -> run_view.ProcessView[Any, Any]:
-        return _VIEW
+        return PREPARATION.key
 
     def setup(self) -> contract.ProcessSetup:
         settings = self.store.load()
         last_complete = last_complete_period(self.today())
         periods = [SettlementPeriod(last_complete.tuesday - timedelta(weeks=week)) for week in range(_CHOSEN_WEEKS)]
-        previewed = previewed_periods(MetricsStore(self.process.metrics_path(), self.process.counter_names))
+        process = PREPARATION.core(self.processes)
+        previewed = previewed_periods(MetricsStore(process.metrics_path(), process.counter_names))
         folders = scan_period_folders(settings.periods_directory) if settings.periods_directory is not None else None
         register = [] if settings.register is None else [InputWorkbook("Rejestr zleceń", settings.register, "data_file")]
         open_register = open_in_excel(register)
-        open_templates = open_in_excel(self.configuration.template_inputs(self.key))
+        open_templates = open_in_excel(self.configuration.template_inputs(PREPARATION.templates))
         return contract.ProcessSetup(
             process=self.key,
-            title=self.process.name,
+            title=PREPARATION.title,
             creates="Rozliczenie wewnętrzne i Plik zbiorczy",
             reminder=_VIEW.reminder,
             confirms_readiness=_VIEW.confirms_readiness,
@@ -75,18 +72,15 @@ class PreparationEntry:
                 for period in periods
             ],
             preselected_period=last_complete.token,
-            blocker=_blocker(settings),
+            blocker=PREPARATION.settings_blocker(settings),
         )
 
     def prepare(self, request: contract.RunRequest) -> PreparedRun[Any, Any]:
-        settings = self.store.load()
-        blocker = _blocker(settings)
-        if blocker is not None or settings.register is None or settings.periods_directory is None:
-            raise contract.Refusal(409, blocker or "Najpierw wskaż Rejestr zleceń i folder okresów.")
+        paths = PREPARATION.required_paths(self.store.load())
         period = requested_period(request.period).token
         inputs = PreparationInputs(
-            settings.register,
-            settings.periods_directory,
+            paths["register"],
+            paths["periods_directory"],
             period,
             dry_run=request.dry_run,
             config_path=self.configuration.worker_config,
@@ -95,21 +89,8 @@ class PreparationEntry:
             readers=self.readers,
         )
         return PreparedRun(
-            key=self.key,
-            period=period,
-            process=self.process,
-            inputs=inputs,
-            view=self.view,
+            declaration=PREPARATION, period=period, process=PREPARATION.core(self.processes), inputs=inputs
         )
-
-
-def _blocker(settings: Settings) -> str | None:
-    missing = [
-        name
-        for name, path in (("Rejestr zleceń", settings.register), ("folder okresów", settings.periods_directory))
-        if path is None
-    ]
-    return f"Najpierw wskaż {' i '.join(missing)}." if missing else None
 
 
 def _choice(

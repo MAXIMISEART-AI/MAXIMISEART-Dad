@@ -18,33 +18,31 @@ from typing import Any, Final
 
 from fastapi import APIRouter
 
-from rozliczenia.centrum import contract, run_view
+from rozliczenia.centrum import contract
+from rozliczenia.centrum.catalog import INTERMAX
 from rozliczenia.centrum.configuration import InputWorkbook, open_in_excel
+from rozliczenia.centrum.processes import Processes
 from rozliczenia.centrum.runs import PreparedRun, RunHost
 from rozliczenia import intermax_copies, intermax_messages, intermax_restore
 from rozliczenia.intermax_copies import Copy
 from rozliczenia.intermax_replace import Disk, Waiting
-from rozliczenia.intermax_ordering import OrderingSummary
 from rozliczenia.intermax_process import OrderingInputs
 from rozliczenia.message import StopError
-from rozliczenia.process_run import Process
 from rozliczenia.settings import Settings, SettingsStore
 
-_KEY: Final[contract.ProcessKey] = "intermax"
-_VIEW: Final = run_view.INTERMAX
-_NO_REGISTER: Final = "Najpierw wskaż INTERMAX."
+_VIEW: Final = INTERMAX.view
 
 
 @dataclass(frozen=True)
 class IntermaxEntry:
-    """Uporządkowanie INTERMAX jako proces uruchamiany z Centrum: rdzeń, folder Kopii INTERMAX i zegar procesu.
+    """Adapter startu Uporządkowania INTERMAX: rdzenie procesów, folder Kopii INTERMAX i zegar procesu.
 
     ``waiting``: zegar Centrum i jego przerwa dla krótkiej ponownej próby podmiany, której odmawia OneDrive, a
     ``disk`` kroki podmiany INTERMAX na dysku, te same dla Uporządkowania i przywrócenia Kopii.
     """
 
     store: SettingsStore
-    process: Process[OrderingInputs, OrderingSummary]
+    processes: Processes
     copies_directory: Path
     now: Callable[[], datetime]
     waiting: Waiting
@@ -52,20 +50,17 @@ class IntermaxEntry:
 
     @property
     def key(self) -> contract.ProcessKey:
-        return _KEY
-
-    @property
-    def view(self) -> run_view.ProcessView[Any, Any]:
-        return _VIEW
+        return INTERMAX.key
 
     def setup(self, last: contract.RunRestored | None) -> contract.IntermaxSetup:
         """Karta przed startem z ostatnim Uporządkowaniem INTERMAX ``last`` z Logów Uruchomienia."""
 
-        register = self.store.load().register
+        settings = self.store.load()
+        register = settings.register
         return contract.IntermaxSetup(
-            title=self.process.name,
+            title=INTERMAX.title,
             reminder=_VIEW.reminder,
-            blocker=None if register is not None else _NO_REGISTER,
+            blocker=INTERMAX.settings_blocker(settings),
             open_in_excel=[] if register is None else open_in_excel([InputWorkbook("INTERMAX", register, "data_file")]),
             last=last,
         )
@@ -75,7 +70,9 @@ class IntermaxEntry:
 
         register = _register(self.store.load())
         inputs = OrderingInputs(register, self.copies_directory, now=self.now, waiting=self.waiting, disk=self.disk)
-        return PreparedRun(key=_KEY, period=inputs.period, process=self.process, inputs=inputs, view=self.view)
+        return PreparedRun(
+            declaration=INTERMAX, period=inputs.period, process=INTERMAX.core(self.processes), inputs=inputs
+        )
 
     def copies(self) -> contract.IntermaxCopies:
         """Kopie INTERMAX od najnowszej albo Komunikat, gdy folderu Kopii nie da się odczytać."""
@@ -112,9 +109,7 @@ def _copy(copy: Copy) -> contract.IntermaxCopy:
 
 
 def _register(settings: Settings) -> Path:
-    if settings.register is None:
-        raise contract.Refusal(409, _NO_REGISTER)
-    return settings.register
+    return INTERMAX.required_paths(settings)["register"]
 
 
 def intermax_router(

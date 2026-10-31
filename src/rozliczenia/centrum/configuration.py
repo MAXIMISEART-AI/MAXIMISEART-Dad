@@ -20,6 +20,7 @@ from fastapi import APIRouter
 
 from rozliczenia import input_checks, settlement_messages, workbook_files
 from rozliczenia.centrum import contract
+from rozliczenia.centrum.catalog import TemplateRole
 from rozliczenia.centrum.keyed_box import KeyJudgement
 from rozliczenia.centrum.tool_freshness import Judgement, ReleaseSource, ToolFreshness, offers_update
 from rozliczenia.centrum.version import short_commit
@@ -50,21 +51,22 @@ class ConfigurationFiles:
         )
 
     def templates(self) -> tuple[Template, Template, Template]:
-        """Trzy Wzorce w kolejności Konfiguracji, każdy ze Sprawdzaniem procesu, który go używa."""
+        """Trzy Wzorce w kolejności Konfiguracji, każdy pod swoją rolą i ze Sprawdzaniem procesu, który go używa."""
 
         return (
-            Template("Wzorzec rozliczenia wewnętrznego", "preparation", ProcessTemplate.internal(self.internal_template)),
-            Template("Wzorzec pliku zbiorczego", "preparation", ProcessTemplate.collective(self.collective_template)),
-            Template("Wzorzec rozliczenia pracownika", "settlement", ProcessTemplate.worker(self.worker_template)),
+            Template("Wzorzec rozliczenia wewnętrznego", "internal", ProcessTemplate.internal(self.internal_template)),
+            Template("Wzorzec pliku zbiorczego", "collective", ProcessTemplate.collective(self.collective_template)),
+            Template("Wzorzec rozliczenia pracownika", "worker", ProcessTemplate.worker(self.worker_template)),
         )
 
-    def template_inputs(self, process: contract.ProcessKey) -> list[InputWorkbook]:
-        """Wzorce procesu ``process`` jako skoroszyty wejściowe, w kolejności Konfiguracji."""
+    def template_inputs(self, roles: tuple[TemplateRole, ...]) -> list[InputWorkbook]:
+        """Wzorce o rolach ``roles`` (Wzorce procesu z jego wpisu w katalogu) jako skoroszyty wejściowe, w kolejności
+        Konfiguracji."""
 
         return [
             InputWorkbook(template.label, template.path, "template")
             for template in self.templates()
-            if template.used_by == process
+            if template.role in roles
         ]
 
 
@@ -105,10 +107,10 @@ _Problem = tuple[contract.TemplateProblemKind, Message]
 
 @dataclass(frozen=True)
 class Template:
-    """Wzorzec: etykieta, proces, który z niego tworzy pliki, i Wzorzec tego procesu ze Sprawdzaniem."""
+    """Wzorzec: etykieta, rola, pod którą czyta go wpis procesu w katalogu, i Wzorzec procesu ze Sprawdzaniem."""
 
     label: str
-    used_by: contract.ProcessKey
+    role: TemplateRole
     template: ProcessTemplate
 
     @property

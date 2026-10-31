@@ -29,9 +29,10 @@ from fastapi.staticfiles import StaticFiles
 from rozliczenia.centrum.clock import SYSTEM_CLOCK, Clock
 from rozliczenia.centrum.cloud_files import CloudFiles
 from rozliczenia.centrum.configuration import CONFIGURATION_WAIT_S, ConfigurationFiles, configuration_router
+from rozliczenia.centrum.case_delivery import case_outbox
 from rozliczenia.centrum.contract import Health, Problem, Refusal
 from rozliczenia.centrum.dad_cases import DadCases
-from rozliczenia.centrum.dad_notes import after_delivery, dad_notes_router, with_logs
+from rozliczenia.centrum.dad_notes import dad_notes_router
 from rozliczenia.centrum.diagnosis import Surroundings, diagnose, files_of_process
 from rozliczenia.centrum.filling import FillingReads, filling_router
 from rozliczenia.centrum.intermax_run import IntermaxEntry, intermax_copies_router, intermax_router
@@ -42,13 +43,13 @@ from rozliczenia.centrum.period_board import periods_router
 from rozliczenia.centrum.platform import Platform
 from rozliczenia.centrum.keyed_box import KeyedBox, read_report_key
 from rozliczenia.centrum.report_box import GitHubReportBox, ReportBox
-from rozliczenia.centrum.outbox import ADDRESSES_FILE, QUEUE_DIRECTORY, Outbox, Post
+from rozliczenia.centrum.outbox import ADDRESSES_FILE, QUEUE_DIRECTORY
 from rozliczenia.centrum.quantity_check_run import QuantityCheckAfterRun
 from rozliczenia.centrum.reports import SEARCH_DEADLINE_S, UNSENT_DIRECTORY, Reports
 from rozliczenia.centrum.preparation_run import PreparationEntry
 from rozliczenia.centrum.processes import Processes
 from rozliczenia.centrum.run_cards import LAST_STARTED_FILE, RunCards, run_cards_router
-from rozliczenia.centrum.run_logs import LABEL as RUN_LOGS_LABEL, RUN_LOGS_DIRECTORY, RunLogs
+from rozliczenia.centrum.run_logs import RUN_LOGS_DIRECTORY, RunLogs
 from rozliczenia.centrum.run_origins import CENTRUM_RUNS_FILE, CentrumRuns
 from rozliczenia.centrum.runs import ProcessEntry, RunHost, runs_router
 from rozliczenia.centrum.settings import settings_router
@@ -184,31 +185,9 @@ def create_app(
     filling = FillingReads(clock=clock)
     app.include_router(filling_router(store, log, surroundings.cloud_files, filling))
     # Kontrola ilości, Logi Uruchomienia, Uwagi taty i Zgłoszenia: w kolejce Skrzynki, wysyłane w tle (ADR 0007, 0013,
-    # 0015); numer issue Uwagi albo Zgłoszenia trafia do jego Sprawy taty.
-
-    def delivered(post: Post, number: int) -> None:
-        after_delivery(post, number, cases, outbox)
-        reports.delivered(post, number)
-
-    def rejected(post: Post) -> None:
-        cases.rejected(post.run_id)
-        reports.rejected(post)
-
-    def run_logs_address(run_id: str) -> str | None:
-        return outbox.delivered(run_id, RUN_LOGS_LABEL)
-
-    def run_logs_rejected(run_id: str) -> bool:
-        return outbox.rejected(run_id, RUN_LOGS_LABEL)
-
-    outbox = Outbox(
-        config / UNSENT_DIRECTORY / QUEUE_DIRECTORY,
-        box,
-        log,
-        clock=clock,
-        on_delivered=delivered,
-        on_rejected=rejected,
-        prepare=lambda post: with_logs(post, cases, run_logs_address, run_logs_rejected),
-        addresses=config / ADDRESSES_FILE,
+    # 0015); co doręczenie znaczy dla Spraw taty, wiedzą Sprawy taty w Skrzynce.
+    outbox = case_outbox(
+        config / UNSENT_DIRECTORY / QUEUE_DIRECTORY, box, log, cases, clock=clock, addresses=config / ADDRESSES_FILE
     )
     reports = Reports(
         box, outbox, surroundings.tool_freshness.local, cases, search_deadline_s=report_search_deadline_s
@@ -249,19 +228,17 @@ def create_app(
         log,
         run_logs,
     )
-    preparation = PreparationEntry(store, configuration, processes.preparation, today, readers)
-    settlement = SettlementEntry(store, configuration, processes.settlement, today, readers)
-    # Uporządkowanie INTERMAX ma własną kartę poza okresami, więc nie jest wpisem procesu z okresem.
+    # Adaptery startu procesów z katalogu procesów; reszta Centrum pyta wpis procesu w katalogu, nie adapter.
+    entries: list[ProcessEntry] = [
+        PreparationEntry(store, configuration, processes, today, readers),
+        SettlementEntry(store, configuration, processes, today, readers),
+    ]
+    # Uporządkowanie INTERMAX ma własną kartę poza okresami (ADR 0019), więc ma własny router startu.
     intermax = IntermaxEntry(
-        store, processes.intermax, intermax_copies or default_intermax_copies(), now, Waiting(clock, pause), intermax_disk
+        store, processes, intermax_copies or default_intermax_copies(), now, Waiting(clock, pause), intermax_disk
     )
-    entries: list[ProcessEntry] = [preparation, settlement]
     # Karty Uruchomień z pliku startu i Logów Uruchomienia: ostatnie po starcie Centrum i wiersz Historii (ADR 0017).
-    cards = RunCards(
-        log.directory / RUN_LOGS_DIRECTORY,
-        log.directory / LAST_STARTED_FILE,
-        {preparation.key: preparation, settlement.key: settlement, intermax.key: intermax},
-    )
+    cards = RunCards(log.directory / RUN_LOGS_DIRECTORY, log.directory / LAST_STARTED_FILE)
     runs = RunHost(
         log,
         centrum_runs,
@@ -284,7 +261,6 @@ def create_app(
         result_file=settings_path.parent / RESULT_FILE,
         release=release,
     )
-    entry_processes = {**{entry.key: entry.process for entry in entries}, intermax.key: intermax.process}
     app.include_router(runs_router(runs, entries))
     app.include_router(intermax_router(runs, intermax, lambda: cards.latest(intermax.key)))
     app.include_router(intermax_copies_router(runs, intermax))
@@ -296,13 +272,11 @@ def create_app(
             outbox,
             box,
             surroundings.tool_freshness.local,
-            lambda: read_runs(entry_processes, centrum_runs.started()),
-            run_logs_address,
+            lambda: read_runs(processes, centrum_runs.started()),
+            run_logs.link,
         )
     )
-    # Uporządkowanie INTERMAX nie ma Podglądu bez zapisu, więc Metryki nie mają jego trybu DRY-RUN.
-    modes = {entry.key: entry.view.modes for entry in (preparation, settlement, intermax)}
-    app.include_router(metrics_router(entry_processes, modes, today, centrum_runs))
+    app.include_router(metrics_router(processes, today, centrum_runs))
     app.include_router(
         configuration_router(
             configuration, surroundings.tool_freshness, release, lambda: box.judge(wait_s=CONFIGURATION_WAIT_S), readers

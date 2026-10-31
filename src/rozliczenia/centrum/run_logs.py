@@ -43,6 +43,7 @@ from pydantic import BaseModel, ConfigDict
 from rozliczenia.call_trace import CallTrace
 from rozliczenia.centrum import contract
 from rozliczenia.centrum.atomic_file import replace_atomically
+from rozliczenia.centrum.catalog import declaration_of
 from rozliczenia.centrum.cloud_files import CloudFiles
 from rozliczenia.centrum.diagnosis import CheckState, Diagnosis
 from rozliczenia.centrum.outbox import Outbox, PeriodThread, Post
@@ -326,7 +327,7 @@ def summary_markdown(record: RunLog) -> str:
     commit = "nieznany" if record.tool.commit is None else short_commit(record.tool.commit)
     diagnosis = "" if record.diagnosis is None else f"- Diagnoza: {_diagnosis(record.diagnosis)}\n"
     return (
-        f"**Logi Uruchomienia**: {_process(record.process)}, {record.mode}, okres {record.period}\n"
+        f"**Logi Uruchomienia**: {declaration_of(record.process).title}, {record.mode}, okres {record.period}\n"
         "\n"
         f"- Wynik: {_result(record)}\n"
         f"- Czas: {_duration(record.duration_ms)}\n"
@@ -346,18 +347,6 @@ def _diagnosis(diagnosis: LoggedDiagnosis) -> str:
         if labels:
             groups.append(f"{name}: {', '.join(labels)}")
     return "; ".join(groups)
-
-
-def _process(key: contract.ProcessKey) -> str:
-    match key:
-        case "preparation":
-            return "Przygotowanie pliku zbiorczego"
-        case "settlement":
-            return "Przebieg rozliczeń"
-        case "intermax":
-            return "Uporządkowanie INTERMAX"
-        case _:
-            assert_never(key)
 
 
 def _result(record: RunLog) -> str:

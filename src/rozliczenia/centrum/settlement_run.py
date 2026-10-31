@@ -14,21 +14,21 @@ from datetime import date
 from pathlib import Path
 from typing import Any, Final
 
-from rozliczenia.centrum import contract, run_view
+from rozliczenia.centrum import contract
+from rozliczenia.centrum.catalog import SETTLEMENT
 from rozliczenia.centrum.configuration import ConfigurationFiles, InputWorkbook, open_in_excel
 from rozliczenia.centrum.metrics import previewed_periods
 from rozliczenia.centrum.period_board import located_period_folder, observed_period_folder, read_board, requested_period
+from rozliczenia.centrum.processes import Processes
 from rozliczenia.centrum.runs import PreparedRun
-from rozliczenia.domain import SettlementSummary
 from rozliczenia.settings import SettingsStore
 from rozliczenia.period_folder import PeriodStatus, collective_file_name, period_status_label, scan_period_folders
 from rozliczenia.settlement_period import SettlementPeriod, last_complete_period
 from rozliczenia.input_checks import Readers
-from rozliczenia.process_run import Process
 from rozliczenia.settlement_process import SettlementInputs
 from rozliczenia.telemetry import MetricsStore
 
-_VIEW: Final = run_view.SETTLEMENT
+_VIEW: Final = SETTLEMENT.view
 _ELIGIBLE: Final[PeriodStatus] = "collective_file_prepared"
 
 
@@ -38,32 +38,30 @@ class SettlementEntry:
 
     store: SettingsStore
     configuration: ConfigurationFiles
-    process: Process[SettlementInputs, SettlementSummary]
+    processes: Processes
     today: Callable[[], date]
     readers: Readers
 
     @property
     def key(self) -> contract.PeriodProcessKey:
-        return "settlement"
-
-    @property
-    def view(self) -> run_view.ProcessView[Any, Any]:
-        return _VIEW
+        return SETTLEMENT.key
 
     def setup(self) -> contract.ProcessSetup:
-        periods_directory = self.store.load().periods_directory
+        settings = self.store.load()
+        periods_directory = settings.periods_directory
         board = read_board(periods_directory, self.today())
         rows = [row for row in board.periods if row.status == _ELIGIBLE] if board.state == "ready" else []
         preselected = next(
             (row.token for row in rows if row.last_complete),
             rows[0].token if rows else last_complete_period(self.today()).token,
         )
-        previewed = previewed_periods(MetricsStore(self.process.metrics_path(), self.process.counter_names))
+        process = SETTLEMENT.core(self.processes)
+        previewed = previewed_periods(MetricsStore(process.metrics_path(), process.counter_names))
         collective_files = _collective_files(periods_directory, rows) if periods_directory is not None else {}
-        open_templates = open_in_excel(self.configuration.template_inputs(self.key))
+        open_templates = open_in_excel(self.configuration.template_inputs(SETTLEMENT.templates))
         return contract.ProcessSetup(
             process=self.key,
-            title=self.process.name,
+            title=SETTLEMENT.title,
             creates="Rozliczenia pracowników",
             reminder=_VIEW.reminder,
             confirms_readiness=_VIEW.confirms_readiness,
@@ -80,13 +78,11 @@ class SettlementEntry:
                 for row in rows
             ],
             preselected_period=preselected,
-            blocker=_blocker(board, rows),
+            blocker=SETTLEMENT.settings_blocker(settings) or _blocker(board, rows),
         )
 
     def prepare(self, request: contract.RunRequest) -> PreparedRun[Any, Any]:
-        periods_directory = self.store.load().periods_directory
-        if periods_directory is None:
-            raise contract.Refusal(409, "Najpierw wskaż folder okresów.")
+        periods_directory = SETTLEMENT.required_paths(self.store.load())["periods_directory"]
         period = requested_period(request.period)
         source = located_period_folder(periods_directory, period).collective_file
         inputs = SettlementInputs(
@@ -98,11 +94,7 @@ class SettlementEntry:
         )
 
         return PreparedRun(
-            key=self.key,
-            period=period.token,
-            process=self.process,
-            inputs=inputs,
-            view=self.view,
+            declaration=SETTLEMENT, period=period.token, process=SETTLEMENT.core(self.processes), inputs=inputs
         )
 
 
@@ -130,8 +122,8 @@ def _choice(
 
 
 def _blocker(board: contract.PeriodBoard, rows: list[contract.PeriodRow]) -> str | None:
-    if board.state == "not_set":
-        return "Najpierw wskaż folder okresów."
+    """Czego brakuje w folderze okresów, który Ustawienia taty już wskazują."""
+
     if board.state == "missing":
         return f"Nie ma już folderu okresów {board.name}. Wskaż go ponownie."
     if not rows:
