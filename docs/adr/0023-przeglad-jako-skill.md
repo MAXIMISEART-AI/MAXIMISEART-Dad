@@ -38,7 +38,7 @@ Przypadki, które po tej decyzji są Ważne:
   Na tym SHA produkt zachowywał się dobrze, więc pomiar liczył #670 jako czysty, a znalezisko recenzenta wariantu L5 jako fałszywe Ważne.
   Ta decyzja rozstrzyga ten spór: takie znalezisko jest Ważne, a pomiar liczy je odtąd jako przypadek z błędem.
 - #408 to inny przypadek z tego samego sporu: zmieniony test przestał łapać brak zabicia drzewa Gita (mutacja `WYKRYTA` na merge-base, `NIEWYKRYTA` na HEAD).
-  To „test, który przestał sprawdzać to, co sprawdzał”, czyli Ważne już według dotychczasowej reguły, a nie dziura w sprawdzeniu w rozumieniu tej decyzji; definicja Drobnych mówi teraz wprost, że mutacja przeżyta tylko na HEAD nie jest Drobna.
+  To „test, który przestał sprawdzać to, co sprawdzał”, czyli Ważne już według dotychczasowej reguły, a nie dziura w sprawdzeniu w rozumieniu tej decyzji; definicja Drobnych mówi teraz wprost, że mutacja `WYKRYTA` na merge-base, a `NIEWYKRYTA` na HEAD nie jest Drobna, a przeżyta mutacja w nowym kodzie, którego merge-base nie ma, zostaje Drobna.
 
 ## Dowód
 
