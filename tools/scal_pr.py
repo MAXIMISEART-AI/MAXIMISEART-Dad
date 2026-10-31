@@ -443,7 +443,7 @@ def _clean_up() -> str:
 
 
 def _git(*arguments: str) -> str:
-    done = potomne.run(["git", *arguments], cwd=ROOT, timeout=scalenia_pr.GITHUB_TIMEOUT_S)
+    done = potomne.run(["git", *arguments], cwd=ROOT, timeout=status_scalenia.GITHUB_TIMEOUT_S)
     done.check_returncode()
     return done.stdout
 
@@ -498,7 +498,7 @@ def _verdict_history(pull: Pull) -> list[str]:
 
 def _review_context(number: int) -> int:
     pull = _pull(number)
-    base = scalenia_pr.fetch(pull.base, [scalenia_pr.PullRequest(pull.number, pull.title, pull.head)])
+    base = status_scalenia.fetch(pull.base, [status_scalenia.PullRequest(pull.number, pull.title, pull.head)])
     fork = _git("merge-base", base, pull.head).strip()
     files = _git("diff", "--name-only", "--no-renames", fork, pull.head).splitlines()
     print(f"PRZEGLĄD | #{pull.number} {pull.title} | HEAD {pull.head} | baza {pull.base} {base} | merge-base {fork}")
