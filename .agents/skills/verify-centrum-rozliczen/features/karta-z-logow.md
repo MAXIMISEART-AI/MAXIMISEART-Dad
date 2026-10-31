@@ -39,6 +39,6 @@ Preconditions:
 ## Gotchas
 
 - After any start of Centrum, Uruchomienia opens on the card of the last Uruchomienie, not on the setup card. Recipes that click `Nowe Uruchomienie procesu` first keep working, because that card has the same button.
-- The killed server is the runner's own process in `all` before `kontrola-ilosci`, and its successor after; cleanup stops whichever `server.json` names, and the runner's stop handles a process that is already dead.
+- In `all` the killed server is a successor of the runner's own process, because `aktualizacja` (the restart guardian) and `kontrola-ilosci` already restarted Centrum; alone it is the runner's own; cleanup stops whichever `server.json` names, and the runner's stop handles a process that is already dead.
 - Kill only while the RUN waits for the Decyzja: nothing has been written to the Folder okresu then, so moving the folder back restores the fixture.
 - The note's date is `started_at` of the file of Logi, which is a few milliseconds before the metrics record's; compare the panel with the card, not with the Historia row's date.

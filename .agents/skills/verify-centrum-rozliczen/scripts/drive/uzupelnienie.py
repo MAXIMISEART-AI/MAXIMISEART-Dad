@@ -130,7 +130,7 @@ def drive_result_card(run: Run, page: Page) -> None:
         "right after Przygotowanie the server lists rows 18 and 20 without rule and row 19 from the description",
     )
     _check_screen(run, filling, answer, "on the Przygotowanie result card")
-    run.capture(page, "230-uzupelnienie-wynik")
+    run.capture(page, "250-uzupelnienie-wynik")
     # The summary first shows the card's copy and reads again in the background; that read ends before the file
     # changes, so the page's copy is surely older than the file below.
     with page.expect_response(lambda response: response.url.endswith(API)):
@@ -185,7 +185,7 @@ def drive_result_card(run: Run, page: Page) -> None:
     summary = restored.get_by_role("region", name="Uzupełnienie pliku zbiorczego", exact=True)
     expect(summary.get_by_role("heading", name="Do uzupełnienia w Excelu")).to_be_visible()
     _check_screen(run, summary, _ready(run, "uzupelnienie-wynik-po-starcie"), "on the card from Logi after a restart")
-    run.capture(page, "232-uzupelnienie-wynik-po-starcie")
+    run.capture(page, "252-uzupelnienie-wynik-po-starcie")
 
 
 # Every return to the tab the page could read on instead of its own checks of the saved version.
@@ -225,7 +225,7 @@ def _live_result_card(run: Run, page: Page, filling: Locator, collective_file: P
         _check_screen(run, filling, _ready(run, "uzupelnienie-wynik-na-zywo"), "on the result card, live")
         expect(filling).to_contain_text("Nie widzisz zmian? Zapisz w Excelu (Ctrl+S).")
         run.check(True, "the card has the summary page's hint about saving in Excel")
-        run.capture(page, "235-uzupelnienie-wynik-na-zywo")
+        run.capture(page, "255-uzupelnienie-wynik-na-zywo")
 
         page.evaluate(HIDE_TAB)
         hidden_from = len(asked)
@@ -271,7 +271,7 @@ def _settled_result_card(run: Run, page: Page, filling: Locator, collective_file
         _check_screen(run, filling, answer, "on the result card after Przebieg")
         expect(hint).to_have_count(0)
         run.check(True, "after Przebieg the result card has no hint about saving in Excel")
-        run.capture(page, "236-uzupelnienie-wynik-po-przebiegu")
+        run.capture(page, "256-uzupelnienie-wynik-po-przebiegu")
     finally:
         worker_settlements.rmdir()
     page.evaluate(RETURN_TO_TAB)
@@ -290,7 +290,7 @@ def _unanswered_result_card(run: Run, page: Page, filling: Locator) -> None:
         expect(failure).to_contain_text("Nie udało się odczytać Pliku zbiorczego")
         expect(failure.get_by_role("button", name="Spróbuj ponownie")).to_be_visible()
         run.check(True, "without an answer the result card says it could not read the Plik zbiorczy, never blank")
-        run.capture(page, "237-uzupelnienie-wynik-bez-odpowiedzi")
+        run.capture(page, "257-uzupelnienie-wynik-bez-odpowiedzi")
     finally:
         page.unroute(f"**{API}")
     section = filling.get_by_role("region", name=KIND_TITLES["without_rule"], exact=True)
@@ -319,7 +319,7 @@ def _drive_entries(run: Run, page: Page) -> None:
         LAST_COMPLETE in prepared and len(prepared) < len(periods),
         f"exactly the rows with Status okresu Plik zbiorczy przygotowany ({', '.join(prepared)}) offer Uzupełnij",
     )
-    run.capture(page, "231-uzupelnienie-tablica")
+    run.capture(page, "251-uzupelnienie-tablica")
     fill.click()
     expect(page).to_have_url(f"{run.url.rstrip('/')}/{SUMMARY}")
     expect(page.get_by_role("heading", level=1)).to_have_text("Uzupełnienie pliku zbiorczego")
@@ -600,7 +600,7 @@ def drive_filling(run: Run, page: Page) -> None:
             f"wybrany jest {LAST_COMPLETE}"
         )
         run.check(True, f"Gotowe of {EMPTY_PERIOD}, which Przebieg rozliczeń does not offer, says aloud which period it chose")
-        run.capture(page, "234-uzupelnienie-gotowe-bez-okresu")
+        run.capture(page, "254-uzupelnienie-gotowe-bez-okresu")
     finally:
         if on_disk:
             aside.rename(left)
@@ -867,7 +867,7 @@ def _drive_after_settlement(run: Run, page: Page, collective_file: Path) -> None
         expect(page.get_by_role("button", name="Otwórz Plik zbiorczy", exact=True)).to_be_visible()
         expect(page.get_by_text("Nie widzisz zmian?")).to_have_count(0)
         run.check(True, "after Przebieg the summary is a preview: no Gotowe, no hint about saving, Otwórz Plik zbiorczy stays")
-        run.capture(page, "233-uzupelnienie-po-przebiegu")
+        run.capture(page, "253-uzupelnienie-po-przebiegu")
 
         page.get_by_role("region", name=KIND_TITLES["without_rule"], exact=True).get_by_role("link").click()
         table = page.get_by_role("table", name="Wiersze Pliku zbiorczego", exact=True)
@@ -885,9 +885,9 @@ def _drive_after_settlement(run: Run, page: Page, collective_file: Path) -> None
             _on_screen(table.get_by_role("rowheader", name="20 bez ilości").get_by_text("bez ilości", exact=True)),
             "row 20 reads „bez ilości” on the screen under its number",
         )
-        _capture(run, page, "233-uzupelnienie-po-przebiegu-bez-reguly", kind)
+        _capture(run, page, "253-uzupelnienie-po-przebiegu-bez-reguly", kind)
         switched = _light_theme(page)
-        _capture(run, page, "233-uzupelnienie-po-przebiegu-bez-reguly-jasny", kind)
+        _capture(run, page, "253-uzupelnienie-po-przebiegu-bez-reguly-jasny", kind)
         if switched:
             page.locator("header").get_by_role("button", name="Włącz motyw ciemny", exact=True).click()
     finally:

@@ -9,9 +9,10 @@ problem is a three-part message (what, where, what to do): a missing Wzorzec
 is `NIEDOSTEPNY_WZORZEC`, not a damaged file) are a Zatrzymanie, a Wzorzec open in
 Excel (`Otwarty w Excelu`) an Ostrzeżenie. The header also says whether the key
 to Zgłoszenia is there and whether the skrzynka accepts it (`Zgłoszenia: gotowe`,
-`Zgłoszenia: brak tokenu`, `Zgłoszenia: token odrzucony`; driven in `zgloszenie.md`). The page is read
-only: Centrum never changes the konfiguracja wykonawców, a Wzorzec, or an
-Excel lock file.
+`Zgłoszenia: brak tokenu`, `Zgłoszenia: token odrzucony`; driven in `zgloszenie.md`). Centrum never
+changes the konfiguracja wykonawców, a Wzorzec, or an Excel lock file from here. The page's only change to
+Dad's files is `Przywróć` on the card `Kopie INTERMAX` (`kopie-intermax.md`).
+This feature runs before any Kopia exists, so the card shows only `Kopia powstaje przy każdym Uporządkowaniu INTERMAX.`
 
 ## Sub-features
 
@@ -21,6 +22,7 @@ Excel lock file.
 - `konfiguracja-wzorzec-niedostepny`: while the system refuses to read the Wzorzec rozliczenia wewnętrznego, it shows `Nie przechodzi sprawdzenia` with `Nie można teraz odczytać wzorca.`, never `uszkodzony`; once access is back (bytes, size and modification time unchanged), a return to the tab shows it ready without restarting Centrum.
 - `konfiguracja-brak-wzorca`: a missing Wzorzec rozliczenia pracownika shows `Brak pliku` with the Przebieg rozliczeń's own stop message, which ends by telling Dad to tell the maintainer.
 - `konfiguracja-nieczytelna-konfiguracja-wykonawcow`: a broken konfiguracja wykonawców replaces the Wykonawcy with the three-part message.
+- `konfiguracja-niedostepna-konfiguracja-wykonawcow`: a konfiguracja wykonawców the system refuses to read replaces the Wykonawcy with the three-part message of `NIEDOSTEPNA_KONFIGURACJA_WYKONAWCOW`, never `uszkodzona`.
 - `konfiguracja-bez-zmian`: after all reads, the konfiguracja wykonawców and the Wzorce keep their bytes and modification times.
 
 ## How to get to it (user POV)

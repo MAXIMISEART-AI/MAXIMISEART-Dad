@@ -45,10 +45,14 @@ class Run:
         self.url = url
         self.evidence = evidence
         self.fixture = json.loads((root / "fixture.json").read_text(encoding="utf-8"))
+        self.feature = ""
+        # Feature files and PRs cite a screenshot by its number, so one number belongs to one feature.
+        self._number_owners: dict[str, str] = {}
         for name in ("screenshots", "aria", "api", "state"):
             (evidence / name).mkdir(parents=True, exist_ok=True)
 
     def step(self, feature: str, name: str) -> None:
+        self.feature = feature
         print(f"STEP {feature} | {name}", flush=True)
 
     def check(self, condition: bool, message: str) -> None:
@@ -62,6 +66,10 @@ class Run:
         ``live`` captures while a stage runs: its indeterminate bar loops forever, so do not wait.
         """
 
+        number = name.split("-", 1)[0]
+        owner = self._number_owners.setdefault(number, self.feature)
+        if owner != self.feature:
+            raise DriveFailure(f"screenshot {name} of {self.feature} uses number {number}, which belongs to {owner}")
         if not live:
             page.wait_for_function(
                 "document.getAnimations().every((animation) => animation.playState !== 'running')"
