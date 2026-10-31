@@ -3,7 +3,9 @@
 The checker runs the real ``intermax_ordering.order_register()`` and the real ``intermax_copies.restore()`` (#472) on a
 synthetic INTERMAX (``tests/fixtures/intermax.py``) in a real folder, next to a Kopie folder that already holds ``KEPT``
 older Kopie of both names, so that their order by name differs from their order in time. The restore brings back the
-oldest of them, a real workbook. Eight steps of the code are points where the checker picks what happens first:
+oldest of them, a real workbook. A second restore starts as one in the same second as an earlier restore: the Kopie
+folder also holds the Kopia that ``make_copy`` would name, so it raises ``FileExistsError``. Eight steps of the code
+are points where the checker picks what happens first:
 
 - after ``Register.read`` has read INTERMAX (in the restore: after ``workbook_content`` has read it);
 - ``workbook_files.is_open_in_excel`` on INTERMAX (in ``check``, in ``Register.read`` and in ``before_replace``);
@@ -74,9 +76,11 @@ AFTER_READ = "pracownik po odczycie, przed podmianą"
 INJECTED = "plik zablokowany"
 REPLACE = "os.replace pliku tymczasowego na INTERMAX"
 PAUSE = "przerwa przed ponowną próbą podmiany"
-Mode = Literal["Uporządkowanie", "przywrócenie Kopii"]
+Mode = Literal["Uporządkowanie", "przywrócenie Kopii", "drugie przywrócenie w tej samej sekundzie"]
 ORDERING: Mode = "Uporządkowanie"
 RESTORE: Mode = "przywrócenie Kopii"
+SAME_SECOND: Mode = "drugie przywrócenie w tej samej sekundzie"
+"""A restore in the second of an earlier one: the Kopie folder already holds the Kopia that ``make_copy`` would name."""
 
 Actor = Literal["pracownik", "excel"]
 Choice = Literal["ok", "pracownik", "excel", "oserror", "niezgodny", "kill", "onedrive", "dluga"]
@@ -243,7 +247,7 @@ def _points(world: World, scheduler: Scheduler) -> Iterator[None]:
 
     def content(path: Path) -> bytes:
         read = real_content(path)
-        if world.mode == RESTORE and path == world.register and world.read is None:
+        if world.mode != ORDERING and path == world.register and world.read is None:
             world.read = read
             scheduler.say("restore czyta INTERMAX (workbook_content)")
             scheduler.point("po odczycie INTERMAX")
@@ -432,7 +436,7 @@ def _check(world: World, outcome: Outcome, failure: str) -> list[tuple[str, str]
         if left:
             broken.append(("SUKCES", f"po wyniku zostają pliki obok INTERMAX: {left}"))
         # What the replace put in place: a worker's change that OneDrive brings in after it is not the restore's.
-        if world.mode == RESTORE and world.written != world.old_copies[world.chosen]:
+        if world.mode != ORDERING and world.written != world.old_copies[world.chosen]:
             broken.append(("PRZYWROCONA_KOPIA", "podmiana przywrócenia nie dała INTERMAX bajtów wybranej Kopii"))
         expected = _newest({*world.old_copies, *kopie})
         if not world.keep_failed and sorted(kopie) != expected:
@@ -516,6 +520,8 @@ def execute(
     folder.mkdir()
     original, worker, earlier = versions
     old_copies = _old_copies(earlier)
+    if mode == SAME_SECOND:
+        old_copies[f"INTERMAX przed przywróceniem {NOW:%Y-%m-%d %H-%M-%S}.xlsx"] = b"Kopia przywrocenia sprzed chwili"
     world = World(mode, folder, work / "Kopie INTERMAX", original, worker, original, old_copies, min(old_copies, key=lambda name: name[-24:]))
     world.register.write_bytes(original)
     world.copies.mkdir()
@@ -592,7 +598,7 @@ def explore(bounds: Bounds | None = None) -> Report:
     with tempfile.TemporaryDirectory(prefix="zapis-intermax-") as directory:
         work = Path(directory).resolve()  # order_register resolves the path of INTERMAX
         versions = _synthetic(work)
-        modes: tuple[Mode, ...] = (ORDERING, RESTORE)
+        modes: tuple[Mode, ...] = (ORDERING, RESTORE, SAME_SECOND)
         for mode in modes:
             prefix: list[int] | None = []
             while prefix is not None:

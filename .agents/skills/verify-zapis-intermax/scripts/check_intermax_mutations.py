@@ -193,6 +193,19 @@ MUTATIONS = (
         NEW,
     ),
     Mutation(
+        "Kopia nadpisuje Kopię o tej samej nazwie",
+        (
+            Edit(
+                COPIES,
+                "os.O_WRONLY | os.O_CREAT | os.O_EXCL",
+                "os.O_WRONLY | os.O_CREAT | os.O_TRUNC",
+            ),
+        ),
+        EXPLORER,
+        "drugie przywrócenie w tej samej sekundzie nadpisuje Kopię stanu sprzed pierwszego",
+        NEW,
+    ),
+    Mutation(
         "przywrócenie podmienia INTERMAX bajtami sprzed przywrócenia",
         (
             Edit(
