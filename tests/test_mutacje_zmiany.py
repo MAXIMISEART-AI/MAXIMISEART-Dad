@@ -119,14 +119,21 @@ def test_mutacja_ktora_przezyla_testy_pliku_albo_nie_ma_testow_tez_trafia_do_zap
 
 def test_czesc_konczy_sie_zapisem_w_limicie_czasu_czesci_takze_gdy_mutacja_zawiesza_testy(tmp_path: Path) -> None:
     # Noc 41019818658: część 5/20 nie zmieściła się w 60 min zadania CI, więc GitHub ją anulował bez zapisu.
-    hangs = "import time\n\nfrom rozliczenia.warunek import oba\n\n\ndef test_oba() -> None:\n    while oba(True, False):\n        time.sleep(0.1)\n"
+    hangs = (
+        "import time\n\nfrom rozliczenia.warunek import jeden, oba\n\n\n"
+        "def test_oba() -> None:\n    while oba(True, False):\n        time.sleep(0.1)\n\n\n"
+        "def test_jeden() -> None:\n    assert jeden() == 1\n"
+    )
+    # test_jeden wykonuje inny kod pliku, więc mutacja ma po testach linii jeszcze krok z testami pliku (#695).
+    one = "\n\ndef jeden() -> int:\n    return 1\n"
     record = tmp_path / "zapis" / "czesc.json"
 
-    done = _run(_repo(tmp_path / "repo", hangs), "--rownolegle", "1", "--limit-czesci-s", "15", "--zapis", str(record))
+    done = _run(_repo(tmp_path / "repo", hangs, CHANGED + one, BASE + one), "--rownolegle", "1", "--limit-czesci-s", "15", "--zapis", str(record))
 
     assert done.returncode == 2, done.stdout + done.stderr
     verdicts = [line for line in done.stdout.splitlines() if " → " in line]
-    # Pierwsza mutacja zawiesza testy do końca czasu części, więc druga już się nie zaczyna.
+    # Pierwsza mutacja zawiesza testy do końca czasu części, więc druga już się nie zaczyna, a mutacja bez werdyktu
+    # nie biegnie w dalszym kroku, więc każda ma jedną linię i liczy się raz.
     assert len(verdicts) == 2 and verdicts[0].startswith("BEZ WERDYKTU: src/rozliczenia/warunek.py:2 bez `b` w `and` → brak wyniku po "), done.stdout
     assert verdicts[1] == "BEZ WERDYKTU: src/rozliczenia/warunek.py:2 zmiana linii 2 cofnięta do bazy → czas minął, zanim się zaczęła", done.stdout
     written = json.loads(record.read_text(encoding="utf-8"))
@@ -162,15 +169,21 @@ def test_mutacja_ktora_wiesza_test_do_limitu_pytest_timeout_jest_wykryta_a_nie_p
     assert (written["wynik"], written["przezyte"]) == ("MUTACJE ZMIANY OK | mutacje=2 | wyjątki=0 | innego systemu=0", [])
 
 
-def test_mutacja_ktora_tylko_spowalnia_test_ponad_limit_narzedzia_przezywa(tmp_path: Path) -> None:
+@pytest.mark.parametrize("further", [False, True], ids=["ostatni-krok", "z-dalszymi-krokami"])
+def test_mutacja_ktora_tylko_spowalnia_test_ponad_limit_narzedzia_przezywa(tmp_path: Path, further: bool) -> None:
     # Przegląd #711, runda 2: test kończy się w CI, bo pytest-timeout go nie przerywa, więc mutacja przeżyła.
     slow = "import time\n\n" + ONE_CASE + "    if oba(True, False):\n        time.sleep(30)\n"
+    # Z test_jeden, który wykonuje inny kod pliku, mutacja po przekroczonym czasie testów linii biegnie dalej z testami
+    # pliku jak przeżyta i dopiero tam przeżywa (#695).
+    one = "\n\ndef jeden() -> int:\n    return 1\n" if further else ""
+    if further:
+        slow = slow.replace("import oba", "import jeden, oba") + "\n\ndef test_jeden() -> None:\n    assert jeden() == 1\n"
     record = tmp_path / "zapis" / "czesc.json"
 
-    done = _run(_repo(tmp_path / "repo", slow), "--rownolegle", "1", "--limit-s", "8", "--zapis", str(record))
+    done = _run(_repo(tmp_path / "repo", slow, CHANGED + one, BASE + one), "--limit-s", "8", "--zapis", str(record))
 
     assert done.returncode == 1, done.stdout + done.stderr
-    late = "→ brak wyniku po 8 s (limit --limit-s narzędzia, nie pytest-timeout)"
+    late = "→ brak wyniku po 8 s (limit --limit-s narzędzia, nie pytest-timeout)" + (" (testy pliku)" if further else "")
     assert [line for line in done.stdout.splitlines() if " → " in line] == [
         f"PRZEKROCZONY CZAS: src/rozliczenia/warunek.py:2 bez `b` w `and` {late}",
         f"PRZEKROCZONY CZAS: src/rozliczenia/warunek.py:2 zmiana linii 2 cofnięta do bazy {late}",
