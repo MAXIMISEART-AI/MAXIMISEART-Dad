@@ -43,6 +43,9 @@ testpaths = ["tests"]
 addopts = ["--strict-config", "--dist", "worksteal"]
 # Najwolniejszy test trwa kilka sekund; zawieszony test kończy się błędem zamiast blokować przebieg.
 timeout = 120
+# Test, który wisi dłużej, zostawia w logu stosy wszystkich wątków swojego procesu, także gdy pytest-timeout go nie
+# przerwał (wątek testu czeka na wątek zablokowany poza nim, #699); limit kroku pytest w tools/plan_ci.py kończy potem zadanie.
+faulthandler_timeout = 150
 markers = ["dlugi: test trwa kilka razy dłużej niż inne; xdist zaczyna od niego kawałek listy workera"]
 # Junit z --junitxml (zadania pytest w CI) ma plik każdego testu, z którego tools/ci/czasy_ci.py liczy czas pliku.
 junit_family = "xunit1"

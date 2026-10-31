@@ -35,6 +35,9 @@ Na pull request zadanie po porażce pytest uruchamia raz same testy, które pad�
 ``PONOWIENIE_NAJWIECEJ``; więcej porażek to nie flaky test), jeśli id każdego da się zgłosić w issue. Gdy wszystkie
 przejdą, pytest przechodzi, a każdy z nich trafia do zapisu flaky testów; druga porażka to porażka. Każde zadanie z pytest
 zapisuje też wynik swoich testów z kwarantanny.
+Krok pytest ma limit ``limit_pytest_s`` ze ściany zadania z planu: po nim drzewo pytest ginie, a linia ``LIMIT`` mówi, że
+to limit, nie porażka testu. Zadanie pytest dostaje w macierzy ``limit_minut`` (``timeout-minutes`` w ``ci.yml``), sumę
+limitów swoich kroków z zapasem, więc GitHub zabija je dopiero wtedy, gdy zawiesi się coś poza krokami z limitem.
 
 Plan ma ``digest``: zadanie wykonuje tylko plan, którego treść się z nim zgadza, i zapisuje go w swoim zapisie czasów,
 a ``Required CI status`` (``werdykt``) przyjmuje tylko zapisy tego planu. Werdykt przepuszcza run, gdy każde zadanie
@@ -89,6 +92,13 @@ PONOWIENIE = Path(".ci-czasy", "junit-ponowienie.xml")
 # Flaky test trafia w jeden albo dwa testy (Skrzynka w runach 26.10); więcej porażek naraz to defekt albo awaria runnera.
 PONOWIENIE_NAJWIECEJ = 5
 PONOWIENIE_LIMIT_S = 10 * 60
+# Krok pytest zielonego zadania trwał najwyżej 1,68 × ścianę zadania z planu (418 zadań zielonych runów CI z 28–31.10,
+# najdłuższy 668 s przy ścianie 411 s), więc limit 3 × ściana go nie przerywa. Najmniej 10 min, żeby test zawieszony
+# pod koniec kroku zdążył zostawić stosy wątków (faulthandler_timeout w pyproject.toml) przed limitem.
+ZAPAS_PYTEST = 3.0
+LIMIT_PYTEST_MIN_S = 10 * 60
+# Zadanie pytest poza krokami z limitem: checkout, Python, zależności, artefakty i zapis czasów (narzut do 43 s w tych runach).
+NARZUT_ZADANIA_S = 10 * 60
 WYKONANIE = Path(".ci-czasy", "wykonanie.json")
 CZESCI = Path(".ci-plan", "czesci.json")
 # Domyślne python_files pytest: pyproject.toml go nie zmienia.
@@ -235,17 +245,35 @@ class Plan:
             raise ValueError(f"treść planu nie zgadza się z jego digest {digest[:12]}")
         return plan
 
-    def macierz(self, szablon: str) -> list[dict[str, str | bool]]:
+    def macierz(self, szablon: str) -> list[dict[str, str | bool | int]]:
         """``include`` macierzy zadania ``szablon`` w ci.yml (``[]``, gdy plan nie ma jego zadań: zadanie jest pominięte)."""
 
         tory = {tor.nazwa: tor for tor in (*TORY, MUTACJE)}
-        wpisy: list[dict[str, str | bool]] = []
+        wpisy: list[dict[str, str | bool | int]] = []
         for z in self.zadania:
             tor = tory[z.tor]
             if tor.szablon == szablon:
-                wpis: dict[str, str | bool] = {"id": z.id, "nazwa": z.nazwa, "os": tor.os, "python": tor.python}
-                wpisy.append({**wpis, "przegladarka": z.przegladarka} if szablon == MUTACJE.szablon else wpis)
+                wpis: dict[str, str | bool | int] = {"id": z.id, "nazwa": z.nazwa, "os": tor.os, "python": tor.python}
+                if szablon == MUTACJE.szablon:
+                    wpis["przegladarka"] = z.przegladarka
+                else:
+                    wpis["limit_minut"] = self.limit_zadania_min(z)
+                wpisy.append(wpis)
         return wpisy
+
+    def limit_zadania_min(self, zadanie: Zadanie) -> int:
+        """``timeout-minutes`` zadania pytest: suma limitów jego kroków (pytest, na pull request ponowienie, kroki CI)
+        i ``NARZUT_ZADANIA_S``, więc zadanie kończy limit kroku z linią ``LIMIT``, zanim zabije je GitHub."""
+
+        kroki = [KROKI[klucz.removeprefix("krok:")] for klucz in zadanie.jednostki if klucz.startswith("krok:")]
+        ponowienie = PONOWIENIE_LIMIT_S if self.zdarzenie == "pull_request" else 0
+        return math.ceil((NARZUT_ZADANIA_S + limit_pytest_s(zadanie) + ponowienie + sum(sum(krok.limity_s) for krok in kroki)) / 60)
+
+
+def limit_pytest_s(zadanie: Zadanie) -> float:
+    """Limit kroku pytest zadania: ``ZAPAS_PYTEST`` × jego ściana z planu, najmniej ``LIMIT_PYTEST_MIN_S``."""
+
+    return max(LIMIT_PYTEST_MIN_S, ZAPAS_PYTEST * zadanie.sciana_s)
 
 
 # --- plan ---
@@ -501,8 +529,9 @@ def _polecenia(krok: Krok) -> list[tuple[tuple[str, ...], float]]:
     return [(tuple(map(wstaw, polecenie.split())), limit) for polecenie, limit in zip(krok.polecenia, krok.limity_s, strict=True)]
 
 
-def _uruchom(nazwa: str, polecenia: Sequence[tuple[tuple[str, ...], float | None]]) -> dict[str, object]:
-    """Polecenia po kolei do pierwszej porażki; wyjście na bieżąco, a drzewo procesów ginie z limitem."""
+def _uruchom(nazwa: str, polecenia: Sequence[tuple[tuple[str, ...], float]], po_limicie: str = "") -> dict[str, object]:
+    """Polecenia po kolei do pierwszej porażki; wyjście na bieżąco, a drzewo procesów ginie z limitem z linią ``LIMIT``
+    i dopiskiem ``po_limicie``."""
 
     print(f"== {nazwa}", flush=True)
     start, status = time.monotonic(), "ok"
@@ -510,7 +539,8 @@ def _uruchom(nazwa: str, polecenia: Sequence[tuple[tuple[str, ...], float | None
         try:
             kod = potomne.run(polecenie, cwd=ROOT, timeout=limit, echo=True).returncode
         except subprocess.TimeoutExpired:
-            print(f"{nazwa}: {polecenie[1]} przekroczył limit {limit:.0f} s", flush=True)
+            program = " ".join(polecenie[1:3]) if polecenie[1] == "-m" else polecenie[1]
+            print(f"LIMIT | {nazwa}: {program} przerwany po limicie {limit:.0f} s{po_limicie}", flush=True)
             kod = None
         if kod != 0:
             status = "fail"
@@ -534,10 +564,16 @@ def _krok_skilla(klucz: str, znalezione: Mapping[str, mutacje_skilli.Step]) -> d
 
 
 def _krok_pytest(plan: Plan, zadanie: Zadanie, pliki: Mapping[str, list[tuple[int, int]]]) -> dict[str, object]:
-    """Pytest zadania; na pull request po porażce raz same testy, które padły. Potem wynik testów z kwarantanny."""
+    """Pytest zadania z limitem ``limit_pytest_s``; na pull request po porażce raz same testy, które padły. Potem wynik
+    testów z kwarantanny."""
 
-    start = time.monotonic()
-    status = _uruchom("krok:pytest", [(_pytest(pliki), None)])["status"]
+    start, limit = time.monotonic(), limit_pytest_s(zadanie)
+    # Linia limitu mówi, że krok przerwał limit, a nie porażka testu, i gdzie szukać miejsca zawieszenia.
+    po_limicie = (
+        f" ({ZAPAS_PYTEST:.0f} × ściana zadania {zadanie.sciana_s:.0f} s z planu, najmniej {LIMIT_PYTEST_MIN_S} s): to nie porażka testu, tylko"
+        " test albo proces, który się zawiesił; wyżej stosy wątków testu, który wisiał ponad faulthandler_timeout z pyproject.toml"
+    )
+    status = _uruchom("krok:pytest", [(_pytest(pliki), limit)], po_limicie)["status"]
     if status != "ok" and plan.zdarzenie == "pull_request" and (testy := niestabilne_testy.padniete(JUNIT)):
         if len(testy) > PONOWIENIE_NAJWIECEJ:
             print(f"PONOWIENIE | bez ponowienia: padło {len(testy)} testów, a flaky testy to najwyżej {PONOWIENIE_NAJWIECEJ}", flush=True)
