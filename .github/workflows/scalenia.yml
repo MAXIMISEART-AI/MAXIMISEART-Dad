@@ -1,7 +1,7 @@
 name: Scalenia otwartych PR
 
 # After every push to main, each open PR to main gets the commit status "scalenie z main": does its merge with the
-# new main pass without a conflict, and do ruff and mypy pass on it (tools/scalenia_pr.py).
+# new main pass without a conflict, and do ruff and mypy pass on it (tools/ci/status_scalenia.py).
 on:
   push:
     branches:
@@ -13,7 +13,7 @@ on:
         required: false
         default: main
 
-# The job runs code from same-repository PR branches, as ci.yml does; tools/scalenia_pr.py skips PRs from forks,
+# The job runs code from same-repository PR branches, as ci.yml does; tools/ci/status_scalenia.py skips PRs from forks,
 # because this token can write any commit status, also the one the ruleset requires.
 permissions:
   contents: read
@@ -52,4 +52,4 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           BAZA: ${{ inputs.baza || 'main' }}
-        run: python tools/scalenia_pr.py --publikuj --baza "$BAZA"
+        run: python tools/ci/status_scalenia.py --publikuj --baza "$BAZA"

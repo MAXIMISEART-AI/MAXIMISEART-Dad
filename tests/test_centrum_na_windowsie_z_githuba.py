@@ -50,8 +50,8 @@ class Checkout:
         scripts = self.root / ".agents" / "skills" / "verify-centrum-na-windowsie" / "scripts"
         scripts.mkdir(parents=True)
         shutil.copy(SCRIPT, scripts / SCRIPT.name)
-        (self.root / "tools").mkdir()
-        shutil.copy(ROOT / "tools" / "skrypt_skilla.py", self.root / "tools" / "skrypt_skilla.py")
+        (self.root / "tools" / "lib").mkdir(parents=True)
+        shutil.copy(ROOT / "tools" / "lib" / "skrypt_skilla.py", self.root / "tools" / "lib" / "skrypt_skilla.py")
         (self.root / ".gitignore").write_text(".verification/\n__pycache__/\n", encoding="utf-8")
         origin = tmp_path / "origin.git"
         git(tmp_path, "init", "--quiet", "--bare", str(origin))

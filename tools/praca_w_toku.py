@@ -1,4 +1,4 @@
-"""Praca w toku w innych checkoutach tego repozytorium i pliki, które zmienia też bieżący checkout.
+"""Pokazuje pracę innych checkoutów i otwartych PR-ów oraz pliki wspólne z bieżącym; użyj przed startem issue i przed aktualizacją z main.
 
 Wiele sesji pracuje naraz, każda w swoim git worktree, i nie widzą się nawzajem. Skrypt tylko
 czyta: worktree (``git worktree list``), lokalne gałęzie z commitami spoza ``origin/main``,

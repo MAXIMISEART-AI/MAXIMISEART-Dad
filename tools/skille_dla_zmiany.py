@@ -1,4 +1,6 @@
-"""Wypisuje skille ``verify-*``, które obowiązują dla zmiany od bazy (domyślnie ``origin/main``), każdy z powodem.
+"""Wypisuje skille verify-*, które obowiązują dla zmiany od bazy, każdy z powodem; użyj przed pushem i przed oceną gotowości PR.
+
+Wypisuje skille ``verify-*``, które obowiązują dla zmiany od bazy (domyślnie ``origin/main``), każdy z powodem.
 
 Zmiana to ``szybko.changed_since``: pliki z ``git diff`` od rozgałęzienia z bazą oraz pliki niezacommitowane i
 nieśledzone. Skill deklaruje we frontmatterze ``SKILL.md`` klucz ``pilnuje:``, listę globów ścieżek względem korzenia
@@ -27,6 +29,9 @@ from collections.abc import Iterable
 from pathlib import Path
 import re
 import subprocess
+import sys
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools/ci"))
 
 from mutacje_skilli import ROOT, SKILLS, Step, hits, wybor
 import plan_ci

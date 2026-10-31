@@ -24,7 +24,8 @@ zostawia swoje kopie w katalogu tymczasowym. Narzędzie nie robi ``fork`` bez ``
 potoku strażnika opóźniłby EOF. Krótkie zapytania ``git`` mogą zostać przy ``subprocess.run``; przez
 ``run`` idzie każde polecenie, które trwa albo uruchamia własne procesy.
 
-    import potomne   # skrypt z tools/ ma tools/ na sys.path
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools/lib"))  # skrypt z tools/
+    import potomne
 
     done = potomne.run([sys.executable, "-m", "pytest", "-q"], cwd=root, timeout=600)
     with potomne.commit_copy(ROOT, commit) as tree:

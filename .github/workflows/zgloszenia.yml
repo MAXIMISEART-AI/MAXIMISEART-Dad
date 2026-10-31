@@ -1,7 +1,7 @@
 name: Zgłoszenia CI
 
 # After every CI run: an issue "Flaky test: <test>" for each test that passed only on its retry, and on a push to main one
-# issue for a red main, closed by the next green main (tools/zgloszenia_ci.py, ADR 0020).
+# issue for a red main, closed by the next green main (tools/ci/zgloszenia_ci.py, ADR 0020).
 on:
   workflow_run:
     workflows:
@@ -11,7 +11,7 @@ on:
 
 # workflow_run also follows CI runs of pull requests from forks, with this token. A fork writes its own ci.yml, so its
 # artifacts could name any test: the job skips those runs. It never checks out or runs the code of a run either: it
-# runs main's tools/zgloszenia_ci.py, which takes from the artifacts only a test id it can file and everything else
+# runs main's tools/ci/zgloszenia_ci.py, which takes from the artifacts only a test id it can file and everything else
 # from the API of the run.
 permissions:
   contents: read
@@ -42,4 +42,4 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           RUN: ${{ github.event.workflow_run.id }}
-        run: python3 tools/zgloszenia_ci.py --run "$RUN"
+        run: python3 tools/ci/zgloszenia_ci.py --run "$RUN"

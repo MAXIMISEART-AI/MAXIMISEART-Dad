@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Hashable
+from collections.abc import Callable, Hashable, Iterable
 import os
 from pathlib import Path
 import shutil
@@ -12,7 +12,7 @@ import tempfile
 ROOT = Path(__file__).resolve().parents[2]
 AUTHOR = {name: value for role in ("AUTHOR", "COMMITTER") for name, value in ((f"GIT_{role}_NAME", "test"), (f"GIT_{role}_EMAIL", "test@example.com"))}
 
-__all__ = ["built_once", "commit", "git", "repository"]
+__all__ = ["built_once", "commit", "copy_files", "git", "repository"]
 
 
 def git(repo: Path, *arguments: str) -> str:
@@ -34,12 +34,21 @@ def commit(repo: Path, subject: str) -> str:
     return git(repo, "rev-parse", "HEAD")
 
 
+def copy_files(path: Path, names: Iterable[str]) -> None:
+    """Kopie plików checkoutu (ścieżki względem korzenia repozytorium) w ``path``, w tych samych katalogach."""
+
+    for name in names:
+        (path / name).parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(ROOT / name, path / name)
+
+
 def repository(path: Path, files: dict[str, str]) -> Path:
     """Repozytorium z ``pyproject.toml`` i narzędziami checkoutu oraz ``files``, bez commitu."""
 
-    for name in ("pyproject.toml", "tools/ci_lokalnie.py", "tools/ciezkie_ci.py", "tools/czasy_ci.py", "tools/mutacje.py", "tools/potomne.py", "tools/sciezki_w_kodzie.py"):
-        (path / name).parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(ROOT / name, path / name)
+    copy_files(
+        path,
+        ("pyproject.toml", "tools/ci_lokalnie.py", "tools/lib/ciezkie_ci.py", "tools/ci/czasy_ci.py", "tools/mutacje.py", "tools/lib/potomne.py", "tools/lib/sciezki_w_kodzie.py"),
+    )
     for name, text in files.items():
         (path / name).parent.mkdir(parents=True, exist_ok=True)
         (path / name).write_text(text, encoding="utf-8")

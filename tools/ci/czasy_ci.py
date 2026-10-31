@@ -46,8 +46,8 @@ Odczyt. ``z_mainu`` daje ``Czasy`` z artefaktów ``czasy-ci`` ostatnich ``ILE_RU
 ``Czasy`` są puste, a ``blad`` mówi dlaczego: czytający waży wtedy pracę domyślnie, zamiast padać. Obserwacje
 zadania z kilku prób runu liczą się z ostatniej.
 
-    python tools/czasy_ci.py zadanie --tor Windows-3.14.0 --junit junit.xml --wykonanie wykonanie.json --wyjscie zapis.json
-    python3 tools/czasy_ci.py scal --katalog zapisy --wyjscie czasy-ci.json
+    python tools/ci/czasy_ci.py zadanie --tor Windows-3.14.0 --junit junit.xml --wykonanie wykonanie.json --wyjscie zapis.json
+    python3 tools/ci/czasy_ci.py scal --katalog zapisy --wyjscie czasy-ci.json
 """
 
 from __future__ import annotations
