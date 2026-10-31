@@ -17,12 +17,14 @@ Zwraca fakt, nie Komunikat: ``Replaced`` albo jedną ``Refusal``. Katalog każde
 już powstała, znika (jedna polityka dla obu procesów), a plik tymczasowy nie zostaje. Nieudane usunięcie starszych
 Kopii to ``Replaced.old_copies_kept``, bo INTERMAX jest już podmieniony.
 
-Kroki, którymi podmiana zmienia dysk albo czyta INTERMAX w trakcie, idą przez ``Disk``; testy i sprawdzenie
-``verify-zapis-intermax`` podają własne, żeby zepsuć jeden krok bez łatania ``os`` i ``Path``.
+Kroki, którymi podmiana zmienia dysk, czyta INTERMAX w trakcie albo sprawdza, czy nazwa Kopii jest zajęta, idą przez
+``Disk``; testy i sprawdzenie ``verify-zapis-intermax`` podają własne, żeby zepsuć jeden krok bez łatania ``os`` i
+``Path``.
 """
 
 from __future__ import annotations
 
+import errno
 import os
 import time
 from collections.abc import Callable
@@ -90,8 +92,15 @@ def _read(path: Path) -> bytes:
     return workbook_files.workbook_content(path)
 
 
+def _exists(path: Path) -> bool:
+    return path.exists()
+
+
 def _create(path: Path, content: bytes) -> None:
-    path.parent.mkdir(exist_ok=True)
+    try:
+        path.parent.mkdir(exist_ok=True)
+    except FileExistsError as error:  # plik w miejscu folderu Kopii, nie Kopia o tej nazwie
+        raise NotADirectoryError(errno.ENOTDIR, os.strerror(errno.ENOTDIR), str(path.parent)) from error
     descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0))
     with os.fdopen(descriptor, "wb") as file:
         file.write(content)
@@ -107,16 +116,18 @@ def _remove(path: Path) -> None:
 
 @dataclass(frozen=True)
 class Disk:
-    """Kroki podmiany, które zmieniają dysk albo czytają skoroszyt w trakcie; ``LOCAL_DISK`` to prawdziwe.
+    """Kroki podmiany na dysku: zmiany, odczyt skoroszytu w trakcie i zajętość nazwy Kopii; ``LOCAL_DISK`` to prawdziwe.
 
     ``write``: bajty pliku tymczasowego. ``read``: bajty skoroszytu jak ``workbook_files.workbook_content``
-    (``WorkbookError``), dla odczytanego pliku tymczasowego i INTERMAX przed ponowną próbą. ``create``: nowy plik
-    Kopii z jej folderem, ``FileExistsError``, gdy plik o tej nazwie już jest. ``replace``: atomowa podmiana celu.
+    (``WorkbookError``), dla odczytanego pliku tymczasowego i INTERMAX przed ponowną próbą. ``exists``: czy nazwa Kopii
+    jest zajęta (``OSError``, gdy folderu Kopii nie da się przeszukać). ``create``: nowy plik Kopii z jej folderem,
+    ``FileExistsError``, gdy plik o tej nazwie już jest. ``replace``: atomowa podmiana celu.
     ``remove``: usunięcie pliku, którego może już nie być.
     """
 
     write: Callable[[Path, bytes], None] = _write
     read: Callable[[Path], bytes] = _read
+    exists: Callable[[Path], bool] = _exists
     create: Callable[[Path, bytes], None] = _create
     replace: Callable[[Path, Path], None] = _replace
     remove: Callable[[Path], None] = _remove
@@ -168,9 +179,15 @@ def replace_register(
         if workbook_files.is_open_in_excel(register):
             raise _Refused(Refusal.EXCEL_HOLDS)
         copy = intermax_copies.named(copies, before, moment)
-        taken = copy.path.exists()  # Kopia o tej nazwie, która już jest, zostaje nietknięta
+        try:
+            taken = disk.exists(copy.path)  # Kopia o tej nazwie, która już jest, zostaje nietknięta
+        except OSError as error:  # folderu Kopii nie da się przeszukać
+            raise _Refused(Refusal.COPY_FAILED) from error
         try:
             disk.create(copy.path, current)
+        except FileExistsError as error:  # także Kopia, którą ktoś zapisał po sprawdzeniu nazwy
+            taken = True
+            raise _Refused(Refusal.COPY_EXISTS) from error
         except OSError as error:
             raise _Refused(Refusal.COPY_EXISTS if taken else Refusal.COPY_FAILED) from error
         finally:

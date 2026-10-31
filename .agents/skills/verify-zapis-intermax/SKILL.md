@@ -65,7 +65,7 @@ Each rule holds for both; „the run” is either.
 
 The checker runs the real `order_register` and the real
 `intermax_restore.restore`, gives both its own `Disk` and `Waiting` (the real
-steps, each behind a point), and wraps eight steps to choose, before each, what
+steps, each behind a point), and wraps nine steps to choose, before each, what
 happens first. Each is one indivisible step of this code:
 
 | Point in the checker | Code (`src/rozliczenia/`) |
@@ -74,7 +74,8 @@ happens first. Each is one indivisible step of this code:
 | the Excel lock check | `workbook_files.is_open_in_excel` on INTERMAX, in `ensure_available` (`check`, `Register.read`, `workbook_content`), before the Kopia in `replace_register` and after a refused replace |
 | the temporary file | `Disk.write` of the temporary file in `replace_register`, inside `workbook_save.write_atomically`; may raise `OSError` (`Refusal.WRITE_FAILED`) |
 | the write check | `Register.check` on the re-read temporary file, which Uporządkowanie gives `replace_register` as `check`; may find a mismatch (`WriteMismatch`). The restore compares bytes and has no such point |
-| the Kopia | `Disk.create` of the Kopia with the bytes read (`current`), after the write check and the Excel lock check; may raise `OSError`, and raises `FileExistsError` (`O_EXCL`) when a Kopia of that name exists (`Refusal.COPY_EXISTS`, which the restore names `restored_moment_ago`); a Kopia of a name that was taken is never removed |
+| the Kopia's name | `Disk.exists` of the Kopia's name in `replace_register`, after the write check and the Excel lock check; may raise `OSError` when the Kopie folder cannot be searched (`Refusal.COPY_FAILED`, as Python 3.11–3.13 do for a folder without access) |
+| the Kopia | `Disk.create` of the Kopia with the bytes read (`current`), after the name; may raise `OSError`, and raises `FileExistsError` (`O_EXCL`) when a Kopia of that name exists (`Refusal.COPY_EXISTS`, which the restore names `restored_moment_ago`), also one written after `Disk.exists`; a Kopia of a name that was taken is never removed |
 | the replace | `Disk.replace` of the temporary file over INTERMAX in the `replace` that `replace_register` gives `workbook_save.write_atomically`; may raise `OSError`, may be refused by OneDrive (`PermissionError` without the `~$` lock, which it retries), and raises `PermissionError` while the `~$` lock exists, as Windows does for a file Excel holds |
 | the pause before a retry | `waiting.pause` in that `replace`, after a refusal and before it reads INTERMAX again (`Disk.read`) and retries; may last the whole retry time (`_RETRY_S`), so the next refusal ends in `Refusal.ONEDRIVE_HOLDS`. The checker's `Waiting` clock moves only in this pause and never sleeps |
 | the old Kopie | `Disk.remove` of a Kopia older than the `KEPT` newest after the replace; may raise `OSError`, which `replace_register` returns as `Replaced.old_copies_kept` and both processes turn into a warning |
@@ -96,8 +97,10 @@ Covered files: `src/rozliczenia/intermax_replace.py` (`replace_register`,
 
 **Sync commit: `3713b4c1b`** (2026-10-31, #716). At this commit the checker was
 confirmed to describe the code above. Since the previous sync commit `054308111` (#710) both runs replace INTERMAX
-through one sequence, `intermax_replace.replace_register`: the steps of the table are the same and in the same order,
-but the temporary file, the Kopia, the replace and the removal of older Kopie go through `Disk`, which the checker now
+through one sequence, `intermax_replace.replace_register`: the steps of the table are in the same order, with one new
+step, the check of the Kopia's name (`Disk.exists`) before the Kopia, which `3713b4c1b` took beside `Disk`, so no point
+covered it and an `OSError` there escaped. The temporary file, the Kopia's name, the Kopia, the replace and the removal
+of older Kopie go through `Disk`, which the checker now
 gives both runs instead of patching `Path.write_bytes`, `os` and `intermax_copies`; the restore no longer reads the
 Excel lock a second time while it sorts a failed replace; a Kopia of a name that was taken is never removed; and an
 `OSError` from writing the temporary file is `Refusal.WRITE_FAILED`, so the known finding about it is gone. To see
@@ -154,11 +157,12 @@ and every other one as they were. It re-runs the code from scratch for every sch
 
 Bounds: at most one worker's change, one Excel opening, one failed file step,
 one failed write check, two OneDrive refusals of the replace, one pause that
-lasts the whole retry time and one killed process per run. That is 1657
-schedules: 895 of Uporządkowanie, 663 of the restore and 99 of the second
+lasts the whole retry time and one killed process per run. That is 1955
+schedules: 1032 of Uporządkowanie, 776 of the restore and 147 of the second
 restore in the same second. The restore had 885 before #716: it read the Excel
 lock once more while it sorted a failed replace, a point the one sequence no
-longer has, because it reads the lock at the step that failed.
+longer has, because it reads the lock at the step that failed. Before the
+point at `Disk.exists` they were 895, 663 and 99.
 
 Not covered:
 
@@ -170,7 +174,9 @@ Not covered:
 - `Disk.remove` of the run's own Kopia failing after a failed replace, which
   `tests/test_podmiana_intermax.py` covers (the fact still comes back);
 - two runs at once (Centrum runs one Uruchomienie at a time,
-  `verify-jedno-uruchomienie-naraz`);
+  `verify-jedno-uruchomienie-naraz`), so also a Kopia of the same name written
+  between `Disk.exists` and `Disk.create`, which `tests/test_podmiana_intermax.py`
+  covers (it stays);
 - what a killed process leaves: the checker kills by raising at a point, so
   `finally` blocks still run and remove the temporary file, which a real kill
   would leave in OneDrive with a Kopia of a replace that never happened. After
@@ -263,6 +269,7 @@ temporary copy of the checkout (`tools/mutacje.py`) and must end with
   in both processes, since #716 one cleanup);
 - a Kopia of a name that was taken removed after its write fails, so the
   second restore in the same second removes the Kopia of the first;
+- an `OSError` from checking the Kopia's name that escapes;
 - an `OSError` from removing older Kopie that escapes;
 - a temporary file left after a failed replace;
 - older Kopie sorted the wrong way round;

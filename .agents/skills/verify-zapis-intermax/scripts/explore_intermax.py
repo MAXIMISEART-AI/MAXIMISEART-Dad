@@ -5,7 +5,7 @@ which both replace INTERMAX through ``intermax_replace.replace_register`` (#716)
 (``tests/fixtures/intermax.py``) in a real folder, next to a Kopie folder that already holds ``KEPT`` older Kopie of
 both names, so that their order by name differs from their order in time. The restore brings back the oldest of them, a
 real workbook. A second restore starts as one in the same second as an earlier restore: the Kopie folder also holds the
-Kopia that the replace would name, so its ``Disk.create`` raises ``FileExistsError``. Eight steps of the code are
+Kopia that the replace would name, so its ``Disk.create`` raises ``FileExistsError``. Nine steps of the code are
 points where the checker picks what happens first:
 
 - after ``Register.read`` has read INTERMAX (in the restore: after ``workbook_content`` has read it);
@@ -13,6 +13,7 @@ points where the checker picks what happens first:
 - ``Disk.write`` of the temporary file next to INTERMAX, which may raise ``OSError``;
 - the check of that file (``Register.check``), which may find it does not match (``WriteMismatch``); the restore
   compares bytes and has no such point;
+- ``Disk.exists`` of the Kopia's name, which may raise ``OSError`` (a Kopie folder it cannot search);
 - ``Disk.create`` of the Kopia (in the restore: the Kopia of the current state), which may raise ``OSError``;
 - ``Disk.replace`` of the temporary file over INTERMAX (the ``replace`` that ``replace_register`` gives
   ``workbook_save.write_atomically``), which may raise ``OSError``, may be refused by OneDrive (``PermissionError``
@@ -276,6 +277,10 @@ def _disk(world: World, scheduler: Scheduler) -> Disk:
         scheduler.point("zapis pliku tymczasowego obok INTERMAX", fails="oserror")
         LOCAL_DISK.write(path, data)
 
+    def exists(path: Path) -> bool:
+        scheduler.point("Disk.exists (nazwa Kopii INTERMAX)", fails="oserror")
+        return LOCAL_DISK.exists(path)
+
     def create(path: Path, data: bytes) -> None:
         scheduler.point("Disk.create (Kopia INTERMAX)", fails="oserror")
         LOCAL_DISK.create(path, data)
@@ -307,7 +312,7 @@ def _disk(world: World, scheduler: Scheduler) -> Disk:
                 raise
         LOCAL_DISK.remove(path)
 
-    return Disk(write=write, read=LOCAL_DISK.read, create=create, replace=replace, remove=remove)
+    return Disk(write=write, read=LOCAL_DISK.read, exists=exists, create=create, replace=replace, remove=remove)
 
 
 def _waiting(world: World, scheduler: Scheduler) -> Waiting:

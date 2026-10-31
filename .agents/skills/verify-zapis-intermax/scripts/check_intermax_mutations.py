@@ -58,6 +58,19 @@ MUTATIONS = (
         NEW,
     ),
     Mutation(
+        "błąd sprawdzenia nazwy Kopii wychodzi wyjątkiem",
+        (
+            Edit(
+                REPLACE,
+                "        try:\n            taken = disk.exists(copy.path)",
+                "        taken = disk.exists(copy.path)\n        try:\n            pass",
+            ),
+        ),
+        EXPLORER,
+        "folder Kopii bez dostępu daje błąd nieoczekiwany zamiast Komunikatu dla taty",
+        NEW,
+    ),
+    Mutation(
         "nieudane usunięcie starych Kopii wychodzi wyjątkiem",
         (Edit(REPLACE, "    except OSError:\n        return False\n", "    except ValueError:\n        return False\n"),),
         EXPLORER,

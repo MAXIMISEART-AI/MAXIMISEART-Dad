@@ -19,7 +19,7 @@ import pytest
 
 from rozliczenia.intermax_copies import KEPT, Before
 from rozliczenia.intermax_file import WriteMismatch
-from rozliczenia.intermax_replace import Refusal, Replaced, Waiting, replace_register
+from rozliczenia.intermax_replace import LOCAL_DISK, Refusal, Replaced, Waiting, replace_register
 from rozliczenia.workbook_files import Problem, WorkbookError
 
 from tests.fixtures.clock import ManualClock
@@ -287,6 +287,26 @@ def test_kopia_o_tej_samej_nazwie_zostaje_takze_gdy_zapis_kopii_konczy_sie_innym
 
     with _unchanged(folders):
         assert folders.replace(before, FaultyDisk(create=locked)) is Refusal.COPY_EXISTS
+
+
+def test_kopia_zapisana_przez_kogos_innego_po_sprawdzeniu_nazwy_zostaje(folders: Folders, before: Before) -> None:
+    def overtaken(path: Path, content: bytes) -> None:
+        path.parent.mkdir(exist_ok=True)
+        path.write_bytes(b"Kopia innego zapisu")
+        LOCAL_DISK.create(path, content)
+
+    outcome = folders.replace(before, FaultyDisk(create=overtaken))
+
+    assert outcome is Refusal.COPY_EXISTS
+    assert folders.state() == (ORIGINAL, [folders.register.name], {NAMES[before]: b"Kopia innego zapisu"})
+
+
+def test_folder_kopii_ktorego_nie_da_sie_przeszukac_to_kopia_nieudana(folders: Folders, before: Before) -> None:
+    def unsearchable(path: Path) -> bool:
+        raise PermissionError(errno.EACCES, "folder Kopii bez dostępu")
+
+    with _unchanged(folders):
+        assert folders.replace(before, FaultyDisk(exists=unsearchable)) is Refusal.COPY_FAILED
 
 
 def test_niepelna_kopia_nie_zostaje(folders: Folders, before: Before) -> None:

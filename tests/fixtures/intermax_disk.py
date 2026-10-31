@@ -16,6 +16,7 @@ from rozliczenia.intermax_replace import LOCAL_DISK, Disk
 
 Write = Callable[[Path, bytes], None]
 Read = Callable[[Path], bytes]
+Exists = Callable[[Path], bool]
 Replace = Callable[[Path, Path], None]
 Remove = Callable[[Path], None]
 
@@ -26,6 +27,7 @@ class FaultyDisk:
 
     write: Write | None = None
     read: Read | None = None
+    exists: Exists | None = None
     create: Write | None = None
     replace: Replace | None = None
     remove: Remove | None = None
@@ -34,6 +36,7 @@ class FaultyDisk:
         return Disk(
             write=lambda path, content: (self.write or LOCAL_DISK.write)(path, content),
             read=lambda path: (self.read or LOCAL_DISK.read)(path),
+            exists=lambda path: (self.exists or LOCAL_DISK.exists)(path),
             create=lambda path, content: (self.create or LOCAL_DISK.create)(path, content),
             replace=lambda source, target: (self.replace or LOCAL_DISK.replace)(source, target),
             remove=lambda path: (self.remove or LOCAL_DISK.remove)(path),

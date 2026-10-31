@@ -5,6 +5,7 @@ from __future__ import annotations
 import errno
 import os
 import re
+import sys
 import zipfile
 from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
@@ -1692,6 +1693,22 @@ def test_folder_kopii_ktorego_nie_da_sie_utworzyc_to_zatrzymanie_dla_taty_bez_za
     assert (stop.message.code, stop.stop_kind) == ("KOPIA_INTERMAX_NIEUDANA", "for_tata")
     assert path.read_bytes() == original
     assert [entry.name for entry in path.parent.iterdir()] == [REGISTER_NAME]
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="chmod w Windows zmienia tylko atrybut „tylko do odczytu”")
+def test_folder_kopii_bez_dostepu_to_zatrzymanie_dla_taty_bez_zapisu(tmp_path: Path) -> None:
+    path, _ = _register(tmp_path)
+    copies = tmp_path / "Kopie INTERMAX"
+    copies.mkdir()
+
+    with _nothing_written(tmp_path, path):
+        copies.chmod(0)
+        try:
+            stop = _stop(_run(tmp_path))
+        finally:
+            copies.chmod(0o755)
+
+    assert (stop.message.code, stop.stop_kind) == ("KOPIA_INTERMAX_NIEUDANA", "for_tata")
 
 
 def _lock(tmp_path: Path) -> Callable[[], object]:
