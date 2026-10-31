@@ -498,22 +498,32 @@ def test_naraz_biegnie_najwyzej_osiem_mutacji(tmp_path: Path) -> None:
 
 
 
-def test_skrypt_mutacji_skilla_liczy_zawieszenie_jak_wykryta(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    ("anchor", "replacement", "code", "lines"),
+    [
+        ("WISI = False", "WISI = True", 0, ["ZAWIESZENIE: m → brak wyniku po 3 s (liczona jako wykryta: CI czerwienieje na limicie)", "MUTACJE OK"]),
+        ("NIC = 0", "NIC = 1", 1, ["NIEWYKRYTA: m → kod wyjścia 0", "MUTACJE: 1 bez oczekiwanego wyniku"]),
+        ("tego nie ma", "", 1, ["NIEAKTUALNA: m → kotwicy nie ma dokładnie raz w src/rozliczenia/__init__.py: 'tego nie ma'", "MUTACJE: 1 bez oczekiwanego wyniku"]),
+    ],
+    ids=["zawieszenie", "niewykryta", "nieaktualna"],
+)
+def test_skrypt_mutacji_skilla_liczy_zawieszenie_jak_wykryta_a_inne_werdykty_jako_porazke(
+    tmp_path: Path, anchor: str, replacement: str, code: int, lines: list[str]
+) -> None:
     """CI czerwienieje na teście, który wisi, więc noc nie zgłasza skryptu skilla, którego mutacja wiesza polecenie."""
 
-    repo = repository(tmp_path / "repo", {PACKAGE: "WISI = False\n"})
+    repo = repository(tmp_path / "repo", {PACKAGE: "WISI = False\nNIC = 0\n"})
     commit(repo, "baza")
     hangs = "import time, rozliczenia\nif rozliczenia.WISI:\n    time.sleep(60)\n"
     script = (
         "import sys\nsys.path.insert(0, 'tools')\nfrom pathlib import Path\nfrom mutacje import Edit, Mutation, check_all\n"
-        f"hanging = Mutation('wisi', (Edit(Path({PACKAGE!r}), 'WISI = False', 'WISI = True'),), ('-c', {hangs!r}))\n"
-        "raise SystemExit(check_all([hanging], limit_s=3))\n"
+        f"mutation = Mutation('m', (Edit(Path({PACKAGE!r}), {anchor!r}, {replacement!r}),), ('-c', {hangs!r}))\n"
+        "raise SystemExit(check_all([mutation], limit_s=3))\n"
     )
 
     answered = subprocess.run([sys.executable, "-c", script], cwd=repo, capture_output=True, text=True, encoding="utf-8", timeout=120, check=False)
 
-    expected = ["ZAWIESZENIE: wisi → brak wyniku po 3 s (liczona jako wykryta: CI czerwienieje na limicie)", "MUTACJE OK"]
-    assert (answered.returncode, answered.stdout.splitlines()) == (0, expected), answered.stdout + answered.stderr
+    assert (answered.returncode, answered.stdout.splitlines()) == (code, lines), answered.stdout + answered.stderr
 
 
 LINUX_1 = "pytest (Python 3.14, Linux, 1/2)"

@@ -176,6 +176,24 @@ def test_mutacja_ktora_zawiesza_dopiero_testy_pliku_konczy_sie_bez_werdyktu_w_li
     assert json.loads(record.read_text(encoding="utf-8"))["przezyte"] == []
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="linię Failed: Timeout drukuje metoda signal pytest-timeout, a noc biegnie na Linuksie")
+def test_mutacja_ktora_wiesza_dopiero_test_pliku_do_limitu_pytest_timeout_jest_wykryta(tmp_path: Path) -> None:
+    # Stałą czyta test, który nie wykonał kodu pliku, więc zawieszenie wychodzi dopiero w przebiegu z testami pliku.
+    tests = (
+        "import subprocess\nimport sys\nimport time\n\nimport pytest\n\nimport rozliczenia.warunek as warunek\n\n\n"
+        "def test_import_w_procesie() -> None:\n    subprocess.run([sys.executable, '-c', 'import rozliczenia.warunek'], check=True)\n\n\n"
+        "@pytest.mark.timeout(3)\ndef test_stala() -> None:\n    while warunek.LIMIT != 5:\n        time.sleep(0.1)\n"
+    )
+    record = tmp_path / "zapis" / "czesc.json"
+
+    done = _run(_repo(tmp_path / "repo", tests, "LIMIT = 5\n", "LIMIT = 3\n"), "--zapis", str(record))
+
+    assert done.returncode == 0, done.stdout + done.stderr
+    hang = "→ Failed: Timeout (>3.0s) from pytest-timeout. (liczona jako wykryta: CI czerwienieje na limicie) (testy pliku)"
+    assert f"ZAWIESZENIE: src/rozliczenia/warunek.py:1 zmiana linii 1 cofnięta do bazy {hang}" in done.stdout.splitlines(), done.stdout
+    assert json.loads(record.read_text(encoding="utf-8"))["przezyte"] == []
+
+
 def test_czesc_z_testem_zawieszonym_bez_mutacji_konczy_sie_zapisem_w_limicie_czasu_czesci(tmp_path: Path) -> None:
     hangs = "import time\n\n" + ONE_CASE + "\n\ndef test_zawieszony() -> None:\n    while True:\n        time.sleep(0.1)\n"
     record = tmp_path / "zapis" / "czesc.json"
