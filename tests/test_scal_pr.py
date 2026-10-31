@@ -848,12 +848,14 @@ def test_gotowy_pr_nie_czeka_na_mutacje_zmiany_ani_linie_mutacja_bo_mutacje_bieg
     assert _last_line(answered).startswith(f"SCAL OK | #1 {head[:7]} | gotowy do merge'a")
 
 
-# ``tools/skille_dla_zmiany.py`` atrapa: skill z pliku ``skille.txt`` drzewa, w którym biegnie, i pliki zmiany od bazy z argumentu.
+# ``tools/skille_dla_zmiany.py`` atrapa: skill z pliku ``skille.txt`` drzewa, w którym leży skrypt (jak prawdziwe narzędzie,
+# które szuka korzenia od ``__file__``, więc skrypt z checkoutu zamiast kopii HEAD PR czytałby ``skille.txt`` checkoutu), i pliki
+# zmiany od bazy z argumentu.
 SKILLS_FOR_CHANGE = """\
 import pathlib, subprocess, sys
 
 changed = subprocess.run(["git", "diff", "--name-only", sys.argv[1], "HEAD"], capture_output=True, text=True, check=True).stdout.split()
-skill = pathlib.Path("skille.txt").read_text().strip()
+skill = (pathlib.Path(__file__).resolve().parents[1] / "skille.txt").read_text().strip()
 print(f"{skill}: {', '.join(changed)}")
 print(f"SKILLE VERIFY: {skill}")
 """
@@ -1012,6 +1014,45 @@ def test_werdykt_niezgodny_z_postacia_ze_skilla_albo_z_head_nie_trafia_na_pr_a_o
     assert answered.returncode == 1, answered.stdout + answered.stderr
     assert _last_line(answered) == f"WERDYKT ODMOWA | #1 | {reason.format(head=head, short=head[:7])}; popraw {path} i uruchom ponownie"
     assert github.published() == []
+
+
+@pytest.mark.parametrize(
+    "modes",
+    [["--przeglad", "--bez-merge"], ["--werdykt", "PLIK", "--bez-merge"], ["--przeglad", "--werdykt", "PLIK"]],
+    ids=["przeglad-i-bez-merge", "werdykt-i-bez-merge", "przeglad-i-werdykt"],
+)
+def test_tryby_przegladu_werdyktu_i_bez_merge_sie_wykluczaja_wiec_dwa_naraz_niczego_nie_publikuja_ani_nie_scalaja(
+    tmp_path: Path, modes: list[str]
+) -> None:
+    github = FakeGitHub(tmp_path, {"kod/__init__.py": SUM})
+    head = github.open_pull(1, {"kod/inne.py": "INNE: int = 1\n"})
+    path = tmp_path / "runda-1.md"
+    path.write_text(f"WERDYKT: PASS {head}\nZnaleziska: 0 (Ważne 0, Drobne 0)\n", encoding="utf-8")
+
+    answered = github.run("1", *(str(path) if mode == "PLIK" else mode for mode in modes))
+
+    assert (answered.returncode, answered.stdout) == (2, ""), answered.stdout + answered.stderr
+    assert "not allowed with argument" in answered.stderr, answered.stderr
+    assert (github.published(), github.merges()) == ([], [])
+
+
+@pytest.mark.parametrize(
+    ("mode", "label"),
+    [(["--przeglad"], "PRZEGLĄD"), (["--werdykt", "PLIK"], "WERDYKT"), (["--bez-merge"], "SCAL")],
+    ids=["przeglad", "werdykt", "bez-merge"],
+)
+def test_blad_gh_konczy_sie_linia_fail_z_nazwa_trybu(tmp_path: Path, mode: list[str], label: str) -> None:
+    github = FakeGitHub(tmp_path, {"kod/__init__.py": SUM})
+    head = github.open_pull(1, {"kod/inne.py": "INNE: int = 1\n"})
+    path = tmp_path / "runda-1.md"
+    path.write_text(f"WERDYKT: PASS {head}\nZnaleziska: 0 (Ważne 0, Drobne 0)\n", encoding="utf-8")
+
+    # Atrapa gh nie zna PR 2, więc ``gh pr view 2`` pada.
+    answered = github.run("2", *(str(path) if part == "PLIK" else part for part in mode))
+
+    assert answered.returncode == 1, answered.stdout + answered.stderr
+    assert answered.stdout.startswith(f"{label} FAIL | gh pr view 2 "), answered.stdout
+    assert (github.published(), github.merges()) == ([], [])
 
 
 def test_werdykt_bez_pliku_konczy_sie_bledem_narzedzia_bez_komentarza(tmp_path: Path) -> None:
