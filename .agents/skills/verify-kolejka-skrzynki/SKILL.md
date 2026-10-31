@@ -88,8 +88,18 @@ and `_Server` in `server.py` (`DEFINITIONS` in `sprawdz_model_kolejki.py`). Only
 rest of their files, is drift. Name these three files here without their
 `src/…` path in backticks: such a path makes the whole file covered.
 
-**Sync commit: `05430811`** (2026-10-31). The checker and the model share it:
+**Sync commit: `a27e0695`** (2026-10-31). The checker and the model share it:
 at this commit both were confirmed to describe the code above. Since the
+previous sync `05430811` only `a27e0695` (#718) changed a covered file:
+`Outbox` takes one `Listener` (`prepare`, `delivered`, `rejected`) instead
+of `prepare`, `on_delivered` and `on_rejected`, and `_send_all` queues the
+wysyłki that `Listener.delivered` returns with `post` at the place where the
+old `on_delivered` of the Sprawy taty called `post` itself; `ReportIssue`
+carries the fingerprint, its line comes from it, and the queue file keeps the
+line as before. No box call, retry, marker, removal or `_waiting` changed and
+no `Target` was added, so neither check changed: the checker passes a
+listener that changes nothing, and the model leaves the listener out as
+before. At `05430811`, since the
 previous sync `b23f4180` only `73d7f1ba8` (tools to `tools/ci` and
 `tools/lib`) changed a covered file, a comment in `app.py` outside `lifespan`,
 and the import path of `sprawdz_kolejke.py`; neither check changed. At
@@ -107,7 +117,7 @@ them, `6f94edb8` was the sync of both, and since the checker's earlier sync
 model describes. To see whether they need another look:
 
 ```bash
-git log --oneline 05430811..HEAD -- src/rozliczenia/centrum/outbox.py src/rozliczenia/centrum/keyed_box.py src/rozliczenia/centrum/report_box.py src/rozliczenia/centrum/atomic_file.py
+git log --oneline a27e0695..HEAD -- src/rozliczenia/centrum/outbox.py src/rozliczenia/centrum/keyed_box.py src/rozliczenia/centrum/report_box.py src/rozliczenia/centrum/atomic_file.py
 ```
 
 A change to the three definitions above shows as a `UWAGA:` line of
