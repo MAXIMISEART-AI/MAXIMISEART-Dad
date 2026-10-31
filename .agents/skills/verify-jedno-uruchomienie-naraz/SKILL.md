@@ -68,17 +68,18 @@ after a new version, until the restart guardian has started and
 | `app.py` `create_app`: `shutdown.refuse_while(runs.shutdown_refusal)` | the wiring the harness copies |
 | `server.py` `serve.stop_when_asked` and uvicorn graceful shutdown | modelled by hand (see below) |
 
-**Sync commit: `ef1eff19`** (#472: przywrócenie Kopii INTERMAX in the slot). At this commit the checker was confirmed to describe
-the covered code. From the previous sync commit `3ac432a`, the covered files
-changed only in card views (`EndedRun.outcome`, `ProcessEntry.view` removed) and
-in `app.py` wiring of the Skrzynka queue, Sprawy taty, Diagnoza and the
-read-only `filling_router`; `refuse_while`, `after_run` and the lock in
-`runs.py` did not change. From `11588db1` to `ef1eff19`, `runs.py` got `begin_restore`, `end_restore` and the
-`_restoring` checks, and `app.py` the `intermax_copies_router`; the `przywracanie` scope models them. To see whether
+**Sync commit: `05430811`** (main, 2026-10-31). At this commit the checker was confirmed to describe
+the covered code. From the previous sync commit `ef1eff19` (#472), `runs.py`, `shutdown.py`, `server.py` and
+`intermax_run.py` did not change. `tool_updates.py` changed only outside the slot: the result after a restart is
+judged in `_after_restart` at Centrum's start (#490, #491), and a failure's next action comes from
+`update_messages.UpdateFailure`; `start` still claims the slot with `begin_update` before its thread, and `_update`
+still calls `end_update` in its `finally` or `close_for_update` after the guardian. `app.py` changed only in the
+Skrzynka wiring (`on_rejected`, the box passed to `dad_notes_router`) and a comment. The Centrum's POST and PUT
+endpoints are the same as at `ef1eff19`, so no new action has to wait for the slot. To see whether
 it needs another look:
 
 ```bash
-git log --oneline ef1eff19..HEAD -- src/rozliczenia/centrum/runs.py src/rozliczenia/centrum/shutdown.py src/rozliczenia/centrum/server.py src/rozliczenia/centrum/app.py src/rozliczenia/centrum/tool_updates.py src/rozliczenia/centrum/intermax_run.py
+git log --oneline 05430811..HEAD -- src/rozliczenia/centrum/runs.py src/rozliczenia/centrum/shutdown.py src/rozliczenia/centrum/server.py src/rozliczenia/centrum/app.py src/rozliczenia/centrum/tool_updates.py src/rozliczenia/centrum/intermax_run.py
 ```
 
 For every listed commit, read its diff against the table. Move the sync commit
