@@ -16,7 +16,7 @@ from openpyxl.styles import Font
 import pytest
 
 from rozliczenia.domain import PhaseFailed, PhaseStarted, ProgressEvent, ProgressPhase
-from rozliczenia.intermax_file import Waiting
+from rozliczenia.intermax_replace import Waiting
 from rozliczenia.intermax_ordering import order_register
 from rozliczenia.message import StopError
 

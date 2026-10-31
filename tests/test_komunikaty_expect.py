@@ -302,10 +302,9 @@ def test_blad_ktory_proces_tlumaczy_na_komunikat_niesie_fakty_a_nie_tekst() -> N
     ``StopError``. Sprawdzenie widzi parametry ``__init__`` z adnotacją ``str`` (także w unii) w klasach
     ``src/rozliczenia``, a błąd bez własnego ``__init__`` przyjmuje każdy tekst w ``args``, więc nie stoi w sygnaturze
     fabryki. Granica: pole ustawione bez parametru, parametr bez adnotacji, ``except`` na zmiennej (``except errors``),
-    ``match`` na złapanym błędzie w obsłudze ``except BaseException`` (``case WorkbookSaveError()`` w
-    ``intermax_copies.restore``), tekst w dataclass faktu (``SameWorkerFile`` niesie nazwy z konfiguracji) i błąd bez
-    własnego ``__init__`` tylko w ``except``, którego obsługa przekaże fabryce jego tekst (``str(error)``); dziś
-    obsługa ``HeldByOneDrive`` woła fabrykę bez błędu.
+    ``match`` na złapanym błędzie w obsłudze ``except BaseException``, tekst w dataclass faktu (``SameWorkerFile``
+    niesie nazwy z konfiguracji) i błąd bez własnego ``__init__`` tylko w ``except``, którego obsługa przekaże fabryce
+    jego tekst (``str(error)``).
     """
 
     modules = _engine_modules()

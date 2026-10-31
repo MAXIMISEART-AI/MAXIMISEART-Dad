@@ -317,6 +317,7 @@ INTERMAX_SAMPLES: Samples = {
     "unsupported_shape": [lambda: intermax_messages.unsupported_shape(REGISTER, SHEET)],
     "register_syncing": [lambda: intermax_messages.register_syncing(REGISTER)],
     "write_check_failed": [lambda: intermax_messages.write_check_failed(REGISTER)],
+    "register_write_failed": [lambda: intermax_messages.register_write_failed(REGISTER)],
     "copy_failed": [lambda: intermax_messages.copy_failed(COPIES)],
     "old_copies_kept": [lambda: intermax_messages.old_copies_kept(COPIES)],
     "copies_unreadable": [lambda: intermax_messages.copies_unreadable(COPIES)],

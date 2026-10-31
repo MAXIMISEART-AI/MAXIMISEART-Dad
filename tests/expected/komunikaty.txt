@@ -884,6 +884,11 @@ write_check_failed [ZAPIS_INTERMAX_NIEZGODNY]
   Gdzie: plik ZLECENIA INTERMAX OD 08_11_2021.xlsx, folder Dane
   Co zrobić: Przekaż ten komunikat osobie utrzymującej narzędzie.
 
+register_write_failed [ZAPIS_INTERMAX_NIEUDANY]
+  Co się stało: Nie udało się zapisać INTERMAX. INTERMAX nie został zmieniony.
+  Gdzie: plik ZLECENIA INTERMAX OD 08_11_2021.xlsx, folder Dane
+  Co zrobić: Sprawdź, czy na dysku jest wolne miejsce, i uruchom ponownie. Jeśli błąd wraca, przekaż ten komunikat osobie utrzymującej narzędzie.
+
 copy_failed [KOPIA_INTERMAX_NIEUDANA]
   Co się stało: Nie udało się zrobić Kopii INTERMAX. INTERMAX nie został zmieniony.
   Gdzie: folder Narzedzie\Kopie INTERMAX

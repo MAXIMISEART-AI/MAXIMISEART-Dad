@@ -1,23 +1,24 @@
 """Exhaustively check how Uporządkowanie INTERMAX and Przywracanie Kopii INTERMAX replace the Rejestr zleceń.
 
-The checker runs the real ``intermax_ordering.order_register()`` and the real ``intermax_copies.restore()`` (#472) on a
-synthetic INTERMAX (``tests/fixtures/intermax.py``) in a real folder, next to a Kopie folder that already holds ``KEPT``
-older Kopie of both names, so that their order by name differs from their order in time. The restore brings back the
-oldest of them, a real workbook. A second restore starts as one in the same second as an earlier restore: the Kopie
-folder also holds the Kopia that ``make_copy`` would name, so it raises ``FileExistsError``. Eight steps of the code
-are points where the checker picks what happens first:
+The checker runs the real ``intermax_ordering.order_register()`` and the real ``intermax_restore.restore()`` (#472),
+which both replace INTERMAX through ``intermax_replace.replace_register`` (#716), on a synthetic INTERMAX
+(``tests/fixtures/intermax.py``) in a real folder, next to a Kopie folder that already holds ``KEPT`` older Kopie of
+both names, so that their order by name differs from their order in time. The restore brings back the oldest of them, a
+real workbook. A second restore starts as one in the same second as an earlier restore: the Kopie folder also holds the
+Kopia that the replace would name, so its ``Disk.create`` raises ``FileExistsError``. Eight steps of the code are
+points where the checker picks what happens first:
 
 - after ``Register.read`` has read INTERMAX (in the restore: after ``workbook_content`` has read it);
-- ``workbook_files.is_open_in_excel`` on INTERMAX (in ``check``, in ``Register.read`` and in ``before_replace``);
-- the write of the temporary file next to INTERMAX (``intermax_file.save``), which may raise ``OSError``;
+- ``workbook_files.is_open_in_excel`` on INTERMAX (in ``check``, in ``Register.read`` and before the Kopia);
+- ``Disk.write`` of the temporary file next to INTERMAX, which may raise ``OSError``;
 - the check of that file (``Register.check``), which may find it does not match (``WriteMismatch``); the restore
   compares bytes and has no such point;
-- ``intermax_copies.make_copy`` (in the restore: the Kopia of the current state), which may raise ``OSError``;
-- ``os.replace`` of the temporary file over INTERMAX (the ``replace`` that ``intermax_file.save`` gives
+- ``Disk.create`` of the Kopia (in the restore: the Kopia of the current state), which may raise ``OSError``;
+- ``Disk.replace`` of the temporary file over INTERMAX (the ``replace`` that ``replace_register`` gives
   ``workbook_save.write_atomically``), which may raise ``OSError``, may be refused by OneDrive (``PermissionError``
   without the ``~$`` lock file), and always raises ``PermissionError`` while Excel has INTERMAX open, as on Windows;
 - the pause between two attempts of that replace (``Waiting.pause``), which may last the whole retry time;
-- ``intermax_copies.keep_newest``, which may raise ``OSError``.
+- ``Disk.remove`` of an older Kopia after the replace, which may raise ``OSError``.
 
 At each point a worker may first save a change to INTERMAX on another computer, which OneDrive puts in place as a new
 file (not while Excel holds INTERMAX: OneDrive then keeps a conflict copy beside it), Dad may open INTERMAX in Excel
@@ -37,7 +38,8 @@ bounds and checks:
   their name, the new one among them, unless removing older ones failed, which the code turns into a warning.
 - BEZ_WYJATKU: the run ends with a summary or a ``StopError``, or the process dies; nothing else escapes.
 
-Nothing in the product code is replaced; the checker only wraps the steps to pick at their points. A killed process
+Nothing in the product code is replaced; the checker only wraps the steps to pick at their points, and gives both runs
+its own ``Disk`` and ``Waiting`` whose steps are the real ones behind a point. A killed process
 is a ``BaseException`` raised at a point, so ``finally`` blocks still run, which a real kill would skip.
 """
 
@@ -46,7 +48,6 @@ from __future__ import annotations
 import argparse
 import errno
 import os
-import pathlib
 import shutil
 import sys
 import tempfile
@@ -55,16 +56,15 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from pathlib import Path
-from types import SimpleNamespace
 from typing import Any, Literal
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parents[4]))
 
-from rozliczenia import intermax_copies, intermax_file, workbook_files, workbook_save
+from rozliczenia import intermax_copies, intermax_file, intermax_replace, intermax_restore, workbook_files
 from rozliczenia.intermax_file import WriteMismatch
-from rozliczenia.intermax_copies import Before
 from rozliczenia.intermax_ordering import order_register
+from rozliczenia.intermax_replace import LOCAL_DISK, Disk, Waiting
 from rozliczenia.message import StopError
 
 from tests.fixtures.intermax import Intermax, Order
@@ -80,7 +80,7 @@ Mode = Literal["Uporządkowanie", "przywrócenie Kopii", "drugie przywrócenie w
 ORDERING: Mode = "Uporządkowanie"
 RESTORE: Mode = "przywrócenie Kopii"
 SAME_SECOND: Mode = "drugie przywrócenie w tej samej sekundzie"
-"""A restore in the second of an earlier one: the Kopie folder already holds the Kopia that ``make_copy`` would name."""
+"""A restore in the second of an earlier one: the Kopie folder already holds the Kopia that the replace would name."""
 
 Actor = Literal["pracownik", "excel"]
 Choice = Literal["ok", "pracownik", "excel", "oserror", "niezgodny", "kill", "onedrive", "dluga"]
@@ -222,7 +222,7 @@ class World:
 
 @contextmanager
 def _points(world: World, scheduler: Scheduler) -> Iterator[None]:
-    """Wraps the eight steps; restores them afterwards."""
+    """Wraps the read, the Excel lock and the write check, which the runs reach through their modules; restores them."""
 
     real_read: Callable[
         [type[intermax_file.Register], Path], intermax_file.Register
@@ -230,12 +230,6 @@ def _points(world: World, scheduler: Scheduler) -> Iterator[None]:
     real_content = workbook_files.workbook_content
     real_check = intermax_file.Register.check
     real_open = workbook_files.is_open_in_excel
-    real_copy = intermax_copies.make_copy
-    real_keep = intermax_copies.keep_newest
-    real_write_bytes = pathlib.Path.write_bytes
-    save_names = vars(workbook_save)
-    file_names = vars(intermax_file)
-    real_os = save_names["os"]
 
     def read(cls: type[intermax_file.Register], path: Path) -> intermax_file.Register:
         register = real_read(cls, path)
@@ -262,29 +256,32 @@ def _points(world: World, scheduler: Scheduler) -> Iterator[None]:
             scheduler.point("is_open_in_excel(INTERMAX)")
         return real_open(path)
 
-    def write_bytes(path: Path, data: Any) -> int:
-        if path.parent == world.folder and path.name.startswith(TEMPORARY):
-            scheduler.point("zapis pliku tymczasowego obok INTERMAX", fails="oserror")
-        return real_write_bytes(path, data)
+    intermax_file.Register.read = classmethod(read)  # type: ignore[method-assign,assignment]
+    intermax_file.Register.check = check  # type: ignore[method-assign,assignment]
+    workbook_files.is_open_in_excel = is_open
+    workbook_files.workbook_content = content
+    try:
+        yield
+    finally:
+        intermax_file.Register.read = classmethod(real_read)  # type: ignore[method-assign,assignment]
+        intermax_file.Register.check = real_check  # type: ignore[method-assign]
+        workbook_files.is_open_in_excel = real_open
+        workbook_files.workbook_content = real_content
 
-    def make_copy(content: bytes, directory: Path, moment: datetime, before: Before = "ordering") -> Path:
-        scheduler.point("make_copy (Kopia INTERMAX)", fails="oserror")
-        made = real_copy(content, directory, moment, before)
-        scheduler.say(f"Kopia INTERMAX zapisana: {made.name}")
-        return made
 
-    def keep_newest(directory: Path) -> None:
-        try:
-            scheduler.point("keep_newest (stare Kopie)", fails="oserror")
-        except OSError:
-            world.keep_failed = True
-            raise
-        real_keep(directory)
+def _disk(world: World, scheduler: Scheduler) -> Disk:
+    """The replace's steps on the disk: the real ones (``LOCAL_DISK``), each behind its point."""
 
-    def replace(source: Any, target: Any) -> None:
-        if Path(target) != world.register:
-            real_os.replace(source, target)
-            return
+    def write(path: Path, data: bytes) -> None:
+        scheduler.point("zapis pliku tymczasowego obok INTERMAX", fails="oserror")
+        LOCAL_DISK.write(path, data)
+
+    def create(path: Path, data: bytes) -> None:
+        scheduler.point("Disk.create (Kopia INTERMAX)", fails="oserror")
+        LOCAL_DISK.create(path, data)
+        scheduler.say(f"Kopia INTERMAX zapisana: {path.name}")
+
+    def replace(source: Path, target: Path) -> None:
         if scheduler.point(REPLACE, fails="oserror", error=OSError, extra=("onedrive",)) == "onedrive":
             world.refused += 1
             scheduler.say("os.replace: PermissionError, OneDrive trzyma INTERMAX")
@@ -295,45 +292,36 @@ def _points(world: World, scheduler: Scheduler) -> Iterator[None]:
             )
             raise PermissionError("Excel trzyma INTERMAX")
         world.replaced = world.register.read_bytes()
-        real_os.replace(source, target)
+        LOCAL_DISK.replace(source, target)
         world.written = world.register.read_bytes()
         scheduler.say("os.replace podmienia INTERMAX")
 
-    intermax_file.Register.read = classmethod(read)  # type: ignore[method-assign,assignment]
-    intermax_file.Register.check = check  # type: ignore[method-assign,assignment]
-    workbook_files.is_open_in_excel = is_open
-    workbook_files.workbook_content = content
-    intermax_copies.make_copy = make_copy
-    intermax_copies.keep_newest = keep_newest
-    pathlib.Path.write_bytes = write_bytes  # type: ignore[method-assign,assignment]
-    save_names["os"] = SimpleNamespace(replace=replace, close=real_os.close)
-    file_names["os"] = SimpleNamespace(replace=replace)
-    try:
-        yield
-    finally:
-        intermax_file.Register.read = classmethod(real_read)  # type: ignore[method-assign,assignment]
-        intermax_file.Register.check = real_check  # type: ignore[method-assign]
-        workbook_files.is_open_in_excel = real_open
-        workbook_files.workbook_content = real_content
-        intermax_copies.make_copy = real_copy
-        intermax_copies.keep_newest = real_keep
-        pathlib.Path.write_bytes = real_write_bytes  # type: ignore[method-assign]
-        save_names["os"] = real_os
-        file_names["os"] = real_os
+    def remove(path: Path) -> None:
+        # Only the removal of older Kopie after the replace is a point; removing the run's own Kopia after a failed
+        # replace is not (SKILL.md: not covered).
+        if world.replaced is not None:
+            try:
+                scheduler.point("usunięcie starszej Kopii (KEPT)", fails="oserror")
+            except OSError:
+                world.keep_failed = True
+                raise
+        LOCAL_DISK.remove(path)
+
+    return Disk(write=write, read=LOCAL_DISK.read, create=create, replace=replace, remove=remove)
 
 
-def _waiting(world: World, scheduler: Scheduler) -> intermax_file.Waiting:
+def _waiting(world: World, scheduler: Scheduler) -> Waiting:
     """The process clock and the pause of the retried replace; the pause only moves the clock, never sleeps."""
 
     def pause(seconds: float) -> None:
         if scheduler.point(PAUSE, extra=("dluga",)) == "dluga":
             scheduler.say("przerwa trwa cały czas ponownych prób")
-            world.seconds += intermax_file._RETRY_S
+            world.seconds += intermax_replace._RETRY_S
         else:
             world.seconds += seconds
         scheduler.say("ponowna próba podmiany")
 
-    return intermax_file.Waiting(lambda: world.seconds, pause)
+    return Waiting(lambda: world.seconds, pause)
 
 
 def _synthetic(work: Path) -> tuple[bytes, bytes, bytes]:
@@ -353,7 +341,7 @@ def _synthetic(work: Path) -> tuple[bytes, bytes, bytes]:
 
 
 def _old_copies(earlier: bytes) -> dict[str, bytes]:
-    """``KEPT`` Kopie from earlier days, named as ``make_copy`` names them, alternately before an Uporządkowanie and
+    """``KEPT`` Kopie from earlier days, named as the replace names them, alternately before an Uporządkowanie and
     before a restore, so that sorting by name (``przywróceniem`` < ``uporządkowaniem``) differs from sorting in time.
 
     The oldest holds the ``earlier`` INTERMAX, the others their own bytes.
@@ -471,19 +459,9 @@ def _worker_change_lost(world: World, faults: Sequence[tuple[str, str]]) -> bool
 
 
 def _copy_of_what_was_read(world: World, faults: Sequence[tuple[str, str]]) -> bool:
-    """The same story, and the Kopia holds the bytes the run read, as ``make_copy(register.content, …)`` makes it."""
+    """The same story, and the Kopia holds the bytes the run read (``current`` of ``replace_register``)."""
 
     return _worker_change_lost(world, faults) and world.read in world.kopie().values()
-
-
-def _temporary_write_failed(world: World, faults: Sequence[tuple[str, str]]) -> bool:
-    """``OSError`` from writing the temporary file, which nothing between it and ``order_register`` catches."""
-
-    return (
-        ("oserror", "zapis pliku tymczasowego obok INTERMAX") in faults
-        and world.replaced is None
-        and world.failure == f"PermissionError: {INJECTED}"
-    )
 
 
 # rule: the finding, and the story after which it is excused; the same rule broken otherwise is a new violation.
@@ -497,16 +475,9 @@ KNOWN_FINDINGS: dict[
         _worker_change_lost,
     ),
     "KOPIA_ZASTAPIONEGO": (
-        "Kopia INTERMAX powstaje z bajtów przeczytanych na początku (register.content, w przywróceniu current), więc "
+        "Kopia INTERMAX powstaje z bajtów przeczytanych na początku (current w replace_register), więc "
         "nie ma też zmiany pracownika, która przyszła w trakcie",
         _copy_of_what_was_read,
-    ),
-    "BEZ_WYJATKU": (
-        "OSError z zapisu pliku tymczasowego (pełny dysk, plik zablokowany przez OneDrive albo antywirus) wychodzi z "
-        "order_register jako nieoczekiwany wyjątek: write_atomically łapie OSError z utworzenia pliku tymczasowego "
-        "i z os.replace, ale nie z zapisu jego treści, a order_register tylko WriteMismatch, UnsupportedShape i "
-        "WorkbookSaveError",
-        _temporary_write_failed,
     ),
 }
 
@@ -550,13 +521,12 @@ def execute(
     scheduler.say(mode if mode == ORDERING else f"{mode} {world.chosen}")
     with _points(world, scheduler):
         try:
+            waiting, disk = _waiting(world, scheduler), _disk(world, scheduler)
             if mode == ORDERING:
-                order_register(
-                    world.register, world.copies, now=lambda: NOW, waiting=_waiting(world, scheduler)
-                )
+                order_register(world.register, world.copies, now=lambda: NOW, waiting=waiting, disk=disk)
             else:
-                intermax_copies.restore(
-                    world.chosen, world.register, world.copies, now=lambda: NOW, waiting=_waiting(world, scheduler)
+                intermax_restore.restore(
+                    world.chosen, world.register, world.copies, now=lambda: NOW, waiting=waiting, disk=disk
                 )
             scheduler.say(f"{mode} kończy się wynikiem")
         except StopError as stop:

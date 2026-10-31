@@ -4,7 +4,7 @@ INTERMAX to Rejestr zleceń z Ustawień taty, a Kopie INTERMAX trafiają do fold
 okresu: okres Uruchomienia to okres dzisiejszej daty z zegara procesu, ustalony przy starcie (ADR 0019), więc
 Logi Uruchomienia trafiają do Skrzynki Zgłoszeń przy tym okresie, także przy Zatrzymaniu przed odczytem.
 
-Konfiguracja wymienia Kopie INTERMAX z tego folderu i przywraca wybraną (``intermax_copies.restore``). Przywrócenie
+Konfiguracja wymienia Kopie INTERMAX z tego folderu i przywraca wybraną (``intermax_restore.restore``). Przywrócenie
 zajmuje w ``RunHost`` miejsce „jedno naraz”, bo podmienia INTERMAX, więc nie biegnie obok Uporządkowania INTERMAX.
 """
 
@@ -21,9 +21,9 @@ from fastapi import APIRouter
 from rozliczenia.centrum import contract, run_view
 from rozliczenia.centrum.configuration import InputWorkbook, open_in_excel
 from rozliczenia.centrum.runs import PreparedRun, RunHost
-from rozliczenia import intermax_copies, intermax_messages
+from rozliczenia import intermax_copies, intermax_messages, intermax_restore
 from rozliczenia.intermax_copies import Copy
-from rozliczenia.intermax_file import Waiting
+from rozliczenia.intermax_replace import Disk, Waiting
 from rozliczenia.intermax_ordering import OrderingSummary
 from rozliczenia.intermax_process import OrderingInputs
 from rozliczenia.message import StopError
@@ -39,7 +39,8 @@ _NO_REGISTER: Final = "Najpierw wskaż INTERMAX."
 class IntermaxEntry:
     """Uporządkowanie INTERMAX jako proces uruchamiany z Centrum: rdzeń, folder Kopii INTERMAX i zegar procesu.
 
-    ``waiting``: zegar Centrum i jego przerwa dla krótkiej ponownej próby podmiany, której odmawia OneDrive.
+    ``waiting``: zegar Centrum i jego przerwa dla krótkiej ponownej próby podmiany, której odmawia OneDrive, a
+    ``disk`` kroki podmiany INTERMAX na dysku, te same dla Uporządkowania i przywrócenia Kopii.
     """
 
     store: SettingsStore
@@ -47,6 +48,7 @@ class IntermaxEntry:
     copies_directory: Path
     now: Callable[[], datetime]
     waiting: Waiting
+    disk: Disk
 
     @property
     def key(self) -> contract.ProcessKey:
@@ -72,7 +74,7 @@ class IntermaxEntry:
         """Wejście procesu z Ustawień taty; ``contract.Refusal``, gdy Rejestr zleceń nie jest wskazany."""
 
         register = _register(self.store.load())
-        inputs = OrderingInputs(register, self.copies_directory, now=self.now, waiting=self.waiting)
+        inputs = OrderingInputs(register, self.copies_directory, now=self.now, waiting=self.waiting, disk=self.disk)
         return PreparedRun(key=_KEY, period=inputs.period, process=self.process, inputs=inputs, view=self.view)
 
     def copies(self) -> contract.IntermaxCopies:
@@ -90,8 +92,8 @@ class IntermaxEntry:
 
         register = _register(self.store.load())
         try:
-            restored = intermax_copies.restore(
-                name, register, self.copies_directory, now=self.now, waiting=self.waiting
+            restored = intermax_restore.restore(
+                name, register, self.copies_directory, now=self.now, waiting=self.waiting, disk=self.disk
             )
         except StopError as stop:
             return contract.IntermaxRestoreRefused(state="refused", message=contract.Message.of(stop.message))

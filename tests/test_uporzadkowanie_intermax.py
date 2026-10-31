@@ -22,12 +22,13 @@ from openpyxl.worksheet.worksheet import Worksheet
 
 from rozliczenia import TOOL_ROOT
 from rozliczenia.domain import ProgressPhase
-from rozliczenia.intermax_file import Waiting
 from rozliczenia.intermax_ordering import OrderingSummary
+from rozliczenia.intermax_replace import LOCAL_DISK, Waiting
 from rozliczenia.intermax_process import PROCESS, OrderingInputs
 from rozliczenia.message import Message
 from rozliczenia.process_run import Finished, Outcome, Stop, run_process
 from rozliczenia.progress import PhaseState
+from rozliczenia.workbook_files import Problem, WorkbookError
 
 from tests.fixtures.clock import ManualClock
 from tests.fixtures.intermax import (
@@ -54,18 +55,26 @@ from tests.fixtures.intermax import (
     rewrite_parts,
 )
 from tests.fixtures.interlocutor import Tata
+from tests.fixtures.intermax_disk import FaultyDisk, denied, failing_replace, no_space, partial_copy, writing
 
 NOW = datetime(2026, 10, 25, 21, 5, 7)
 COPY_NAME = "INTERMAX przed uporządkowaniem 2026-10-25 21-05-07.xlsx"
 REGISTER_NAME = "ZLECENIA INTERMAX OD 08_11_2021.xlsx"
 
 
-def _run(tmp_path: Path, *, now: datetime = NOW, clock: ManualClock | None = None) -> Outcome[OrderingSummary]:
-    """Uruchomienie Uporządkowania; ``clock`` to zegar procesu krótkiej ponownej próby podmiany."""
+def _run(
+    tmp_path: Path, *, now: datetime = NOW, clock: ManualClock | None = None, disk: FaultyDisk | None = None
+) -> Outcome[OrderingSummary]:
+    """Uruchomienie Uporządkowania; ``clock`` to zegar procesu krótkiej ponownej próby podmiany, ``disk`` usterki
+    kroków podmiany INTERMAX."""
 
     waiting = clock or ManualClock()
     inputs = OrderingInputs(
-        tmp_path / "OneDrive" / REGISTER_NAME, tmp_path / "Kopie INTERMAX", lambda: now, Waiting(waiting, waiting.pause)
+        tmp_path / "OneDrive" / REGISTER_NAME,
+        tmp_path / "Kopie INTERMAX",
+        lambda: now,
+        Waiting(waiting, waiting.pause),
+        (disk or FaultyDisk()).disk(),
     )
     return run_process(
         PROCESS, inputs, Tata(), view=lambda _inputs, summary: summary, metrics_path=tmp_path / "m.jsonl", clock=ManualClock()
@@ -847,28 +856,15 @@ CORRUPTIONS: dict[str, Callable[[bytes, Layout], bytes]] = {
 }
 
 
-def _written_corrupted(monkeypatch: pytest.MonkeyPatch, path: Path, change: Callable[[bytes], bytes]) -> None:
-    """Plik tymczasowy obok INTERMAX ``path`` dostaje bajty zmienione przez ``change``, zanim zapis go sprawdzi."""
-
-    write_bytes = Path.write_bytes
-
-    def corrupted(target: Path, data: bytes) -> int:
-        if target.parent == path.parent and target.name.startswith(f".{path.stem}."):
-            data = change(bytes(data))
-        return write_bytes(target, data)
-
-    monkeypatch.setattr(Path, "write_bytes", corrupted)
-
-
 @pytest.mark.parametrize("corruption", CORRUPTIONS)
 def test_niezgodnosc_w_sprawdzeniu_zapisu_to_zatrzymanie_do_maksa_bez_zmiany_intermax_i_kopii(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, corruption: str
+    tmp_path: Path, corruption: str
 ) -> None:
     path, layout = _register(tmp_path)
-    _written_corrupted(monkeypatch, path, lambda data: CORRUPTIONS[corruption](data, layout))
+    disk = FaultyDisk(write=writing(lambda data: CORRUPTIONS[corruption](data, layout)))
 
     with _nothing_written(tmp_path, path):
-        stop = _stop(_run(tmp_path))
+        stop = _stop(_run(tmp_path, disk=disk))
 
     assert (stop.message.code, stop.stop_kind) == ("ZAPIS_INTERMAX_NIEZGODNY", "for_maks")
 
@@ -877,7 +873,7 @@ def test_niezgodnosc_w_sprawdzeniu_zapisu_to_zatrzymanie_do_maksa_bez_zmiany_int
     ("column", "app_value"), [(DEVICES, "Instalacja Hurt"), (ACTIVITIES, "TMOBILE")], ids=["urzadzenia", "czynnosci"]
 )
 def test_wartosc_z_aplikacji_zamiast_wpisu_w_sprawdzeniu_zapisu_to_zatrzymanie_do_maksa_bez_zmiany_intermax(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, column: int, app_value: str
+    tmp_path: Path, column: int, app_value: str
 ) -> None:
     raw = (
         Order(datetime(2026, 10, 26, 14), "jan.nowak", 101, "TMOBILE", "Instalacja Hurt"),
@@ -888,12 +884,10 @@ def test_wartosc_z_aplikacji_zamiast_wpisu_w_sprawdzeniu_zapisu_to_zatrzymanie_d
     reference = b"%s%d" % (get_column_letter(column).encode("ascii"), layout.yellow + 2)
     app_cell = b'<c r="%s" t="inlineStr"><is><t>%s</t></is></c>' % (reference, app_value.encode("utf-8"))
     cell = re.compile(rb'<c r="%s"[^>]*?(?:/>|>.*?</c>)' % reference, re.S)
-    _written_corrupted(
-        monkeypatch, path, lambda data: _part_changed(data, _SHEET, lambda xml: cell.sub(app_cell, xml, count=1))
-    )
+    disk = FaultyDisk(write=writing(lambda data: _part_changed(data, _SHEET, lambda xml: cell.sub(app_cell, xml, count=1))))
 
     with _nothing_written(tmp_path, path):
-        stop = _stop(_run(tmp_path))
+        stop = _stop(_run(tmp_path, disk=disk))
 
     assert (stop.message.code, stop.stop_kind) == ("ZAPIS_INTERMAX_NIEZGODNY", "for_maks")
 
@@ -1651,21 +1645,17 @@ def test_styl_wiersza_bez_customformat_nie_czyni_wiersza_zoltym(tmp_path: Path) 
     assert _first_day_row(path, layout, layout.raw[1]) == layout.last_ordered + 11
 
 
-def test_kopia_intermax_powstaje_przed_podmiana_intermax(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_kopia_intermax_powstaje_przed_podmiana_intermax(tmp_path: Path) -> None:
     path, _ = _register(tmp_path)
     original = path.read_bytes()
     copy = tmp_path / "Kopie INTERMAX" / COPY_NAME
-    replace_file = os.replace
     copied_before: list[bool] = []
 
-    def replace(source: str | os.PathLike[str], target: str | os.PathLike[str]) -> None:
-        if Path(target).name == REGISTER_NAME:
-            copied_before.append(copy.is_file() and copy.read_bytes() == original)
-        replace_file(source, target)
+    def replace(source: Path, target: Path) -> None:
+        copied_before.append(copy.is_file() and copy.read_bytes() == original)
+        os.replace(source, target)
 
-    monkeypatch.setattr(os, "replace", replace)
-
-    _ordered(_run(tmp_path))
+    _ordered(_run(tmp_path, disk=FaultyDisk(replace=replace)))
 
     assert copied_before == [True]
 
@@ -1683,31 +1673,11 @@ def test_kopia_o_tej_samej_nazwie_zostaje_a_intermax_nie_jest_zmieniony(tmp_path
     assert (copies / COPY_NAME).read_bytes() == b"kopia sprzed minuty"
 
 
-class _FullDisk:
-    """Plik Kopii, którego zapis kończy się brakiem miejsca na dysku po pierwszych bajtach."""
-
-    def __init__(self, descriptor: int) -> None:
-        self._file = open(descriptor, "wb")
-
-    def __enter__(self) -> _FullDisk:
-        return self
-
-    def __exit__(self, *_exc: object) -> None:
-        self._file.close()
-
-    def write(self, data: bytes) -> int:
-        self._file.write(data[:100])
-        raise OSError(errno.ENOSPC, "No space left on device")
-
-
-def test_niepelna_kopia_intermax_nie_zostaje_a_intermax_nie_jest_zmieniony(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_niepelna_kopia_intermax_nie_zostaje_a_intermax_nie_jest_zmieniony(tmp_path: Path) -> None:
     path, _ = _register(tmp_path)
-    monkeypatch.setattr(os, "fdopen", lambda descriptor, _mode="r": _FullDisk(descriptor))
 
     with _nothing_written(tmp_path, path):
-        stop = _stop(_run(tmp_path))
+        stop = _stop(_run(tmp_path, disk=FaultyDisk(create=partial_copy)))
 
     assert (stop.message.code, stop.stop_kind) == ("KOPIA_INTERMAX_NIEUDANA", "for_tata")
 
@@ -1724,42 +1694,19 @@ def test_folder_kopii_ktorego_nie_da_sie_utworzyc_to_zatrzymanie_dla_taty_bez_za
     assert [entry.name for entry in path.parent.iterdir()] == [REGISTER_NAME]
 
 
-def _refused(
-    monkeypatch: pytest.MonkeyPatch, times: int | None, *, excel: bool = False, code: int = errno.EACCES
-) -> list[float]:
-    """Podmiana INTERMAX odmawiana ``times`` razy (``None``: zawsze), z plikiem blokady Excela (``excel``) albo bez.
+def _lock(tmp_path: Path) -> Callable[[], object]:
+    """Tata otwiera INTERMAX w Excelu: plik blokady obok INTERMAX."""
 
-    ``code``: błąd systemu przy podmianie; domyślnie odmowa dostępu.
-
-    Zwraca listę, do której trafia liczba prób.
-    """
-
-    replace_file = os.replace
-    attempts: list[float] = []
-
-    def refused(source: str | os.PathLike[str], target: str | os.PathLike[str]) -> None:
-        if Path(target).name == REGISTER_NAME:
-            attempts.append(1)
-            assert len(attempts) < 100, "ponowna próba bez przerwy na zegarze procesu"
-            if excel:
-                Path(target).with_name(f"~${REGISTER_NAME}").write_bytes(b"")
-            if times is None or len(attempts) <= times:
-                raise OSError(code, os.strerror(code))
-        replace_file(source, target)
-
-    monkeypatch.setattr(os, "replace", refused)
-    return attempts
+    return lambda: (tmp_path / "OneDrive" / f"~${REGISTER_NAME}").write_bytes(b"")
 
 
-def test_odmowa_podmiany_bez_excela_po_krotkiej_ponownej_probie_to_onedrive_dla_taty(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_odmowa_podmiany_bez_excela_po_krotkiej_ponownej_probie_to_onedrive_dla_taty(tmp_path: Path) -> None:
     path, layout = _register(tmp_path)
-    attempts = _refused(monkeypatch, None)
+    replace, attempts = failing_replace(denied)
     clock = ManualClock(seconds=4000.0)
 
     with _nothing_written(tmp_path, path):
-        stop = _stop(_run(tmp_path, clock=clock))
+        stop = _stop(_run(tmp_path, clock=clock, disk=FaultyDisk(replace=replace)))
 
     assert (stop.message.code, stop.stop_kind) == ("INTERMAX_SYNCHRONIZOWANY", "for_tata")
     assert stop.message.what == "OneDrive jeszcze synchronizuje INTERMAX. INTERMAX nie został zmieniony."
@@ -1768,13 +1715,13 @@ def test_odmowa_podmiany_bez_excela_po_krotkiej_ponownej_probie_to_onedrive_dla_
     _without_order_data(stop.message, layout.raw)
 
 
-def test_podmiana_po_chwilowej_odmowie_onedrive_porzadkuje_intermax(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_podmiana_po_chwilowej_odmowie_onedrive_porzadkuje_intermax(tmp_path: Path) -> None:
     path, layout = _register(tmp_path)
     original = path.read_bytes()
-    attempts = _refused(monkeypatch, 2)
+    replace, attempts = failing_replace(denied, times=2)
     clock = ManualClock(seconds=4000.0)
 
-    assert _ordered(_run(tmp_path, clock=clock)).order_count == len(layout.raw)
+    assert _ordered(_run(tmp_path, clock=clock, disk=FaultyDisk(replace=replace))).order_count == len(layout.raw)
 
     assert (clock.seconds, len(attempts)) == (4001.0, 3)
     assert path.read_bytes() != original
@@ -1794,19 +1741,19 @@ class _PauseThen(ManualClock):
 
 
 def test_wersja_pracownika_wgrana_przez_onedrive_miedzy_probami_podmiany_zostaje_a_tata_slyszy_o_synchronizacji(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
 ) -> None:
     path, _ = _register(tmp_path)
     worker = Intermax()
     worker.ordered = (*worker.ordered, Order(datetime(2026, 10, 20, 11), "jan.nowak", 4))
-    attempts = _refused(monkeypatch, 1)
+    replace, attempts = failing_replace(denied, times=1)
     uploaded: list[bytes] = []
 
     def upload() -> None:
         worker.write(path)
         uploaded.append(path.read_bytes())
 
-    stop = _stop(_run(tmp_path, clock=_PauseThen(upload)))
+    stop = _stop(_run(tmp_path, clock=_PauseThen(upload), disk=FaultyDisk(replace=replace)))
 
     assert (stop.message.code, stop.stop_kind) == ("INTERMAX_SYNCHRONIZOWANY", "for_tata")
     assert len(attempts) == 1
@@ -1815,86 +1762,89 @@ def test_wersja_pracownika_wgrana_przez_onedrive_miedzy_probami_podmiany_zostaje
     assert _copies(tmp_path) == set()
 
 
-def _unreadable(path: Path, patch: pytest.MonkeyPatch) -> None:
-    """System nie oddaje bajtów ``path`` (OneDrive trzyma plik w trakcie synchronizacji)."""
+def _unreadable(path: Path, disk: FaultyDisk) -> None:
+    """System przestaje oddawać bajty ``path`` (OneDrive trzyma plik w trakcie synchronizacji)."""
 
-    read_bytes = Path.read_bytes
-
-    def refused(target: Path) -> bytes:
+    def refused_read(target: Path) -> bytes:
         if target == path:
-            raise PermissionError(errno.EACCES, os.strerror(errno.EACCES))
-        return read_bytes(target)
+            raise WorkbookError(path, Problem.INACCESSIBLE)
+        return LOCAL_DISK.read(target)
 
-    patch.setattr(Path, "read_bytes", refused)
+    disk.read = refused_read
 
 
 @pytest.mark.parametrize(
     ("meanwhile", "code"),
     [
-        (lambda path, _patch: path.with_name(f"~${REGISTER_NAME}").write_bytes(b""), "INTERMAX_OTWARTY"),
+        (lambda path, _disk: path.with_name(f"~${REGISTER_NAME}").write_bytes(b""), "INTERMAX_OTWARTY"),
         (_unreadable, "INTERMAX_SYNCHRONIZOWANY"),
     ],
     ids=["tata otwiera INTERMAX w Excelu", "INTERMAX niedostępny"],
 )
 def test_intermax_nieczytelny_w_przerwie_miedzy_probami_podmiany_to_zatrzymanie_dla_taty_bez_zapisu(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    meanwhile: Callable[[Path, pytest.MonkeyPatch], object],
-    code: str,
+    tmp_path: Path, meanwhile: Callable[[Path, FaultyDisk], object], code: str
 ) -> None:
     path, _ = _register(tmp_path)
-    attempts = _refused(monkeypatch, 1)
+    replace, attempts = failing_replace(denied, times=1)
+    disk = FaultyDisk(replace=replace)
 
-    with _nothing_written(tmp_path, path), monkeypatch.context() as during:
-        stop = _stop(_run(tmp_path, clock=_PauseThen(lambda: meanwhile(path, during))))
+    with _nothing_written(tmp_path, path):
+        stop = _stop(_run(tmp_path, clock=_PauseThen(lambda: meanwhile(path, disk)), disk=disk))
 
     assert (stop.message.code, stop.stop_kind) == (code, "for_tata")
     assert len(attempts) == 1
 
 
-def test_odmowa_podmiany_przy_otwartym_excelu_to_zatrzymanie_dla_taty_bez_czekania(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_odmowa_podmiany_przy_otwartym_excelu_to_zatrzymanie_dla_taty_bez_czekania(tmp_path: Path) -> None:
     path, _ = _register(tmp_path)
-    attempts = _refused(monkeypatch, None, excel=True)
+    replace, attempts = failing_replace(denied, before=_lock(tmp_path))
     clock = ManualClock()
 
     with _nothing_written(tmp_path, path):
-        stop = _stop(_run(tmp_path, clock=clock))
+        stop = _stop(_run(tmp_path, clock=clock, disk=FaultyDisk(replace=replace)))
 
     assert (stop.message.code, stop.stop_kind) == ("INTERMAX_OTWARTY", "for_tata")
     assert (clock.seconds, len(attempts)) == (0.0, 1)
 
 
-def test_inny_blad_podmiany_niz_odmowa_to_zatrzymanie_dla_taty_bez_czekania(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    path, _ = _register(tmp_path)
-    attempts = _refused(monkeypatch, None, code=errno.ENOSPC)
+def test_inny_blad_podmiany_niz_odmowa_to_zatrzymanie_dla_taty_bez_czekania(tmp_path: Path) -> None:
+    path, layout = _register(tmp_path)
+    replace, attempts = failing_replace(no_space)
     clock = ManualClock()
 
     with _nothing_written(tmp_path, path):
-        stop = _stop(_run(tmp_path, clock=clock))
+        stop = _stop(_run(tmp_path, clock=clock, disk=FaultyDisk(replace=replace)))
 
-    assert (stop.message.code, stop.stop_kind) == ("INTERMAX_OTWARTY", "for_tata")
+    # Pełny dysk to nie Excel: tata słyszy o wolnym miejscu, nie „INTERMAX otwarty” (#716).
+    assert (stop.message.code, stop.stop_kind) == ("ZAPIS_INTERMAX_NIEUDANY", "for_tata")
+    assert stop.message.what == "Nie udało się zapisać INTERMAX. INTERMAX nie został zmieniony."
+    assert stop.message.action.startswith("Sprawdź, czy na dysku jest wolne miejsce")
+    assert stop.message.dad_file is None
     assert (clock.seconds, len(attempts)) == (0.0, 1)
+    _without_order_data(stop.message, layout.raw)
 
 
-def test_intermax_otwarty_w_excelu_w_trakcie_zapisu_to_zatrzymanie_dla_taty_bez_zapisu(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_nieudany_zapis_obok_intermax_to_zatrzymanie_dla_taty_o_wolnym_miejscu(tmp_path: Path) -> None:
     path, _ = _register(tmp_path)
-    write_bytes = Path.write_bytes
 
-    def opened_meanwhile(target: Path, data: bytes) -> int:
-        if target.parent == path.parent and target.name.startswith(f".{path.stem}."):
-            write_bytes(path.with_name(f"~${path.name}"), b"")
-        return write_bytes(target, data)
-
-    monkeypatch.setattr(Path, "write_bytes", opened_meanwhile)
+    def full(_temporary: Path, _content: bytes) -> None:
+        raise no_space()
 
     with _nothing_written(tmp_path, path):
-        stop = _stop(_run(tmp_path))
+        stop = _stop(_run(tmp_path, disk=FaultyDisk(write=full)))
+
+    assert (stop.kind, stop.message.code, stop.stop_kind) == ("stop", "ZAPIS_INTERMAX_NIEUDANY", "for_tata")
+
+
+def test_intermax_otwarty_w_excelu_w_trakcie_zapisu_to_zatrzymanie_dla_taty_bez_zapisu(tmp_path: Path) -> None:
+    path, _ = _register(tmp_path)
+
+    def opened_meanwhile(temporary: Path, content: bytes) -> None:
+        _lock(tmp_path)()
+        LOCAL_DISK.write(temporary, content)
+
+    with _nothing_written(tmp_path, path):
+        stop = _stop(_run(tmp_path, disk=FaultyDisk(write=opened_meanwhile)))
 
     assert (stop.message.code, stop.stop_kind) == ("INTERMAX_OTWARTY", "for_tata")
 
@@ -1979,21 +1929,14 @@ def test_niedostepny_intermax_to_zatrzymanie_dla_taty_bez_zapisu(tmp_path: Path,
     assert (stop.message.code, stop.stop_kind) == ("NIEDOSTEPNY_INTERMAX", "for_tata")
 
 
-def test_nieoczekiwany_blad_przed_podmiana_mowi_ze_intermax_nie_zostal_zmieniony(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_nieoczekiwany_blad_przed_podmiana_mowi_ze_intermax_nie_zostal_zmieniony(tmp_path: Path) -> None:
     path, _ = _register(tmp_path)
-    write_bytes = Path.write_bytes
 
-    def broken(target: Path, data: bytes) -> int:
-        if target.parent == path.parent:
-            raise RuntimeError("zapis")
-        return write_bytes(target, data)
-
-    monkeypatch.setattr(Path, "write_bytes", broken)
+    def broken(_temporary: Path, _content: bytes) -> None:
+        raise RuntimeError("zapis")
 
     with _nothing_written(tmp_path, path):
-        stop = _stop(_run(tmp_path))
+        stop = _stop(_run(tmp_path, disk=FaultyDisk(write=broken)))
 
     assert (stop.kind, stop.message.code, stop.stop_kind) == ("unexpected", "BLAD_NIEOCZEKIWANY", "for_maks")
     assert "INTERMAX nie został zmieniony." in stop.message.what
@@ -2052,22 +1995,15 @@ def test_hiperlacze_na_kilka_komorek_we_wklejeniu_to_zatrzymanie_do_maksa_bez_za
     assert (stop.message.code, stop.stop_kind) == ("NIEOBSLUGIWANY_UKLAD_INTERMAX", "for_maks")
 
 
-def test_wiersz_wklejenia_pozostawiony_na_miejscu_to_niezgodnosc_zapisu(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_wiersz_wklejenia_pozostawiony_na_miejscu_to_niezgodnosc_zapisu(tmp_path: Path) -> None:
     path, layout = _register(tmp_path, Intermax(gap=10))
     raw_row = _row_xml(path, layout.first_raw + 1)
-    write_bytes = Path.write_bytes
+    row = rb'<row r="%d"[^>]*?(?:/>|>.*?</row>)' % (layout.first_raw + 1)
 
-    def left_in_place(target: Path, data: bytes) -> int:
-        if target.parent == path.parent and target.name.startswith(f".{path.stem}."):
-            row = rb'<row r="%d"[^>]*?(?:/>|>.*?</row>)' % (layout.first_raw + 1)
-            data = _part_changed(bytes(data), _SHEET, lambda xml: re.sub(row, lambda _found: raw_row, xml, count=1, flags=re.S))
-        return write_bytes(target, data)
-
-    monkeypatch.setattr(Path, "write_bytes", left_in_place)
+    def left_in_place(data: bytes) -> bytes:
+        return _part_changed(data, _SHEET, lambda xml: re.sub(row, lambda _found: raw_row, xml, count=1, flags=re.S))
 
     with _nothing_written(tmp_path, path):
-        stop = _stop(_run(tmp_path))
+        stop = _stop(_run(tmp_path, disk=FaultyDisk(write=writing(left_in_place))))
 
     assert (stop.message.code, stop.stop_kind) == ("ZAPIS_INTERMAX_NIEZGODNY", "for_maks")

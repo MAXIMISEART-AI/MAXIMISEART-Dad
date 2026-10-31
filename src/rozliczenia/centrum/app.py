@@ -64,7 +64,7 @@ from rozliczenia.centrum.tool_updates import GuardianLauncher, ToolUpdates, tool
 from rozliczenia.centrum.version import SERVICE, short_commit
 from rozliczenia.input_checks import FILE_READERS, Readers
 from rozliczenia.intermax_copies import default_directory as default_intermax_copies
-from rozliczenia.intermax_file import Waiting
+from rozliczenia.intermax_replace import LOCAL_DISK, Disk, Waiting
 from rozliczenia.period_folder import PeriodFolderInaccessible
 
 STATIC_DIRECTORY = Path(__file__).resolve().parent / "static"
@@ -91,6 +91,7 @@ def create_app(
     guardian: GuardianLauncher | None = None,
     readers: Readers = FILE_READERS,
     intermax_copies: Path | None = None,
+    intermax_disk: Disk = LOCAL_DISK,
     now: Callable[[], datetime] = lambda: datetime.now().astimezone(),
 ) -> FastAPI:
     @asynccontextmanager
@@ -252,7 +253,7 @@ def create_app(
     settlement = SettlementEntry(store, configuration, processes.settlement, today, readers)
     # Uporządkowanie INTERMAX ma własną kartę poza okresami, więc nie jest wpisem procesu z okresem.
     intermax = IntermaxEntry(
-        store, processes.intermax, intermax_copies or default_intermax_copies(), now, Waiting(clock, pause)
+        store, processes.intermax, intermax_copies or default_intermax_copies(), now, Waiting(clock, pause), intermax_disk
     )
     entries: list[ProcessEntry] = [preparation, settlement]
     # Karty Uruchomień z pliku startu i Logów Uruchomienia: ostatnie po starcie Centrum i wiersz Historii (ADR 0017).
