@@ -403,10 +403,14 @@ npm run build      # build do src/rozliczenia/centrum/static/
   (`merge=wygenerowane` w `.gitattributes`, sterownik ustawia `tools/setup_worktree.py`),
   więc po nich `npm run regen` i commit; bez tego CI i `tools/ci_lokalnie.py` padają.
 - Nowy proces w Uruchomieniach: opis procesu `process_run.Process` w module
-  procesu (wzór: `settlement_process.PROCESS`), klasa spełniająca
-  `runs.ProcessEntry` (wzór: `SettlementEntry`), klucz w `contract.ProcessKey`,
-  pole w `Processes` (`centrum/processes.py`) i wpis na liście `entries` w
-  `create_app`; `runs.py` się nie zmienia.
+  procesu (wzór: `settlement_process.PROCESS`), klucz w `contract.ProcessKey`,
+  pole w `Processes` (`centrum/processes.py`), widok w `centrum/run_view.py`,
+  wpis w katalogu procesów `centrum/catalog.py` (wzór: `SETTLEMENT`: Ustawienia
+  taty, Wzorce i kroki Diagnozy procesu) i adapter startu (wzór:
+  `SettlementEntry`, spełnia `runs.ProcessEntry`) na liście `entries` w
+  `create_app`. Diagnoza, Logi Uruchomienia, karty z Logów, Metryki i Konfiguracja
+  pytają wpis, więc `runs.py` i one się nie zmieniają; czego brakuje, mówi
+  `tests/test_katalog_procesow.py`.
 
 Podczas pracy nad UI `npm run dev` działa obok `run_centrum.py --no-browser`
 i przekazuje `/api` do serwera. Zmiany w Centrum weryfikuje end-to-end skill

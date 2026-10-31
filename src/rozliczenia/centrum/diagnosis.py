@@ -12,9 +12,10 @@ przyczynę sam albo nie) liczy ta sama reguła co rodzaj Zatrzymania. Aktualnoś
 narzędzia sprawdza się po plikach taty: nowsza wersja jest wyjaśnieniem tylko
 bez innej przyczyny, a obok innej przyczyny Diagnoza ją tylko proponuje (ADR 0009).
 
-Nowe sprawdzenie to funkcja ``(_Computer, label) -> list[CheckResult]`` z
-nazwą w ``@_check(label)``, dopisana do ``_CHECKS`` procesu w kolejności, w
-jakiej ma wyjaśniać. Sprawdzenie, które samo się nie uda (nieoczekiwany
+Proces pyta się swojego wpisu w katalogu procesów (``catalog``): jego Ustawienia,
+Wzorce i kroki Diagnozy w kolejności wyjaśniania. Nowe sprawdzenie to funkcja
+``(_Computer, label) -> list[CheckResult]`` z nazwą w ``@_check(label)``, nowy
+krok w ``catalog.CheckStep`` i jego gałąź w ``_check_of``. Sprawdzenie, które samo się nie uda (nieoczekiwany
 wyjątek), jest „nie sprawdzono” na swoim miejscu, a typ wyjątku trafia do
 dziennika Centrum, nigdy jego treść; reszta sprawdzeń idzie dalej, więc
 Diagnoza zawsze kończy się wyjaśnieniem i podglądem Zgłoszenia. Diagnoza
@@ -28,10 +29,11 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from functools import cached_property
 from pathlib import Path
-from typing import Final, Literal
+from typing import Any, Final, Literal, assert_never
 
-from rozliczenia import input_checks, intermax_messages, intermax_ordering, preparation_messages, settlement_messages, workbook_files
-from rozliczenia.centrum import contract, diagnosis_messages, run_view
+from rozliczenia import input_checks, intermax_ordering, preparation_messages, workbook_files
+from rozliczenia.centrum import contract, diagnosis_messages
+from rozliczenia.centrum.catalog import CheckStep, NeededSetting, PeriodFolderCheck, ProcessDeclaration, WorkerConfigCheck, declaration_of
 from rozliczenia.centrum.cloud_files import CloudFiles
 from rozliczenia.centrum.configuration import ConfigurationFiles, Template, workers_problem
 from rozliczenia.centrum.keyed_box import KeyJudgement
@@ -157,9 +159,9 @@ class Surroundings:
 
 @dataclass(frozen=True)
 class _ProcessFiles:
-    """Pliki taty, które czyta i zapisuje proces ``process`` w okresie ``period``, wyliczone z Ustawień i Konfiguracji."""
+    """Pliki taty, które czyta i zapisuje proces ``declaration`` w okresie ``period``, wyliczone z Ustawień i Konfiguracji."""
 
-    process: contract.ProcessKey
+    declaration: ProcessDeclaration[Any, Any]
     period: SettlementPeriod
     settings: Settings
     configuration: ConfigurationFiles
@@ -194,23 +196,17 @@ class _ProcessFiles:
     def templates(self) -> tuple[Template, ...]:
         """Wzorce, które czyta proces."""
 
-        return tuple(template for template in self.configuration.templates() if template.used_by == self.process)
+        return tuple(template for template in self.configuration.templates() if template.role in self.declaration.templates)
 
     @property
     def files(self) -> list[Path]:
-        """Rejestr zleceń (Przygotowanie i Uporządkowanie INTERMAX), Wzorce i pliki Folderu okresu; ścieżki mogą nie istnieć.
+        """Rejestr zleceń, gdy proces go czyta, Wzorce procesu i pliki Folderu okresu, gdy proces należy do okresu;
+        ścieżki mogą nie istnieć."""
 
-        Uporządkowanie INTERMAX nie należy do okresu, więc jego plikiem jest tylko INTERMAX.
-        """
-
-        files = []
         register = self.settings.existing_register
-        if self.process in ("preparation", "intermax") and register is not None:
-            files.append(register)
-        if self.process == "intermax":
-            return files
+        files = [register] if self.declaration.reads_register and register is not None else []
         files += [template.path for template in self.templates]
-        return files + list(self.period_files)
+        return files + list(self.period_files) if self.declaration.reads_period_folder else files
 
 
 def files_of_process(
@@ -221,7 +217,7 @@ def files_of_process(
     Folder okresu czyta przez ``reading``: ``PeriodFolderInaccessible``, gdy się nie da.
     """
 
-    return _ProcessFiles(process, parse_period_token(period), settings, configuration).files
+    return _ProcessFiles(declaration_of(process), parse_period_token(period), settings, configuration).files
 
 
 @dataclass(frozen=True)
@@ -294,47 +290,18 @@ _NOT_CHECKED_FRESHNESS: Final = {
 }
 
 
-@dataclass(frozen=True)
-class _Setting:
-    """Ścieżka z Ustawień taty: wskazana (``chosen``), istniejąca (``existing``) i Komunikat procesu o jej braku."""
-
-    name: str
-    chosen: Path | None
-    existing: Path | None
-    missing: Callable[[Path], Message]
-
-
 @_check("Ustawienia taty")
 def _tata_settings(computer: _Computer, label: str) -> list[CheckResult]:
+    """Ustawienia taty z wpisu procesu po kolei: pierwsze niewskazane albo brakujące wyjaśnia Komunikatem procesu."""
+
     settings = computer.settings
-    if computer.process == "intermax":
-        name = run_view.INTERMAX.register_name
-        intermax = [_Setting(name, settings.register, settings.existing_register, intermax_messages.register_missing)]
-        return _settings_result(label, intermax)
-    needed = [
-        _Setting(
-            "folder okresów",
-            settings.periods_directory,
-            settings.existing_periods_directory,
-            preparation_messages.periods_directory_missing,
-        )
-    ]
-    if computer.process == "preparation":
-        needed.insert(
-            0,
-            _Setting(
-                "Rejestr zleceń", settings.register, settings.existing_register, preparation_messages.register_missing
-            ),
-        )
-    return _settings_result(label, needed)
-
-
-def _settings_result(label: str, needed: Sequence[_Setting]) -> list[CheckResult]:
+    needed: Sequence[NeededSetting] = computer.declaration.settings
     for setting in needed:
-        if setting.chosen is None:
+        chosen = setting.chosen(settings)
+        if chosen is None:
             return [CheckResult.not_checked(label, f"Nie wskazano: {setting.name}.")]
-        if setting.existing is None:
-            return [CheckResult.failed(label, setting.missing(setting.chosen))]
+        if setting.existing(settings) is None:
+            return [CheckResult.failed(label, setting.missing(chosen))]
     names = " i ".join(setting.name for setting in needed)
     return [CheckResult.passed(label, f"{names[:1].upper()}{names[1:]} {'są' if len(needed) > 1 else 'jest'} na miejscu.")]
 
@@ -386,17 +353,10 @@ def _template_check(template: Template) -> _CheckRun:
     return check
 
 
-_WORKER_CONFIG_EXPLANATIONS: Final[Mapping[contract.ProcessKey, WorkerConfigExplanation]] = {
-    "preparation": preparation_messages.worker_config_problem,
-    "settlement": settlement_messages.worker_config_problem,
-}
+def _worker_config(computer: _Computer, label: str, explain: WorkerConfigExplanation) -> list[CheckResult]:
+    """Konfiguracja wykonawców Komunikatem ``explain``, tym samym, którym zatrzymał się proces Uruchomienia."""
 
-
-@_check("Konfiguracja wykonawców")
-def _worker_config(computer: _Computer, label: str) -> list[CheckResult]:
-    """Konfiguracja wykonawców tym samym Komunikatem, którym zatrzymał się proces Uruchomienia."""
-
-    problem = workers_problem(computer.configuration.worker_config, _WORKER_CONFIG_EXPLANATIONS[computer.process])
+    problem = workers_problem(computer.configuration.worker_config, explain)
     return [CheckResult.passed(label, "Wczytuje się.") if problem is None else CheckResult.failed(label, problem)]
 
 
@@ -407,8 +367,11 @@ _PERIOD_FILE_LABELS: Final[Mapping[str, str]] = {
 }
 
 
-@_check("Folder okresu")
-def _period_folder(computer: _Computer, label: str) -> list[CheckResult]:
+def _period_folder(
+    computer: _Computer, label: str, collective_file_missing: Callable[[Path], Message] | None
+) -> list[CheckResult]:
+    """Folder okresu; z ``collective_file_missing`` brak Pliku zbiorczego okresu jest przyczyną tym Komunikatem."""
+
     folder = computer.period_folder
     if folder is None:
         return [CheckResult.not_checked(label, "Folderu okresów nie ma na miejscu.")]
@@ -417,8 +380,8 @@ def _period_folder(computer: _Computer, label: str) -> list[CheckResult]:
         # więc oba procesy wyjaśniają Komunikatem Przygotowania: założyć albo zostawić jeden Folder okresu.
         return [CheckResult.failed(label, preparation_messages.period_folder_lookup_problem(folder))]
     observed = folder.observe()
-    if computer.process == "settlement" and not observed.collective_file_exists:
-        return [CheckResult.failed(label, settlement_messages.collective_file_missing(folder.collective_file))]
+    if collective_file_missing is not None and not observed.collective_file_exists:
+        return [CheckResult.failed(label, collective_file_missing(folder.collective_file))]
     present = [
         _PERIOD_FILE_LABELS[name]
         for name, exists in (
@@ -479,45 +442,34 @@ def _centrum_log(computer: _Computer, label: str) -> list[CheckResult]:
     return [CheckResult.passed(label, f"Ostatnie wpisy od startu Centrum: {len(entries)}{unexpected}.")]
 
 
-# Sprawdzenia każdego procesu w kolejności wyjaśniania: pierwsze, które nie przeszło, jest wyjaśnieniem.
-# OneDrive idzie przed sprawdzeniami, które otwierają Rejestr zleceń, wzorce i pliki okresu: plik tylko w
-# chmurze może się nie otworzyć, a wtedy przyczyną jest OneDrive, nie uszkodzony plik. Aktualność narzędzia
-# idzie po plikach taty: nowsze Wydanie jest wyjaśnieniem tylko bez innej przyczyny (ADR 0009), bo przyczyny
-# w plikach taty nowa wersja nie usuwa. Token do Zgłoszeń nigdy nie jest wyjaśnieniem (``CheckResult.aside``), tylko
-# idzie do Zgłoszenia. Dziennik idzie ostatni, po wpisach o sprawdzeniach, które same się nie udały.
-_CHECKS: Final[Mapping[contract.ProcessKey, Sequence[_Check]]] = {
-    "preparation": (
-        _tata_settings,
-        _files_in_onedrive,
-        _register,
-        _templates,
-        _worker_config,
-        _period_folder,
-        _period_files_in_excel,
-        _tool_freshness,
-        _report_key,
-        _centrum_log,
-    ),
-    "settlement": (
-        _tata_settings,
-        _files_in_onedrive,
-        _templates,
-        _worker_config,
-        _period_folder,
-        _period_files_in_excel,
-        _tool_freshness,
-        _report_key,
-        _centrum_log,
-    ),
-    "intermax": (
-        _tata_settings,
-        _files_in_onedrive,
-        _intermax,
-        _tool_freshness,
-        _report_key,
-        _centrum_log,
-    ),
-}
+def _check_of(step: CheckStep) -> _Check:
+    """Sprawdzenie kroku Diagnozy z wpisu procesu; kolejność kroków i jej powody deklaruje katalog procesów."""
+
+    match step:
+        case "tata_settings":
+            return _tata_settings
+        case "files_in_onedrive":
+            return _files_in_onedrive
+        case "register":
+            return _register
+        case "intermax":
+            return _intermax
+        case "templates":
+            return _templates
+        case "period_files_in_excel":
+            return _period_files_in_excel
+        case "tool_freshness":
+            return _tool_freshness
+        case "report_key":
+            return _report_key
+        case "centrum_log":
+            return _centrum_log
+        case WorkerConfigCheck(explain=explain):
+            return _Check("Konfiguracja wykonawców", lambda computer, label: _worker_config(computer, label, explain))
+        case PeriodFolderCheck(collective_file_missing=missing):
+            return _Check("Folder okresu", lambda computer, label: _period_folder(computer, label, missing))
+        case _:
+            assert_never(step)
 
 
 def diagnose(
@@ -532,8 +484,9 @@ def diagnose(
 ) -> Diagnosis:
     """Wszystkie sprawdzenia procesu ``process`` dla tokenu okresu ``period``, tylko do odczytu, czytnikami procesu."""
 
-    computer = _Computer(process, parse_period_token(period), settings, configuration, log, surroundings, readers)
+    declaration = declaration_of(process)
+    computer = _Computer(declaration, parse_period_token(period), settings, configuration, log, surroundings, readers)
     checks: list[CheckResult] = []
-    for check in _CHECKS[process]:
-        checks.extend(check.results(computer))
+    for step in declaration.checks:
+        checks.extend(_check_of(step).results(computer))
     return Diagnosis(tuple(checks), computer.log_entries)

@@ -352,6 +352,15 @@ Uruchomień procesu. Jest jedynym wejściem taty do
 tych procesów, nie osobnym procesem.
 _Avoid_: dashboard, panel, centrum dowodzenia
 
+## Katalog procesów
+
+Jeden wpis na każdy proces, który uruchamia Centrum rozliczeń: nazwa i widok
+Uruchomienia procesu, Ustawienia taty, bez których proces nie startuje,
+czytane Wzorce i sprawdzenia Diagnozy w kolejności wyjaśniania. Diagnoza, Logi
+Uruchomienia, Metryki i Konfiguracja pytają wpis procesu, zamiast rozróżniać
+procesy same; pliki procesu wynikają z jego Ustawień taty i Wzorców.
+_Avoid_: rejestr procesów, lista procesów
+
 ## Skrypt dla maszyn
 
 Jedyne wejście do procesów spoza Centrum rozliczeń, dla testów, pomiarów czasu

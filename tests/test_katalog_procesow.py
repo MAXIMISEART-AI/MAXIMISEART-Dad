@@ -1,0 +1,139 @@
+"""Katalog procesów Centrum rozliczeń (#717): każdy wpis katalogu działa w każdym miejscu Centrum tak samo.
+
+Test zgodności przechodzi po wszystkich wpisach katalogu i patrzy przez interfejs HTTP Centrum: karta przed startem
+i odmowa startu bez Ustawień taty, karta Uruchomienia na żywo i z Logów, Logi Uruchomienia, Historia i statystyki
+Metryk oraz kolejność sprawdzeń Diagnozy. Dokładne teksty i listy sprawdzeń każdego procesu przypinają jego testy HTTP.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Callable
+from pathlib import Path
+from typing import Any, get_args
+
+from fastapi.testclient import TestClient
+import pytest
+
+from rozliczenia.centrum import contract
+from rozliczenia.centrum.catalog import CATALOG, PeriodProcessDeclaration, ProcessDeclaration
+from rozliczenia.centrum.processes import Processes
+from rozliczenia.centrum.run_logs import RunLog, summary_markdown
+from tests.fixtures.centrum import centrum
+from tests.fixtures.centrum_intermax import ordering_centrum
+from tests.fixtures.centrum_processes import preparing_centrum, run_to_end, settling_centrum
+from tests.fixtures.preparation import PERIOD
+
+
+def test_katalog_ma_jeden_wpis_kazdego_procesu_centrum_z_nazwa_jego_rdzenia() -> None:
+    keys = [declaration.key for declaration in CATALOG]
+    period_keys = [declaration.key for declaration in CATALOG if isinstance(declaration, PeriodProcessDeclaration)]
+
+    assert sorted(keys) == sorted(get_args(contract.ProcessKey))
+    assert sorted(period_keys) == sorted(get_args(contract.PeriodProcessKey))
+    assert [declaration.title for declaration in CATALOG] == [
+        declaration.core(Processes.default()).name for declaration in CATALOG
+    ]
+
+
+def _period_setup(key: str) -> Callable[[TestClient], tuple[str | None, Any]]:
+    def setup_and_start(client: TestClient) -> tuple[str | None, Any]:
+        setup = next(process for process in client.get("/api/runs/setup").json()["processes"] if process["process"] == key)
+        return setup["blocker"], client.post("/api/runs", json={"process": key, "period": PERIOD, "dry_run": True})
+
+    return setup_and_start
+
+
+def _intermax_setup(client: TestClient) -> tuple[str | None, Any]:
+    return client.get("/api/intermax").json()["blocker"], client.post("/api/intermax/run")
+
+
+# Karta przed startem i start każdego procesu tak, jak je woła przeglądarka; nowy wpis katalogu potrzebuje tu swojej.
+_SETUP_AND_START: dict[contract.ProcessKey, Callable[[TestClient], tuple[str | None, Any]]] = {
+    "preparation": _period_setup("preparation"),
+    "settlement": _period_setup("settlement"),
+    "intermax": _intermax_setup,
+}
+
+
+@pytest.mark.parametrize("declaration", CATALOG, ids=lambda declaration: declaration.key)
+def test_bez_ustawien_taty_karta_i_odmowa_startu_mowia_to_samo_co_brakuje(
+    tmp_path: Path, declaration: ProcessDeclaration[Any, Any]
+) -> None:
+    client = centrum(tmp_path).client
+
+    blocker, refused = _SETUP_AND_START[declaration.key](client)
+
+    assert refused.status_code == 409
+    assert blocker is not None and blocker.startswith("Najpierw wskaż ")
+    assert refused.json()["message"] == blocker
+
+
+def _stopped_preparation(tmp_path: Path) -> tuple[TestClient, dict[str, Any]]:
+    preparing = preparing_centrum(tmp_path)
+    preparing.engines.fail_summary = True
+    return preparing.client, run_to_end(preparing, dry_run=True)
+
+
+def _stopped_settlement(tmp_path: Path) -> tuple[TestClient, dict[str, Any]]:
+    settling = settling_centrum(tmp_path)
+    settling.engines.fail_summary = True
+    return settling.client, run_to_end(settling, dry_run=True)
+
+
+def _stopped_intermax(tmp_path: Path) -> tuple[TestClient, dict[str, Any]]:
+    ordering = ordering_centrum(tmp_path)
+    ordering.engines.fail_summary = True
+    return ordering.client, ordering.run_to_end()
+
+
+# Zatrzymanie „do Maksa” bez zmiany plików taty: silnik kończy pracę, a jego podsumowania nie da się pokazać.
+_STOPPED: dict[contract.ProcessKey, Callable[[Path], tuple[TestClient, dict[str, Any]]]] = {
+    "preparation": _stopped_preparation,
+    "settlement": _stopped_settlement,
+    "intermax": _stopped_intermax,
+}
+
+
+@pytest.mark.parametrize("declaration", CATALOG, ids=lambda declaration: declaration.key)
+def test_uruchomienie_procesu_ma_te_same_fakty_wpisu_na_karcie_w_logach_historii_i_metrykach(
+    tmp_path: Path, declaration: ProcessDeclaration[Any, Any]
+) -> None:
+    client, view = _STOPPED[declaration.key](tmp_path)
+    run = view["run"]
+
+    card = client.get(f"/api/runs/{run['id']}/card").json()
+    (log_file,) = (tmp_path / "logs" / "uruchomienia").glob(f"*-{run['id']}.json")
+    metrics = client.get("/api/metrics").json()
+
+    assert (run["process"], run["title"]) == (declaration.key, declaration.title)
+    assert (run["confirms_readiness"], run["register_name"]) == (
+        declaration.view.confirms_readiness,
+        declaration.view.register_name,
+    )
+    assert card["run"] == run
+    assert summary_markdown(RunLog.model_validate_json(log_file.read_text(encoding="utf-8"))).startswith(
+        f"**Logi Uruchomienia**: {declaration.title}, "
+    )
+    assert [row["process_label"] for row in metrics["runs"] if row["run_id"] == run["id"]] == [declaration.title]
+    assert [row["mode"] for row in metrics["statistics"] if row["process"] == declaration.key] == list(
+        declaration.view.modes
+    )
+
+
+@pytest.mark.parametrize("declaration", CATALOG, ids=lambda declaration: declaration.key)
+def test_diagnoza_kazdego_procesu_idzie_w_kolejnosci_wyjasniania(
+    tmp_path: Path, declaration: ProcessDeclaration[Any, Any]
+) -> None:
+    """Ustawienia taty pierwsze, OneDrive przed każdym sprawdzeniem, które otwiera pliki, a na końcu Aktualność
+    narzędzia, Token do Zgłoszeń i dziennik; Folder okresu tylko w procesie z okresem."""
+
+    client, view = _STOPPED[declaration.key](tmp_path)
+
+    diagnosis = client.post(f"/api/runs/{view['run']['id']}/diagnosis").json()
+    labels = [check["label"] for check in diagnosis["checks"]]
+
+    assert labels[:2] == ["Ustawienia taty", "Pliki w OneDrive"]
+    assert labels[-3:] == ["Aktualność narzędzia", "Token do Zgłoszeń", "Dziennik Centrum rozliczeń"]
+    assert ("Folder okresu" in labels) is declaration.reads_period_folder
+    assert ("Pliki okresu w Excelu" in labels) is declaration.reads_period_folder
+    assert any(label.startswith("Wzorzec ") for label in labels) is bool(declaration.templates)

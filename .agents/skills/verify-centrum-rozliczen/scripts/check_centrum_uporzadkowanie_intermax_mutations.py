@@ -13,13 +13,13 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "tools"))
 sys.path.insert(0, str(Path(__file__).resolve().parents[4] / ".agents/skills/verify-centrum-rozliczen/scripts"))
 
-from cele_mutacji_centrum import APP, BUILD, DIAGNOSIS, INTERMAX_RUN, RUN_VIEW, UPORZADKOWANIE
+from cele_mutacji_centrum import APP, BUILD, CATALOG, INTERMAX_RUN, RUN_VIEW, UPORZADKOWANIE
 from mutacje import Edit, Mutation, check_all
 
 MUTATIONS = (
     Mutation(
         "karta bez braku INTERMAX w Ustawieniach",
-        (Edit(INTERMAX_RUN, "            blocker=None if register is not None else _NO_REGISTER,\n", "            blocker=None,\n"),),
+        (Edit(INTERMAX_RUN, "            blocker=INTERMAX.settings_blocker(settings),\n", "            blocker=None,\n"),),
         UPORZADKOWANIE,
         "bez wskazanego INTERMAX karta nie mówi tacie, co ustawić",
     ),
@@ -61,7 +61,13 @@ MUTATIONS = (
     ),
     Mutation(
         "Diagnoza bez sprawdzenia INTERMAX",
-        (Edit(DIAGNOSIS, "        _files_in_onedrive,\n        _intermax,\n", "        _files_in_onedrive,\n"),),
+        (
+            Edit(
+                CATALOG,
+                '    checks=("tata_settings", "files_in_onedrive", "intermax", *_TAIL),\n',
+                '    checks=("tata_settings", "files_in_onedrive", *_TAIL),\n',
+            ),
+        ),
         UPORZADKOWANIE,
         "Diagnoza Zatrzymania „do Maksa” nie sprawdza INTERMAX",
     ),

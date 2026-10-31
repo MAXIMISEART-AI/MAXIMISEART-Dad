@@ -61,7 +61,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "src"))
 
 from rozliczenia import process_run
 from rozliczenia.centrum import contract, runs, shutdown
-from rozliczenia.centrum.run_view import PREPARATION
+from rozliczenia.centrum.catalog import PREPARATION
 from rozliczenia.decision import Decision
 from rozliczenia.message import Message
 from rozliczenia.preparation_process import PROCESS
@@ -417,11 +417,10 @@ SCOPES = {
 }
 
 PREPARED: runs.PreparedRun[Any, Any] = runs.PreparedRun(
-    key="preparation",
+    declaration=PREPARATION,
     period="08_14_09_2026",
     process=PROCESS,
     inputs=SimpleNamespace(dry_run=False),
-    view=PREPARATION,
 )
 
 
