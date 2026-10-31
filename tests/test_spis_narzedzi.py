@@ -50,49 +50,36 @@ def _first_paragraph(path: Path) -> list[str]:
     return docstring.split("\n\n", 1)[0].splitlines()
 
 
-def _is_required_group(node: ast.AST) -> bool:
-    return (
-        isinstance(node, ast.Call)
-        and isinstance(node.func, ast.Attribute)
-        and node.func.attr == "add_subparsers"
-        and any(keyword.arg == "required" and isinstance(keyword.value, ast.Constant) and keyword.value.value is True for keyword in node.keywords)
-    )
-
-
 def _required_subcommands(path: Path) -> list[str]:
-    """Podkomendy ``add_parser`` wołane na grupie z ``add_subparsers(required=True)``; pusta lista bez takiej grupy.
+    """Stałe nazwy ``add_parser`` narzędzia, które ma ``add_subparsers(required=True)``; pusta lista bez takiej grupy.
 
-    Grupa to nazwa, której przypisano ``add_subparsers(required=True)``; ``add_parser`` innej grupy (np. zagnieżdżonej
-    bez ``required``) się nie liczy. Nazwę podkomendy czyta tylko ze stałej w ``add_parser("<nazwa>")``: obowiązkowa
-    grupa, która dodaje podkomendę inaczej (w pętli, ze zmiennej), nie dodaje żadnej albo nie jest przypisana do nazwy,
-    to ``ValueError``, bo test nie wie, którą podkomendę pierwsze zdanie ma wymienić, a pusta lista przepuściłaby ją bez
-    sprawdzenia.
+    Czyta każde ``add_parser("<nazwa>")`` ze stałą nazwą w pliku, bez rozróżniania grup, bo pierwsze zdanie ma wymienić
+    którąkolwiek z nich. Podkomendy dodane inaczej (w pętli, ze zmiennej) obok stałych nie są sprawdzane. Narzędzie z
+    ``required=True``, z którego nie da się odczytać żadnej stałej nazwy, to ``ValueError``, bo pusta lista
+    przepuściłaby je bez sprawdzenia.
     """
 
-    nodes = list(ast.walk(ast.parse(path.read_text(encoding="utf-8"))))
-    if not any(_is_required_group(node) for node in nodes):
-        return []
-    groups = {
-        target.id
-        for node in nodes
-        if isinstance(node, ast.Assign) and _is_required_group(node.value)
-        for target in node.targets
-        if isinstance(target, ast.Name)
-    }
-    parsers = [
-        node
-        for node in nodes
-        if isinstance(node, ast.Call)
-        and isinstance(node.func, ast.Attribute)
-        and node.func.attr == "add_parser"
-        and isinstance(node.func.value, ast.Name)
-        and node.func.value.id in groups
+    calls = [
+        (node.func.attr, node)
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8")))
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
     ]
-    names = [call.args[0].value for call in parsers if call.args and isinstance(call.args[0], ast.Constant) and isinstance(call.args[0].value, str)]
-    if not parsers or len(names) != len(parsers):
+    required = any(
+        method == "add_subparsers"
+        and any(keyword.arg == "required" and isinstance(keyword.value, ast.Constant) and keyword.value.value is True for keyword in call.keywords)
+        for method, call in calls
+    )
+    if not required:
+        return []
+    names = [
+        call.args[0].value
+        for method, call in calls
+        if method == "add_parser" and call.args and isinstance(call.args[0], ast.Constant) and isinstance(call.args[0].value, str)
+    ]
+    if not names:
         raise ValueError(
-            f"{path.name}: add_subparsers(required=True), a nazwy każdej podkomendy nie da się odczytać ze stałej w "
-            'add_parser("<nazwa>") tej grupy; przypisz grupę do nazwy i dodaj każdą podkomendę osobnym add_parser ze stałą nazwą'
+            f"{path.name}: add_subparsers(required=True), a żadnej podkomendy nie da się odczytać ze stałej w "
+            'add_parser("<nazwa>"); dodaj choć jedną podkomendę osobnym add_parser ze stałą nazwą'
         )
     return names
 
@@ -231,26 +218,43 @@ def test_podkomenda_liczy_sie_tylko_w_pierwszym_zdaniu_docstringu(tmp_path: Path
 
 @pytest.mark.parametrize(
     "parsers",
-    ["for name in ('plan', 'wykonaj'):\n    commands.add_parser(name)\n", "commands.add_parser('plan')\ncommands.add_parser(NAME)\n", ""],
-    ids=["w petli", "jedna ze zmiennej", "bez podkomend"],
+    ["for name in ('plan', 'wykonaj'):\n    commands.add_parser(name)\n", "commands.add_parser(NAME)\n", ""],
+    ids=["w petli", "ze zmiennej", "bez podkomend"],
 )
 def test_obowiazkowa_podkomenda_spoza_stalej_nie_przechodzi_po_cichu(tmp_path: Path, parsers: str) -> None:
     tool = tmp_path / "narzedzie.py"
     tool.write_text("import argparse\ncommands = argparse.ArgumentParser().add_subparsers(required=True)\n" + parsers, encoding="utf-8")
 
-    with pytest.raises(ValueError, match=r"nazwy każdej podkomendy nie da się odczytać ze stałej"):
+    with pytest.raises(ValueError, match=r"żadnej podkomendy nie da się odczytać ze stałej"):
         _required_subcommands(tool)
 
 
-def test_podkomendy_zagniezdzonej_grupy_bez_required_sie_nie_licza(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    "extra",
+    [
+        "inner = commands.add_parser('pokaz').add_subparsers(dest='co')\nfor name in ('a', 'b'):\n    inner.add_parser(name)\n",
+        "sub = commands.add_parser('pokaz').add_subparsers(dest='co')\nfor name in ('a', 'b'):\n    sub.add_parser(name)\n",
+        "alias = commands\nfor name in ('a', 'b'):\n    alias.add_parser(name)\n",
+    ],
+    ids=["zagniezdzona grupa w petli", "zagniezdzona pod ta sama nazwa", "alias grupy w petli"],
+)
+def test_podkomendy_spoza_stalej_obok_stalych_nie_wywracaja_testu(tmp_path: Path, extra: str) -> None:
     tool = tmp_path / "narzedzie.py"
-    tool.write_text(
-        PARSER.format("required=True")
-        + "inner = commands.add_parser('pokaz').add_subparsers(dest='co')\nfor name in ('a', 'b'):\n    inner.add_parser(name)\n",
-        encoding="utf-8",
-    )
+    tool.write_text(PARSER.format("required=True") + extra, encoding="utf-8")
 
-    assert _required_subcommands(tool) == ["plan", "wykonaj", "pokaz"]
+    assert set(_required_subcommands(tool)) >= {"plan", "wykonaj"}
+
+
+@pytest.mark.parametrize(
+    "group",
+    ["commands: argparse._SubParsersAction = argparse.ArgumentParser().add_subparsers(required=True)\n", "if (commands := argparse.ArgumentParser().add_subparsers(required=True)):\n    pass\n"],
+    ids=["adnotacja", "walrus"],
+)
+def test_grupa_przypisana_adnotacja_albo_walrusem_daje_swoje_podkomendy(tmp_path: Path, group: str) -> None:
+    tool = tmp_path / "narzedzie.py"
+    tool.write_text("import argparse\n" + group + "commands.add_parser('plan')\n", encoding="utf-8")
+
+    assert _required_subcommands(tool) == ["plan"]
 
 
 def test_podkomenda_liczy_sie_tylko_cala_w_nawiasie() -> None:
