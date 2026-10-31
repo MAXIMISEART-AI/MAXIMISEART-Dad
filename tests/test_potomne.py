@@ -1,4 +1,4 @@
-"""``tools/potomne.py``: drzewo procesów polecenia i kopia commitu nie przeżywają wyniku ani narzędzia.
+"""``tools/lib/potomne.py``: drzewo procesów polecenia i kopia commitu nie przeżywają wyniku ani narzędzia.
 
 Macierz przypadków biegnie raz, na interfejsie modułu i na prawdziwych procesach. Narzędzia, które go
 używają, mają po jednym teście, że ich procesy giną razem z nimi.
@@ -357,7 +357,7 @@ def test_zabite_narzedzie_nie_zostawia_drzewa_ani_kopii(tmp_path: Path, stop: st
     scratch.mkdir()
     beats = tmp_path / "wnuk-zyje"
     code = (
-        f"import pathlib, sys\nsys.path.insert(0, {str(TOOLS)!r})\nimport potomne\n"
+        f"import pathlib, sys\nsys.path.insert(0, {str(TOOLS / 'lib')!r})\nimport potomne\n"
         f"with potomne.commit_copy(pathlib.Path({str(repo)!r}), 'HEAD') as copy:\n"
         f"    potomne.run({with_grandchild(beats, 'time.sleep(60)')!r}, cwd=copy)\n"
     )
@@ -386,7 +386,7 @@ def test_zabite_narzedzie_nie_zostawia_drzewa_ani_kopii(tmp_path: Path, stop: st
 @POSIX_ONLY
 def test_bez_straznika_narzedzie_przerywa_zamiast_dzialac_bez_sprzatania(tmp_path: Path) -> None:
     code = (
-        f"import os, pathlib, signal, subprocess, sys\nsys.path.insert(0, {str(TOOLS)!r})\nimport potomne\n"
+        f"import os, pathlib, signal, subprocess, sys\nsys.path.insert(0, {str(TOOLS / 'lib')!r})\nimport potomne\n"
         "here = pathlib.Path.cwd()\n"
         "potomne.run([sys.executable, '-c', 'pass'], cwd=here)\n"
         "found = subprocess.run(['pgrep', '-P', str(os.getpid()), '-f', 'potomne.py'], capture_output=True, text=True)\n"
@@ -410,7 +410,7 @@ def test_bez_straznika_narzedzie_przerywa_zamiast_dzialac_bez_sprzatania(tmp_pat
 
 
 def _tool_sources() -> list[Path]:
-    return sorted(path for path in [*TOOLS.rglob("*.py"), TOOLS / "hooks" / "pre-push"] if path != TOOLS / "potomne.py")
+    return sorted(path for path in [*TOOLS.rglob("*.py"), TOOLS / "hooks" / "pre-push"] if path != TOOLS / "lib" / "potomne.py")
 
 
 def test_drzewa_procesow_i_kopie_commitow_narzedzi_buduje_tylko_potomne() -> None:
@@ -473,7 +473,9 @@ class _Tool:
     @classmethod
     def read(cls, path: Path) -> _Tool:
         tree = ast.parse(path.read_text(encoding="utf-8"))
-        module = path.relative_to(TOOLS).with_suffix("").as_posix().replace("/", ".")
+        # Nazwa, pod którą narzędzia importują moduł: ``tools/lib`` i ``tools/ci`` są na ``sys.path`` jak ``tools``.
+        root = next(root for root in (TOOLS / "lib", TOOLS / "ci", TOOLS) if path.is_relative_to(root))
+        module = path.relative_to(root).with_suffix("").as_posix().replace("/", ".")
         parents = {child: node for node in ast.walk(tree) for child in ast.iter_child_nodes(node)}
         return cls(path, module, tree, imports(tree), parents)
 
@@ -601,7 +603,7 @@ def test_polecenia_narzedzi_ktore_trwaja_biegna_przez_potomne_run() -> None:
     assert not found, "\n".join(
         [
             *found,
-            "Polecenie, które trwa albo uruchamia własne procesy, uruchom przez potomne.run z tools/potomne.py; "
+            "Polecenie, które trwa albo uruchamia własne procesy, uruchom przez potomne.run z tools/lib/potomne.py; "
             "zwykłe subprocess zostaje tylko dla git, gh i ps, a nowe szybkie, lokalne podpolecenie gita dopisz do FAST_GIT.",
         ]
     )

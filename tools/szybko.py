@@ -1,4 +1,4 @@
-"""Szybkie sprawdzenie zmiany: ruff, mypy dla obu systemów, testy struktury i testy dotknięte zmianą.
+"""Szybko sprawdza zmianę: ruff, mypy dla obu systemów, testy struktury i testy dotknięte zmianą; uruchom po każdej zmianie przed pushem.
 
 Agent uruchamia je po każdej zmianie; pełną bramką jest CI na GitHubie. Zmiana to pliki, którymi checkout,
 razem z niezacommitowanymi i nieśledzonymi plikami, różni się od ``merge-base`` HEAD z ``--baza`` (domyślnie
@@ -24,7 +24,7 @@ leży w katalogu gita worktree. Krok pytest bierze ``WORKERS`` workerów, chyba 
 
 Z wybranych testów biegną zawsze pliki w odległości najwyżej 1 od zmiany w grafie zależności (``plan``), czyli
 zmienione albo zależne wprost od zmienionego pliku, a dalsze po odległości i czasie w CI rosnąco, dopóki mieszczą
-się w budżecie ``BUDGET_S``. Czas pliku to jego koszt na Linuksie z ostatnich runów main (``tools/czasy_ci.py``,
+się w budżecie ``BUDGET_S``. Czas pliku to jego koszt na Linuksie z ostatnich runów main (``tools/ci/czasy_ci.py``,
 kopia w ``.git/czasy-ci`` odświeżana raz na dobę, a po nieudanym pobraniu w następnym przebiegu); bez niej, na przykład
 bez sieci, każdy plik waży 0 i biegnie, a szybko mówi to linią ``SZYBKO | bez czasów CI (<przyczyna>)``. Odległość liczy się od zmiany bez plików ``FULL``, a test, który
 importuje albo czyta plik ``FULL``, ma najwyżej 2, więc przy zmianie konfiguracji biegnie w budżecie przed testami
@@ -69,6 +69,9 @@ import time
 import tomllib
 import xml.etree.ElementTree as ET
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools/lib"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools/ci"))
+
 import ci_lokalnie
 import czasy_ci
 from mutacje import environment
@@ -97,6 +100,7 @@ STRUCTURE = (
     "tests/test_skille_dla_zmiany.py::test_skill_z_poleceniami_w_ci_mowi_co_liczy_ci_a_co_zostaje_lokalnie",
     "tests/test_skrypty_bez_instalacji.py",
     "tests/test_slowo_flaky_test.py",
+    "tests/test_spis_narzedzi.py",
     "tests/test_struktura_testow.py",
     "tests/test_systemowy_python.py",
     "tests/test_uszkodzone_wejscia.py::test_macierz_obejmuje_kazda_operacje_kontraktu_centrum",
@@ -116,7 +120,7 @@ STRUCTURE = (
     "tests/test_centrum_rozliczen.py::test_lokalne_pliki_taty_sa_poza_gitem",
 )
 STATIC_JOBS = ("ruff", "mypy")
-MODULE_ROOTS = ("src", ".", "tools")
+MODULE_ROOTS = ("src", ".", "tools", "tools/lib", "tools/ci")
 SKILL_SCRIPTS = ".agents/skills/*/scripts"
 GREEN = "szybko-zielone.json"
 WORKERS = "4"

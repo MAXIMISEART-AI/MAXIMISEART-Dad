@@ -1,10 +1,10 @@
-"""Uruchamia polecenie z narzędziami tego checkoutu na commicie scalenia każdego wskazanego PR-u.
+"""Uruchamia polecenie na commitach scalenia wskazanych PR-ów; użyj, by pokazać, że nowe sprawdzenie łapie błąd bez fałszywego alarmu.
 
 Nowe sprawdzenie (narzędzie, test struktury, zadanie CI) przed przeglądem przechodzi próbę na scalonych PR-ach: na PR-ach,
 które dostały werdykt FAIL, ma znaleźć to, co znalazł przegląd, a na zwykłych dobrych PR-ach nie może dawać fałszywego
 alarmu. Dla każdego PR-u narzędzie robi kopię commitu scalenia (``potomne.commit_copy``), nadpisuje w niej ``tools/``
 plikami z tego checkoutu z chwili startu (także niezacommitowanymi), uruchamia polecenie w korzeniu kopii Pythonem, który uruchomił
-narzędzie, z ``PYTHONPATH`` na ``src`` kopii i ``MAXIMISEART_NA_SCALONYCH_PR=1`` (``tools/ciezkie_ci.py`` przepuszcza wtedy
+narzędzie, z ``PYTHONPATH`` na ``src`` kopii i ``MAXIMISEART_NA_SCALONYCH_PR=1`` (``tools/lib/ciezkie_ci.py`` przepuszcza wtedy
 ``tools/mutacje_zmiany.py``), i drukuje jedną linię na PR: numer, commit, czas, kod wyjścia i ostatnią
 linię wyjścia. W kopii ``HEAD^1`` to ``main`` sprzed scalenia, więc ``--baza HEAD^1`` to zmiana samego PR-u, jak w CI.
 Pełne wyjście każdego PR-u leży w ``--wyniki`` (domyślnie katalog ``na-scalonych-pr`` w katalogu gita worktree).
@@ -30,6 +30,8 @@ from pathlib import Path
 import subprocess
 import sys
 import time
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools/lib"))
 
 import potomne
 
@@ -101,7 +103,7 @@ def run_on(pr: Merged, command: list[str], tools: dict[str, bytes], output: Path
             (copy / name).parent.mkdir(parents=True, exist_ok=True)
             (copy / name).write_bytes(content)
         env = {**os.environ, "PYTHONPATH": os.pathsep.join([str(copy / "src"), os.environ.get("PYTHONPATH", "")]).rstrip(os.pathsep)}
-        # Próba narzędzia na cudzym commicie, nie sprawdzenie przed pushem: ciężkie zadania biegną (tools/ciezkie_ci.py).
+        # Próba narzędzia na cudzym commicie, nie sprawdzenie przed pushem: ciężkie zadania biegną (tools/lib/ciezkie_ci.py).
         env["MAXIMISEART_NA_SCALONYCH_PR"] = "1"
         started = time.monotonic()
         done = potomne.run([sys.executable, *command], cwd=copy, env=env)

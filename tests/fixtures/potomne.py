@@ -14,7 +14,7 @@ from tests.fixtures.git_repo import git
 
 ROOT = Path(__file__).resolve().parents[2]
 TOOLS = ROOT / "tools"
-sys.path.insert(0, str(TOOLS))
+sys.path.insert(0, str(TOOLS / "lib"))
 
 import potomne  # noqa: E402
 

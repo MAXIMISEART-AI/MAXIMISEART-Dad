@@ -1,4 +1,6 @@
-"""Psuje zmienione linie ``src/`` i ``tools/`` i sprawdza, że test to zauważa, jak nocne mutacje ``main`` (ADR 0021).
+"""Psuje linie zmienione od bazy jak nocne mutacje main; użyj, gdy część nocnych mutacji padła i odtwarzasz ją na commicie runu (--odtwarzam).
+
+Psuje zmienione linie ``src/`` i ``tools/`` i sprawdza, że test to zauważa, jak nocne mutacje ``main`` (ADR 0021).
 
 Zmiana to linie plików ``src/**/*.py`` i ``tools/**/*.py``, którymi checkout (z niezacommitowanymi i nieśledzonymi
 plikami) różni się od ``merge-base`` HEAD z ``--baza`` (domyślnie ``origin/main``). Na każdej zmienionej linii narzędzie
@@ -39,7 +41,7 @@ na tym systemie, i sam warunek. Kod tylko dla innego systemu w innej postaci (st
 warunek przez ``startswith`` albo zmienną) przeżywa i potrzebuje wyjątku.
 
 Najpierw biegną raz testy dotknięte zmianą, wybrane jak w ``tools/szybko.py``, z pluginem
-``tools/pokrycie_linii.py``. Zapisuje on, które testy wykonują które zmienione linie i jakikolwiek kod zmienionych
+``tools/ci/pytest_pokrycie.py``. Zapisuje on, które testy wykonują które zmienione linie i jakikolwiek kod zmienionych
 plików, także w procesach Pythona uruchomionych przez test, oraz linie wykonane dla wielu testów naraz: przy imporcie
 modułu i w fixture o zasięgu szerszym niż test. Testy muszą przejść, inaczej wynik mutacji niczego nie dowodzi.
 
@@ -69,7 +71,7 @@ następnej zmianie jego pliku, a komentarz ``mutacje-zmiany:`` w innej postaci k
 
 Kończy się ``MUTACJE ZMIANY OK | …`` (kod 0) albo ``MUTACJE ZMIANY FAIL | …``: kodem 1, gdy przeżyły mutacje, a
 kodem 2, gdy wynik mutacji nic nie mówi (nieznana baza, zły wyjątek, testy padają bez mutacji, odmowa
-``tools/ciezkie_ci.py``) albo limit czasu części (``--limit-czesci-s``) minął przed werdyktem którejś mutacji. Po
+``tools/lib/ciezkie_ci.py``) albo limit czasu części (``--limit-czesci-s``) minął przed werdyktem którejś mutacji. Po
 limicie żadne polecenie już nie biegnie, a mutacje bez wyniku dostają linię ``BEZ WERDYKTU``, więc część kończy się
 zapisem z przeżytymi mutacjami przed limitem czasu zadania CI.
 W CI biegnie nocą na Linuksie, na ``main``, od bazy z ``tools/mutacje_nocne.py``, w częściach
@@ -86,7 +88,7 @@ Pod ``tools/na_scalonych_pr.py`` pliki ``tools/``, które ten podmienił narzęd
 commitu w takim pliku narzędzie zgłasza linią ``NIESPRAWDZONA``: zmianę ``tools/`` z historii sprawdza tylko próba
 z ``--narzedzia`` wskazującym commit, który do narzędzi tego commitu dokłada samo nowe ``tools/mutacje_zmiany.py``.
 
-Poza CI biegnie tylko do odtworzenia części, która padła (kod 2) w runie Actions (``tools/ciezkie_ci.py``). Run
+Poza CI biegnie tylko do odtworzenia części, która padła (kod 2) w runie Actions (``tools/lib/ciezkie_ci.py``). Run
 nocny odtwarza się na jego commicie, z bazą i częścią z jego planu:
 
     git checkout --detach <headSha runu>
@@ -117,6 +119,9 @@ import sys
 import tempfile
 import time
 import tokenize
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools/ci"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools/lib"))
 
 import ciezkie_ci
 import mutacje
@@ -623,7 +628,7 @@ def selected(path: str, text: str, hunks: Sequence[Hunk], platform: str = sys.pl
 
     Predykat napisu biegnie tylko na linii bez innej mutacji: ``x in y`` → ``y.startswith(x)`` przy ``y`` będącym
     zbiorem albo słownikiem tylko rzuca ``AttributeError``, a wypierał ``bez członu`` i stały warunek (#486
-    ``tools/sciezki_w_kodzie.py:67``: przeżywa ``bez `node.func.attr in GLOBS` w `and` ``).
+    ``tools/lib/sciezki_w_kodzie.py:67``: przeżywa ``bez `node.func.attr in GLOBS` w `and` ``).
     """
 
     found = mutants(path, text, hunks, platform)
@@ -714,7 +719,7 @@ def runners(paths: Iterable[str]) -> dict[str, frozenset[str]]:
 def _coverage(
     tests: Sequence[str], lines: dict[str, frozenset[int]], timeout: float
 ) -> tuple[subprocess.CompletedProcess[str], Coverage]:
-    """Uruchamia testy raz z pluginem ``pokrycie_linii``; zwraca wynik i pokrycie zmienionych plików.
+    """Uruchamia testy raz z pluginem ``pytest_pokrycie``; zwraca wynik i pokrycie zmienionych plików.
 
     Po ``timeout`` sekundach rzuca ``subprocess.TimeoutExpired``.
     """
@@ -725,7 +730,8 @@ def _coverage(
         site = Path(folder) / "site"
         site.mkdir()
         (site / "sitecustomize.py").write_text(pokrycie_procesu.SITECUSTOMIZE, encoding="utf-8")
-        python_path = os.pathsep.join([str(site), str(ROOT / "tools"), str(ROOT / "src"), os.environ.get("PYTHONPATH", "")])
+        tools = [str(ROOT / "tools" / folder) for folder in ("ci", "lib", ".")]
+        python_path = os.pathsep.join([str(site), *tools, str(ROOT / "src"), os.environ.get("PYTHONPATH", "")])
         inherited = {name: value for name, value in os.environ.items() if name != pokrycie_procesu.TEST}
         env = {
             **inherited,
@@ -733,7 +739,7 @@ def _coverage(
             "PYTHONPATH": python_path.rstrip(os.pathsep),
             "POKRYCIE_LINII": json.dumps(settings),
         }
-        command = [sys.executable, "-m", "pytest", "-q", "-n", "auto", "-p", "pokrycie_linii", "-p", "no:cacheprovider", *tests]
+        command = [sys.executable, "-m", "pytest", "-q", "-n", "auto", "-p", "pytest_pokrycie", "-p", "no:cacheprovider", *tests]
         done = potomne.run(command, cwd=ROOT, env=env, timeout=timeout)
         coverage = Coverage()
 

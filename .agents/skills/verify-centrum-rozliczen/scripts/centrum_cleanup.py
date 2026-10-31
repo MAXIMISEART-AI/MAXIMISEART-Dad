@@ -17,7 +17,7 @@ import sys
 import time
 import urllib.request
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "tools"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "tools/lib"))
 
 from skrypt_skilla import Parser, remove_run_root, require_run_root
 

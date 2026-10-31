@@ -21,6 +21,8 @@ from tests.fixtures.git_repo import commit, git, repository
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
+sys.path.insert(0, str(ROOT / "tools" / "lib"))
+sys.path.insert(0, str(ROOT / "tools" / "ci"))
 
 import czasy_ci  # noqa: E402
 import mutacje_skilli  # noqa: E402
@@ -363,8 +365,8 @@ def test_kroki_planu_uruchamiaja_skrypty_repozytorium_kazde_polecenie_z_limitem_
 def mini_repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Path]:
     """Repozytorium z plikiem 30 testów, z których 3 padają, i pluginem udziałów; w nim biegnie ``wykonaj``."""
 
-    (tmp_path / "tools").mkdir()
-    shutil.copy2(ROOT / "tools" / "pytest_czesc.py", tmp_path / "tools" / "pytest_czesc.py")
+    (tmp_path / "tools" / "ci").mkdir(parents=True)
+    shutil.copy2(ROOT / "tools" / "ci" / "pytest_czesc.py", tmp_path / "tools" / "ci" / "pytest_czesc.py")
     (tmp_path / "tests").mkdir()
     cases = "\n".join(f"def test_{index:02}() -> None:\n    assert {index % 10 != 7}\n" for index in range(30))
     (tmp_path / "tests" / "test_mini.py").write_text(cases, encoding="utf-8")

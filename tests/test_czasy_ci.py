@@ -24,7 +24,7 @@ import pytest
 from tests.fixtures.ci_workflow import jobs
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "tools"))
+sys.path.insert(0, str(ROOT / "tools" / "ci"))
 
 import czasy_ci  # noqa: E402
 from czasy_ci import KROKI, main  # noqa: E402
@@ -538,7 +538,7 @@ def test_brak_albo_zepsuty_artefakt_daje_puste_czasy_z_przyczyna(tmp_path: Path,
 def _recorded(job: str, option: str) -> str:
     """Ścieżka, którą krok zapisu zadania ``job`` w ``ci.yml`` podaje opcją ``option``."""
 
-    recorded = [step["run"] for step in jobs()[job]["steps"] if "tools/czasy_ci.py zadanie" in step.get("run", "")]
+    recorded = [step["run"] for step in jobs()[job]["steps"] if "tools/ci/czasy_ci.py zadanie" in step.get("run", "")]
     assert len(recorded) == 1, job
     arguments = shlex.split(recorded[0])
     return arguments[arguments.index(option) + 1]
@@ -557,7 +557,7 @@ def test_kazdy_krok_jednostki_jest_krokiem_ci_a_zapis_czyta_junit_i_wynik_tam_gd
 def test_pomiar_czasow_nie_zmienia_werdyktu_ci_i_biegnie_takze_po_porazce_z_dostepem_do_api_zadan() -> None:
     workflow = jobs()
     measuring = {
-        name: [step for step in job["steps"] if "tools/czasy_ci.py" in step.get("run", "") or "czasy" in json.dumps(step.get("with", {}))]
+        name: [step for step in job["steps"] if "tools/ci/czasy_ci.py" in step.get("run", "") or "czasy" in json.dumps(step.get("with", {}))]
         for name, job in workflow.items()
     }
     required = workflow["required"]["steps"]
