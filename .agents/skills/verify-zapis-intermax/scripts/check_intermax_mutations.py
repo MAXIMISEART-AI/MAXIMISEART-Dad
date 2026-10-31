@@ -14,9 +14,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "tools"))
 
 from mutacje import Edit, Mutation, check_all
 
-ORDERING = Path("src/rozliczenia/intermax_ordering.py")
+REPLACE = Path("src/rozliczenia/intermax_replace.py")
+RESTORE = Path("src/rozliczenia/intermax_restore.py")
 COPIES = Path("src/rozliczenia/intermax_copies.py")
-FILE = Path("src/rozliczenia/intermax_file.py")
 SAVE = Path("src/rozliczenia/workbook_save.py")
 EXPLORER = (".agents/skills/verify-zapis-intermax/scripts/explore_intermax.py",)
 NEW = "INTERMAX: NOWE NARUSZENIE"
@@ -24,67 +24,57 @@ NEW = "INTERMAX: NOWE NARUSZENIE"
 MUTATIONS = (
     Mutation(
         "podmiana bez Kopii INTERMAX",
-        (
-            Edit(
-                ORDERING,
-                "            copies.append(intermax_copies.make_copy(register.content, copies_directory, now()))\n",
-                "            pass\n",
-            ),
-        ),
+        (Edit(REPLACE, "            disk.create(copy.path, current)\n", "            pass\n"),),
         EXPLORER,
         "INTERMAX zmieniony bez Kopii, z której tata by go przywrócił",
         NEW,
     ),
     Mutation(
         "Kopia z innych bajtów niż przeczytane",
-        (
-            Edit(
-                ORDERING,
-                "intermax_copies.make_copy(register.content, copies_directory, now())",
-                'intermax_copies.make_copy(b"", copies_directory, now())',
-            ),
-        ),
+        (Edit(REPLACE, "            disk.create(copy.path, current)\n", '            disk.create(copy.path, b"")\n'),),
         EXPLORER,
-        "Kopia INTERMAX nie przywraca stanu sprzed Uporządkowania",
+        "Kopia INTERMAX nie przywraca stanu sprzed podmiany",
         NEW,
     ),
     Mutation(
         "Kopia zostaje po nieudanej podmianie",
         (
             Edit(
-                ORDERING,
-                "            except WorkbookSaveError as error:\n                for copy in copies:\n                    copy.unlink()\n",
-                "            except WorkbookSaveError as error:\n                pass\n",
+                REPLACE,
+                "        if not replaced:\n            for copy in made:\n                _forget(copy.path, disk)\n",
+                "        pass\n",
             ),
         ),
         EXPLORER,
-        "Zatrzymanie przy INTERMAX otwartym w Excelu zostawia Kopię, choć INTERMAX się nie zmienił",
+        "Zatrzymanie przy INTERMAX otwartym w Excelu albo trzymanym przez OneDrive zostawia Kopię, choć INTERMAX się "
+        "nie zmienił",
         NEW,
     ),
     Mutation(
-        "Kopia zostaje po odmowie OneDrive",
+        "Kopia o zajętej nazwie usuwana po błędzie jej zapisu",
+        (Edit(REPLACE, "            if not taken:\n                made.append(copy)", "            if True:\n                made.append(copy)"),),
+        EXPLORER,
+        "drugie przywrócenie w tej samej sekundzie usuwa Kopię stanu sprzed pierwszego",
+        NEW,
+    ),
+    Mutation(
+        "błąd sprawdzenia nazwy Kopii wychodzi wyjątkiem",
         (
             Edit(
-                ORDERING,
-                "            except HeldByOneDrive as error:\n                for copy in copies:\n                    copy.unlink()\n",
-                "            except HeldByOneDrive as error:\n                pass\n",
+                REPLACE,
+                "        try:\n            taken = disk.exists(copy.path)",
+                "        taken = disk.exists(copy.path)\n        try:\n            pass",
             ),
         ),
         EXPLORER,
-        "Zatrzymanie, bo OneDrive synchronizuje INTERMAX, zostawia Kopię, choć INTERMAX się nie zmienił",
+        "folder Kopii bez dostępu daje błąd nieoczekiwany zamiast Komunikatu dla taty",
         NEW,
     ),
     Mutation(
         "nieudane usunięcie starych Kopii wychodzi wyjątkiem",
-        (
-            Edit(
-                ORDERING,
-                "        except OSError:\n            warnings.append(messages.old_copies_kept(copies_directory))\n",
-                "        except ValueError:\n            warnings.append(messages.old_copies_kept(copies_directory))\n",
-            ),
-        ),
+        (Edit(REPLACE, "    except OSError:\n        return False\n", "    except ValueError:\n        return False\n"),),
         EXPLORER,
-        "uporządkowany INTERMAX kończy się nieoczekiwanym błędem zamiast ostrzeżenia",
+        "podmieniony INTERMAX kończy się nieoczekiwanym błędem zamiast ostrzeżenia",
         NEW,
     ),
     Mutation(
@@ -102,13 +92,7 @@ MUTATIONS = (
     ),
     Mutation(
         "ponowna próba podmiany bez ponownego odczytu INTERMAX",
-        (
-            Edit(
-                FILE,
-                "            if not unchanged:\n                raise HeldByOneDrive(target.name)\n",
-                "",
-            ),
-        ),
+        (Edit(REPLACE, "            if not unchanged:\n                raise _Refused(Refusal.ONEDRIVE_HOLDS)\n", ""),),
         EXPLORER,
         "zmiana pracownika, którą OneDrive wgrał, gdy odmówił podmiany, przepada przy ponownej próbie",
         NEW,
@@ -116,11 +100,11 @@ MUTATIONS = (
     Mutation(
         "ponowny odczyt INTERMAX przed przerwą zamiast po niej",
         (
-            Edit(FILE, "            waiting.pause(_PAUSE_S)\n            try:\n", "            try:\n"),
+            Edit(REPLACE, "            waiting.pause(_PAUSE_S)\n            try:\n", "            try:\n"),
             Edit(
-                FILE,
-                "            if not unchanged:\n                raise HeldByOneDrive(target.name)\n",
-                "            if not unchanged:\n                raise HeldByOneDrive(target.name)\n            waiting.pause(_PAUSE_S)\n",
+                REPLACE,
+                "            if not unchanged:\n                raise _Refused(Refusal.ONEDRIVE_HOLDS)\n",
+                "            if not unchanged:\n                raise _Refused(Refusal.ONEDRIVE_HOLDS)\n            waiting.pause(_PAUSE_S)\n",
             ),
         ),
         EXPLORER,
@@ -137,18 +121,12 @@ MUTATIONS = (
             ),
         ),
         EXPLORER,
-        "od 11. Uporządkowania keep_newest usuwa świeżą Kopię zaraz po podmianie",
+        "od 11. podmiany limit Kopii usuwa świeżą Kopię zaraz po podmianie",
         NEW,
     ),
     Mutation(
         "zostaje jedna Kopia zamiast KEPT",
-        (
-            Edit(
-                COPIES,
-                "    for copy in listed(directory)[KEPT:]:\n",
-                "    for copy in listed(directory)[1:]:\n",
-            ),
-        ),
+        (Edit(COPIES, "    return listed(directory)[KEPT:]\n", "    return listed(directory)[1:]\n"),),
         EXPLORER,
         "tata ma jedną Kopię INTERMAX zamiast dziesięciu",
         NEW,
@@ -167,40 +145,8 @@ MUTATIONS = (
         NEW,
     ),
     Mutation(
-        "przywrócenie bez Kopii stanu bieżącego",
-        (
-            Edit(
-                COPIES,
-                '            made.append(make_copy(current, directory, moment, "restore"))\n',
-                "            made.append(directory / \"brak\")\n",
-            ),
-        ),
-        EXPLORER,
-        "przywrócenie podmienia INTERMAX, a stanu sprzed niego nie ma w żadnej Kopii",
-        NEW,
-    ),
-    Mutation(
-        "Kopia stanu bieżącego zostaje po nieudanym przywróceniu",
-        (
-            Edit(
-                COPIES,
-                "        for path in made:\n            path.unlink()\n",
-                "        pass\n",
-            ),
-        ),
-        EXPLORER,
-        "odmowa przywrócenia zostawia nową Kopię, choć INTERMAX się nie zmienił",
-        NEW,
-    ),
-    Mutation(
         "Kopia nadpisuje Kopię o tej samej nazwie",
-        (
-            Edit(
-                COPIES,
-                "os.O_WRONLY | os.O_CREAT | os.O_EXCL",
-                "os.O_WRONLY | os.O_CREAT | os.O_TRUNC",
-            ),
-        ),
+        (Edit(REPLACE, "os.O_WRONLY | os.O_CREAT | os.O_EXCL", "os.O_WRONLY | os.O_CREAT | os.O_TRUNC"),),
         EXPLORER,
         "drugie przywrócenie w tej samej sekundzie nadpisuje Kopię stanu sprzed pierwszego",
         NEW,
@@ -209,9 +155,9 @@ MUTATIONS = (
         "przywrócenie podmienia INTERMAX bajtami sprzed przywrócenia",
         (
             Edit(
-                COPIES,
-                "        intermax_file.restore(register, current, content, before_replace=before_replace, waiting=waiting)\n",
-                "        intermax_file.restore(register, current, current, before_replace=before_replace, waiting=waiting)\n",
+                RESTORE,
+                "        content = workbook_files.workbook_content(chosen.path)\n",
+                "        content = workbook_files.workbook_content(register)\n",
             ),
         ),
         EXPLORER,
@@ -222,35 +168,16 @@ MUTATIONS = (
         "nieudana podmiana usuwa wszystkie Kopie",
         (
             Edit(
-                ORDERING,
-                "            except WorkbookSaveError as error:\n                for copy in copies:\n                    copy.unlink()\n",
-                "            except WorkbookSaveError as error:\n                for copy in list(copies_directory.iterdir()):\n                    copy.unlink()\n",
+                REPLACE,
+                "            for copy in made:\n                _forget(copy.path, disk)\n",
+                "            for old in list(copies.iterdir()):\n                _forget(old, disk)\n",
             ),
         ),
         EXPLORER,
         "Zatrzymanie przy INTERMAX otwartym w Excelu usuwa wcześniejsze Kopie taty",
         NEW,
     ),
-    Mutation(
-        "Kopia przed sprawdzeniem zapisu",
-        (
-            Edit(
-                FILE,
-                "        temporary.write_bytes(content)\n        try:\n",
-                "        temporary.write_bytes(content)\n        before_replace()\n        try:\n",
-            ),
-            Edit(
-                FILE,
-                '            raise WriteMismatch("odczyt") from error\n        before_replace()\n',
-                '            raise WriteMismatch("odczyt") from error\n',
-            ),
-        ),
-        EXPLORER,
-        "Zatrzymanie po niezgodnym zapisie zostawia Kopię INTERMAX",
-        NEW,
-    ),
 )
-
 
 if __name__ == "__main__":
     raise SystemExit(check_all(MUTATIONS))

@@ -36,8 +36,6 @@ class SaveProblem(Enum):
     """Treści skoroszytu nie da się zapisać do pliku tymczasowego."""
     REPLACE = "podmiana"
     """System odmówił podmiany celu plikiem tymczasowym."""
-    OPEN_IN_EXCEL = "otwarty w Excelu"
-    """Ponowna próba podmiany INTERMAX zastała jego plik blokady Excela; pierwsza odmowa podmiany to ``REPLACE``."""
     EXTERNAL_LINKS_UNREADABLE = "nieczytelne odwołania zewnętrzne"
     """Nie da się odczytać ``xl/externalLinks/*`` skoroszytu, z którego są kopiowane (celu albo Wzorca)."""
     EXTERNAL_LINKS_NOT_RESTORED = "nieprzywrócone odwołania zewnętrzne"

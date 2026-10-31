@@ -23,6 +23,7 @@ from rozliczenia.centrum.shutdown import Shutdown
 from tests.fixtures.centrum import CENTRUM, FakePlatform, MetricsPaths, finished_view
 from tests.fixtures.centrum_processes import Engines, Surroundings
 from tests.fixtures.intermax import Intermax, Layout
+from tests.fixtures.intermax_disk import FaultyDisk
 
 REGISTER_NAME = "ZLECENIA INTERMAX OD 08_11_2021-NOWA WERSJA.xlsx"
 # Poniedziałek, w który tata porządkuje wklejone zlecenia dnia z domyślnego syntetycznego INTERMAX.
@@ -51,6 +52,8 @@ class OrderingCentrum:
     engines: Engines
     clock: Clock
     tool_copies: bool = False
+    disk: FaultyDisk = field(default_factory=FaultyDisk)
+    """Usterki kroków podmiany INTERMAX dla Uporządkowania i przywrócenia Kopii; test wkłada je w każdej chwili."""
 
     @property
     def log_path(self) -> Path:
@@ -87,7 +90,9 @@ class OrderingCentrum:
         """Nowe Centrum na tych samych plikach i Ustawieniach taty."""
 
         copies = None if self.tool_copies else self.copies
-        self.client = _client(self.tmp_path, self.surroundings, self.engines, self.clock, FakePlatform(), copies)
+        self.client = _client(
+            self.tmp_path, self.surroundings, self.engines, self.clock, FakePlatform(), copies, self.disk
+        )
 
 
 def _client(
@@ -97,6 +102,7 @@ def _client(
     clock: Clock,
     platform: FakePlatform,
     copies: Path | None,
+    disk: FaultyDisk,
 ) -> TestClient:
     """Centrum na plikach ``tmp_path``; ``copies``: folder Kopii INTERMAX, ``None``: domyślny folder narzędzia."""
 
@@ -122,6 +128,7 @@ def _client(
         pause=surroundings.clock.pause,
         readers=surroundings.readers,
         intermax_copies=copies,
+        intermax_disk=disk.disk(),
         now=clock,
     )
     return TestClient(app, base_url=CENTRUM, headers={"Origin": CENTRUM})
@@ -155,12 +162,13 @@ def ordering_centrum(
     surroundings, engines, clock = surroundings or Surroundings(), Engines(metrics), clock or Clock()
     platform = FakePlatform(chosen_files=[register], chosen_folders=[periods_directory])
     copies = intermax_copies.default_directory() if tool_copies else tmp_path / "Kopie INTERMAX"
-    client = _client(tmp_path, surroundings, engines, clock, platform, None if tool_copies else copies)
+    disk = FaultyDisk()
+    client = _client(tmp_path, surroundings, engines, clock, platform, None if tool_copies else copies, disk)
     if chosen:
         assert client.post("/api/settings/register/choose").status_code == 200
     if periods_directory is not None:
         assert client.post("/api/settings/periods-directory/choose").status_code == 200
-    return OrderingCentrum(client, register, layout, copies, tmp_path, surroundings, engines, clock, tool_copies)
+    return OrderingCentrum(client, register, layout, copies, tmp_path, surroundings, engines, clock, tool_copies, disk)
 
 
 def copies(centrum: OrderingCentrum) -> list[str]:

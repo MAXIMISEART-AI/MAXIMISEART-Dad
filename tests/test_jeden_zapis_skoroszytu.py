@@ -1,8 +1,9 @@
 """Skoroszyt zapisują tylko moduły zapisu, więc obie drogi zapisu dają ten sam plik (#282).
 
 ``template_file`` zapisuje openpyxl, ``template_copy`` kopiuje Wzorzec, ``row_look`` daje obu ten sam
-Wygląd Wiersza danych, ``workbook_save`` zapisuje plik atomowo, a ``intermax_file`` zapisuje dzień Uporządkowania
-INTERMAX podmianą wierszy XML. Reszta ``src`` przekazuje im Wiersze danych, ale sama nie pisze do komórek ani plików.
+Wygląd Wiersza danych, ``workbook_save`` zapisuje plik atomowo, ``intermax_file`` daje bajty dnia Uporządkowania
+INTERMAX z podmianą wierszy XML, a ``intermax_replace`` zastępuje nimi albo bajtami Kopii INTERMAX Rejestr zleceń. Reszta
+``src`` przekazuje im Wiersze danych, ale sama nie pisze do komórek ani plików.
 """
 
 from __future__ import annotations
@@ -20,6 +21,7 @@ WRITERS = frozenset(
         "rozliczenia/row_look.py",
         "rozliczenia/workbook_save.py",
         "rozliczenia/intermax_file.py",
+        "rozliczenia/intermax_replace.py",
     }
 )
 CELL_WRITES = frozenset(
@@ -36,7 +38,6 @@ COLUMN = r"\$?[A-Z]{1,3}\$?"
 CELL_ADDRESS = re.compile(rf"{COLUMN}[0-9]+(?::{COLUMN}[0-9]+)?")
 NOT_WORKBOOK_SAVES = {
     "phases.save": "PhaseRunner.save to etap Zapisywanie procesu; skoroszyt zapisuje w nim template_file",
-    "intermax_file.save": "Uporządkowanie INTERMAX przekazuje plan dnia modułowi zapisu intermax_file z WRITERS",
 }
 
 

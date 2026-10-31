@@ -44,7 +44,7 @@ def register_missing(register: Path) -> Message:
 
 
 def register_open(register: Path) -> Message:
-    """INTERMAX jest otwarty w Excelu: plik blokady obok albo odmowa podmiany pliku."""
+    """INTERMAX jest otwarty w Excelu: plik blokady obok przed Kopią INTERMAX albo przy odmowie podmiany pliku."""
 
     return Message(
         code="INTERMAX_OTWARTY",
@@ -222,6 +222,21 @@ def write_check_failed(register: Path) -> Message:
     )
 
 
+def register_write_failed(register: Path) -> Message:
+    """Nie dało się zapisać pliku tymczasowego obok INTERMAX albo podmienić INTERMAX z innego powodu niż Excel i
+    OneDrive, np. brak miejsca na dysku; INTERMAX nie został podmieniony."""
+
+    return Message(
+        code="ZAPIS_INTERMAX_NIEUDANY",
+        what=f"Nie udało się zapisać INTERMAX. {_UNCHANGED}",
+        where=file_label(register),
+        action=(
+            "Sprawdź, czy na dysku jest wolne miejsce, i uruchom ponownie. "
+            "Jeśli błąd wraca, przekaż ten komunikat osobie utrzymującej narzędzie."
+        ),
+    )
+
+
 def copy_failed(directory: Path) -> Message:
     """Nie powstała Kopia INTERMAX, więc INTERMAX nie został podmieniony."""
 
@@ -384,7 +399,8 @@ def restored_moment_ago(directory: Path) -> Message:
 
 
 def restore_failed(register: Path) -> Message:
-    """Plik tymczasowy obok INTERMAX nie powstał albo nie ma bajtów Kopii; INTERMAX nie został podmieniony."""
+    """Plik tymczasowy obok INTERMAX nie powstał, nie ma bajtów Kopii albo podmiana nie udała się z innego powodu niż
+    Excel i OneDrive; INTERMAX nie został podmieniony."""
 
     return Message(
         code="PRZYWRACANIE_NIEUDANE",

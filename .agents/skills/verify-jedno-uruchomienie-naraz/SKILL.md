@@ -141,7 +141,7 @@ Event is set. The actions after the result (`AfterRun`) are one step that
 writes nothing. Schedules that reach a state already seen are cut short.
 
 Replaced: `intermax_copies_router` by a „Przywróć tę kopię” tab that calls the real
-`begin_restore`, takes one step for the Kopia and the replace of INTERMAX (`intermax_copies.restore`,
+`begin_restore`, takes one step for the Kopia and the replace of INTERMAX (`intermax_restore.restore`,
 which [`verify-zapis-intermax`](../verify-zapis-intermax/SKILL.md) checks) and calls the real `end_restore`,
 all inside its request, so uvicorn's graceful shutdown waits for it.
 Replaced: `ToolUpdates` by a „Zaktualizuj narzędzie” tab that calls the real

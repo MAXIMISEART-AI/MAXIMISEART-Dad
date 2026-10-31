@@ -7,13 +7,11 @@ Kopię stanu bieżącego ``INTERMAX przed przywróceniem RRRR-MM-DD GG-MM-SS.xls
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-import errno
 from io import BytesIO
-import os
 from pathlib import Path
+import os
 import sys
 import time
 from typing import Any
@@ -23,6 +21,7 @@ import pytest
 
 from rozliczenia import intermax_copies
 
+from tests.fixtures.intermax_disk import denied, failing_replace, no_space, partial_copy, writing
 from tests.fixtures.centrum_intermax import NOW, REGISTER_NAME, Clock, OrderingCentrum, copies, open_in_excel, ordering_centrum
 from tests.fixtures.centrum_processes import preparing_centrum
 from tests.fixtures.centrum import views_until
@@ -272,27 +271,10 @@ def test_intermax_otwarty_w_excelu_w_chwili_kopii_stanu_biezacego_to_odmowa_bez_
     assert (centrum.register.read_bytes(), _kopie(centrum)) == (before, kopie)
 
 
-class _FullDisk:
-    """Plik Kopii, którego zapis kończy się brakiem miejsca na dysku po pierwszych bajtach."""
-
-    def __init__(self, descriptor: int) -> None:
-        self._file = open(descriptor, "wb")
-
-    def __enter__(self) -> _FullDisk:
-        return self
-
-    def __exit__(self, *_exc: object) -> None:
-        self._file.close()
-
-    def write(self, data: bytes) -> int:
-        self._file.write(data[:100])
-        raise OSError(errno.ENOSPC, os.strerror(errno.ENOSPC))
-
-
-def test_nieudana_kopia_stanu_biezacego_niczego_nie_podmienia(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_nieudana_kopia_stanu_biezacego_niczego_nie_podmienia(tmp_path: Path) -> None:
     centrum = _ordered(tmp_path)
     before, kopie = centrum.register.read_bytes(), _kopie(centrum)
-    monkeypatch.setattr(os, "fdopen", lambda descriptor, _mode="r": _FullDisk(descriptor))
+    centrum.disk.create = partial_copy
 
     refused = _refused(centrum, ORDERED)
 
@@ -439,32 +421,12 @@ def test_bez_wskazanego_intermax_przywrocenie_jest_odrzucone(tmp_path: Path) -> 
     assert (refused.status_code, refused.json()) == (409, {"message": "Najpierw wskaż INTERMAX."})
 
 
-def _replace_failing(
-    monkeypatch: pytest.MonkeyPatch, error: Callable[[], OSError], before: Callable[[], object] = lambda: None
-) -> list[int]:
-    """Podmiana INTERMAX zawsze się nie udaje z ``error()``; ``before`` dzieje się tuż przed każdą próbą."""
-
-    replace_file = os.replace
-    attempts: list[int] = []
-
-    def failing(source: str | os.PathLike[str], target: str | os.PathLike[str]) -> None:
-        if Path(target).name == REGISTER_NAME:
-            attempts.append(1)
-            assert len(attempts) < 100, "ponowna próba bez przerwy na zegarze Centrum"
-            before()
-            raise error()
-        replace_file(source, target)
-
-    monkeypatch.setattr(os, "replace", failing)
-    return attempts
-
-
 def test_gdy_onedrive_trzyma_intermax_przywrocenie_mowi_o_synchronizacji_i_zostawia_kopie_jak_byly(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
 ) -> None:
     centrum = _ordered(tmp_path)
     before, kopie = centrum.register.read_bytes(), _kopie(centrum)
-    attempts = _replace_failing(monkeypatch, lambda: PermissionError(errno.EACCES, os.strerror(errno.EACCES)))
+    centrum.disk.replace, attempts = failing_replace(denied)
     started_at = centrum.surroundings.clock.seconds
 
     refused = _refused(centrum, ORDERED)
@@ -475,13 +437,11 @@ def test_gdy_onedrive_trzyma_intermax_przywrocenie_mowi_o_synchronizacji_i_zosta
     assert [path.name for path in centrum.register.parent.iterdir()] == [REGISTER_NAME]
 
 
-def test_intermax_otwarty_w_excelu_w_chwili_podmiany_to_odmowa_bez_nowej_kopii(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_intermax_otwarty_w_excelu_w_chwili_podmiany_to_odmowa_bez_nowej_kopii(tmp_path: Path) -> None:
     centrum = _ordered(tmp_path)
     before, kopie = centrum.register.read_bytes(), _kopie(centrum)
     # Windows odmawia podmiany pliku, który trzyma Excel.
-    _replace_failing(monkeypatch, lambda: PermissionError(errno.EACCES, "Excel"), lambda: open_in_excel(centrum.register))
+    centrum.disk.replace, _ = failing_replace(denied, before=lambda: open_in_excel(centrum.register))
 
     refused = _refused(centrum, ORDERED)
 
@@ -489,10 +449,10 @@ def test_intermax_otwarty_w_excelu_w_chwili_podmiany_to_odmowa_bez_nowej_kopii(
     assert (centrum.register.read_bytes(), _kopie(centrum)) == (before, kopie)
 
 
-def test_nieudany_zapis_obok_intermax_to_odmowa_bez_nowej_kopii(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_nieudany_zapis_obok_intermax_to_odmowa_bez_nowej_kopii(tmp_path: Path) -> None:
     centrum = _ordered(tmp_path)
     before, kopie = centrum.register.read_bytes(), _kopie(centrum)
-    _replace_failing(monkeypatch, lambda: OSError(errno.ENOSPC, os.strerror(errno.ENOSPC)))
+    centrum.disk.replace, _ = failing_replace(no_space)
 
     refused = _refused(centrum, ORDERED)
 
@@ -507,20 +467,11 @@ def test_nieudany_zapis_obok_intermax_to_odmowa_bez_nowej_kopii(tmp_path: Path, 
     assert (centrum.register.read_bytes(), _kopie(centrum)) == (before, kopie)
 
 
-def test_plik_obok_intermax_z_innymi_bajtami_niz_kopia_to_odmowa_bez_podmiany_i_nowej_kopii(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_plik_obok_intermax_z_innymi_bajtami_niz_kopia_to_odmowa_bez_podmiany_i_nowej_kopii(tmp_path: Path) -> None:
     centrum = _ordered(tmp_path)
     before, kopie = centrum.register.read_bytes(), _kopie(centrum)
-    write_bytes = Path.write_bytes
-
-    def truncated(target: Path, data: bytes) -> int:
-        # Zapis obok INTERMAX gubi ostatni bajt (pełny dysk, antywirus, OneDrive), a odczyt pliku się udaje.
-        if target.parent == centrum.register.parent and target.name != REGISTER_NAME:
-            data = bytes(data)[:-1]
-        return write_bytes(target, data)
-
-    monkeypatch.setattr(Path, "write_bytes", truncated)
+    # Zapis obok INTERMAX gubi ostatni bajt (pełny dysk, antywirus, OneDrive), a odczyt pliku się udaje.
+    centrum.disk.write = writing(lambda data: data[:-1])
 
     refused = _refused(centrum, ORDERED)
 
@@ -529,21 +480,18 @@ def test_plik_obok_intermax_z_innymi_bajtami_niz_kopia_to_odmowa_bez_podmiany_i_
     assert [path.name for path in centrum.register.parent.iterdir()] == [REGISTER_NAME]
 
 
-def test_w_trakcie_przywracania_uruchomienie_zamkniecie_i_drugie_przywrocenie_sa_odrzucone(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_w_trakcie_przywracania_uruchomienie_zamkniecie_i_drugie_przywrocenie_sa_odrzucone(tmp_path: Path) -> None:
     centrum = _ordered(tmp_path)
     during: dict[str, Any] = {}
-    replace_file = os.replace
 
-    def replacing(source: str | os.PathLike[str], target: str | os.PathLike[str]) -> None:
-        if Path(target).name == REGISTER_NAME and not during:
+    def replacing(source: Path, target: Path) -> None:
+        if not during:
             during["run"] = centrum.client.post("/api/intermax/run")
             during["shutdown"] = centrum.client.post("/api/shutdown")
             during["restore"] = _restore(centrum, ORDERED)
-        replace_file(source, target)
+        os.replace(source, target)
 
-    monkeypatch.setattr(os, "replace", replacing)
+    centrum.disk.replace = replacing
 
     restored = _restore(centrum, ORDERED)
     after = centrum.client.post("/api/intermax/run")
