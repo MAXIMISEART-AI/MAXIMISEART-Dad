@@ -8,14 +8,13 @@ Uruchomienia, także przy Zatrzymaniu. Na końcu Uruchomienia ten moduł niczego
 
 Karta z Logów niesie tylko to, co w nich jest: Komunikaty w trzech częściach, podsumowanie, etapy, sposób
 zakończenia i Rodzaj Zatrzymania. Tytuł i akcję wylicza ta sama reguła co na żywo (``runs.verdict``), a tytuł
-procesu i Gotowość jego deklaracja. Diagnozy i Zgłoszenia nie ma: żyją tylko przy Zatrzymaniu bieżącego
+procesu i Gotowość jego wpis w katalogu procesów, tak jak przy starcie. Diagnozy i Zgłoszenia nie ma: żyją tylko przy Zatrzymaniu bieżącego
 Uruchomienia tej pracy Centrum. Plik startu ma te same fakty co linia ``uruchomienie-start`` dziennika Centrum i
 identyfikator Uruchomienia, więc reguła prywatności Logów obowiązuje bez zmian.
 """
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 from datetime import datetime
 from pathlib import Path
 import re
@@ -26,11 +25,9 @@ from pydantic import BaseModel, ConfigDict
 
 from rozliczenia.centrum import contract
 from rozliczenia.centrum.atomic_file import replace_atomically
-from rozliczenia.centrum.intermax_run import IntermaxEntry
+from rozliczenia.centrum.catalog import declaration_of
 from rozliczenia.centrum.run_logs import RunLog
-from rozliczenia.centrum.preparation_run import PreparationEntry
 from rozliczenia.centrum.runs import verdict
-from rozliczenia.centrum.settlement_run import SettlementEntry
 
 LAST_STARTED_FILE: Final = "ostatnie-uruchomienie.json"
 # Identyfikator Uruchomienia z Centrum (``uuid4().hex``); inny nie ma Logów, więc nie dotyka dysku.
@@ -59,19 +56,12 @@ class StartedRun(BaseModel):
 class RunCards:
     """Karty Uruchomień z dysku: ostatnie Uruchomienie sprzed startu Centrum i karta po identyfikatorze.
 
-    ``logs`` to katalog Logów Uruchomienia, ``last_started`` plik ostatniego startu, a ``processes`` procesy Centrum,
-    z których karta bierze tytuł procesu i deklarację procesu (Gotowość, tytuł wyniku po zapisie), jak przy starcie.
+    ``logs`` to katalog Logów Uruchomienia, a ``last_started`` plik ostatniego startu.
     """
 
-    def __init__(
-        self,
-        logs: Path,
-        last_started: Path,
-        processes: Mapping[contract.ProcessKey, PreparationEntry | SettlementEntry | IntermaxEntry],
-    ) -> None:
+    def __init__(self, logs: Path, last_started: Path) -> None:
         self._logs = logs
         self._last_started = last_started
-        self._entries = processes
 
     def run_started(self, info: contract.RunInfo, started_at: datetime) -> None:
         started = StartedRun(
@@ -129,25 +119,15 @@ class RunCards:
         except OSError:
             return None
 
-    def _info(self, run_id: str, process: contract.ProcessKey, mode: str, period: str) -> contract.RunInfo:
-        return contract.RunInfo(
-            id=run_id,
-            process=process,
-            title=self._entries[process].process.name,
-            period=period,
-            dry_run=mode == "podgląd",
-            confirms_readiness=self._entries[process].view.confirms_readiness,
-            register_name=self._entries[process].view.register_name,
-        )
-
     def _restored(self, record: RunLog) -> contract.RunRestored:
-        info = self._info(record.run_id, record.process, record.mode, record.period)
+        declaration = declaration_of(record.process)
+        info = declaration.run_info(run_id=record.run_id, period=record.period, dry_run=record.mode == "podgląd")
         headline, next_action = verdict(
             ending=record.ending,
             stop_kind=record.stop_kind,
             result=record.result,
             dry_run=info.dry_run,
-            view=self._entries[info.process].view,
+            view=declaration.view,
         )
         messages = {
             kind: [
@@ -176,7 +156,9 @@ class RunCards:
         )
 
     def _interrupted(self, started: StartedRun) -> contract.RunInterrupted:
-        info = self._info(started.run_id, started.process, started.mode, started.period)
+        info = declaration_of(started.process).run_info(
+            run_id=started.run_id, period=started.period, dry_run=started.mode == "podgląd"
+        )
         return contract.RunInterrupted(
             state="interrupted",
             run=info,

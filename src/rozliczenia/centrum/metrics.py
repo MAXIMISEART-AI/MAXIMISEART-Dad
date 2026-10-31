@@ -1,4 +1,4 @@
-"""Metryki: historia Uruchomień procesu obu procesów z plików metryk, z P50/P95 i rozkładem wyników.
+"""Metryki: historia Uruchomień każdego procesu z katalogu procesów z plików metryk, z P50/P95 i rozkładem wyników.
 
 Pliki są czytane przy każdym odczycie, więc rekord dopisany spoza Centrum, np.
 przez skrypt dla maszyn, widać bez restartu serwera. Walidację rekordów, pomijanie
@@ -14,6 +14,8 @@ from typing import Any
 from fastapi import APIRouter
 
 from rozliczenia.centrum import contract
+from rozliczenia.centrum.catalog import CATALOG
+from rozliczenia.centrum.processes import Processes
 from rozliczenia.centrum.run_origins import CentrumRuns
 from rozliczenia.domain import PHASES
 from rozliczenia.process_run import Process
@@ -26,39 +28,38 @@ CentrumStarted = Mapping[tuple[str, str], str | None]
 """Identyfikator Uruchomienia z Centrum po parze (proces, ``started_at``) z ``CentrumRuns.started``."""
 
 
-def read_runs(
-    processes: Mapping[contract.ProcessKey, Process[Any, Any]], centrum_started: CentrumStarted
-) -> list[contract.ProcessRun]:
-    """Uruchomienia procesu obu procesów z plików metryk, od najnowszego."""
+def read_runs(processes: Processes, centrum_started: CentrumStarted) -> list[contract.ProcessRun]:
+    """Uruchomienia procesu każdego procesu z katalogu procesów z plików metryk rdzeni ``processes``, od najnowszego."""
 
-    return _runs(processes, _records(processes), centrum_started)
+    cores = _cores(processes)
+    return _runs(cores, _records(cores), centrum_started)
 
 
-def read_metrics(
-    processes: Mapping[contract.ProcessKey, Process[Any, Any]],
-    modes: Mapping[contract.ProcessKey, tuple[contract.RunMode, ...]],
-    today: date,
-    centrum_started: CentrumStarted,
-) -> contract.Metrics:
-    """Metryki procesów ``processes``; statystyki każdego procesu tylko w jego trybach z ``modes``."""
+def read_metrics(processes: Processes, today: date, centrum_started: CentrumStarted) -> contract.Metrics:
+    """Metryki procesów katalogu z rdzeniami ``processes``; statystyki każdego procesu tylko w trybach jego widoku."""
 
-    records = _records(processes)
-    runs = _runs(processes, records, centrum_started)
+    cores = _cores(processes)
+    records = _records(cores)
+    runs = _runs(cores, records, centrum_started)
     since = today - timedelta(weeks=_RECENT_WEEKS)
     return contract.Metrics(
         phases=list(PHASES),
         minimum_completed_runs=MINIMUM_STATISTIC_SAMPLES,
         runs=runs,
         statistics=[
-            _statistics(process, mode, processes[process].counter_names, records[process], runs)
-            for process in processes
-            for mode in modes[process]
+            _statistics(declaration.key, mode, cores[declaration.key].counter_names, records[declaration.key], runs)
+            for declaration in CATALOG
+            for mode in declaration.view.modes
         ],
         recent=contract.RecentResults(
             weeks=_RECENT_WEEKS,
             results=_results(run for run in runs if run.started_at.astimezone().date() >= since),
         ),
     )
+
+
+def _cores(processes: Processes) -> dict[contract.ProcessKey, Process[Any, Any]]:
+    return {declaration.key: declaration.core(processes) for declaration in CATALOG}
 
 
 def _records(
@@ -161,18 +162,13 @@ def previewed_periods(store: MetricsStore) -> frozenset[str]:
     return frozenset(record["period"] for record in records if (record["mode"], record["result"]) == ("DRY-RUN", "OK"))
 
 
-def metrics_router(
-    processes: Mapping[contract.ProcessKey, Process[Any, Any]],
-    modes: Mapping[contract.ProcessKey, tuple[contract.RunMode, ...]],
-    today: Callable[[], date],
-    centrum_runs: CentrumRuns,
-) -> APIRouter:
+def metrics_router(processes: Processes, today: Callable[[], date], centrum_runs: CentrumRuns) -> APIRouter:
     router = APIRouter(prefix="/api/metrics", tags=["metryki"])
 
     @router.get("", operation_id="getMetrics", responses={500: {"model": contract.Problem}})
     def metrics() -> contract.Metrics:
         try:
-            return read_metrics(processes, modes, today(), centrum_runs.started())
+            return read_metrics(processes, today(), centrum_runs.started())
         except OSError:
             raise contract.Refusal(500, "Nie udało się odczytać plików metryk. Odśwież kartę.") from None
 

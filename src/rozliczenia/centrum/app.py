@@ -227,19 +227,15 @@ def create_app(
         log,
         run_logs,
     )
-    preparation = PreparationEntry(store, configuration, processes.preparation, today, readers)
-    settlement = SettlementEntry(store, configuration, processes.settlement, today, readers)
-    # Uporządkowanie INTERMAX ma własną kartę poza okresami, więc nie jest wpisem procesu z okresem.
-    intermax = IntermaxEntry(
-        store, processes.intermax, intermax_copies or default_intermax_copies(), now, Waiting(clock, pause)
-    )
-    entries: list[ProcessEntry] = [preparation, settlement]
+    # Adaptery startu procesów z katalogu procesów; reszta Centrum pyta wpis procesu w katalogu, nie adapter.
+    entries: list[ProcessEntry] = [
+        PreparationEntry(store, configuration, processes, today, readers),
+        SettlementEntry(store, configuration, processes, today, readers),
+    ]
+    # Uporządkowanie INTERMAX ma własną kartę poza okresami (ADR 0019), więc ma własny router startu.
+    intermax = IntermaxEntry(store, processes, intermax_copies or default_intermax_copies(), now, Waiting(clock, pause))
     # Karty Uruchomień z pliku startu i Logów Uruchomienia: ostatnie po starcie Centrum i wiersz Historii (ADR 0017).
-    cards = RunCards(
-        log.directory / RUN_LOGS_DIRECTORY,
-        log.directory / LAST_STARTED_FILE,
-        {preparation.key: preparation, settlement.key: settlement, intermax.key: intermax},
-    )
+    cards = RunCards(log.directory / RUN_LOGS_DIRECTORY, log.directory / LAST_STARTED_FILE)
     runs = RunHost(
         log,
         centrum_runs,
@@ -262,7 +258,6 @@ def create_app(
         result_file=settings_path.parent / RESULT_FILE,
         release=release,
     )
-    entry_processes = {**{entry.key: entry.process for entry in entries}, intermax.key: intermax.process}
     app.include_router(runs_router(runs, entries))
     app.include_router(intermax_router(runs, intermax, lambda: cards.latest(intermax.key)))
     app.include_router(intermax_copies_router(runs, intermax))
@@ -274,13 +269,11 @@ def create_app(
             outbox,
             box,
             surroundings.tool_freshness.local,
-            lambda: read_runs(entry_processes, centrum_runs.started()),
+            lambda: read_runs(processes, centrum_runs.started()),
             run_logs.link,
         )
     )
-    # Uporządkowanie INTERMAX nie ma Podglądu bez zapisu, więc Metryki nie mają jego trybu DRY-RUN.
-    modes = {entry.key: entry.view.modes for entry in (preparation, settlement, intermax)}
-    app.include_router(metrics_router(entry_processes, modes, today, centrum_runs))
+    app.include_router(metrics_router(processes, today, centrum_runs))
     app.include_router(
         configuration_router(
             configuration, surroundings.tool_freshness, release, lambda: box.judge(wait_s=CONFIGURATION_WAIT_S), readers

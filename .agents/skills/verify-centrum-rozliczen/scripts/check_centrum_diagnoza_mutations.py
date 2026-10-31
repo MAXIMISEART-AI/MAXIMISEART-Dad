@@ -13,7 +13,7 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "tools"))
 sys.path.insert(0, str(Path(__file__).resolve().parents[4] / ".agents/skills/verify-centrum-rozliczen/scripts"))
 
-from cele_mutacji_centrum import DIAGNOSIS, DIAGNOZA, SETTINGS, WORKER_CONFIG
+from cele_mutacji_centrum import CATALOG, DIAGNOZA, SETTINGS, WORKER_CONFIG
 from mutacje import Edit, Mutation, check_all
 
 MUTATIONS = (
@@ -27,9 +27,9 @@ MUTATIONS = (
         "Diagnoza Przygotowania tłumaczy konfigurację wykonawców Komunikatem Przebiegu rozliczeń",
         (
             Edit(
-                DIAGNOSIS,
-                '    "preparation": preparation_messages.worker_config_problem,\n',
-                '    "preparation": settlement_messages.worker_config_problem,\n',
+                CATALOG,
+                "        WorkerConfigCheck(preparation_messages.worker_config_problem),\n",
+                "        WorkerConfigCheck(settlement_messages.worker_config_problem),\n",
             ),
         ),
         DIAGNOZA,
