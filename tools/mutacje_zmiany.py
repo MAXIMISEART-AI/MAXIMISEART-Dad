@@ -65,8 +65,10 @@ wykryta: pytest-timeout czerwieni test w CI`` (``mutacje.in_ci``) i nie biegnie 
 testy nie kończą się w ``--limit-s`` (``PRZEKROCZONY CZAS``), biegnie dalej jak przeżyta, bo test tylko wolniejszy CI
 przechodzi.
 Mutację, która przeżyła ostatni przebieg testów albo nie ma żadnego testu, sprawdza jeszcze brama typów
-(``mutacje.type_gate``): ruff i mypy obu systemów, kroki bramy pre-push. Mutacja, na której któryś pada, to ``WYKRYTA
-PRZEZ BRAMĘ TYPÓW`` z nazwą kroku i jego błędem, i nie trafia do zapisu ani do issue.
+(``mutacje.type_gate``): ruff i mypy obu systemów, kroki bramy pre-push. Mutacja, po której któryś zgłasza, że kod jest
+błędny (niezdefiniowana nazwa, błąd składni, błąd typów), to ``WYKRYTA PRZEZ BRAMĘ TYPÓW`` z nazwą kroku i tym błędem, i
+nie trafia do zapisu ani do issue. Nieużyty import albo zmienna (F401, F841) po cofnięciu fragmentu się nie liczy, więc
+fragment, którego nie sprawdza żaden test, dalej przeżywa (``mutacje.wrong``).
 Linia ``CZAS`` mówi, ile trwała każda faza, także brama typów.
 
 Mutacja, która przeżywa, to obietnica bez testu: dopisz test, który ją wykrywa. Mutacja równoważna (kod robi to samo)
@@ -786,7 +788,9 @@ def _part(text: str) -> tuple[int, int]:
     return int(number), int(count)
 
 
-def main(argv: list[str] | None = None) -> int:
+def main(argv: list[str] | None = None, *, gate: mutacje.Gate = mutacje.static_gate) -> int:
+    """Kod wyjścia narzędzia; ``gate`` to brama typów przeżytych mutacji (``mutacje.type_gate``)."""
+
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--baza", default=BASE, help=f"Gałąź, od której liczy się zmiana (domyślnie {BASE}).")
     parser.add_argument("--rownolegle", type=int, default=WORKERS, help="Ile mutacji biegnie naraz, każda w swojej kopii.")
@@ -802,7 +806,7 @@ def main(argv: list[str] | None = None) -> int:
         print(refusal)
         return 2
     survived: list[tuple[Mutant, str]] = []
-    code, result = _mutate(args, survived)
+    code, result = _mutate(args, survived, gate)
     print(result)
     if args.zapis is not None:
         args.zapis.parent.mkdir(parents=True, exist_ok=True)
@@ -821,7 +825,7 @@ def entry(mutant: Mutant, text: str) -> dict[str, object]:
     return {"id": _name(mutant), "linie": sorted(mutant.lines), "klucz": fingerprint(mutant, text)}
 
 
-def _mutate(args: argparse.Namespace, survived: list[tuple[Mutant, str]]) -> tuple[int, str]:
+def _mutate(args: argparse.Namespace, survived: list[tuple[Mutant, str]], gate: mutacje.Gate) -> tuple[int, str]:
     """Kod wyjścia i ostatnia linia; przeżyte mutacje z treścią ich pliku przed mutacją dopisuje do ``survived``."""
 
     deadline = time.monotonic() + args.limit_czesci_s
@@ -928,7 +932,9 @@ def _mutate(args: argparse.Namespace, survived: list[tuple[Mutant, str]]) -> tup
         print(f"{verdict}: {mutation.name} → {last} (testy pliku)", flush=True)
     clock.append(time.monotonic())
     found_by_tests = [(verdict, shown) for _, _, verdict, shown, _ in passed]
-    gated = mutacje.type_gate([mutation for _, mutation, *_ in passed], found_by_tests, workers=args.rownolegle, limit_s=args.limit_s, deadline=deadline)
+    gated = mutacje.type_gate(
+        [mutation for _, mutation, *_ in passed], found_by_tests, workers=args.rownolegle, limit_s=args.limit_s, deadline=deadline, gate=gate
+    )
     for (mutant, mutation, _, _, label), (verdict, shown) in zip(passed, gated, strict=True):
         caught, last = mutacje.in_ci(verdict, shown)
         if verdict == mutacje.NO_VERDICT:

@@ -16,7 +16,8 @@ import sys
 
 import pytest
 
-from tests.fixtures.git_repo import TYPE_GATE_ON_SRC, commit, copy_files, git, repository
+from tests.fixtures.brama_typow import FAKE_GATE, TYPE_GATE_ON_SRC, real_static_tools
+from tests.fixtures.git_repo import commit, copy_files, git, repository
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tools" / "ci"))
@@ -55,12 +56,20 @@ def _repo(
     return repo
 
 
-def _run(repo: Path, *arguments: str, trial: bool = False, log: Path | None = None) -> subprocess.CompletedProcess[str]:
-    """Wyjście narzędzia w ``stdout``, a z ``log`` w pliku ``log`` jak w CI, którego ścieżkę testy widzą w ``LOG_NARZEDZIA``."""
+# Narzędzie z atrapą bramy typów (``FAKE_GATE``) zamiast kroków ruff i mypy; argumenty z wiersza poleceń.
+FAKE_GATE_TOOL = f"import sys\nsys.path.insert(0, 'tools')\nimport mutacje\nimport mutacje_zmiany\n{FAKE_GATE}\nraise SystemExit(mutacje_zmiany.main(gate=brama))\n"
 
+
+def _run(
+    repo: Path, *arguments: str, trial: bool = False, log: Path | None = None, fake_gate: bool = False
+) -> subprocess.CompletedProcess[str]:
+    """Wyjście narzędzia w ``stdout``, a z ``log`` w pliku ``log`` jak w CI, którego ścieżkę testy widzą w ``LOG_NARZEDZIA``;
+    z ``fake_gate`` brama typów to atrapa ``FAKE_GATE``."""
+
+    tool = ["-c", FAKE_GATE_TOOL] if fake_gate else [str(repo / "tools" / "mutacje_zmiany.py")]
     with log.open("w", encoding="utf-8") if log else contextlib.nullcontext() as output:
         return subprocess.run(
-            [sys.executable, str(repo / "tools" / "mutacje_zmiany.py"), "--baza", "baza", "--rownolegle", "2", *arguments],
+            [sys.executable, *tool, "--baza", "baza", "--rownolegle", "2", *arguments],
             cwd=repo,
             # Jeden worker xdist: testy biegną w kolejności z pliku, więc fixture sesji ustawia zawsze pierwszy z nich.
             # Narzędzie biegnie jak w zadaniu CI, bo poza nim odmawia startu (tools/lib/ciezkie_ci.py).
@@ -138,33 +147,65 @@ MATCH_TEST = (
 )
 
 
-def test_mutacja_ktora_przezyla_testy_a_odrzuca_ja_mypy_nie_trafia_do_zapisu_a_rownowazna_trafia(tmp_path: Path) -> None:
-    record = tmp_path / "zapis" / "czesc.json"
+def test_mutacja_ktora_przezyla_testy_a_odrzuca_ja_brama_typow_nie_trafia_do_zapisu_a_inna_trafia(tmp_path: Path) -> None:
+    """Bramę sprawdzają przeżyte z każdego przebiegu, także z pliku bez testów; atrapa łapie linie z ``# brama:``."""
 
-    # ``inny.py`` nie ma testu, a jego cofnięcie i ``return None`` odrzuca mypy.
-    repo = _repo(tmp_path / "repo", MATCH_TEST, MATCH_CHANGED, MATCH_BASE, other='def inna() -> int:\n    return "jeden"\n', pyproject=TYPE_GATE_ON_SRC)
+    record = tmp_path / "zapis" / "czesc.json"
+    base = MATCH_BASE.replace('    return "zielony"\n', '    return "zielony"  # brama: mypy exhaustive-match\n')
+    repo = _repo(tmp_path / "repo", MATCH_TEST, MATCH_CHANGED, base, other="def inna() -> int:\n    return 2  # brama: ruff F821\n")
     (repo / "src" / "rozliczenia" / "inny.py").write_text("def inna() -> int:\n    return 1\n", encoding="utf-8")
+
+    done = _run(repo, "--zapis", str(record), fake_gate=True)
+
+    assert done.returncode == 1, done.stdout + done.stderr
+    caught = sorted(line for line in done.stdout.splitlines() if line.startswith("WYKRYTA PRZEZ BRAMĘ TYPÓW"))
+    assert caught == [
+        "WYKRYTA PRZEZ BRAMĘ TYPÓW: src/rozliczenia/inny.py:2 zmiana linii 2 cofnięta do bazy → ruff: src/rozliczenia/inny.py:2: F821",
+        "WYKRYTA PRZEZ BRAMĘ TYPÓW: src/rozliczenia/warunek.py:15 zmiana linii 15–16 cofnięta do bazy → mypy: src/rozliczenia/warunek.py:15: exhaustive-match",
+    ], done.stdout
+    # Przeżyte z pliku bez testów, z testów linii i z testów pliku.
+    assert re.search(r"\| brama typów \d+ s \(4 mutacji\)$", next(line for line in done.stdout.splitlines() if line.startswith("CZAS |"))), done.stdout
+    written = json.loads(record.read_text(encoding="utf-8"))
+    assert sorted(entry["id"] for entry in written["przezyte"]) == [
+        "src/rozliczenia/inny.py:2 `return 1` → `return None`",
+        "src/rozliczenia/warunek.py:3 zmiana linii 3 cofnięta do bazy",
+    ]
+
+
+# Poprawka dodaje import w jednym fragmencie, a używa go w innym, i zmienną, którą zwraca; test przechodzi z nią i bez
+# niej. Cofnięcie fragmentu z użyciem zostawia nieużyty import (ruff F401), a ``return wynik`` → ``return None``
+# nieużytą zmienną (F841): to artefakty mutacji jednej linii, nie błąd kodu, więc obie przeżywają jak przed bramą.
+GATE_BASE = MATCH_BASE + "\n\ndef wciety(tekst: str) -> str:\n    return tekst\n\n\ndef pierwszy(teksty: list[str]) -> str | None:\n    return None\n"
+GATE_CHANGED = (
+    MATCH_CHANGED.replace("from enum import Enum\n", "from enum import Enum\nimport textwrap\n")
+    + "\n\ndef wciety(tekst: str) -> str:\n    return textwrap.dedent(tekst)\n\n\n"
+    + "def pierwszy(teksty: list[str]) -> str | None:\n    wynik = teksty[0] if teksty else None\n    return wynik\n"
+)
+GATE_TEST = MATCH_TEST.replace("import Kolor, nazwa", "import Kolor, nazwa, pierwszy, wciety") + (
+    "\n\ndef test_wciety() -> None:\n    assert wciety(\"a\") == \"a\"\n\n\ndef test_pierwszy() -> None:\n    assert pierwszy([]) is None\n"
+)
+
+
+@real_static_tools
+def test_brama_typow_liczy_bledy_kodu_z_ruff_i_mypy_a_nie_nieuzyty_import_ani_zmienna(tmp_path: Path) -> None:
+    """Jedyny test z prawdziwymi ruff i mypy: ich JSON i kody, które brama liczy (``mutacje.wrong``)."""
+
+    record = tmp_path / "zapis" / "czesc.json"
+    # Jak #671: cofnięcie definicji zostawia nazwę, której nie ma, w pliku bez testów.
+    other = "def inna() -> int:\n    return 1\n"
+    repo = _repo(tmp_path / "repo", GATE_TEST, GATE_CHANGED, GATE_BASE, other=other, pyproject=TYPE_GATE_ON_SRC)
+    (repo / "src" / "rozliczenia" / "inny.py").write_text("JEDEN = 1\n\n\ndef inna() -> int:\n    return JEDEN\n", encoding="utf-8")
 
     done = _run(repo, "--zapis", str(record))
 
-    assert done.returncode == 1, done.stdout + done.stderr
-    verdicts = sorted(line for line in done.stdout.splitlines() if "warunek.py" in line and "cofnięta do bazy" in line)
-    assert len(verdicts) == 2, done.stdout
-    assert verdicts[0].startswith("NIEWYKRYTA: src/rozliczenia/warunek.py:3 zmiana linii 3 cofnięta do bazy → 1 passed"), done.stdout
-    assert re.fullmatch(
-        r"WYKRYTA PRZEZ BRAMĘ TYPÓW: src/rozliczenia/warunek.py:15 zmiana linii 15–16 cofnięta do bazy → "
-        r"mypy: src/rozliczenia/warunek\.py:12: error: .*\[exhaustive-match\]",
-        verdicts[1],
-    ), done.stdout
-    untested = sorted(line for line in done.stdout.splitlines() if "inny.py" in line)
-    assert [line.partition(" → ")[0] for line in untested] == [
-        "WYKRYTA PRZEZ BRAMĘ TYPÓW: src/rozliczenia/inny.py:2 `return 1`",
-        "WYKRYTA PRZEZ BRAMĘ TYPÓW: src/rozliczenia/inny.py:2 zmiana linii 2 cofnięta do bazy",
-    ], done.stdout
-    assert re.search(r"\| brama typów \d+ s \(4 mutacji\)$", next(line for line in done.stdout.splitlines() if line.startswith("CZAS |"))), done.stdout
-    written = json.loads(record.read_text(encoding="utf-8"))
-    assert [entry["id"] for entry in written["przezyte"]] == ["src/rozliczenia/warunek.py:3 zmiana linii 3 cofnięta do bazy"]
-    assert written["wynik"].startswith("MUTACJE ZMIANY FAIL | przeżyło 1 |"), written
+    caught = sorted(line for line in done.stdout.splitlines() if line.startswith("WYKRYTA PRZEZ BRAMĘ TYPÓW"))
+    assert [re.sub(r"error: .*  \[", "error: …  [", line) for line in caught] == [
+        "WYKRYTA PRZEZ BRAMĘ TYPÓW: src/rozliczenia/inny.py:1 zmiana linii 1–3 cofnięta do bazy → ruff: src/rozliczenia/inny.py:2: F821 Undefined name `JEDEN`",
+        "WYKRYTA PRZEZ BRAMĘ TYPÓW: src/rozliczenia/inny.py:5 `return JEDEN` → `return None` → mypy: src/rozliczenia/inny.py:5: error: …  [return-value]",
+        "WYKRYTA PRZEZ BRAMĘ TYPÓW: src/rozliczenia/warunek.py:16 zmiana linii 16–17 cofnięta do bazy → mypy: src/rozliczenia/warunek.py:13: error: …  [exhaustive-match] (testy pliku)",
+    ], done.stdout + done.stderr
+    survived = [entry["id"] for entry in json.loads(record.read_text(encoding="utf-8"))["przezyte"]]
+    assert {"src/rozliczenia/warunek.py:21 zmiana linii 21 cofnięta do bazy", "src/rozliczenia/warunek.py:26 `return wynik` → `return None`"} <= set(survived), done.stdout
 
 
 def test_czesc_konczy_sie_zapisem_w_limicie_czasu_czesci_takze_gdy_mutacja_zawiesza_testy(tmp_path: Path) -> None:

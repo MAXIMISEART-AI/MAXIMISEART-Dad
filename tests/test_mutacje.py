@@ -6,6 +6,7 @@ modułu, więc test nie zależy od niej.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 import json
 import os
 from pathlib import Path
@@ -14,16 +15,19 @@ import shutil
 import signal
 import subprocess
 import sys
+import threading
 import time
 
 import pytest
 
-from tests.fixtures.git_repo import TYPE_GATE_ON_SRC, commit, git, repository
+from tests.fixtures.brama_typow import FAKE_GATE
+from tests.fixtures.git_repo import commit, git, repository
 from tests.fixtures.potomne import beating
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
 
+import mutacje  # noqa: E402
 import plan_ci  # noqa: E402
 
 TOOL = ROOT / "tools" / "mutacje.py"
@@ -511,15 +515,26 @@ def test_naraz_biegnie_najwyzej_osiem_mutacji(tmp_path: Path) -> None:
         ),
         pytest.param("NIC = 0", "NIC = 1", 1, [r"NIEWYKRYTA: m → 2 passed in .*", "MUTACJE: 1 bez oczekiwanego wyniku"]),
         pytest.param(
-            "NIC = 0",
-            'NIC: int = "zero"',
-            0,
-            [r'WYKRYTA PRZEZ BRAMĘ TYPÓW: m → mypy: src/rozliczenia/__init__\.py:3: error: Incompatible types in assignment .*\[assignment\]', "MUTACJE OK"],
+            "NIC = 0", "NIC = 1  # brama: mypy assignment", 0, [re.escape("WYKRYTA PRZEZ BRAMĘ TYPÓW: m → mypy: src/rozliczenia/__init__.py:3: assignment"), "MUTACJE OK"]
         ),
         pytest.param(
-            "WOLNO = False", "WOLNO: bool = 1", 0, [r"WYKRYTA PRZEZ BRAMĘ TYPÓW: m → mypy: src/rozliczenia/__init__\.py:2: error: .*\[assignment\]", "MUTACJE OK"]
+            "WOLNO = False",
+            "WOLNO = True  # brama: mypy exhaustive-match",
+            0,
+            [re.escape("WYKRYTA PRZEZ BRAMĘ TYPÓW: m → mypy: src/rozliczenia/__init__.py:2: exhaustive-match"), "MUTACJE OK"],
         ),
-        pytest.param("WISI = False", "import os\nWISI = False", 0, [r"WYKRYTA PRZEZ BRAMĘ TYPÓW: m → ruff: F401 .*`os` imported but unused", "MUTACJE OK"]),
+        pytest.param(
+            "NIC = 0", "NIC = 1  # brama: ruff F821", 0, [re.escape("WYKRYTA PRZEZ BRAMĘ TYPÓW: m → ruff: src/rozliczenia/__init__.py:3: F821"), "MUTACJE OK"]
+        ),
+        pytest.param("NIC = 0", "NIC = 1  # brama: ruff F401", 1, [r"NIEWYKRYTA: m → 2 passed in .*", "MUTACJE: 1 bez oczekiwanego wyniku"]),
+        pytest.param("NIC = 0", "NIC = 1  # brama: mypy unused-ignore", 1, [r"NIEWYKRYTA: m → 2 passed in .*", "MUTACJE: 1 bez oczekiwanego wyniku"]),
+        pytest.param("NIC = 0", "NIC = 1  # brama: mypy -", 1, [r"NIEWYKRYTA: m → 2 passed in .*", "MUTACJE: 1 bez oczekiwanego wyniku"]),
+        pytest.param(
+            "NIC = 0",
+            "NIC = 1  # brama: mypy późno",
+            1,
+            [re.escape("BEZ WERDYKTU: m → brama typów, mypy: brak wyniku po 1 s"), "MUTACJE: 1 bez oczekiwanego wyniku"],
+        ),
         pytest.param(
             "tego nie ma",
             "",
@@ -527,28 +542,40 @@ def test_naraz_biegnie_najwyzej_osiem_mutacji(tmp_path: Path) -> None:
             [re.escape("NIEAKTUALNA: m → kotwicy nie ma dokładnie raz w src/rozliczenia/__init__.py: 'tego nie ma'"), "MUTACJE: 1 bez oczekiwanego wyniku"],
         ),
     ],
-    ids=["zawieszenie", "przekroczony-czas", "niewykryta", "brama-mypy", "przekroczony-czas-brama-mypy", "brama-ruff", "nieaktualna"],
+    ids=[
+        "zawieszenie",
+        "przekroczony-czas",
+        "niewykryta",
+        "brama-mypy",
+        "przekroczony-czas-brama-mypy",
+        "brama-ruff",
+        "brama-ruff-nieuzyty-import",
+        "brama-mypy-nieuzyty-ignore",
+        "brama-mypy-bez-kodu",
+        "brama-bez-wyniku",
+        "nieaktualna",
+    ],
 )
 def test_skrypt_mutacji_skilla_liczy_zawieszenie_i_brame_typow_jak_wykryta_a_inne_werdykty_jako_porazke(
     tmp_path: Path, anchor: str, replacement: str, code: int, lines: list[str]
 ) -> None:
     """pytest-timeout czerwieni CI, więc noc nie zgłasza skryptu skilla, którego mutacja wiesza test do tego limitu; test
     tylko wolniejszy niż limit narzędzia w CI przechodzi, więc jego mutacja jest porażką, jak przed werdyktem ZAWIESZENIE.
-    Mutację, którą testy przepuściły, a odrzuca ruff albo mypy bramy pre-push, CI też by nie wpuściło (#703)."""
+    Mutację, którą testy przepuściły, a o której ruff albo mypy bramy pre-push mówią, że kod jest błędny, CI też by nie
+    wpuściło (#703); nieużyty import albo ``# type: ignore`` to tylko artefakt mutacji jednej linii."""
 
     tests = (
         "import time\n\nimport pytest\nimport rozliczenia\n\n\n"
         "@pytest.mark.timeout(1)\ndef test_wisi():\n    if rozliczenia.WISI:\n        time.sleep(60)\n\n\n"
         "def test_wolno():\n    if rozliczenia.WOLNO:\n        time.sleep(60)\n"
     )
-    files = {"pyproject.toml": TYPE_GATE_ON_SRC, PACKAGE: "WISI = False\nWOLNO = False\nNIC = 0\n", "tests/test_wisi.py": tests}
-    repo = repository(tmp_path / "repo", files)
+    repo = repository(tmp_path / "repo", {PACKAGE: "WISI = False\nWOLNO = False\nNIC = 0\n", "tests/test_wisi.py": tests})
     commit(repo, "baza")
     command = ("-m", "pytest", "-q", "-n", "0", "-p", "no:cacheprovider", "tests/test_wisi.py")
     script = (
-        "import sys\nsys.path.insert(0, 'tools')\nfrom pathlib import Path\nfrom mutacje import Edit, Mutation, check_all\n"
-        f"mutation = Mutation('m', (Edit(Path({PACKAGE!r}), {anchor!r}, {replacement!r}),), {command!r})\n"
-        "raise SystemExit(check_all([mutation], limit_s=8))\n"
+        "import sys\nsys.path.insert(0, 'tools')\nfrom pathlib import Path\nimport mutacje\nfrom mutacje import Edit, Mutation, check_all\n"
+        f"{FAKE_GATE}\nmutation = Mutation('m', (Edit(Path({PACKAGE!r}), {anchor!r}, {replacement!r}),), {command!r})\n"
+        "raise SystemExit(check_all([mutation], limit_s=8, gate=brama))\n"
     )
 
     answered = subprocess.run([sys.executable, "-c", script], cwd=repo, capture_output=True, text=True, encoding="utf-8", timeout=120, check=False)
@@ -711,46 +738,48 @@ def test_jak_ci_nie_przyjmuje_wlasnego_polecenia(tmp_path: Path, entry: dict[str
     assert (answered.returncode, answered.stderr.splitlines()[-1].partition(": error: ")[2]) == (2, error)
 
 
-def _check_all(repo: Path, anchor: str, replacement: str) -> subprocess.CompletedProcess[str]:
-    """``check_all`` skryptu mutacji skilla z jedną mutacją pakietu i poleceniem, które tylko go importuje."""
+def _check_all(repo: Path, anchor: str, replacement: str, *, base: str | None = None) -> subprocess.CompletedProcess[str]:
+    """``check_all`` skryptu mutacji skilla z atrapą bramy (``FAKE_GATE``), jedną mutacją pakietu i poleceniem, które
+    tylko go importuje."""
 
     script = (
-        "import sys\nsys.path.insert(0, 'tools')\nfrom pathlib import Path\nfrom mutacje import Edit, Mutation, check_all\n"
-        f"mutation = Mutation('m', (Edit(Path({PACKAGE!r}), {anchor!r}, {replacement!r}),), {IMPORT!r})\n"
-        "raise SystemExit(check_all([mutation]))\n"
+        "import sys\nsys.path.insert(0, 'tools')\nfrom pathlib import Path\nimport mutacje\nfrom mutacje import Edit, Mutation, check_all\n"
+        f"{FAKE_GATE}\nmutation = Mutation('m', (Edit(Path({PACKAGE!r}), {anchor!r}, {replacement!r}),), {IMPORT!r})\n"
+        f"raise SystemExit(check_all([mutation], base={base!r}, gate=brama))\n"
     )
     return subprocess.run([sys.executable, "-c", script], cwd=repo, capture_output=True, text=True, encoding="utf-8", timeout=120, check=False)
 
 
 def test_brama_typow_czerwona_bez_mutacji_zostawia_przezyta_mutacje_przezyta(tmp_path: Path) -> None:
-    """Brama, która pada bez mutacji, niczego nie dowodzi, więc nie zabiera mutacji z issue."""
+    """Brama, która coś zgłasza bez mutacji, niczego nie dowodzi, więc nie zabiera mutacji z issue; jej linia idzie na
+    stderr, więc nie zmienia wyjścia, które czytają wywołujący."""
 
-    repo = repository(tmp_path / "repo", {"pyproject.toml": TYPE_GATE_ON_SRC, PACKAGE: 'ZLE: int = "x"\nNIC = 0\n'})
+    repo = repository(tmp_path / "repo", {PACKAGE: "ZLE = 1  # brama: ruff F401\nNIC = 0\n"})
     commit(repo, "baza")
 
-    answered = _check_all(repo, "NIC = 0", 'NIC: int = "zero"')
+    answered = _check_all(repo, "NIC = 0", "NIC = 1  # brama: mypy assignment")
 
-    shown = answered.stdout.splitlines()
-    assert answered.returncode == 1, answered.stdout + answered.stderr
-    assert re.fullmatch(r"BRAMA TYPÓW CZERWONA: mypy: src/rozliczenia/__init__\.py:1: error: .* \(bez mutacji, więc przeżyte mutacje zostają przeżyte\)", shown[0]), shown
-    assert shown[1:] == ["NIEWYKRYTA: m → kod wyjścia 0", "MUTACJE: 1 bez oczekiwanego wyniku"]
+    assert (answered.returncode, answered.stdout.splitlines()) == (1, ["NIEWYKRYTA: m → kod wyjścia 0", "MUTACJE: 1 bez oczekiwanego wyniku"]), answered.stderr
+    assert answered.stderr.splitlines() == [
+        "BRAMA TYPÓW CZERWONA: ruff: src/rozliczenia/__init__.py:1: F401 (bez mutacji, więc przeżyte mutacje zostają przeżyte)"
+    ]
 
 
 def test_przeglad_z_wiersza_polecen_nie_liczy_bramy_typow_jako_wykrycia(tmp_path: Path) -> None:
-    """Przegląd dowodzi, że jego polecenie łapie mutację; mypy sprawdza się poleceniem ``-- -m mypy``."""
+    """Przegląd (``check_all`` z ``base``) dowodzi, że jego polecenie łapie mutację; mypy sprawdza się ``-- -m mypy``."""
 
-    repo = repository(tmp_path / "repo", {"pyproject.toml": TYPE_GATE_ON_SRC, PACKAGE: "NIC = 0\n"})
+    repo = repository(tmp_path / "repo", {PACKAGE: "NIC = 0\n"})
     commit(repo, "baza")
 
-    answered = _in_repository(repo, "--zmiana", PACKAGE, "NIC = 0", 'NIC: int = "zero"', "--", *IMPORT)
+    answered = _check_all(repo, "NIC = 0", "NIC = 1  # brama: mypy assignment", base="HEAD")
 
-    assert (answered.returncode, answered.stdout.splitlines()) == (1, ["NIEWYKRYTA: mutacja → kod wyjścia 0", "MUTACJE: 1 bez oczekiwanego wyniku"]), answered.stderr
+    assert (answered.returncode, answered.stdout.splitlines()) == (1, ["NIEWYKRYTA: m → kod wyjścia 0", "MUTACJE: 1 bez oczekiwanego wyniku"]), answered.stderr
 
 
 def test_brama_typow_bez_wyniku_przed_koncem_czasu_wywolujacego_daje_bez_werdyktu(tmp_path: Path) -> None:
     """Noc liczy BEZ WERDYKTU jak część bez wyniku, więc przeżyta, której brama nie sprawdziła, nie trafia do issue."""
 
-    repo = repository(tmp_path / "repo", {"pyproject.toml": TYPE_GATE_ON_SRC, PACKAGE: "NIC = 0\n"})
+    repo = repository(tmp_path / "repo", {PACKAGE: "NIC = 0\n"})
     commit(repo, "baza")
     script = (
         "import sys, time\nsys.path.insert(0, 'tools')\nfrom pathlib import Path\nimport mutacje\n"
@@ -766,3 +795,73 @@ def test_brama_typow_bez_wyniku_przed_koncem_czasu_wywolujacego_daje_bez_werdykt
         "BEZ WERDYKTU: kod wyjścia 0 (brama typów, ruff: czas minął, zanim się zaczął, bez mutacji)",
         "WYKRYTA: kod wyjścia 1",
     ], answered.stdout + answered.stderr
+
+
+# Atrapa ``python -m ruff`` i ``python -m mypy`` w katalogu kroku (``-m`` szuka najpierw w nim): odpowiedź z
+# ``<narzędzie>.json`` w JSON tylko z opcją, z którą brama prosi o JSON, a bez niej linia tekstu.
+FAKE_TOOL = """\
+import json, pathlib, sys
+answer = json.loads(pathlib.Path({name!r} + ".json").read_text(encoding="utf-8"))
+if {option!r} not in " ".join(sys.argv[1:]):
+    print("bez JSON")
+    raise SystemExit(1)
+sys.stdout.write(answer["stdout"])
+sys.stderr.write(answer["stderr"])
+raise SystemExit(answer["code"])
+"""
+
+
+def _ruff_item(folder: Path, code: str, row: int, message: str) -> dict[str, object]:
+    return {"code": code, "filename": str(folder / "src" / "a.py"), "location": {"row": row, "column": 1}, "message": message, "fix": None}
+
+
+def _mypy_line(severity: str, code: str, message: str) -> str:
+    return json.dumps({"file": "src/a.py", "line": 3, "column": 1, "message": message, "hint": None, "code": code, "severity": severity})
+
+
+@pytest.mark.parametrize(
+    ("ruff", "mypy", "findings"),
+    [
+        pytest.param(
+            lambda folder: (1, json.dumps([_ruff_item(folder, "F401", 1, "`os` imported but unused"), _ruff_item(folder, "F821", 2, "Undefined name `x`")]), ""),
+            lambda folder: (1, _mypy_line("error", "name-defined", 'Name "x" is not defined') + "\n", ""),
+            [("ruff", "ruff", "F401", "src/a.py:1: F401 `os` imported but unused"), ("ruff", "ruff", "F821", "src/a.py:2: F821 Undefined name `x`")],
+            id="błąd-ruff-kończy-bramę",
+        ),
+        pytest.param(
+            lambda folder: (1, "", "python: No module named ruff\n"),
+            lambda folder: (
+                1,
+                "\n".join([_mypy_line("note", "misc", "Ta notatka nie jest błędem"), _mypy_line("error", "unused-ignore", 'Unused "type: ignore" comment'), "Found 1 error"]),
+                "",
+            ),
+            [
+                ("ruff", "ruff", None, "python: No module named ruff"),
+                ("mypy", "mypy", "unused-ignore", 'src/a.py:3: error: Unused "type: ignore" comment  [unused-ignore]'),
+                ("mypy (Windows)", "mypy", "unused-ignore", 'src/a.py:3: error: Unused "type: ignore" comment  [unused-ignore]'),
+            ],
+            id="wyjscie-bez-json-i-pozostalosci",
+        ),
+        pytest.param(lambda folder: (0, "[]", ""), lambda folder: (0, "nic", ""), [], id="kroki-przechodza"),
+    ],
+)
+def test_brama_typow_czyta_diagnostyki_ruff_i_mypy_z_json(
+    tmp_path: Path,
+    ruff: Callable[[Path], tuple[int, str, str]],
+    mypy: Callable[[Path], tuple[int, str, str]],
+    findings: list[tuple[str, str, str | None, str]],
+) -> None:
+    """Kroki bramy biegną z ``--output-format json`` (ruff) i ``--output json`` (mypy); wyjście, którego nie da się
+    przeczytać, to diagnostyka bez kodu, a krok, który przechodzi, nie ma diagnostyk."""
+
+    for name, option, answer in (("ruff", "--output-format json", ruff), ("mypy", "--output json", mypy)):
+        (tmp_path / name).mkdir()
+        # Zwykły pakiet: katalog bez ``__init__.py`` przegrywa z zainstalowanym ruff albo mypy.
+        (tmp_path / name / "__init__.py").write_text("", encoding="utf-8")
+        (tmp_path / name / "__main__.py").write_text(FAKE_TOOL.format(name=name, option=option), encoding="utf-8")
+        code, stdout, stderr = answer(tmp_path)
+        (tmp_path / f"{name}.json").write_text(json.dumps({"code": code, "stdout": stdout, "stderr": stderr}), encoding="utf-8")
+
+    checked = mutacje.static_gate(tmp_path, limit_s=60, stop=threading.Event(), deadline=None)
+
+    assert checked == mutacje.Checked(tuple(mutacje.Finding(*finding) for finding in findings))

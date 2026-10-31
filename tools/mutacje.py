@@ -25,12 +25,16 @@ przegląd PR, oba są porażką.
 
 Mutację, którą polecenie przepuściło (NIEWYKRYTA, PRZEKROCZONY CZAS), noc i ``check_all`` skryptów skilli sprawdzają
 jeszcze bramą typów (``type_gate``): krokami ruff i mypy obu systemów bramy pre-push (``tools/ci_lokalnie.py --tylko
-ruff,mypy``) na kopii z mutacją. Gdy któryś pada, mutacja jest WYKRYTA PRZEZ BRAMĘ TYPÓW z nazwą kroku i pierwszą linią
-jego błędu, a ``in_ci`` liczy ją jak WYKRYTA, bo takiej zmiany nie wpuszczą brama pre-push i zadanie CI „Ruff, mypy”.
-Brama biegnie tylko dla takich mutacji, raz najpierw bez mutacji, a gdy wtedy pada, linia ``BRAMA TYPÓW CZERWONA``
-zostawia werdykty bez zmian; tak jest w zadaniach skryptów skilli w CI, które instalują tylko ``requirements.txt``, bez
-ruff i mypy (``ci.yml`` i ``mutacje-nocne.yml``), więc tam brama nic nie zmienia. Narzędzie z wiersza poleceń bramy nie uruchamia: przegląd dowodzi swojego polecenia, a mypy
-sprawdza poleceniem ``-- -m mypy``.
+ruff,mypy``) na kopii z mutacją, z diagnostykami w JSON. Gdy któryś zgłasza diagnostykę, która mówi, że kod jest błędny
+(``wrong``: z ruff tylko niezdefiniowana nazwa i błąd składni, z mypy każdy błąd typów poza pozostałościami jak
+``unused-ignore``), mutacja jest WYKRYTA PRZEZ BRAMĘ TYPÓW z nazwą kroku i tą diagnostyką, a ``in_ci`` liczy ją jak
+WYKRYTA, bo takiej zmiany nie wpuszczą brama pre-push i zadanie CI „Ruff, mypy”. Diagnostyka, że coś zostało nieużyte
+(F401, F841), nie liczy się: zostawia ją sama mutacja jednej linii, np. cofnięcie fragmentu z użyciem importu, który
+dodał inny fragment zmiany, więc nie dowodzi, że test jest zbędny.
+Brama biegnie tylko dla takich mutacji, raz najpierw bez mutacji, a gdy wtedy zgłasza cokolwiek, linia ``BRAMA TYPÓW
+CZERWONA`` na stderr zostawia werdykty bez zmian; tak jest w zadaniach skryptów skilli w CI, które instalują tylko
+``requirements.txt``, bez ruff i mypy (``ci.yml`` i ``mutacje-nocne.yml``), więc tam brama nic nie zmienia. Narzędzie
+z wiersza poleceń bramy nie uruchamia: przegląd dowodzi swojego polecenia, a mypy sprawdza poleceniem ``-- -m mypy``.
 
 Narzędzie z wiersza poleceń uruchamia każdą mutację NIEWYKRYTA na HEAD także na merge-base HEAD z ``--baza`` (bez
 niezacommitowanych zmian), z podstawą jej polecenia na merge-base. Gdy tam jest WYKRYTA, dostaje REGRES: zmiana
@@ -89,7 +93,7 @@ import sys
 import tempfile
 import threading
 import time
-from typing import TypeVar
+from typing import Protocol, TypeVar
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools/lib"))
 # plan_ci i szybko importuje dopiero --jak-ci: plan_ci sam importuje ten moduł.
@@ -239,30 +243,22 @@ class _Ran:
     code: int | None  # None: polecenie przekroczyło limit
     last: str  # ostatnia linia wyjścia
     hang: str | None  # linia pytest-timeout
-    first: str  # pierwsza linia wyjścia
 
 
 def _run(
     copy: Path, command: Sequence[str], limit_s: float, stop: threading.Event | None = None, *, concurrent: bool = False
 ) -> _Ran:
-    """Uruchamia polecenie Pythona w kopii; zwraca kod wyjścia, ostatnią linię i linię pytest-timeout, jeśli była."""
+    """Uruchamia polecenie w kopii; zwraca kod wyjścia, ostatnią linię i linię pytest-timeout, jeśli była."""
 
-    return _run_program(copy, [sys.executable, *command], limit_s, stop, concurrent=concurrent)
-
-
-def _run_program(
-    copy: Path, command: Sequence[str], limit_s: float, stop: threading.Event | None = None, *, concurrent: bool = False
-) -> _Ran:
     try:
         env = environment(copy, concurrent=concurrent)
-        done = potomne.run(command, cwd=copy, env=env, timeout=limit_s, stop=stop)
+        done = potomne.run([sys.executable, *command], cwd=copy, env=env, timeout=limit_s, stop=stop)
     except subprocess.TimeoutExpired:
-        return _Ran(None, f"brak wyniku po {limit_s:g} s", None, "")
+        return _Ran(None, f"brak wyniku po {limit_s:g} s", None)
     lines = (done.stdout.strip() or done.stderr.strip()).splitlines()
     hangs = (PYTEST_TIMEOUT.fullmatch(line.strip()) for line in f"{done.stdout}\n{done.stderr}".splitlines())
     hang = next((found["hang"] or found["thread"] for found in hangs if found), None)
-    last = lines[-1] if lines else f"kod wyjścia {done.returncode}"
-    return _Ran(done.returncode, last, hang, lines[0] if lines else last)
+    return _Ran(done.returncode, lines[-1] if lines else f"kod wyjścia {done.returncode}", hang)
 
 
 def _verdict(
@@ -341,23 +337,129 @@ def _left(limit_s: float, deadline: float | None) -> float:
     return limit_s if deadline is None else min(limit_s, deadline - time.monotonic())
 
 
-def _gate(copy: Path, *, limit_s: float, stop: threading.Event, deadline: float | None) -> tuple[Verdict, str] | None:
-    """Kroki bramy typów w kopii do pierwszego, który pada: WYKRYTA PRZEZ BRAMĘ TYPÓW z nazwą kroku i pierwszą linią
-    jego wyjścia, BEZ WERDYKTU, gdy krok nie skończył się w czasie, a None, gdy każdy przechodzi."""
+@dataclass(frozen=True)
+class Finding:
+    """Diagnostyka kroku bramy typów."""
 
+    step: str  # nazwa kroku: ruff, mypy, mypy (Windows)
+    job: str  # narzędzie kroku (``Step.job`` w ``tools/ci_lokalnie.py``): ruff albo mypy
+    code: str | None  # kod reguły; None: wyjście, którego nie dało się przeczytać jako diagnostyk
+    text: str  # plik, linia i komunikat, które pokazuje werdykt
+
+
+@dataclass(frozen=True)
+class Checked:
+    """Wynik bramy typów na jednej kopii: diagnostyki kroków, które padły, i krok, który nie skończył się w czasie."""
+
+    findings: tuple[Finding, ...] = ()
+    late: str | None = None  # nazwa kroku i powód, gdy nie dał wyniku przed ``limit_s`` albo ``deadline``
+
+
+class Gate(Protocol):
+    def __call__(self, copy: Path, *, limit_s: float, stop: threading.Event, deadline: float | None) -> Checked: ...
+
+
+# Kody ruff, które mówią, że kod jest błędny: nazwa, której nie ma (także w ``__all__`` i przed przypisaniem), i błąd
+# składni. Inne reguły ruff mówią o stylu albo o czymś nieużytym (F401, F841), czyli o artefakcie mutacji jednej linii.
+RUFF_WRONG = frozenset({"F821", "F822", "F823", "invalid-syntax"})
+# Kody mypy, które mówią o pozostałości po zmienionym kodzie, a nie o błędzie typów: ``unused-ignore`` i
+# ``redundant-cast`` ze ``strict``, ``unreachable`` z ``warn_unreachable``, ``redundant-expr`` i ``redundant-self``.
+MYPY_LEFTOVER = frozenset({"unused-ignore", "redundant-cast", "redundant-expr", "redundant-self", "unreachable"})
+
+
+def _relative(name: str, copy: Path) -> str:
+    try:
+        return Path(name).resolve().relative_to(copy.resolve()).as_posix()
+    except ValueError:
+        return name
+
+
+def _ruff_findings(output: str, copy: Path) -> list[tuple[str | None, str]]:
+    """Diagnostyki z ``ruff check --output-format json``: lista obiektów z ``code``, ``filename``, ``location``."""
+
+    try:
+        return [
+            (item["code"], f"{_relative(item['filename'], copy)}:{item['location']['row']}: {item['code']} {item['message']}")
+            for item in json.loads(output)
+        ]
+    except (ValueError, KeyError, TypeError):
+        return []
+
+
+def _mypy_findings(output: str, copy: Path) -> list[tuple[str | None, str]]:
+    """Błędy z ``mypy --output json``: obiekt w każdej linii; inne linie (błąd, który zatrzymał mypy) pomija."""
+
+    found: list[tuple[str | None, str]] = []
+    for line in output.splitlines():
+        try:
+            item = json.loads(line)
+            if item["severity"] == "error":
+                found.append((item["code"], f"{item['file']}:{item['line']}: error: {item['message']}  [{item['code']}]"))
+        except (ValueError, KeyError, TypeError):
+            continue
+    return found
+
+
+@dataclass(frozen=True)
+class _Tool:
+    output: tuple[str, ...]  # opcje, z którymi narzędzie drukuje diagnostyki w JSON
+    findings: Callable[[str, Path], list[tuple[str | None, str]]]  # kod i tekst każdej diagnostyki ze stdout
+    wrong: Callable[[str], bool]  # czy diagnostyka z tym kodem mówi, że kod jest błędny
+
+
+_TOOLS = {
+    "ruff": _Tool(("--output-format", "json"), _ruff_findings, RUFF_WRONG.__contains__),
+    "mypy": _Tool(("--output", "json"), _mypy_findings, lambda code: code not in MYPY_LEFTOVER),
+}
+
+
+def wrong(finding: Finding) -> bool:
+    """Czy diagnostyka bramy typów mówi, że kod jest błędny, a więc liczy się jako wykrycie mutacji.
+
+    Ruff liczy się tylko kodami z listy ``RUFF_WRONG``, bo prawie każda jego reguła to styl albo coś nieużytego, a mutacja
+    jednej linii zostawia nieużyte: cofnięcie fragmentu z użyciem importu, który dodał inny fragment, zostawia F401, a
+    ``return wynik`` → ``return None`` zostawia F841, choć kod bez poprawki przeszedł bramę i jest w ``main``.
+    Mypy liczy się każdym kodem poza ``MYPY_LEFTOVER``, bo każdy jego kod poza tymi mówi, że program jest źle otypowany
+    (także opcjonalne kody ``enable_error_code``: ``exhaustive-match`` #674, ``truthy-bool``). Pozostałości zgłaszają
+    tylko sprawdzenia, które trzeba włączyć (``strict``, ``warn_unreachable``, ``enable_error_code``), więc ich lista jest
+    zamknięta konfiguracją mypy w ``pyproject.toml``, a lista dozwolonych wymieniałaby kilkadziesiąt kodów błędów typów,
+    z których każdy przeoczony zakładałby fałszywe issue. Diagnostyka bez kodu (wyjście, którego nie dało się przeczytać)
+    nie liczy się nigdy: brama, która nie wie, co znalazła, nie zabiera mutacji z issue.
+    """
+
+    return finding.code is not None and _TOOLS[finding.job].wrong(finding.code)
+
+
+def static_gate(copy: Path, *, limit_s: float, stop: threading.Event, deadline: float | None) -> Checked:
+    """Kroki ruff i mypy obu systemów bramy pre-push (``ci_lokalnie.static_steps``) w kopii, z diagnostykami w JSON.
+
+    Diagnostyki każdego kroku, który padł; kroki biegną do pierwszego, którego diagnostyka liczy się jako wykrycie
+    (``wrong``), albo do pierwszego, który nie skończył się w czasie.
+    """
+
+    found: list[Finding] = []
     # Przez import_module: ci_lokalnie importuje ten moduł.
     for step in importlib.import_module("ci_lokalnie").static_steps(copy):
+        tool = _TOOLS[step.job]
         left = _left(limit_s, deadline)
-        ran = _run_program(copy, step.command, left, stop) if left > 0 else _Ran(None, "czas minął, zanim się zaczął", None, "")
-        if ran.code is None:
-            return Verdict.NO_VERDICT, f"brama typów, {step.name}: {ran.last}"
-        if ran.code:
-            return Verdict.TYPE_GATE, f"{step.name}: {ran.first}"
-    return None
+        if left <= 0:
+            return Checked(tuple(found), f"{step.name}: czas minął, zanim się zaczął")
+        try:
+            done = potomne.run([*step.command, *tool.output], cwd=copy, env=environment(copy), timeout=left, stop=stop)
+        except subprocess.TimeoutExpired:
+            return Checked(tuple(found), f"{step.name}: brak wyniku po {left:g} s")
+        if done.returncode:
+            read = tool.findings(done.stdout, copy)
+            lines = (done.stdout.strip() or done.stderr.strip()).splitlines()
+            unread = [(None, lines[0] if lines else f"kod wyjścia {done.returncode}")]
+            found.extend(Finding(step.name, step.job, code, text) for code, text in read or unread)
+            if any(map(wrong, found)):
+                break
+    return Checked(tuple(found))
 
 
 def _gated(
-    mutation: Mutation, *, cache: Path, limit_s: float, stop: threading.Event, deadline: float | None
+    mutation: Mutation, *, cache: Path, limit_s: float, stop: threading.Event, deadline: float | None, gate: Gate
 ) -> tuple[Verdict, str] | None:
     if _left(limit_s, deadline) <= 0:
         return Verdict.NO_VERDICT, "czas minął przed bramą typów"
@@ -367,7 +469,13 @@ def _gated(
             return Verdict.STALE, stale
         if cache.is_dir():
             shutil.copytree(cache, copy / MYPY_CACHE)
-        return _gate(copy, limit_s=limit_s, stop=stop, deadline=deadline)
+        checked = gate(copy, limit_s=limit_s, stop=stop, deadline=deadline)
+    caught = next((finding for finding in checked.findings if wrong(finding)), None)
+    if caught is not None:
+        return Verdict.TYPE_GATE, f"{caught.step}: {caught.text}"
+    if checked.late is not None:
+        return Verdict.NO_VERDICT, f"brama typów, {checked.late}"
+    return None
 
 
 def type_gate(
@@ -377,15 +485,17 @@ def type_gate(
     workers: int,
     limit_s: float = TIMEOUT,
     deadline: float | None = None,
+    gate: Gate = static_gate,
 ) -> list[tuple[Verdict, str]]:
     """Werdykty ``found`` po bramie typów: mutację, którą polecenie przepuściło (NIEWYKRYTA, PRZEKROCZONY CZAS),
-    sprawdzają jeszcze kroki ruff i mypy obu systemów bramy pre-push (``ci_lokalnie.static_steps``).
+    sprawdza jeszcze ``gate``, domyślnie kroki ruff i mypy obu systemów bramy pre-push (``static_gate``).
 
-    Gdy któryś pada na kopii z mutacją, mutacja jest WYKRYTA PRZEZ BRAMĘ TYPÓW z nazwą kroku i pierwszą linią jego
-    wyjścia. Najpierw kroki biegną raz na kopii bez mutacji: gdy tam któryś pada, brama niczego nie dowodzi, więc linia
-    ``BRAMA TYPÓW CZERWONA`` i werdykty bez zmian; jej cache mypy dostaje każda kopia mutacji, więc mypy sprawdza od nowa
-    tylko moduły, które mutacja zmienia, i te, które od nich zależą. Krok bez wyniku przed ``limit_s`` albo ``deadline``
-    daje BEZ WERDYKTU.
+    Najpierw ``gate`` biegnie raz na kopii bez mutacji: gdy tam zgłasza cokolwiek, brama niczego nie dowodzi, więc linia
+    ``BRAMA TYPÓW CZERWONA`` na stderr i werdykty bez zmian; jej cache mypy dostaje każda kopia mutacji, więc mypy
+    sprawdza od nowa tylko moduły, które mutacja zmienia, i te, które od nich zależą. Każda diagnostyka na kopii z
+    mutacją powstała więc przez mutację. Mutacja, której diagnostyka mówi, że kod jest błędny (``wrong``), jest WYKRYTA
+    PRZEZ BRAMĘ TYPÓW z nazwą kroku i tą diagnostyką; inne diagnostyki (nieużyty import, nieużyte ``# type: ignore``)
+    zostawiają werdykt. Krok bez wyniku przed ``limit_s`` albo ``deadline`` daje BEZ WERDYKTU.
     """
 
     gated = [index for index, (verdict, _) in enumerate(found) if verdict in {Verdict.SURVIVED, Verdict.OVER_LIMIT}]
@@ -395,20 +505,21 @@ def type_gate(
     with tempfile.TemporaryDirectory(prefix="brama-typow-") as folder:
         cache = Path(folder) / MYPY_CACHE
         with checkout_copy() as copy:
-            red = _gate(copy, limit_s=limit_s, stop=threading.Event(), deadline=deadline)
+            clean = gate(copy, limit_s=limit_s, stop=threading.Event(), deadline=deadline)
             if (copy / MYPY_CACHE).is_dir():
                 shutil.copytree(copy / MYPY_CACHE, cache)
-        if red is not None and red[0] is Verdict.NO_VERDICT:
+        if clean.findings:
+            first = clean.findings[0]
+            print(f"BRAMA TYPÓW CZERWONA: {first.step}: {first.text} (bez mutacji, więc przeżyte mutacje zostają przeżyte)", file=sys.stderr, flush=True)
+            return result
+        if clean.late is not None:
             for index in gated:
-                result[index] = (Verdict.NO_VERDICT, f"{found[index][1]} ({red[1]}, bez mutacji)")
+                result[index] = (Verdict.NO_VERDICT, f"{found[index][1]} (brama typów, {clean.late}, bez mutacji)")
             return result
-        if red is not None:
-            print(f"BRAMA TYPÓW CZERWONA: {red[1]} (bez mutacji, więc przeżyte mutacje zostają przeżyte)", flush=True)
-            return result
-        run = partial(_gated, cache=cache, limit_s=limit_s, deadline=deadline)
-        for index, gate in zip(gated, _each(run, [mutations[index] for index in gated], workers), strict=True):
-            if gate is not None:
-                result[index] = gate
+        run = partial(_gated, cache=cache, limit_s=limit_s, deadline=deadline, gate=gate)
+        for index, verdict in zip(gated, _each(run, [mutations[index] for index in gated], workers), strict=True):
+            if verdict is not None:
+                result[index] = verdict
     return result
 
 
@@ -462,10 +573,12 @@ def _against_base(
     return result
 
 
-def check_all(mutations: Sequence[Mutation], *, parallel: bool = True, limit_s: float = TIMEOUT, base: str | None = None) -> int:
+def check_all(
+    mutations: Sequence[Mutation], *, parallel: bool = True, limit_s: float = TIMEOUT, base: str | None = None, gate: Gate = static_gate
+) -> int:
     """Podstawa i werdykt każdej mutacji; kod 0, gdy CI złapałoby każdą (``in_ci``).
 
-    Bez ``base`` (skrypty mutacji skilli) mutację, którą polecenie przepuściło, sprawdza jeszcze ``type_gate``. Z
+    Bez ``base`` (skrypty mutacji skilli) mutację, którą polecenie przepuściło, sprawdza jeszcze ``type_gate`` z ``gate``. Z
     ``base``, czyli w przeglądzie z wiersza poleceń, porażką jest wszystko poza WYKRYTA, także ZAWIESZENIE, a mutacja
     NIEWYKRYTA biegnie też na merge-base HEAD z ``base`` (REGRES), bez bramy typów.
     """
@@ -492,7 +605,7 @@ def check_all(mutations: Sequence[Mutation], *, parallel: bool = True, limit_s: 
     if base is not None:
         found = _against_base(mutations, found, base, workers=workers, limit_s=limit_s)
     else:
-        found = type_gate(mutations, found, workers=workers, limit_s=limit_s)
+        found = type_gate(mutations, found, workers=workers, limit_s=limit_s, gate=gate)
     for mutation, (verdict, shown) in zip(mutations, found, strict=True):
         caught, last = (verdict is Verdict.CAUGHT, shown) if base is not None else in_ci(verdict, shown)
         failures += not caught

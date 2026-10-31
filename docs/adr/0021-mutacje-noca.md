@@ -32,9 +32,11 @@ Luka w teście nie jest defektem, który trafi do taty: ten zatrzymuje Wydanie z
   Issue naprawia agent testem, który zabija mutację, albo linią `MUTACJA <id> | nie warto, bo <powód>`.
 - Przeżyta to mutacja, której nie wykrył ani test, ani brama typów (#703, zgoda Maksa w wątku T3 31.10).
   Mutację, która przeżyła testy, sprawdzają jeszcze ruff i mypy obu systemów, te same kroki co brama pre-push (`tools/mutacje.py`, `type_gate`).
-  Gdy któryś pada, mutacja jest `WYKRYTA PRZEZ BRAMĘ TYPÓW` i nie trafia do issue, bo takiej zmiany nie wpuszczą brama pre-push ani zadanie CI „Ruff, mypy”; tak było z #674, który agent wyjaśniał ręcznie.
+  Gdy któryś zgłasza, że kod jest błędny, mutacja jest `WYKRYTA PRZEZ BRAMĘ TYPÓW` i nie trafia do issue, bo takiej zmiany nie wpuszczą brama pre-push ani zadanie CI „Ruff, mypy”; tak było z #674, który agent wyjaśniał ręcznie.
+  Za błąd kodu liczy się z ruff tylko niezdefiniowana nazwa (F821, F822, F823) i błąd składni, a z mypy każdy błąd typów poza pozostałościami (`unused-ignore`, `redundant-*`, `unreachable`), `mutacje.wrong`.
+  Nieużyty import albo zmienna (F401, F841) się nie liczy, bo zostawia ją sama mutacja jednej linii: cofnięcie fragmentu z użyciem importu, który dodał inny fragment, przeżywa jak przed bramą, a fragmentu bez testu noc dalej nie chowa.
   Tak samo liczy `check_all` skryptów mutacji skilli.
-  Brama biegnie tylko dla mutacji, które przeżyły testy, i raz bez mutacji, która daje im cache mypy; gdy bez mutacji pada, przeżyte zostają przeżyte.
+  Brama biegnie tylko dla mutacji, które przeżyły testy, i raz bez mutacji, która daje im cache mypy; gdy bez mutacji coś zgłasza, przeżyte zostają przeżyte, a linia `BRAMA TYPÓW CZERWONA` idzie na stderr.
 - Część, która nie dała wyniku, jest czerwona, a przebieg z nią jest czerwony i nie przesuwa bazy, więc następna noc sprawdza te linie jeszcze raz.
   Przeżyte mutacje to wynik, więc zostawiają część zieloną.
 - Skrypty mutacji skilli też nie biegną na PR: Mutation checks na PR to same podstawy `ci:` skilli, których `pilnuje:` albo folder trafia zmiana.
