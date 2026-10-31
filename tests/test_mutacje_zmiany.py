@@ -136,27 +136,51 @@ def test_czesc_konczy_sie_zapisem_w_limicie_czasu_czesci_takze_gdy_mutacja_zawie
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="linię Failed: Timeout drukuje metoda signal pytest-timeout, a noc biegnie na Linuksie")
-def test_mutacja_ktora_wiesza_test_do_limitu_pytest_timeout_jest_wykryta_a_nie_przezyta(tmp_path: Path) -> None:
+@pytest.mark.parametrize("further", [False, True], ids=["ostatni-krok", "z-dalszymi-krokami"])
+def test_mutacja_ktora_wiesza_test_do_limitu_pytest_timeout_jest_wykryta_a_nie_przezyta(tmp_path: Path, further: bool) -> None:
     # Przegląd #711: test skończony przez pytest-timeout czerwieni zadanie CI, więc noc nie zakłada o nim issue.
     hangs = (
         "import time\n\nimport pytest\n\nfrom rozliczenia.warunek import oba\n\n\n"
         "@pytest.mark.timeout(3)\ndef test_oba() -> None:\n    assert oba(True, True) is True\n    while oba(True, False):\n        time.sleep(0.1)\n"
-        "\n\ndef test_jeden() -> None:\n    assert jeden() == 1\n"
-    ).replace("import oba", "import jeden, oba")
-    # test_jeden wykonuje inny kod pliku, więc mutacja, której testy linii nie złapały, biegnie dalej z linią „(testy pliku)”.
-    one = "\n\ndef jeden() -> int:\n    return 1\n"
+    )
+    # Bez test_jeden testy linii to jedyny krok kolejki. Z nim, a test_jeden wykonuje inny kod pliku, mutacja, której
+    # testy linii nie złapały, biegnie dalej z linią „(testy pliku)”.
+    one = "\n\ndef jeden() -> int:\n    return 1\n" if further else ""
+    if further:
+        hangs = hangs.replace("import oba", "import jeden, oba") + "\n\ndef test_jeden() -> None:\n    assert jeden() == 1\n"
     record = tmp_path / "zapis" / "czesc.json"
 
     done = _run(_repo(tmp_path / "repo", hangs, CHANGED + one, BASE + one), "--rownolegle", "1", "--zapis", str(record))
 
     assert done.returncode == 0, done.stdout + done.stderr
-    hang = "→ Failed: Timeout (>3.0s) from pytest-timeout. (liczona jako wykryta: CI czerwienieje na limicie)"
+    hang = "→ Failed: Timeout (>3.0s) from pytest-timeout. (liczona jako wykryta: pytest-timeout czerwieni test w CI)"
     assert [line for line in done.stdout.splitlines() if " → " in line] == [
         f"ZAWIESZENIE: src/rozliczenia/warunek.py:2 bez `b` w `and` {hang}",
         f"ZAWIESZENIE: src/rozliczenia/warunek.py:2 zmiana linii 2 cofnięta do bazy {hang}",
     ], done.stdout
     written = json.loads(record.read_text(encoding="utf-8"))
     assert (written["wynik"], written["przezyte"]) == ("MUTACJE ZMIANY OK | mutacje=2 | wyjątki=0 | innego systemu=0", [])
+
+
+def test_mutacja_ktora_tylko_spowalnia_test_ponad_limit_narzedzia_przezywa(tmp_path: Path) -> None:
+    # Przegląd #711, runda 2: test kończy się w CI, bo pytest-timeout go nie przerywa, więc mutacja przeżyła.
+    slow = "import time\n\n" + ONE_CASE + "    if oba(True, False):\n        time.sleep(30)\n"
+    record = tmp_path / "zapis" / "czesc.json"
+
+    done = _run(_repo(tmp_path / "repo", slow), "--rownolegle", "1", "--limit-s", "8", "--zapis", str(record))
+
+    assert done.returncode == 1, done.stdout + done.stderr
+    late = "→ brak wyniku po 8 s (limit --limit-s narzędzia, nie pytest-timeout)"
+    assert [line for line in done.stdout.splitlines() if " → " in line] == [
+        f"PRZEKROCZONY CZAS: src/rozliczenia/warunek.py:2 bez `b` w `and` {late}",
+        f"PRZEKROCZONY CZAS: src/rozliczenia/warunek.py:2 zmiana linii 2 cofnięta do bazy {late}",
+    ], done.stdout
+    written = json.loads(record.read_text(encoding="utf-8"))
+    assert written["wynik"].startswith("MUTACJE ZMIANY FAIL | przeżyło 2"), written["wynik"]
+    assert sorted(entry["id"] for entry in written["przezyte"]) == [
+        "src/rozliczenia/warunek.py:2 bez `b` w `and`",
+        "src/rozliczenia/warunek.py:2 zmiana linii 2 cofnięta do bazy",
+    ]
 
 
 def test_mutacja_ktora_zawiesza_dopiero_testy_pliku_konczy_sie_bez_werdyktu_w_limicie_czasu_czesci(tmp_path: Path) -> None:
@@ -189,7 +213,7 @@ def test_mutacja_ktora_wiesza_dopiero_test_pliku_do_limitu_pytest_timeout_jest_w
     done = _run(_repo(tmp_path / "repo", tests, "LIMIT = 5\n", "LIMIT = 3\n"), "--zapis", str(record))
 
     assert done.returncode == 0, done.stdout + done.stderr
-    hang = "→ Failed: Timeout (>3.0s) from pytest-timeout. (liczona jako wykryta: CI czerwienieje na limicie) (testy pliku)"
+    hang = "→ Failed: Timeout (>3.0s) from pytest-timeout. (liczona jako wykryta: pytest-timeout czerwieni test w CI) (testy pliku)"
     assert f"ZAWIESZENIE: src/rozliczenia/warunek.py:1 zmiana linii 1 cofnięta do bazy {hang}" in done.stdout.splitlines(), done.stdout
     assert json.loads(record.read_text(encoding="utf-8"))["przezyte"] == []
 

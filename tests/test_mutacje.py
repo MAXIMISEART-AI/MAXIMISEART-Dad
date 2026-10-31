@@ -268,7 +268,7 @@ def _hanging_repository(path: Path) -> tuple[Path, list[str], Path, Path]:
     return repo, mutation, started, beats
 
 
-def test_polecenie_bez_wyniku_w_limicie_czasu_daje_zawieszenie(tmp_path: Path) -> None:
+def test_polecenie_bez_wyniku_w_limicie_czasu_narzedzia_daje_przekroczony_czas(tmp_path: Path) -> None:
     repo, mutation, _, _ = _hanging_repository(tmp_path)
 
     answered = subprocess.run(
@@ -280,7 +280,8 @@ def test_polecenie_bez_wyniku_w_limicie_czasu_daje_zawieszenie(tmp_path: Path) -
         check=False,
     )
 
-    assert (answered.returncode, answered.stdout.splitlines()[0]) == (1, "ZAWIESZENIE: mutacja → brak wyniku po 5 s")
+    expected = "PRZEKROCZONY CZAS: mutacja → brak wyniku po 5 s (limit --limit-s narzędzia, nie pytest-timeout)"
+    assert (answered.returncode, answered.stdout.splitlines()[0]) == (1, expected)
 
 
 @pytest.mark.parametrize(
@@ -501,29 +502,48 @@ def test_naraz_biegnie_najwyzej_osiem_mutacji(tmp_path: Path) -> None:
 @pytest.mark.parametrize(
     ("anchor", "replacement", "code", "lines"),
     [
-        ("WISI = False", "WISI = True", 0, ["ZAWIESZENIE: m → brak wyniku po 3 s (liczona jako wykryta: CI czerwienieje na limicie)", "MUTACJE OK"]),
-        ("NIC = 0", "NIC = 1", 1, ["NIEWYKRYTA: m → kod wyjścia 0", "MUTACJE: 1 bez oczekiwanego wyniku"]),
-        ("tego nie ma", "", 1, ["NIEAKTUALNA: m → kotwicy nie ma dokładnie raz w src/rozliczenia/__init__.py: 'tego nie ma'", "MUTACJE: 1 bez oczekiwanego wyniku"]),
+        pytest.param("WISI = False", "WISI = True", 0, [r"ZAWIESZENIE: m → .*Timeout.* \(liczona jako wykryta: pytest-timeout czerwieni test w CI\)", "MUTACJE OK"]),
+        pytest.param(
+            "WOLNO = False",
+            "WOLNO = True",
+            1,
+            [re.escape("PRZEKROCZONY CZAS: m → brak wyniku po 8 s (limit --limit-s narzędzia, nie pytest-timeout)"), "MUTACJE: 1 bez oczekiwanego wyniku"],
+        ),
+        pytest.param("NIC = 0", "NIC = 1", 1, [r"NIEWYKRYTA: m → 2 passed in .*", "MUTACJE: 1 bez oczekiwanego wyniku"]),
+        pytest.param(
+            "tego nie ma",
+            "",
+            1,
+            [re.escape("NIEAKTUALNA: m → kotwicy nie ma dokładnie raz w src/rozliczenia/__init__.py: 'tego nie ma'"), "MUTACJE: 1 bez oczekiwanego wyniku"],
+        ),
     ],
-    ids=["zawieszenie", "niewykryta", "nieaktualna"],
+    ids=["zawieszenie", "przekroczony-czas", "niewykryta", "nieaktualna"],
 )
 def test_skrypt_mutacji_skilla_liczy_zawieszenie_jak_wykryta_a_inne_werdykty_jako_porazke(
     tmp_path: Path, anchor: str, replacement: str, code: int, lines: list[str]
 ) -> None:
-    """CI czerwienieje na teście, który wisi, więc noc nie zgłasza skryptu skilla, którego mutacja wiesza polecenie."""
+    """pytest-timeout czerwieni CI, więc noc nie zgłasza skryptu skilla, którego mutacja wiesza test do tego limitu; test
+    tylko wolniejszy niż limit narzędzia w CI przechodzi, więc jego mutacja jest porażką, jak przed werdyktem ZAWIESZENIE."""
 
-    repo = repository(tmp_path / "repo", {PACKAGE: "WISI = False\nNIC = 0\n"})
+    tests = (
+        "import time\n\nimport pytest\nimport rozliczenia\n\n\n"
+        "@pytest.mark.timeout(1)\ndef test_wisi():\n    if rozliczenia.WISI:\n        time.sleep(60)\n\n\n"
+        "def test_wolno():\n    if rozliczenia.WOLNO:\n        time.sleep(60)\n"
+    )
+    repo = repository(tmp_path / "repo", {PACKAGE: "WISI = False\nWOLNO = False\nNIC = 0\n", "tests/test_wisi.py": tests})
     commit(repo, "baza")
-    hangs = "import time, rozliczenia\nif rozliczenia.WISI:\n    time.sleep(60)\n"
+    command = ("-m", "pytest", "-q", "-n", "0", "-p", "no:cacheprovider", "tests/test_wisi.py")
     script = (
         "import sys\nsys.path.insert(0, 'tools')\nfrom pathlib import Path\nfrom mutacje import Edit, Mutation, check_all\n"
-        f"mutation = Mutation('m', (Edit(Path({PACKAGE!r}), {anchor!r}, {replacement!r}),), ('-c', {hangs!r}))\n"
-        "raise SystemExit(check_all([mutation], limit_s=3))\n"
+        f"mutation = Mutation('m', (Edit(Path({PACKAGE!r}), {anchor!r}, {replacement!r}),), {command!r})\n"
+        "raise SystemExit(check_all([mutation], limit_s=8))\n"
     )
 
     answered = subprocess.run([sys.executable, "-c", script], cwd=repo, capture_output=True, text=True, encoding="utf-8", timeout=120, check=False)
 
-    assert (answered.returncode, answered.stdout.splitlines()) == (code, lines), answered.stdout + answered.stderr
+    shown = answered.stdout.splitlines()
+    assert answered.returncode == code and len(shown) == len(lines), answered.stdout + answered.stderr
+    assert all(re.fullmatch(line, out) for line, out in zip(lines, shown, strict=True)), answered.stdout + answered.stderr
 
 
 LINUX_1 = "pytest (Python 3.14, Linux, 1/2)"
@@ -595,6 +615,28 @@ def test_jak_ci_uruchamia_mutacje_z_plikami_zadania_runu_w_ktorym_stoi_zmieniony
     command = "-m pytest -q -n 1 -p no:cacheprovider tests/test_sasiad.py tests/test_zmieniony.py"
     assert (answered.returncode, lines[0], lines[2:]) == (0, f"JAK CI: run 123, {LINUX_1}: {command}", ["MUTACJE OK"]), answered.stdout + answered.stderr
     assert lines[1].startswith(f"WYKRYTA: mutacja [{LINUX_1}] → 1 failed, 1 passed"), answered.stdout
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="atrapa gh to skrypt sh")
+def test_jak_ci_uruchamia_kazda_mutacje_w_kazdym_zadaniu_runu_ze_zmienionym_testem(tmp_path: Path) -> None:
+    """Zmieniony test stoi w dwóch zadaniach, a mutację wykrywa tylko sąsiad z drugiego, więc biegną oba."""
+
+    second = "pytest (Python 3.14, Linux, 2/2)"
+    plan = [
+        _job("linux-3.14", LINUX_1, "pytest:tests/test_zmieniony.py#1/2"),
+        _job("linux-3.14", second, "pytest:tests/test_sasiad.py", "pytest:tests/test_zmieniony.py#2/2"),
+    ]
+    repo, env, _ = _ci_repository(tmp_path, {"123": plan}, [])
+
+    answered = _in_repository(repo, "--jak-ci", "123", "--baza", "glowna", *CHANGE, env=env)
+
+    lines = answered.stdout.splitlines()
+    alone, together = "tests/test_zmieniony.py", "tests/test_sasiad.py tests/test_zmieniony.py"
+    assert lines[:2] == [
+        f"JAK CI: run 123, {LINUX_1}: -m pytest -q -n 1 -p no:cacheprovider {alone}",
+        f"JAK CI: run 123, {second}: -m pytest -q -n 1 -p no:cacheprovider {together}",
+    ], answered.stdout + answered.stderr
+    assert [line.partition(" → ")[0] for line in lines[2:]] == [f"NIEWYKRYTA: mutacja [{LINUX_1}]", f"WYKRYTA: mutacja [{second}]", "MUTACJE: 1 bez oczekiwanego wyniku"], answered.stdout
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="atrapa gh to skrypt sh")

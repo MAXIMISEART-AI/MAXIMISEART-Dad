@@ -60,8 +60,10 @@ tymczasowym. Wtedy mutację tej linii od razu sprawdzają te same testy. Test, k
 ``tests/fixtures/git_repo.py`` kopiuje ``tools/ci_lokalnie.py``, a ten nazywa ``tools/mutacje_zmiany.py``.
 Kod, który biegnie tylko w takim procesie z ``-I`` uruchomionym przez inne narzędzie, dostaje więc ``NIEWYKRYTA``,
 nawet gdy test tamtego narzędzia by go wykrył: potrzebuje testu, który sam nazywa jego plik.
-Mutacja, po której testy wiszą (``ZAWIESZENIE``), liczy się jak wykryta z dopiskiem ``liczona jako wykryta: CI
-czerwienieje na limicie`` (``mutacje.in_ci``) i nie biegnie z szerszymi testami, bo CI czerwienieje na takim teście.
+Mutacja, po której pytest-timeout kończy test (``ZAWIESZENIE``), liczy się jak wykryta z dopiskiem ``liczona jako
+wykryta: pytest-timeout czerwieni test w CI`` (``mutacje.in_ci``) i nie biegnie z szerszymi testami. Mutacja, po której
+testy nie kończą się w ``--limit-s`` (``PRZEKROCZONY CZAS``), biegnie dalej jak przeżyta, bo test tylko wolniejszy CI
+przechodzi.
 Linia ``CZAS`` mówi, ile trwała każda faza.
 
 Mutacja, która przeżywa, to obietnica bez testu: dopisz test, który ją wykrywa. Mutacja równoważna (kod robi to samo)
@@ -897,7 +899,7 @@ def _mutate(args: argparse.Namespace, survived: list[tuple[Mutant, str]]) -> tup
         verdicts = mutacje.verdicts([m for _, m, _ in queued], workers=args.rownolegle, limit_s=args.limit_s, deadline=deadline)
         further: list[tuple[Mutant, mutacje.Mutation, list[list[str]]]] = []
         for (mutant, mutation, remaining), (verdict, shown) in zip(queued, verdicts, strict=True):
-            # ZAWIESZENIE czerwieni CI, więc kończy mutację jak WYKRYTA, bez szerszych testów, które wisiałyby znowu.
+            # ZAWIESZENIE (pytest-timeout) czerwieni CI, więc kończy mutację jak WYKRYTA, bez szerszych testów.
             caught, last = mutacje.in_ci(verdict, shown)
             if verdict == mutacje.NO_VERDICT:
                 unchecked += 1

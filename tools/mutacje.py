@@ -10,16 +10,18 @@ Mutacja zmienia jedną albo kilka kotwic, każdą obecną w swoim pliku dokładn
 NIEAKTUALNA. Pusta kotwica w pliku, którego nie ma, tworzy go razem z katalogami. Zanim narzędzie
 zepsuje kod, polecenie musi przejść na kopii bez mutacji, a jeśli mutacja oczekuje ostatniej
 linii wyjścia, polecenie bez mutacji nie może się nią kończyć. Werdykty to ``Verdict``, a dowodem jest tylko
-WYKRYTA: polecenie pada albo kończy się oczekiwaną linią. ZAWIESZENIE to polecenie bez wyniku w ``--limit-s`` albo
-test, który pytest-timeout skończył po swoim limicie (linia ``Failed: Timeout (>…s) from pytest-timeout.`` metody ``signal``
-albo linia ``+++ Timeout +++`` metody ``thread`` bez xdist); worker xdist, którego zabiła metoda ``thread`` (Windows),
-nie zostawia takiej linii, więc tam ZAWIESZENIE widać tylko po ``--limit-s``. Mutacja, która nie zdąży zacząć się
-albo skończyć przed końcem czasu wywołującego (``deadline`` w ``verdicts``), dostaje BEZ WERDYKTU.
+WYKRYTA: polecenie pada albo kończy się oczekiwaną linią. ZAWIESZENIE to test, który pytest-timeout skończył po
+swoim limicie (linia ``Failed: Timeout (>…s) from pytest-timeout.`` metody ``signal`` albo linia ``+++ Timeout +++``
+metody ``thread`` bez xdist); worker xdist, którego zabiła metoda ``thread`` (Windows), nie zostawia takiej linii, więc
+tam ZAWIESZENIA nie ma, a werdykt daje kod wyjścia albo ``--limit-s``. PRZEKROCZONY CZAS to polecenie bez wyniku w
+``--limit-s`` samego narzędzia. Mutacja, która nie zdąży zacząć się albo skończyć przed końcem czasu wywołującego
+(``deadline`` w ``verdicts``), dostaje BEZ WERDYKTU.
 
-ZAWIESZENIE czerwieni CI: pytest-timeout kończy test porażką, a zadanie, które przekroczy swój limit, kończy linia
-``LIMIT`` (#709). Dlatego ``in_ci`` liczy je jak WYKRYTA z dopiskiem, a liczą tak noc (``tools/mutacje_zmiany.py``) i
-``check_all`` skryptów mutacji skilli, więc zawieszenie nie trafia do issue ``Przeżyte mutacje z #N``. Porażką jest
-tylko w narzędziu z wiersza poleceń, którego używa przegląd PR.
+ZAWIESZENIE czerwieni CI, bo pytest-timeout kończy test porażką. Dlatego ``in_ci`` liczy je jak WYKRYTA z dopiskiem, a
+liczą tak noc (``tools/mutacje_zmiany.py``) i ``check_all`` skryptów mutacji skilli, więc nie trafia do issue
+``Przeżyte mutacje z #N``. PRZEKROCZONY CZAS CI nie czerwieni, gdy każdy test mieści się w swoim limicie pytest-timeout
+(test tylko wolniejszy), więc noc i skrypty skilli liczą go jak przeżytą. W narzędziu z wiersza poleceń, którego używa
+przegląd PR, oba są porażką.
 
 Narzędzie z wiersza poleceń uruchamia każdą mutację NIEWYKRYTA na HEAD także na merge-base HEAD z ``--baza`` (bez
 niezacommitowanych zmian), z podstawą jej polecenia na merge-base. Gdy tam jest WYKRYTA, dostaje REGRES: zmiana
@@ -105,17 +107,23 @@ class Verdict(StrEnum):
     CAUGHT = "WYKRYTA"  # polecenie pada albo kończy się oczekiwaną linią
     SURVIVED = "NIEWYKRYTA"  # polecenie przechodzi po mutacji
     REGRESSION = "REGRES"  # NIEWYKRYTA na HEAD, a WYKRYTA na merge-base: zmiana osłabiła test
-    HANG = "ZAWIESZENIE"  # polecenie bez wyniku w swoim limicie albo test po limicie pytest-timeout
+    HANG = "ZAWIESZENIE"  # test skończony przez pytest-timeout, co czerwieni CI
+    OVER_LIMIT = "PRZEKROCZONY CZAS"  # polecenie bez wyniku w --limit-s narzędzia, czego CI nie widzi
     STALE = "NIEAKTUALNA"  # kotwica nie występuje dokładnie raz
     NO_VERDICT = "BEZ WERDYKTU"  # koniec czasu wywołującego przed wynikiem
 
 
 NO_VERDICT = Verdict.NO_VERDICT
-HANG_CAUGHT = "liczona jako wykryta: CI czerwienieje na limicie"
+HANG_CAUGHT = "liczona jako wykryta: pytest-timeout czerwieni test w CI"
+OVER_LIMIT_NOTE = "limit --limit-s narzędzia, nie pytest-timeout"
 
 
 def in_ci(verdict: Verdict, last: str) -> tuple[bool, str]:
-    """Czy CI złapałoby mutację z tym werdyktem, i ostatnia linia do logu; ZAWIESZENIE dostaje dopisek ``HANG_CAUGHT``."""
+    """Czy CI złapałoby mutację z tym werdyktem, i ostatnia linia do logu.
+
+    ZAWIESZENIE (pytest-timeout) dostaje dopisek ``HANG_CAUGHT``; PRZEKROCZONY CZAS nie jest wykryciem, bo test, który
+    tylko przekroczył ``--limit-s`` narzędzia, w CI przechodzi.
+    """
 
     if verdict is Verdict.HANG:
         return True, f"{last} ({HANG_CAUGHT})"
@@ -216,20 +224,19 @@ def _apply(copy: Path, edits: Sequence[Edit]) -> str | None:
 class _Ran:
     code: int | None  # None: polecenie przekroczyło limit
     last: str  # ostatnia linia wyjścia
-    hang: str | None  # linia zawieszenia: własny limit albo pytest-timeout
+    hang: str | None  # linia pytest-timeout
 
 
 def _run(
     copy: Path, command: Sequence[str], limit_s: float, stop: threading.Event | None = None, *, concurrent: bool = False
 ) -> _Ran:
-    """Uruchamia polecenie w kopii; zwraca kod wyjścia, ostatnią linię i linię zawieszenia, jeśli było."""
+    """Uruchamia polecenie w kopii; zwraca kod wyjścia, ostatnią linię i linię pytest-timeout, jeśli była."""
 
     try:
         env = environment(copy, concurrent=concurrent)
         done = potomne.run([sys.executable, *command], cwd=copy, env=env, timeout=limit_s, stop=stop)
     except subprocess.TimeoutExpired:
-        late = f"brak wyniku po {limit_s:g} s"
-        return _Ran(None, late, late)
+        return _Ran(None, f"brak wyniku po {limit_s:g} s", None)
     lines = (done.stdout.strip() or done.stderr.strip()).splitlines()
     hangs = (PYTEST_TIMEOUT.fullmatch(line.strip()) for line in f"{done.stdout}\n{done.stderr}".splitlines())
     hang = next((found["hang"] or found["thread"] for found in hangs if found), None)
@@ -247,9 +254,9 @@ def _verdict(
         if stale:
             return Verdict.STALE, stale
         ran = _run(copy, mutation.command, min(limit_s, left), stop, concurrent=concurrent)
-    if ran.code is None and left < limit_s:
-        # Polecenie przerwał koniec czasu wywołującego, a nie jego własny limit, więc nie wiadomo, czy mutacja je zawiesza.
-        return Verdict.NO_VERDICT, ran.last
+    if ran.code is None:
+        # Koniec czasu wywołującego, a nie limit polecenia, nie mówi, czy mutacja zawiesza polecenie.
+        return (Verdict.OVER_LIMIT, f"{ran.last} ({OVER_LIMIT_NOTE})") if left >= limit_s else (Verdict.NO_VERDICT, ran.last)
     if ran.hang is not None:
         return Verdict.HANG, ran.hang
     caught = ran.last.startswith(mutation.expected) if mutation.expected is not None else ran.code != 0
