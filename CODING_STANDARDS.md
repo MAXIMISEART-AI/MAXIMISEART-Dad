@@ -2,7 +2,7 @@
 
 Rules for writing and reviewing code and tests in a repository where agents write every line.
 A rule that a check enforces sits in its section's table, one row per rule, beside the check that guards it: the reviewer does not repeat that check.
-A bullet is a judgement call that no check makes: the reviewer reports a broken bullet as Drobne, and as Ważne only with the behaviour defect it causes, proved as `docs/agents/przeglad.md` asks.
+A bullet is a judgement call that no check makes: the reviewer reports a broken bullet as Drobne, and as Ważne only with the behaviour defect it causes, proved as the skill [`przeglad`](.agents/skills/przeglad/SKILL.md) asks.
 
 ## Fixing a Mistake Class
 

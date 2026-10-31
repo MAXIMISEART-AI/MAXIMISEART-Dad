@@ -93,6 +93,14 @@ elif arguments[:2] == ["repo", "view"]:
     if repo_view.startswith("gh: "):
         sys.exit(repo_view)
     print(repo_view)
+elif arguments[:2] == ["pr", "comment"]:
+    pull = pulls[arguments[2]]
+    body = pathlib.Path(arguments[arguments.index("--body-file") + 1]).read_text(encoding="utf-8")
+    pull["comments"].append({"body": body, "authorAssociation": "OWNER", "createdAt": "2026-10-25T00:00:00Z", "author": {"login": "recenzent"}})
+    (here / "pulls.json").write_text(json.dumps(pulls))
+    with (here / "comments.jsonl").open("a") as log:
+        log.write(json.dumps([arguments[2], body]) + "\\n")
+    print(f"https://github.com/{REPO}/pull/{arguments[2]}#issuecomment-{len(pull['comments'])}")
 elif arguments[:2] == ["issue", "close"]:
     issues[arguments[2]] = json.dumps({"state": "closed"})
     (here / "issues.json").write_text(json.dumps(issues))
@@ -233,6 +241,19 @@ class FakeGitHub:
 
     def closed(self) -> list[list[str]]:
         return self._log("closed.jsonl")
+
+    def published(self) -> list[list[str]]:
+        """Komentarze z ``gh pr comment``: numer PR i treść."""
+
+        return self._log("comments.jsonl")
+
+    def push_pull(self, number: int, files: dict[str, str]) -> str:
+        """Nowy HEAD PR ``number``: commit ``files`` na jego obecnym HEAD."""
+
+        head = self.commit_on(str(self.pulls[str(number)]["headRefOid"]), files, f"PR {number} dalej")
+        git(self.checkout, "push", "--quiet", "--force", "origin", f"{head}:refs/pull/{number}/head")
+        self.update(number, headRefOid=head)
+        return head
 
     def repo_views(self) -> list[list[str]]:
         return self._log("repo_views.jsonl")
@@ -827,3 +848,181 @@ def test_gotowy_pr_nie_czeka_na_mutacje_zmiany_ani_linie_mutacja_bo_mutacje_bieg
 
     assert answered.returncode == 0, answered.stdout + answered.stderr
     assert _last_line(answered).startswith(f"SCAL OK | #1 {head[:7]} | gotowy do merge'a")
+
+
+# ``tools/skille_dla_zmiany.py`` atrapa: skill z pliku ``skille.txt`` drzewa, w którym biegnie, i pliki zmiany od bazy z argumentu.
+SKILLS_FOR_CHANGE = """\
+import pathlib, subprocess, sys
+
+changed = subprocess.run(["git", "diff", "--name-only", sys.argv[1], "HEAD"], capture_output=True, text=True, check=True).stdout.split()
+skill = pathlib.Path("skille.txt").read_text().strip()
+print(f"{skill}: {', '.join(changed)}")
+print(f"SKILLE VERIFY: {skill}")
+"""
+
+
+def _lines(answered: subprocess.CompletedProcess[str], prefix: str) -> list[str]:
+    return [line for line in answered.stdout.splitlines() if line.startswith(prefix)]
+
+
+def test_przeglad_podaje_merge_base_zmiane_skille_z_head_pr_i_poprzednie_werdykty_z_poleceniem_diffu_kolejnej_rundy(
+    tmp_path: Path,
+) -> None:
+    github = FakeGitHub(tmp_path, {"kod/__init__.py": SUM, "skille.txt": "verify-main\n", "tools/skille_dla_zmiany.py": SKILLS_FOR_CHANGE})
+    reviewed = github.open_pull(1, {"kod/inne.py": "INNE: int = 1\n", "skille.txt": "verify-pr\n"})
+    main = github.push_main({"kod/nazwa.py": 'NAZWA = "z main"\n'})
+    github.comment(1, f"WERDYKT: FAIL {reviewed}\nZnaleziska: 1 (Ważne 1, Drobne 0)\n- Ważne: brak testu")
+    github.comment(1, f"Poprawione w {reviewed[:7]}.")
+    github.comment(1, f"WERDYKT: PASS {reviewed}\nZnaleziska: 0 (Ważne 0, Drobne 0)", association="NONE")
+    github.review(1, "Popraw.", state="CHANGES_REQUESTED")
+    github.review(1, f"WERDYKT: PASS {reviewed}\nZnaleziska: 0 (Ważne 0, Drobne 0)", state="PENDING")
+    head = github.push_pull(1, {"kod/inne.py": "INNE: int = 2\n"})
+    comments, reviews = github.pulls["1"]["comments"], github.pulls["1"]["reviews"]
+    assert isinstance(comments, list) and isinstance(reviews, list)
+    fail, review = comments[0], reviews[0]
+
+    answered = github.run("1", "--przeglad")
+
+    assert answered.returncode == 0, answered.stdout + answered.stderr
+    assert answered.stdout.splitlines()[0] == f"PRZEGLĄD | #1 PR 1 | HEAD {head} | baza main {main} | merge-base {github.start}"
+    assert f"ZMIANA | git diff --stat {github.start} {head}\n" in answered.stdout
+    assert " 2 files changed, 2 insertions(+), 1 deletion(-)\n" in answered.stdout
+    assert "PLIKI | 2\nkod/inne.py\nskille.txt\n" in answered.stdout
+    assert f"SKILLE | tools/skille_dla_zmiany.py {github.start} na HEAD PR\nverify-pr: kod/inne.py, skille.txt\nSKILLE VERIFY: verify-pr\n" in answered.stdout
+    assert _lines(answered, "WERDYKT |") == [
+        f"WERDYKT | {fail['createdAt']} recenzent | inny commit | WERDYKT: FAIL {reviewed} | Znaleziska: 1 (Ważne 1, Drobne 0)",
+        f"WERDYKT | {review['submittedAt']} recenzent | recenzja CHANGES_REQUESTED | Popraw.",
+    ]
+    assert _lines(answered, "RUNDA |") == [f"RUNDA | rund z FAIL: 1, ostatni werdykt FAIL dla {reviewed[:7]}; zmiana od niego: git diff {reviewed} {head}"]
+    assert _last_line(answered) == f"PRZEGLĄD OK | #1 {head[:7]}"
+    assert github.published() == []
+    assert github.merges() == []
+
+
+def test_przeglad_po_pass_dla_head_mowi_ze_werdykt_dotyczy_tego_head_a_rundy_z_fail_licza_tylko_fail(tmp_path: Path) -> None:
+    github = FakeGitHub(tmp_path, {"kod/__init__.py": SUM, "skille.txt": "verify-a\n", "tools/skille_dla_zmiany.py": SKILLS_FOR_CHANGE})
+    reviewed = github.open_pull(1, {"kod/inne.py": "INNE: int = 1\n"})
+    github.comment(1, f"WERDYKT: FAIL {reviewed}\nZnaleziska: 1 (Ważne 1, Drobne 0)")
+    head = github.push_pull(1, {"kod/inne.py": "INNE: int = 2\n"})
+    github.comment(1, f"WERDYKT: PASS {head}\nZnaleziska: 0 (Ważne 0, Drobne 0)")
+
+    answered = github.run("1", "--przeglad")
+
+    assert answered.returncode == 0, answered.stdout + answered.stderr
+    assert [line.split(" | ", 2)[2] for line in _lines(answered, "WERDYKT |")] == [
+        f"inny commit | WERDYKT: FAIL {reviewed} | Znaleziska: 1 (Ważne 1, Drobne 0)",
+        f"HEAD | WERDYKT: PASS {head} | Znaleziska: 0 (Ważne 0, Drobne 0)",
+    ]
+    assert _lines(answered, "RUNDA |") == [f"RUNDA | rund z FAIL: 1, ostatni werdykt PASS dla {head[:7]}, czyli dla tego HEAD"]
+
+
+def test_przeglad_nie_czeka_dluzej_niz_limit_na_skille_dla_zmiany(tmp_path: Path) -> None:
+    github = FakeGitHub(tmp_path, {"kod/__init__.py": SUM, "tools/skille_dla_zmiany.py": "import time\n\ntime.sleep(60)\n"})
+    head = github.open_pull(1, {"kod/inne.py": "INNE: int = 1\n"})
+    tool = github.checkout / "tools" / "scal_pr.py"
+    tool.write_text(tool.read_text(encoding="utf-8").replace("SKILLS_TIMEOUT_S = 300", "SKILLS_TIMEOUT_S = 1"), encoding="utf-8")
+
+    answered = github.run("1", "--przeglad")
+
+    assert answered.returncode == 0, answered.stdout + answered.stderr
+    assert _lines(answered, "SKILLE VERIFY") == ["SKILLE VERIFY: nieznane (tools/skille_dla_zmiany.py przerwane po 1 s)"]
+    assert _last_line(answered) == f"PRZEGLĄD OK | #1 {head[:7]}"
+
+
+@pytest.mark.parametrize(
+    ("files", "skills"),
+    [
+        ({}, "SKILLE VERIFY: nieznane (HEAD PR nie ma tools/skille_dla_zmiany.py)"),
+        ({"tools/skille_dla_zmiany.py": 'print("verify-a: kod/inne.py")\nraise SystemExit("plan CI zepsuty")\n'}, "SKILLE VERIFY: nieznane (tools/skille_dla_zmiany.py: plan CI zepsuty)"),
+    ],
+    ids=["bez-narzedzia", "narzedzie-pada"],
+)
+def test_przeglad_bez_wyniku_skille_dla_zmiany_podaje_skille_nieznane_a_pr_bez_werdyktu_jako_pierwsza_runde(
+    tmp_path: Path, files: dict[str, str], skills: str
+) -> None:
+    github = FakeGitHub(tmp_path, {"kod/__init__.py": SUM, **files})
+    github.open_pull(1, {"kod/inne.py": "INNE: int = 1\n"})
+    github.comment(1, "Wygląda dobrze, WERDYKT: PASS później.")
+
+    answered = github.run("1", "--przeglad")
+
+    assert answered.returncode == 0, answered.stdout + answered.stderr
+    assert _lines(answered, "SKILLE VERIFY") == [skills]
+    assert _lines(answered, "WERDYKT |") == []
+    assert _lines(answered, "RUNDA |") == ["RUNDA | 1: PR nie ma werdyktu"]
+
+
+@pytest.mark.parametrize(
+    ("verdict", "decision"),
+    [
+        ("\n  WERDYKT: PASS {head}  \n\nZnaleziska: 1 (Ważne 0, Drobne 1)\n- Drobne: nazwa\n", "PASS"),
+        ("WERDYKT: FAIL {head}\nZnaleziska: 4 (Ważne 1, Drobne 3)\n- Ważne: brak testu\n", "FAIL"),
+    ],
+    ids=["pass", "fail"],
+)
+def test_werdykt_w_postaci_ze_skilla_dla_head_trafia_na_pr_jako_komentarz_ktory_rozstrzyga_scalenie(
+    tmp_path: Path, verdict: str, decision: str
+) -> None:
+    github = FakeGitHub(tmp_path, {"kod/__init__.py": SUM})
+    head = github.open_pull(1, {"kod/inne.py": "INNE: int = 1\n"})
+    path = tmp_path / "runda-1.md"
+    path.write_text(verdict.format(head=head), encoding="utf-8")
+
+    answered = github.run("1", "--werdykt", str(path))
+    checked = github.run("1", "--bez-merge")
+
+    assert answered.returncode == 0, answered.stdout + answered.stderr
+    assert _last_line(answered) == f"WERDYKT OK | #1 {head[:7]} | {decision} | https://github.com/{opisy_pr.REPO}/pull/1#issuecomment-1"
+    assert github.published() == [["1", verdict.format(head=head)]]
+    assert (checked.returncode == 0) == (decision == "PASS"), checked.stdout + checked.stderr
+
+
+OLD = "0" * 40
+
+
+@pytest.mark.parametrize(
+    ("verdict", "reason"),
+    [
+        ("", "pierwsza linia „” to nie „WERDYKT: PASS {head}” ani „WERDYKT: FAIL {head}”; druga linia „” to nie „Znaleziska: N (Ważne a, Drobne b)”"),
+        ("WERDYKT: PASS {short}\nZnaleziska: 0 (Ważne 0, Drobne 0)", "pierwsza linia „WERDYKT: PASS {short}” to nie „WERDYKT: PASS {head}” ani „WERDYKT: FAIL {head}”"),
+        ("Werdykt: PASS {head}\nZnaleziska: 0 (Ważne 0, Drobne 0)", "pierwsza linia „Werdykt: PASS {head}” to nie „WERDYKT: PASS {head}” ani „WERDYKT: FAIL {head}”"),
+        (f"WERDYKT: PASS {OLD}\nZnaleziska: 0 (Ważne 0, Drobne 0)", f"werdykt dla {OLD[:7]}, a HEAD PR to {{head}}: przejrzyj git diff {OLD} {{head}} i wpisz SHA HEAD"),
+        ("WERDYKT: PASS {head}\n- Drobne: nazwa", "druga linia „- Drobne: nazwa” to nie „Znaleziska: N (Ważne a, Drobne b)”"),
+        ("WERDYKT: FAIL {head}\nZnaleziska: 2 (Ważne 1, Drobne 0)", "Znaleziska: 2, a Ważne 1 i Drobne 0 dają 1"),
+        ("WERDYKT: PASS {head}\nZnaleziska: 4 (Ważne 0, Drobne 4)", "Drobne 4: podaj najwyżej 3, najważniejsze"),
+        ("WERDYKT: PASS {head}\nZnaleziska: 1 (Ważne 1, Drobne 0)", "PASS z Ważne 1: FAIL daje tylko Ważne znalezisko, a PASS jest bez Ważnych"),
+        ("WERDYKT: FAIL {head}\nZnaleziska: 1 (Ważne 0, Drobne 1)", "FAIL z Ważne 0: FAIL daje tylko Ważne znalezisko, a PASS jest bez Ważnych"),
+        (
+            f"WERDYKT: FAIL {OLD}\nZnaleziska: 3 (Ważne 0, Drobne 4)",
+            f"werdykt dla {OLD[:7]}, a HEAD PR to {{head}}: przejrzyj git diff {OLD} {{head}} i wpisz SHA HEAD; "
+            "Znaleziska: 3, a Ważne 0 i Drobne 4 dają 4; Drobne 4: podaj najwyżej 3, najważniejsze; "
+            "FAIL z Ważne 0: FAIL daje tylko Ważne znalezisko, a PASS jest bez Ważnych",
+        ),
+    ],
+    ids=["pusty", "skrocony-sha", "male-litery", "inny-commit", "bez-linii-znalezisk", "zla-suma", "za-duzo-drobnych", "pass-z-waznym", "fail-bez-waznego", "kilka-naraz"],
+)
+def test_werdykt_niezgodny_z_postacia_ze_skilla_albo_z_head_nie_trafia_na_pr_a_odmowa_mowi_co_poprawic(
+    tmp_path: Path, verdict: str, reason: str
+) -> None:
+    github = FakeGitHub(tmp_path, {"kod/__init__.py": SUM})
+    head = github.open_pull(1, {"kod/inne.py": "INNE: int = 1\n"})
+    path = tmp_path / "runda-1.md"
+    path.write_text(verdict.format(head=head, short=head[:7]), encoding="utf-8")
+
+    answered = github.run("1", "--werdykt", str(path))
+
+    assert answered.returncode == 1, answered.stdout + answered.stderr
+    assert _last_line(answered) == f"WERDYKT ODMOWA | #1 | {reason.format(head=head, short=head[:7])}; popraw {path} i uruchom ponownie"
+    assert github.published() == []
+
+
+def test_werdykt_bez_pliku_konczy_sie_bledem_narzedzia_bez_komentarza(tmp_path: Path) -> None:
+    github = FakeGitHub(tmp_path, {"kod/__init__.py": SUM})
+    github.open_pull(1, {"kod/inne.py": "INNE: int = 1\n"})
+
+    answered = github.run("1", "--werdykt", str(tmp_path / "brak.md"))
+
+    assert answered.returncode == 1, answered.stdout + answered.stderr
+    assert _last_line(answered).startswith("WERDYKT FAIL | ")
+    assert "brak.md" in _last_line(answered)
+    assert github.published() == []

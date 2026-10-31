@@ -80,8 +80,24 @@ commitu merge'a i bazy, z którą sprawdziła scalenie. Kod 1 to odmowa albo bł
 Komentarze, recenzje i checki pochodzą z jednego ``gh pr view --json``, które doczytuje wszystkie strony
 komentarzy (sprawdzone na PR z 337 komentarzami, gh 2.101).
 
+Dwa tryby służą recenzentowi (skill ``przeglad``, tryb recenzenta) i niczego nie scalają. ``--przeglad`` drukuje
+kontekst przeglądu: pełny SHA HEAD PR, bazę i merge-base z nią, ``git diff --stat`` i zmienione pliki od merge-base,
+wynik ``tools/skille_dla_zmiany.py`` z HEAD PR liczony od merge-base (w kopii commitu HEAD, więc ``pilnuje:`` skilli
+jest z PR) i poprzednie werdykty PR w kolejności utworzenia, każdy z datą, autorem, dwiema pierwszymi liniami i tym,
+czy dotyczy HEAD. Gdy ostatni werdykt jest dla innego commitu, linia ``RUNDA`` podaje polecenie diffu od niego do
+HEAD. Kończy się linią ``PRZEGLĄD OK | #N <sha>``.
+
+``--werdykt <plik>`` publikuje plik jako komentarz PR (``gh pr comment --body-file``), gdy pierwsza niepusta linia
+to ``WERDYKT: PASS <SHA>`` albo ``WERDYKT: FAIL <SHA>`` z pełnym SHA bieżącego HEAD PR, druga to ``Znaleziska: N
+(Ważne a, Drobne b)`` z ``N = a + b``, ``PASS`` ma zero Ważnych, ``FAIL`` co najmniej jedno, a Drobnych jest
+najwyżej trzy. Inaczej niczego nie publikuje i kończy się linią ``WERDYKT ODMOWA | #N | <przyczyny>``, w której
+każda przyczyna mówi, co poprawić w pliku. Opublikowany werdykt kończy się linią ``WERDYKT OK | #N <sha> | <PASS
+albo FAIL> | <adres komentarza>``.
+
     .venv/bin/python tools/scal_pr.py 336               # sprawdza i scala
     .venv/bin/python tools/scal_pr.py 336 --bez-merge   # tylko sprawdza
+    .venv/bin/python tools/scal_pr.py 336 --przeglad    # kontekst dla recenzenta
+    .venv/bin/python tools/scal_pr.py 336 --werdykt ~/.t3/notes/bieg/recenzje/336/runda-1.md
 """
 
 from __future__ import annotations
@@ -102,6 +118,10 @@ import scalenia_pr
 ROOT = Path(__file__).resolve().parents[1]
 REQUIRED_CHECK = "Required CI status"
 VERDICT_LINE = re.compile(r"WERDYKT: (PASS|FAIL) ([0-9a-f]{40})")
+FINDINGS_LINE = re.compile(r"Znaleziska: (\d+) \(Ważne (\d+), Drobne (\d+)\)")
+MAX_MINOR = 3
+SKILLS_FOR_CHANGE = Path("tools") / "skille_dla_zmiany.py"
+SKILLS_TIMEOUT_S = 300
 TRUSTED = frozenset({"OWNER", "MEMBER", "COLLABORATOR"})
 CLEANUP = ROOT / "tools" / "sprzatanie.py"
 TEMPLATE = ROOT / ".agents" / "skills" / "pr" / "SKILL.md"
@@ -184,9 +204,15 @@ def _verdict(verdict: dict[str, object], head: str) -> str | None:
         return None
     if verdict.get("state") == "CHANGES_REQUESTED":
         return "FAIL"
-    lines = [line.strip() for line in str(verdict["body"]).splitlines() if line.strip()]
+    lines = _text_lines(verdict["body"])
     found = VERDICT_LINE.fullmatch(lines[0]) if lines else None
     return found[1] if found and found[2] == head else None
+
+
+def _text_lines(body: object) -> list[str]:
+    """Niepuste linie tekstu bez odstępów na brzegach: pierwsza to linia werdyktu, druga linia znalezisk."""
+
+    return [line.strip() for line in str(body).splitlines() if line.strip()]
 
 
 def _verdict_problem(verdicts: tuple[dict[str, object], ...], head: str) -> str | None:
@@ -411,6 +437,110 @@ def _clean_up() -> str:
     return f"sprzątanie: {result or f'kod {done.returncode}'}"
 
 
+def _git(*arguments: str) -> str:
+    done = potomne.run(["git", *arguments], cwd=ROOT, timeout=scalenia_pr.GITHUB_TIMEOUT_S)
+    done.check_returncode()
+    return done.stdout
+
+
+def _skills_for_change(head: str, fork: str) -> list[str]:
+    """Wynik ``tools/skille_dla_zmiany.py`` z kopii commitu ``head`` od ``fork``; ostatnia linia to zawsze ``SKILLE VERIFY``."""
+
+    unknown = "SKILLE VERIFY: nieznane ({})"
+    with potomne.commit_copy(ROOT, head) as copy:
+        if not (copy / SKILLS_FOR_CHANGE).is_file():
+            return [unknown.format(f"HEAD PR nie ma {SKILLS_FOR_CHANGE.as_posix()}")]
+        try:
+            done = potomne.run([sys.executable, str(copy / SKILLS_FOR_CHANGE), fork], cwd=copy, timeout=SKILLS_TIMEOUT_S)
+        except subprocess.TimeoutExpired:
+            return [unknown.format(f"{SKILLS_FOR_CHANGE.as_posix()} przerwane po {SKILLS_TIMEOUT_S} s")]
+    lines = done.stdout.splitlines()
+    if not lines or not lines[-1].startswith("SKILLE VERIFY: "):
+        detail = (done.stderr.strip().splitlines() or [f"kod {done.returncode}"])[-1]
+        lines.append(unknown.format(f"{SKILLS_FOR_CHANGE.as_posix()}: {detail}"))
+    return lines
+
+
+def _verdict_history(pull: Pull) -> list[str]:
+    """Linie werdyktów PR w kolejności utworzenia i linia ``RUNDA`` o ostatnim z nich."""
+
+    shown, last, failed = [], None, set()
+    for verdict in pull.verdicts:
+        if verdict["authorAssociation"] not in TRUSTED or verdict.get("state") == "PENDING":
+            continue
+        lines = _text_lines(verdict["body"])
+        found = VERDICT_LINE.fullmatch(lines[0]) if lines else None
+        if found is None and verdict.get("state") != "CHANGES_REQUESTED":
+            continue
+        author = verdict.get("author")
+        login = author.get("login", "?") if isinstance(author, dict) else "?"
+        when = verdict.get("createdAt") or verdict.get("submittedAt") or "?"
+        if found is None:
+            shown.append(f"WERDYKT | {when} {login} | recenzja CHANGES_REQUESTED | {' | '.join(lines[:2])}")
+            continue
+        last = (found[1], found[2])
+        if found[1] == "FAIL":
+            failed.add(found[2])
+        which = "HEAD" if found[2] == pull.head else "inny commit"
+        shown.append(f"WERDYKT | {when} {login} | {which} | {' | '.join(lines[:2])}")
+    if last is None:
+        return [*shown, "RUNDA | 1: PR nie ma werdyktu"]
+    rounds = f"rund z FAIL: {len(failed)}, ostatni werdykt {last[0]} dla {last[1][:7]}"
+    if last[1] == pull.head:
+        return [*shown, f"RUNDA | {rounds}, czyli dla tego HEAD"]
+    return [*shown, f"RUNDA | {rounds}; zmiana od niego: git diff {last[1]} {pull.head}"]
+
+
+def _review_context(number: int) -> int:
+    pull = _pull(number)
+    base = scalenia_pr.fetch(pull.base, [scalenia_pr.PullRequest(pull.number, pull.title, pull.head)])
+    fork = _git("merge-base", base, pull.head).strip()
+    files = _git("diff", "--name-only", "--no-renames", fork, pull.head).splitlines()
+    print(f"PRZEGLĄD | #{pull.number} {pull.title} | HEAD {pull.head} | baza {pull.base} {base} | merge-base {fork}")
+    print(f"ZMIANA | git diff --stat {fork} {pull.head}")
+    print(_git("diff", "--stat", fork, pull.head).rstrip())
+    print(f"PLIKI | {len(files)}", *files, sep="\n")
+    print(f"SKILLE | {SKILLS_FOR_CHANGE.as_posix()} {fork} na HEAD PR", *_skills_for_change(pull.head, fork), sep="\n")
+    print(*_verdict_history(pull), sep="\n")
+    print(f"PRZEGLĄD OK | #{pull.number} {pull.head[:7]}")
+    return 0
+
+
+def _verdict_file_problems(text: str, head: str) -> list[str]:
+    """Co poprawić w pliku werdyktu dla ``head``; pusta lista, gdy obie pierwsze linie są zgodne z ``--help``."""
+
+    lines = _text_lines(text)
+    first, second = [*lines, "", ""][:2]
+    verdict = VERDICT_LINE.fullmatch(first)
+    findings = FINDINGS_LINE.fullmatch(second)
+    problems = []
+    if verdict is None:
+        problems.append(f"pierwsza linia „{first}” to nie „WERDYKT: PASS {head}” ani „WERDYKT: FAIL {head}”")
+    elif verdict[2] != head:
+        problems.append(f"werdykt dla {verdict[2][:7]}, a HEAD PR to {head}: przejrzyj git diff {verdict[2]} {head} i wpisz SHA HEAD")
+    if findings is None:
+        return [*problems, f"druga linia „{second}” to nie „Znaleziska: N (Ważne a, Drobne b)”"]
+    total, major, minor = map(int, findings.groups())
+    if total != major + minor:
+        problems.append(f"Znaleziska: {total}, a Ważne {major} i Drobne {minor} dają {major + minor}")
+    if minor > MAX_MINOR:
+        problems.append(f"Drobne {minor}: podaj najwyżej {MAX_MINOR}, najważniejsze")
+    if verdict is not None and (verdict[1] == "FAIL") != (major > 0):
+        problems.append(f"{verdict[1]} z Ważne {major}: FAIL daje tylko Ważne znalezisko, a PASS jest bez Ważnych")
+    return problems
+
+
+def _publish_verdict(number: int, path: Path) -> int:
+    pull = _pull(number)
+    text = path.read_text(encoding="utf-8")
+    if problems := _verdict_file_problems(text, pull.head):
+        print(f"WERDYKT ODMOWA | #{pull.number} | {'; '.join(problems)}; popraw {path} i uruchom ponownie")
+        return 1
+    url = _gh("pr", "comment", str(number), "--body-file", str(path)).strip()
+    print(f"WERDYKT OK | #{pull.number} {pull.head[:7]} | {_text_lines(text)[0].split()[1]} | {url}")
+    return 0
+
+
 def _merge(number: int, *, merge: bool) -> int:
     pull = _pull(number)
     where = f"#{pull.number} {pull.head[:7]}"
@@ -434,15 +564,23 @@ def _merge(number: int, *, merge: bool) -> int:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("numer", type=int, help="Numer PR.")
-    parser.add_argument("--bez-merge", action="store_true", help="Sprawdź gotowość, ale nie scalaj.")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--bez-merge", action="store_true", help="Sprawdź gotowość, ale nie scalaj.")
+    mode.add_argument("--przeglad", action="store_true", help="Wydrukuj recenzentowi kontekst przeglądu PR.")
+    mode.add_argument("--werdykt", type=Path, metavar="PLIK", help="Sprawdź plik werdyktu i opublikuj go jako komentarz PR.")
     args = parser.parse_args(argv)
+    label = "PRZEGLĄD" if args.przeglad else "WERDYKT" if args.werdykt else "SCAL"
     try:
+        if args.przeglad:
+            return _review_context(args.numer)
+        if args.werdykt:
+            return _publish_verdict(args.numer, args.werdykt)
         return _merge(args.numer, merge=not args.bez_merge)
     except subprocess.CalledProcessError as error:
         command = " ".join(str(part) for part in error.cmd)
-        print(f"SCAL FAIL | {command}: {(error.stderr or error.stdout or '').strip()}")
+        print(f"{label} FAIL | {command}: {(error.stderr or error.stdout or '').strip()}")
     except (subprocess.TimeoutExpired, OSError) as error:
-        print(f"SCAL FAIL | {error}")
+        print(f"{label} FAIL | {error}")
     return 1
 
 
