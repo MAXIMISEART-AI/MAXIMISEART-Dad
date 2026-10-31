@@ -171,6 +171,9 @@ jobs:
     needs: plan
     if: ${{ needs.plan.outputs.pytest != '[]' }}
     runs-on: ${{ matrix.os }}
+    # The last guard: the plan sums the time limits of the job's steps (pytest, its retry, E2E, timing guard) with a
+    # margin, so a step limit ends a hang with a LIMIT line first and only a hang outside those steps meets this one.
+    timeout-minutes: ${{ matrix.limit_minut }}
     permissions:
       contents: read
       # tools/ci/czasy_ci.py reads the step times of this job from the run's jobs API.

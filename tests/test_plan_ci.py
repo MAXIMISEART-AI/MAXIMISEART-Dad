@@ -14,6 +14,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tomllib
 
 import pytest
 
@@ -436,6 +437,48 @@ def test_zadanie_wykonuje_kroki_po_czerwonym_pytest_przerywa_krok_po_limicie_i_z
     assert [(unit["klucz"], unit["status"]) for unit in result["jednostki"]] == [("krok:pytest", "fail"), ("krok:wiszacy", "fail"), ("krok:szybki", "ok")]
     assert ((mini_repo / "nie-biegnie").exists(), (mini_repo / "biegl").exists()) == (False, True)
     assert capsys.readouterr().out.splitlines()[-1] == "WYKONANIE FAIL | krok:pytest, krok:wiszacy"
+
+
+@pytest.mark.parametrize("event", ["pull_request", "push"])
+def test_zawieszony_test_konczy_krok_pytest_po_limicie_z_linia_limitu_a_nie_po_godzinach(
+    mini_repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], event: str
+) -> None:
+    (mini_repo / "tests" / "test_wisi.py").write_text("import time\n\n\ndef test_wisi() -> None:\n    time.sleep(60)\n", encoding="utf-8")
+    monkeypatch.setattr(plan_ci, "LIMIT_PYTEST_MIN_S", 3)
+    job = plan_ci.Zadanie("linux-3.14-1", "linux-3.14", "pytest (Python 3.14, Linux, 1/1)", ("pytest:tests/test_wisi.py",), 0.9)
+
+    code = plan_ci.wykonaj(plan_ci.Plan(event, plan_ci.CEL_S, (), (job,)), job.id)
+    out = capsys.readouterr().out
+    result = json.loads(plan_ci.WYKONANIE.read_text(encoding="utf-8"))
+
+    assert code == 1
+    assert [(unit["klucz"], unit["status"]) for unit in result["jednostki"]] == [("krok:pytest", "fail")]
+    assert "LIMIT | krok:pytest: -m pytest przerwany po limicie 3 s (3 × ściana zadania 1 s z planu, najmniej 3 s): to nie porażka testu" in out
+    assert "== ponowienie" not in out
+
+
+@pytest.mark.parametrize(("sciana_s", "limit_s"), [(90.0, 600.0), (411.0, 1233.0)], ids=["krótkie zadanie: 10 min", "długie: 3 ściany"])
+def test_limit_kroku_pytest_to_trzy_sciany_zadania_z_planu_a_najmniej_dziesiec_minut(sciana_s: float, limit_s: float) -> None:
+    job = plan_ci.Zadanie("windows-3.14-1", "windows-3.14", "pytest (Python 3.14, 1/1)", ("pytest:tests/test_adr.py",), sciana_s)
+
+    assert plan_ci.limit_pytest_s(job) == limit_s
+
+
+@pytest.mark.parametrize(("event", "minutes"), [("pull_request", 106), ("push", 96)])
+def test_github_zabija_zadanie_pytest_dopiero_po_limitach_wszystkich_jego_krokow(event: str, minutes: int) -> None:
+    # 401 s ściany: pytest 1203 s, na pull request ponowienie 600 s, E2E 900 s, straż czasu 3000 s, narzut 600 s; w górę do minuty.
+    job = plan_ci.Zadanie("windows-3.14-1", "windows-3.14", "pytest (Python 3.14, 1/1)", ("pytest:tests/test_adr.py", "krok:e2e", "krok:timing"), 401.0)
+    plan = plan_ci.Plan(event, plan_ci.CEL_S, (), (job,))
+
+    assert [entry["limit_minut"] for entry in plan.macierz("pytest")] == [minutes]
+
+
+def test_wiszacy_test_zostawia_stosy_watkow_przed_limitem_kroku_ale_po_limicie_pytest_timeout() -> None:
+    """Test przerwany przez pytest-timeout nie drukuje stosów drugi raz, a zawieszony zdąży je wydrukować przed limitem kroku."""
+
+    ini = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["tool"]["pytest"]["ini_options"]
+
+    assert ini["timeout"] < ini["faulthandler_timeout"] < plan_ci.LIMIT_PYTEST_MIN_S
 
 
 FLAKY = (

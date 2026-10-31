@@ -81,6 +81,10 @@ def test_zadanie_z_macierza_planu_czyta_z_niej_tylko_pola_wpisu(template: str) -
     assert used == set(plan.macierz(template)[0])
 
 
+def test_github_konczy_zadanie_pytest_po_limicie_z_planu_a_nie_po_szesciu_godzinach() -> None:
+    assert jobs()["pytest"]["timeout-minutes"] == "${{ matrix.limit_minut }}"
+
+
 def test_mutation_checks_instaluja_playwright_i_chromium_tylko_w_zadaniu_ktore_plan_oznaczyl() -> None:
     steps = jobs()["mutations"]["steps"]
 
