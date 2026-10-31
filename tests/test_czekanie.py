@@ -208,6 +208,8 @@ PASSING = (
     'grep -E "^(until)$" tools/hooks/czekanie.py; sleep 1; gh pr checks 446',
     # ``-c`` innego polecenia niż powłoka to nie skrypt: ``grep -c`` liczy wiersze z tym tekstem.
     "grep -c 'until ! gh pr checks 1 | grep -q pending; do sleep 30; done' ~/.t3/notes/czekanie.log",
+    # ``)`` wzorca ``case`` bez ``(`` przed nim zaczyna polecenie bez słowa powłoki, więc ``grep -c`` za nim też.
+    "case $1 in a) grep -c 'until ! gh pr checks 1 | grep -q pending; do sleep 30; done' ci.log;; esac",
     # Bez ``-c`` powłoka dostaje w napisie nazwę pliku skryptu albo jego argument.
     "sh -e 'until ! gh pr checks 1 | grep -q pending; do sleep 30; done'",
     "bash backup.sh 'until ! gh pr checks 1 | grep -q pending; do sleep 30; done'",
@@ -338,8 +340,10 @@ def test_hook_trzyma_w_pamieci_jedno_cialo_petli_naraz(monkeypatch: pytest.Monke
         '{"tool_input": null}',
         '{"tool_input": {"command": 5}}',
         '{"tool_name": "Bash"}',
-        # Zagnieżdżenie głębsze niż stos Pythona: w JSON-ie i w poleceniu (``"$(`` w ``"$(`` …).
-        "[" * 100000,
+        # Zagnieżdżenie głębsze niż stos Pythona: w JSON-ie i w poleceniu (``"$(`` w ``"$(`` …). Na Pythonie 3.14
+        # runnera CI 100 000 ``[`` kończy się ``ValueError`` na końcu wejścia, nie ``RecursionError`` (#694), a milion
+        # przepełnia stos o każdym limicie, który da się ustawić, nawet przy kilku bajtach stosu na poziom.
+        "[" * 1_000_000,
         json.dumps({"tool_input": {"command": '"$(' * 1000 + "until ! gh pr checks 1; do sleep 30; done"}}),
     ],
     ids=["pusto", "nie-json", "lista", "null", "liczba", "bez-polecenia", "gleboki-json", "gleboki-cudzyslow"],
@@ -348,6 +352,19 @@ def test_nieczytelne_wejscie_hooka_przechodzi(stdin: str) -> None:
     hooked = _hook(stdin)
 
     assert (hooked.returncode, hooked.stdout) == (0, "")
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="zamknięte stdin daje tu sh, którego Windows nie ma")
+def test_hook_bez_stdin_przechodzi() -> None:
+    # Python bez deskryptora 0 ma ``sys.stdin = None``, a ``json.load(None)`` rzuca ``AttributeError``.
+    hooked = subprocess.run(
+        ["sh", "-c", 'exec "$0" "$1" <&-', sys.executable, str(HOOK)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert (hooked.returncode, hooked.stdout, hooked.stderr) == (0, "", "")
 
 
 def _configured(project: Path) -> list[subprocess.CompletedProcess[str]]:
