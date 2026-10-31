@@ -16,7 +16,7 @@
   Wtedy stoi w linii `LICZY CI`, a nie `LICZY NOC`.
   Biegnie w pełnym CI `main` i nocą na `main` (`mutacje-nocne.yml`), gdy od ostatniej udanej nocy zmienił się plik w folderze skilla, runner mutacji (`tools/mutacje.py`, `tools/ci/mutacje_skilli.py`) albo sprawdzenie, które uruchamiają jego mutacje.
   Skrypt, który padł nocą, trafia linią `SKRYPT <skrypt>` do issue `Przeżyte mutacje skilli z #N` z etykietą `ready-for-agent` PR-u, który ostatni zmienił folder skilla.
-- Zmiana `requirements.txt`, `.github/workflows/ci.yml` albo `.gitattributes` uruchamia każdy krok każdego skilla, a skill bez czytelnego `pilnuje:` biegnie przy każdej zmianie.
+- Zmiana `requirements.txt`, `.github/workflows/ci.yml` albo `.gitattributes` (`Context.SKILL_STEPS` w `tools/lib/wplyw_zmiany.py`) uruchamia każdą podstawę skilla na PR, a nocą każdy skrypt mutacji i każdą podstawę z `ci-czesci`, a skill bez czytelnego `pilnuje:` biegnie przy każdej zmianie.
 - Importów ani plików, które krok czyta, wybór nie liczy, więc to, czego `pilnuje:` nie obejmuje, łapie dopiero pełne CI `main`, na którym biegnie każdy krok.
 - Glob, który wymienia moduły z nazwy, nie obejmuje nowego modułu, więc nowy moduł silnika dopisz do `pilnuje:`, które obejmuje też `tools/uruchom_proces.py`, albo z powodem do `POZA_VERIFY_ROZLICZENIA` w `tests/test_mutacje_skilli.py`.
 - Wybrane i pominięte kroki dla swojej gałęzi, każdy z powodem, drukuje bez uruchamiania `.venv/bin/python tools/plan_ci.py plan --baza origin/main` w liniach `WYBRANY` i `POMINIĘTY`, a skrypty, które po merge'u uruchomi noc, `.venv/bin/python tools/plan_ci.py plan --zdarzenie noc --baza origin/main`.

@@ -29,7 +29,7 @@ import czasy_ci  # noqa: E402
 import mutacje_skilli  # noqa: E402
 import niestabilne_testy  # noqa: E402
 import plan_ci  # noqa: E402
-import szybko  # noqa: E402
+from wplyw_zmiany import STRUCTURE  # noqa: E402
 
 FILES = [f"tests/test_{index:02}.py" for index in range(40)]
 # Plik dłuższy niż zadanie, jak test_uszkodzone_wejscia: 1100 s testów na Windows.
@@ -697,7 +697,7 @@ def test_plan_pull_requestu_i_nocy_startuje_mutation_checks_tylko_z_praca_od_zmi
     with (repo / changed).open("a", encoding="utf-8") as file:
         file.write("\n\ndef b(x: int) -> bool:\n    return x < 3\n")
     commit(repo, "zmiana")
-    for module in (plan_ci, mutacje_skilli, szybko):
+    for module in (plan_ci, mutacje_skilli):
         monkeypatch.setattr(module, "ROOT", repo)
     monkeypatch.setattr(mutacje_skilli, "SKILLS", repo / ".agents" / "skills")
     monkeypatch.setattr(czasy_ci, "_gh", offline)
@@ -751,7 +751,7 @@ def test_plan_pull_requestu_uruchamia_skrypt_mutacji_modelu_tylko_gdy_zmiana_dot
     with (repo / changed).open("a", encoding="utf-8") as file:
         file.write("\n")
     commit(repo, "zmiana")
-    for module in (plan_ci, mutacje_skilli, szybko):
+    for module in (plan_ci, mutacje_skilli):
         monkeypatch.setattr(module, "ROOT", repo)
     monkeypatch.setattr(mutacje_skilli, "SKILLS", repo / ".agents" / "skills")
     monkeypatch.setattr(czasy_ci, "_gh", offline)
@@ -781,7 +781,7 @@ def test_noca_podstawa_z_ci_czesci_biegnie_kazda_czescia_kazdego_n_a_pull_reques
     with (repo / ".agents/skills/verify-a/scripts/sprawdz_a.py").open("a", encoding="utf-8") as file:
         file.write("\nZMIANA = 1\n")
     commit(repo, "zmiana podstawy")
-    for module in (plan_ci, mutacje_skilli, szybko):
+    for module in (plan_ci, mutacje_skilli):
         monkeypatch.setattr(module, "ROOT", repo)
     monkeypatch.setattr(mutacje_skilli, "SKILLS", repo / ".agents" / "skills")
     monkeypatch.setattr(czasy_ci, "_gh", offline)
@@ -827,7 +827,7 @@ def test_zgubiony_skrypt_mutacji_albo_zly_klucz_ci_trafia_z_wyboru_do_planu_i_cz
         (repo / name).parent.mkdir(parents=True, exist_ok=True)
         (repo / name).write_text(text, encoding="utf-8")
     commit(repo, "zmiana")
-    for module in (plan_ci, mutacje_skilli, szybko):
+    for module in (plan_ci, mutacje_skilli):
         monkeypatch.setattr(module, "ROOT", repo)
     monkeypatch.setattr(mutacje_skilli, "SKILLS", repo / ".agents" / "skills")
     monkeypatch.setattr(czasy_ci, "_gh", offline)
@@ -881,12 +881,12 @@ def test_bramka_pr_biegnie_na_windows_311_i_linuksie_z_wyborem_szybko_a_e2e_i_st
 
     assert [(lane.nazwa, lane.kroki) for lane in gate.tory] == [(WINDOWS, steps), (LINUX, ())]
     assert gate.zrodlo == source
-    # GATE nie ma plików testów ze szybko.STRUCTURE, więc wybór biegnie z całą strukturą.
-    assert list(gate.pliki) == (plan_ci.pliki_testow(repo) if files is None else [*files, *szybko.STRUCTURE])
+    # GATE nie ma plików testów ze STRUCTURE, więc wybór biegnie z całą strukturą.
+    assert list(gate.pliki) == (plan_ci.pliki_testow(repo) if files is None else [*files, *STRUCTURE])
 
 
 def test_bramka_pr_biegnie_wybrany_plik_testow_raz_bez_jego_wezlow_ze_struktury(tmp_path: Path) -> None:
-    file = next(node.partition("::")[0] for node in szybko.STRUCTURE if "::" in node)
+    file = next(node.partition("::")[0] for node in STRUCTURE if "::" in node)
     repo = repository(tmp_path / "repo", {**GATE, file: "def test_wezel() -> None:\n    pass\n"})
 
     gate = plan_ci.zakres("pull_request", frozenset({file}), repo)

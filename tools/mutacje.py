@@ -97,7 +97,7 @@ import time
 from typing import Protocol, TypeVar
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools/lib"))
-# plan_ci i szybko importuje dopiero --jak-ci: plan_ci sam importuje ten moduł.
+# plan_ci i wplyw_zmiany importuje dopiero --jak-ci: plan_ci sam importuje ten moduł.
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
 
 import ciezkie_ci
@@ -674,11 +674,11 @@ def _ci_mutations(mutations: Sequence[Mutation], run: str, base: str) -> list[Mu
     """Każda mutacja raz na każde zadanie pytest runu ``run`` (pusty: ``_last_run``), w którym stoi test zmieniony od
     ``base``, z poleceniem ``pytest -n 1`` z plikami tego zadania."""
 
-    # Przez import_module: plan_ci importuje ten moduł, a kopie narzędzi w repozytoriach testów nie mają ani jego, ani szybko.
+    # Przez import_module: plan_ci importuje ten moduł, a kopie narzędzi w repozytoriach testów nie mają ani jego, ani wplyw_zmiany.
     plan_ci = importlib.import_module("plan_ci")
-    szybko = importlib.import_module("szybko")
+    wplyw_zmiany = importlib.import_module("wplyw_zmiany")
     try:
-        tested = szybko.changed_since(base)
+        tested = wplyw_zmiany.changed_since(ROOT, base)
     except subprocess.CalledProcessError as error:
         raise ValueError(f"brak merge-base HEAD z {base}, więc nie wiadomo, które testy zmieniono: {error.stderr.strip()}") from error
     run = run or _last_run()

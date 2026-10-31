@@ -1,6 +1,6 @@
 """Ścieżki, które moduł Pythona nazywa w swoim kodzie: napisy, ścieżki składane operatorem ``/`` i globy na katalogach.
 
-Czyta je ``tools/szybko.py``: od tych plików zależy test, choć ich nie importuje.
+Czyta je ``tools/lib/wplyw_zmiany.py``: od tych plików zależy test, choć ich nie importuje.
 """
 
 from __future__ import annotations
@@ -23,7 +23,7 @@ class Glob:
 
 def references(nodes: Sequence[ast.AST]) -> tuple[set[str], set[Glob]]:
     """Napisy modułu, ścieżki składane operatorem ``/`` (``ROOT / "docs" / "adr"`` daje ``docs/adr``) i globy na katalogach;
-    ``nodes`` to wszystkie węzły modułu (``ast.walk``), które ``tools/szybko.py`` przegląda raz także dla importów."""
+    ``nodes`` to wszystkie węzły modułu (``ast.walk``), które ``tools/lib/wplyw_zmiany.py`` przegląda raz także dla importów."""
 
     def is_path(node: ast.AST) -> TypeGuard[ast.BinOp]:
         return isinstance(node, ast.BinOp) and isinstance(node.op, ast.Div)
