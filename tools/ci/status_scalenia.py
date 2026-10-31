@@ -18,8 +18,8 @@ przez 1000 przebiegów przestaje dostawać werdykt.
 Kończy się kodem 0, gdy każdy PR dostał werdykt, także czerwony, bo czerwony job na commicie ``main``
 wyglądałby jak czerwony ``main``. Kod 1 znaczy, że narzędzie nie wysłało któregoś werdyktu.
 
-    .venv/bin/python tools/scalenia_pr.py                # werdykty bez statusów
-    python tools/scalenia_pr.py --publikuj --baza main   # workflow scalenia.yml
+    .venv/bin/python tools/ci/status_scalenia.py                # werdykty bez statusów
+    python tools/ci/status_scalenia.py --publikuj --baza main   # workflow scalenia.yml
 """
 
 from __future__ import annotations
@@ -35,9 +35,11 @@ import sys
 import time
 from typing import Literal
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tools/lib"))
+
 import potomne
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 CHECKS = ("tools/ci_lokalnie.py", "--tylko", "ruff,mypy")
 CHECK_TIMEOUT_S = 300
 GITHUB_TIMEOUT_S = 60

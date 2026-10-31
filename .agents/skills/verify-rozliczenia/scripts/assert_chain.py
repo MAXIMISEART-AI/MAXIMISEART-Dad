@@ -20,6 +20,8 @@ from openpyxl.utils import column_index_from_string, get_column_letter
 from openpyxl.workbook.workbook import Workbook
 from openpyxl.worksheet.worksheet import Worksheet
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "tools/lib"))
+
 from wynik_uruchomienia import (
     Link,
     check_metrics,

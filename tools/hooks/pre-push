@@ -18,7 +18,7 @@ aktualizować gałąź z ``origin/main``, i skille ``verify-*`` do załadowania 
 narzędzie się nie uda, brama drukuje ``AKTUALIZACJA: nieznana (…)`` albo ``SKILLE VERIFY: nieznane (…)``, a wynik
 pushu się nie zmienia.
 
-Hook biegnie systemowym Pythonem (na Macu 3.9), więc ten plik i ``tools/potomne.py`` ruff sprawdza pod 3.9
+Hook biegnie systemowym Pythonem (na Macu 3.9), więc ten plik i ``tools/lib/potomne.py`` ruff sprawdza pod 3.9
 (``per-file-target-version`` w ``pyproject.toml``).
 """
 
@@ -112,7 +112,7 @@ def main() -> int:
     if not VENV_PYTHON.exists():
         print("pre-push: brak .venv; utwórz je przez tools/setup_worktree.py i ponów push.", flush=True)
         return 1
-    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))
     for note in NOTES:
         _print_note(note)
     if sys.platform == "win32":  # tools/setup_worktree.py nie włącza bramy na Windows

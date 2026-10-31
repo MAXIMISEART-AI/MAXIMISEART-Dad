@@ -22,7 +22,7 @@ import yaml
 from tests.fixtures.ci_workflow import WORKFLOW, combinations, jobs
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "tools"))
+sys.path.insert(0, str(ROOT / "tools" / "ci"))
 
 import plan_ci  # noqa: E402
 

@@ -1,4 +1,4 @@
-"""Tworzy własne ``.venv`` checkoutu albo worktree z dodatkiem ``dev``.
+"""Tworzy własne .venv checkoutu albo worktree z dodatkiem dev; uruchom w nowym worktree przed pierwszym poleceniem Pythona.
 
 ``.venv`` głównego checkoutu instaluje edytowalnie ``src`` głównego checkoutu,
 więc pytest i skrypty weryfikacyjne uruchomione nim z worktree mogą po cichu
@@ -22,6 +22,8 @@ import subprocess
 import sys
 import tempfile
 import venv
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools/lib"))
 
 import potomne
 

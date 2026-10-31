@@ -1,4 +1,6 @@
-"""Weryfikacja różnicowa refaktoru: te same scenariusze syntetyczne na commicie bazy i na HEAD dają ten sam wynik.
+"""Sprawdza, że refaktor nie zmienia wyniku procesów: te same scenariusze syntetyczne na bazie i na HEAD; użyj przy refaktorze src/.
+
+Weryfikacja różnicowa refaktoru: te same scenariusze syntetyczne na commicie bazy i na HEAD dają ten sam wynik.
 
 Użycie (z katalogu repozytorium):
 
@@ -61,6 +63,8 @@ import zipfile
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 # Korzeń repozytorium dla fixtures ``tests.fixtures``, z których powstają scenariusze.
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools/lib"))
 
 import potomne
 import syntetyczne_wzorce

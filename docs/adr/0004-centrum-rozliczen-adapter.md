@@ -21,10 +21,12 @@ linii terminala (`terminal_line`).
 Uzupełnienia pliku zbiorczego regułę prywatności (przeglądarka dostaje wybrane
 pola wierszy Ilości do uzupełnienia) i pozwala czytać Plik zbiorczy otwarty w
 Excelu.
+[ADR 0009](0009-aktualizacja-narzedzia-z-centrum.md) dodaje wyjątek do zdania
+„Pliki i foldery otwiera tylko wtedy, gdy sam wyliczył je z folderu okresów”:
+katalog samego narzędzia, który Centrum zmienia wyłącznie przez Aktualizację
+narzędzia.
 Zdanie „Własne pliki Centrum to tylko ustawienia taty i dziennik pochodzenia
 Uruchomień” zmieniają też
-[ADR 0009](0009-aktualizacja-narzedzia-z-centrum.md) (Centrum zmienia katalog
-narzędzia przez Aktualizację narzędzia),
 [ADR 0015](0015-logi-uruchomienia-uwagi-taty-i-powiadomienia.md) (Logi
 Uruchomienia i stan Powiadomień),
 [ADR 0017](0017-karta-uruchomienia-z-logow.md) (plik ostatniego startu) i
