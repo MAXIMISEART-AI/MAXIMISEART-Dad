@@ -16,8 +16,9 @@ stało, pada z tym komunikatem, także gdy wywołujący złapał wyjątek albo w
 eksplorator i wtedy nie biegnie. Moduł, który pomocnik zostawił w ``sys.modules`` po zatrzymanym wczytaniu, kolejny
 import oddaje pusty, bez wykonania kodu.
 
-Strażnik nie widzi testu, który nie biegnie (pominięty albo odznaczony), kodu eksploratora skopiowanego do pliku o innej
-nazwie albo skompilowanego pod inną nazwą pliku, ani kodu, który wykonał się przed tym pluginem (ciało
+Strażnik nie widzi testu, który nie biegnie (pominięty albo odznaczony), kodu eksploratora z pliku spoza
+``.agents/skills/*/scripts/`` (kopia w innym katalogu albo pod inną nazwą), skompilowanego pod inną nazwą pliku albo
+wywołanego bez ``exec`` (obiekt kodu jako funkcja), ani kodu, który wykonał się przed tym pluginem (ciało
 ``tests/conftest.py``), ani nie sprawdza limitu czasu osobnego procesu. Proces potomny z ``fork`` dziedziczy hook, a nowy
 interpreter (``subprocess``) go nie ma.
 Hooka audytu nie da się zdjąć, więc dodaje go tylko pytest, nigdy kod produktu.
