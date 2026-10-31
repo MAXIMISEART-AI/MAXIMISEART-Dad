@@ -238,6 +238,45 @@ def test_liczy_ci_i_liczy_noc_wymieniaja_dokladnie_kroki_skilla_ktore_uruchamia_
     assert (_in_mutation_checks(tmp_path, base), _in_mutation_checks(tmp_path, base, night=True)) == (["sprawdz_a.py --wszystko"], at_night)
 
 
+MODEL_SCRIPT = (
+    "from pathlib import Path\nimport sys\n\nsys.path.insert(0, str(Path(__file__).resolve().parents[4] / 'tools'))\n"
+    "from mutacje import Edit, Mutation  # noqa: E402\n\n"
+    "MUTATIONS = (Mutation('m', (Edit(Path('.agents/skills/verify-a/model/M.tla'), 'X', 'Y'),), "
+    "('.agents/skills/verify-a/scripts/sprawdz_a.py',)),)\n"
+    "if __name__ == '__main__':\n    print('MUTACJE OK')\n"
+)
+WITH_MODEL = {
+    **AGREEING,
+    ".agents/skills/verify-a/model/M.tla": "X\n",
+    ".agents/skills/verify-a/scripts/check_model_a_mutations.py": MODEL_SCRIPT,
+}
+
+
+@pytest.mark.parametrize(
+    ("changed", "in_ci", "at_night"),
+    [
+        (".agents/skills/verify-a/model/M.tla", ["check_model_a_mutations.py"], ["check_a_mutations.py"]),
+        (".agents/skills/verify-a/SKILL.md", [], ["check_a_mutations.py", "check_model_a_mutations.py"]),
+        ("src/a/b/gleboki.py", [], []),
+    ],
+    ids=["model", "folder skilla bez modelu", "pilnuje"],
+)
+def test_skrypt_mutacji_modelu_przy_zmianie_modelu_stoi_w_liczy_ci_a_nie_w_liczy_noc(
+    tmp_path: Path, changed: str, in_ci: list[str], at_night: list[str]
+) -> None:
+    base = _repo(tmp_path, WITH_MODEL)
+    _append(tmp_path, changed)
+    commit(tmp_path, "zmiana")
+
+    lines = _run(tmp_path, base).stdout.splitlines()
+
+    assert [line for line in lines if line.startswith(("LICZY CI", "LICZY NOC"))] == [
+        f"LICZY CI: verify-a ({', '.join(['sprawdz_a.py --wszystko', *in_ci])})",
+        *([f"LICZY NOC: verify-a ({', '.join(at_night)})"] * bool(at_night)),
+    ]
+    assert _in_mutation_checks(tmp_path, base) == ["sprawdz_a.py --wszystko", *in_ci]
+
+
 def test_zmiana_runnera_mutacji_nie_wskazuje_skilla_choc_noc_uruchamia_jego_skrypt_mutacji(tmp_path: Path) -> None:
     base = _repo(tmp_path, AGREEING)
     with (tmp_path / "tools" / "mutacje.py").open("a", encoding="utf-8") as file:

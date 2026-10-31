@@ -17,7 +17,10 @@ klucz ``pilnuje:``, listę globów ścieżek względem korzenia repozytorium (``
 biegnie, gdy zmieniony jest plik z ``pilnuje`` albo plik w folderze skilla; ten sam wybór (``hits``) wskazuje skille
 ``verify-*`` w ``tools/skille_dla_zmiany.py``. Skrypty mutacji na pull request nie biegną, tylko nocą na ``main``
 (``--noc``, workflow ``mutacje-nocne.yml``, ADR 0021): mierzą jakość sprawdzenia skilla, tak jak mutacje zmienionych
-linii mierzą jakość testów. Z ``--zmiany-od REF --noc`` biegną same skrypty mutacji, a skrypt biegnie, gdy zmieniony
+linii mierzą jakość testów. Wyjątkiem jest skrypt mutacji modelu, którego każda mutacja psuje plik w folderze ``model/``
+skilla (``model_watched``): na pull request biegnie, gdy zmieniony jest plik w tym folderze, sam skrypt albo
+sprawdzenie, które uruchamiają jego mutacje, bo zmiana modelu, która zostawia mutację bez werdyktu (``BŁĄD MODELU``
+po #667), inaczej czerwieni dopiero ``main``. Z ``--zmiany-od REF --noc`` biegną same skrypty mutacji, a skrypt biegnie, gdy zmieniony
 jest plik w folderze skilla, runner mutacji (``RUNNER``) albo sprawdzenie, które uruchamiają jego mutacje. Importów ani
 plików, które krok czyta, wybór nie liczy: każdy krok uruchamia pełne CI ``main``. Zmiana ``INFRASTRUCTURE`` uruchamia
 każdy krok swojego rodzaju, a skill bez klucza ``pilnuje`` albo z kluczem, którego nie da się odczytać, biegnie zawsze.
@@ -81,9 +84,12 @@ INFRASTRUCTURE = ("requirements.txt", ".github/workflows/ci.yml", ".gitattribute
 RUNNER = ("tools/mutacje.py", "tools/ci/mutacje_skilli.py")
 # Powód w ``Hits`` dla pliku w folderze skilla.
 FOLDER = "folder skilla"
+# Folder modelu TLA+ w skillu: skrypt mutacji, który psuje tylko pliki w nim, biegnie też na pull request (ADR 0021).
+MODEL = "model"
 # Powody pominięcia kroku, który biegnie przy innym zdarzeniu niż wybór.
 NIGHTLY = "skrypt mutacji biegnie nocą na main (mutacje-nocne.yml, ADR 0021)"
 ON_PULL_REQUEST = "podstawa biegnie na pull request, nie nocą"
+MODEL_UNTOUCHED = "skrypt mutacji modelu biegnie na pull request tylko przy zmianie modelu, skryptu albo sprawdzeń jego mutacji, a poza tym nocą"
 
 
 def _name(path: Path) -> str:
@@ -326,16 +332,46 @@ def watched(step: Step) -> tuple[str, ...]:
     return (f"{_name(step.skill)}/", *RUNNER, *checkers)
 
 
-def _why_run(step: Step, changed: frozenset[str], night: bool) -> tuple[bool, str]:
-    """Czy krok biegnie przy zmianie ``changed``, i dlaczego: na pull request podstawa, nocą (``night``) skrypt mutacji
-    i podstawa z ``ci-czesci``, której plan CI daje nocą każdą część każdej liczby części.
+def model_watched(step: Step) -> tuple[str, ...] | None:
+    """Ścieżki, których zmiana na pull request uruchamia skrypt mutacji modelu ``step``: folder ``MODEL`` skilla (z ``/``
+    na końcu), sam skrypt i sprawdzenia, które uruchamiają jego mutacje; ``None``, gdy skrypt nie ma mutacji albo któraś
+    psuje plik spoza ``MODEL``. Tabela, której nie da się wczytać, to wyjątek z ``exec_module``."""
 
-    Podstawa biegnie przy trafieniu w ``pilnuje`` albo w folder skilla, skrypt mutacji przy zmianie ścieżki z
-    ``watched``. Zmiana ``INFRASTRUCTURE`` uruchamia każdy krok swojego rodzaju.
+    model = f"{_name(step.skill)}/{MODEL}/"
+    mutations = _mutations(ROOT / step.command[0])
+    edited = {edit.file.as_posix() for mutation in mutations for edit in mutation.edits}
+    if not edited or not all(name.startswith(model) for name in edited):
+        return None
+    return (model, step.command[0], *sorted({mutation.command[0] for mutation in mutations}))
+
+
+def _why_run_model(step: Step, changed: frozenset[str]) -> tuple[bool, str]:
+    """Czy skrypt mutacji biegnie na pull request: tylko skrypt mutacji modelu, przy zmianie ścieżki z ``model_watched``."""
+
+    try:
+        paths = model_watched(step)
+    except Exception as error:  # noqa: BLE001 - zmieniony skrypt, którego tabeli nie da się wczytać, biegnie i pokazuje swój błąd
+        return (True, f"nie da się wczytać tabeli mutacji: {error}") if step.command[0] in changed else (False, NIGHTLY)
+    if paths is None:
+        return False, NIGHTLY
+    if touched := {name for name in changed if name.startswith(paths[0]) or name in paths[1:]}:
+        return True, _changes(touched)
+    return False, MODEL_UNTOUCHED
+
+
+def _why_run(step: Step, changed: frozenset[str], night: bool) -> tuple[bool, str]:
+    """Czy krok biegnie przy zmianie ``changed``, i dlaczego: na pull request podstawa i skrypt mutacji modelu, nocą
+    (``night``) skrypt mutacji i podstawa z ``ci-czesci``, której plan CI daje nocą każdą część każdej liczby części.
+
+    Podstawa biegnie przy trafieniu w ``pilnuje`` albo w folder skilla, skrypt mutacji nocą przy zmianie ścieżki z
+    ``watched``, a na pull request przy zmianie ścieżki z ``model_watched``. Zmiana ``INFRASTRUCTURE`` uruchamia każdy
+    krok swojego rodzaju.
     """
 
-    if night == (step.verdict is None) and not (night and step.parts > 1):
-        return False, ON_PULL_REQUEST if night else NIGHTLY
+    if not night and step.verdict is not None:
+        return _why_run_model(step, changed)
+    if night and step.verdict is None and step.parts == 1:
+        return False, ON_PULL_REQUEST
     found = hits(step.skill, changed)
     if found.always:
         return True, found.always

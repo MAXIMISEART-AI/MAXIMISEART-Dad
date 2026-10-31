@@ -313,6 +313,71 @@ def test_noca_skrypt_mutacji_biegnie_przy_zmianie_folderu_skilla_albo_runnera(tm
     assert (_ran(result, "verify-a"), _ran(result, "verify-b"), _ran(result, "verify-c")) == (runs, True, True)
 
 
+MODEL = ".agents/skills/verify-m/model/M.tla"
+MODEL_CHECK = ".agents/skills/verify-m/scripts/sprawdz_m.py"
+
+
+def _model_skill(root: Path, name: str, edited: tuple[str, ...]) -> None:
+    """Skill ``name`` z folderem ``model/`` i skryptem mutacji, którego jedyna mutacja psuje pliki ``edited``."""
+
+    edits = "".join(f'Edit(Path("{path}"), "X", "Y"), ' for path in edited)
+    table = WITH_TABLE.replace(f'Edit(Path("{CHECKED}"), "X", "Y"), Edit(Path("{ANCHORS}"), "X", "Y")', edits)
+    folder = f".agents/skills/{name}"
+    _skill(root, name, {f"check_{name[-1]}_mutations.py": table.replace(".agents/skills/verify-a/scripts/sprawdz_a.py", MODEL_CHECK)}, GUARDED)
+    for path, text in {f"{folder}/model/M.tla": "X\n", f"{folder}/model/m.cfg": "X\n", f"{folder}/model/oczekiwane.json": "{}\n"}.items():
+        (root / path).parent.mkdir(parents=True, exist_ok=True)
+        (root / path).write_text(text, encoding="utf-8")
+    (root / MODEL_CHECK).write_text("X = 1\n", encoding="utf-8")
+
+
+@pytest.mark.parametrize(
+    ("changed", "runs"),
+    [
+        (MODEL, True),
+        (".agents/skills/verify-m/model/oczekiwane.json", True),
+        (".agents/skills/verify-m/model/m.cfg", True),
+        (".agents/skills/verify-m/scripts/check_m_mutations.py", True),
+        (MODEL_CHECK, True),
+        # Folder skilla poza modelem i runner mutacji uruchamiają skrypt tylko nocą.
+        (".agents/skills/verify-m/SKILL.md", False),
+        ("tools/mutacje.py", False),
+        ("requirements.txt", False),
+        ("src/pakiet/routing.py", False),
+    ],
+)
+def test_na_pull_request_skrypt_mutacji_modelu_biegnie_przy_zmianie_modelu_skryptu_albo_sprawdzenia(tmp_path: Path, changed: str, runs: bool) -> None:
+    _selection_repo(tmp_path)
+    _model_skill(tmp_path, "verify-m", (MODEL,))
+    # Skrypt, którego mutacja psuje także plik spoza modelu, nie jest skryptem mutacji modelu.
+    _model_skill(tmp_path, "verify-n", (".agents/skills/verify-n/model/M.tla", CHECKED))
+    base = commit(tmp_path, "skille z modelem")
+    _append(tmp_path, changed)
+    _append(tmp_path, ".agents/skills/verify-n/model/M.tla")
+    commit(tmp_path, "zmiana")
+
+    result = _run(tmp_path, "--zmiany-od", base)
+
+    assert result.stdout.splitlines()[-1] == "MUTACJE SKILLI OK", result.stdout + result.stderr
+    assert [_ran(result, skill) for skill in ("verify-m", "verify-n", "verify-a", "verify-b", "verify-c")] == [runs, False, False, False, False]
+    if not runs:
+        assert f"POMINIĘTY .agents/skills/verify-m/scripts/check_m_mutations.py: {MODEL_UNTOUCHED}" in result.stdout
+
+
+MODEL_UNTOUCHED = "skrypt mutacji modelu biegnie na pull request tylko przy zmianie modelu, skryptu albo sprawdzeń jego mutacji"
+
+
+def test_na_pull_request_zmieniony_skrypt_mutacji_ktorego_tabeli_nie_da_sie_wczytac_biegnie_i_pada(tmp_path: Path) -> None:
+    base = _selection_repo(tmp_path)
+    script = ".agents/skills/verify-a/scripts/check_a_mutations.py"
+    (tmp_path / script).write_text("MUTATIONS = (\n", encoding="utf-8")
+    commit(tmp_path, "zepsuta tabela")
+
+    result = _run(tmp_path, "--zmiany-od", base)
+
+    assert f"== {script} (nie da się wczytać tabeli mutacji: " in result.stdout, result.stdout
+    assert result.stdout.splitlines()[-1] == f"MUTACJE SKILLI FAIL | {script}"
+
+
 def test_sprawdzenie_spoza_folderu_skilla_uruchamia_skrypt_ktorego_mutacje_je_uruchamiaja(tmp_path: Path) -> None:
     _selection_repo(tmp_path)
     checker = "tests/test_sprawdzenie.py"
@@ -442,7 +507,7 @@ def test_nazwy_mutacji_w_tabeli_kazdego_skryptu_skilla_sa_rozne(monkeypatch: pyt
 
 
 def test_kotwica_kazdej_mutacji_skilla_trafia_w_swoj_plik_dokladnie_raz(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Skrypty mutacji skilli nie biegną na pull request, więc zmiana kodu, po której mutacja jest NIEAKTUALNA, czerwieni
+    """Skrypty mutacji skilli poza modelem nie biegną na pull request, więc zmiana kodu, po której mutacja jest NIEAKTUALNA, czerwieni
     dopiero ``main`` (#667 i #669 zmieniły warunek budzenia w ``outbox.py``). Test nanosi zmiany każdej mutacji tym samym
     ``_apply`` co ``tools/mutacje.py``, na kopii plików, które ona zmienia, bez uruchamiania jej polecenia."""
 

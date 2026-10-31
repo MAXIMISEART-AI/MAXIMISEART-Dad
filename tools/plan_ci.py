@@ -10,7 +10,8 @@ na każdym pliki z wyboru ``tools/szybko.py`` dla zmiany od bazy, bez jego budż
 ``.github/workflows/`` wybiera wszystkie pliki. Na Windows 3.11 E2E biegnie przy zmianie pod ``src/``, a straż czasu
 przy zmianie w domknięciu jej skryptów (``STRAZ``); przy wyborze wszystkich plików oba.
 Praca Mutation checks to tor ``MUTACJE`` (Windows 3.14): kroki skilli z wyboru ``tools/ci/mutacje_skilli.py`` (na pull
-request podstawy ``ci:``, których werdykt mogą zmienić zmiany od bazy, na pushu wszystkie kroki), każda podstawa ``ci:`` i
+request podstawy ``ci:``, których werdykt mogą zmienić zmiany od bazy, i skrypt mutacji modelu przy zmianie modelu, na
+pushu wszystkie kroki), każda podstawa ``ci:`` i
 każdy skrypt mutacji osobno. Zdarzenie ``noc`` (workflow ``mutacje-nocne.yml``, ADR 0021) nie ma pytest, a jego Mutation
 checks to skrypty mutacji skilli, których werdykt mogły zmienić zmiany ``main`` od bazy nocy, i każda część każdej
 liczby części podstawy z ``ci-czesci``, którą pull request uruchomiłby przy tych zmianach. Koszt jednostki to ściana, którą dodaje do zadania: plik waży sumę czasów swoich testów przez
@@ -29,7 +30,8 @@ każdego toru po podziale: poniżej niej ściana zadania nie zejdzie.
 Zadanie Mutation checks instaluje Chromium tylko wtedy, gdy ma krok skilla, którego skrypty importują Playwright. Gdy
 run (``STALE_ZADANIA``, zadania pytest i Mutation checks) przekroczyłby ``ZADANIA_RUNU`` na pull request albo
 ``ZADANIA_RUNU_MAIN`` na pushu i nocą, cel wszystkich torów rośnie co ``KROK_CELU_S``. Mutacje zmienionych linii i
-skrypty mutacji skilli nie biegną na pull request, tylko nocą na ``main`` (ADR 0021).
+skrypty mutacji skilli nie biegną na pull request, tylko nocą na ``main`` (ADR 0021), poza skryptem mutacji modelu TLA+
+przy zmianie jego modelu (``mutacje_skilli.model_watched``).
 
 Na pull request zadanie po porażce pytest uruchamia raz same testy, które padły (``niestabilne_testy``, najwyżej
 ``PONOWIENIE_NAJWIECEJ``; więcej porażek to nie flaky test), jeśli id każdego da się zgłosić w issue. Gdy wszystkie

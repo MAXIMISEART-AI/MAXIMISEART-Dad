@@ -29,7 +29,9 @@ pull request runs the parts of one n, and the night on `main` runs every part of
 fails with `MODEL KOLEJKI: ROZJAZD MODELU Z KODEM` when covered code changed since the Sync commit,
 but it cannot tell whether a change to the model is right. `check_outbox_mutations.py` and
 `check_model_kolejki_mutations.py` run in full CI on `main` and nightly on `main` (`mutacje-nocne.yml`)
-after a change of this skill's folder. Run them locally only to reproduce a red Mutation checks step or the
+after a change of this skill's folder. `check_model_kolejki_mutations.py` also runs on a pull request that changes a
+file in `model/`, the script itself or `sprawdz_model_kolejki.py` (ADR 0021), so a model change that leaves a mutation
+with `BŁĄD MODELU` turns the pull request red. Run them locally only to reproduce a red Mutation checks step or the
 night's issue, or one `--scope` or `--config` while you work on it. What stays with you on every change to the covered code is „Does the
 change touch it?” and „Bring the model in line”: read each commit since the sync commit against both
 tables, change the model, break the new path in it, and move the sync commit. A change that adds a new

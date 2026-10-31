@@ -34,6 +34,9 @@ BY_CHANGE_ONLY = {
     "tests/test_mutacje_skilli.py::test_na_pull_request_biegna_same_podstawy_a_noca_same_skrypty_mutacji": (
         "sprawdza wybór kroków skilli na repozytorium testu, a nie całe repozytorium"
     ),
+    "tests/test_mutacje_skilli.py::test_na_pull_request_skrypt_mutacji_modelu_biegnie_przy_zmianie_modelu_skryptu_albo_sprawdzenia": (
+        "sprawdza wybór skryptu mutacji modelu na repozytorium testu, a nie całe repozytorium"
+    ),
     "tests/test_mutacje_skilli.py::test_noca_skrypt_mutacji_biegnie_przy_zmianie_folderu_skilla_albo_runnera": (
         "sprawdza wybór skryptów mutacji na repozytorium testu, a nie całe repozytorium"
     ),
@@ -53,6 +56,9 @@ BY_CHANGE_ONLY = {
     ),
     "tests/test_skille_dla_zmiany.py::test_liczy_ci_wymienia_e2e_tylko_gdy_plan_pull_requestu_go_uruchamia": (
         "sprawdza linię LICZY CI na repozytorium testu, a nie całe repozytorium"
+    ),
+    "tests/test_skille_dla_zmiany.py::test_skrypt_mutacji_modelu_przy_zmianie_modelu_stoi_w_liczy_ci_a_nie_w_liczy_noc": (
+        "sprawdza linie LICZY CI i LICZY NOC skryptu mutacji modelu na repozytorium testu, a nie całe repozytorium"
     ),
     "tests/test_skille_dla_zmiany.py::test_skill_z_poleceniami_w_ci_zostaje_w_skillach_verify_a_liczy_ci_wymienia_jego_polecenia": (
         "sprawdza wybór skilli na repozytorium testu, a nie całe repozytorium"

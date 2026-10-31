@@ -702,6 +702,55 @@ def test_plan_pull_requestu_i_nocy_startuje_mutation_checks_tylko_z_praca_od_zmi
     assert len(shown) == len(reported) and all(line.startswith(start) for line, start in zip(shown, reported, strict=True)), out
 
 
+MODEL_SCRIPT = ".agents/skills/verify-a/scripts/check_model_a_mutations.py"
+WITH_MODEL = {
+    **SKILL,
+    ".agents/skills/verify-a/model/A.tla": "X\n",
+    MODEL_SCRIPT: (
+        "from pathlib import Path\n\nfrom mutacje import Edit, Mutation\n\n"
+        "MUTATIONS = (Mutation('m', (Edit(Path('.agents/skills/verify-a/model/A.tla'), 'X', 'Y'),), "
+        "('.agents/skills/verify-a/scripts/sprawdz_a.py',)),)\n"
+    ),
+}
+
+
+@pytest.mark.parametrize(
+    ("changed", "reported"),
+    [
+        # Zmiana modelu jak w #667 dostaje na PR skrypt mutacji modelu, a nie dopiero czerwony main po merge'u (ADR 0021).
+        (".agents/skills/verify-a/model/A.tla", f"WYBRANY {MODEL_SCRIPT} (zmienione: .agents/skills/verify-a/model/A.tla)"),
+        (".agents/skills/verify-a/SKILL.md", f"POMINIĘTY {MODEL_SCRIPT}: skrypt mutacji modelu biegnie na pull request tylko przy zmianie modelu"),
+        ("src/pakiet/a.py", f"POMINIĘTY {MODEL_SCRIPT}: skrypt mutacji modelu biegnie na pull request tylko przy zmianie modelu"),
+    ],
+    ids=["zmiana modelu", "folder skilla bez modelu", "zmiana src"],
+)
+def test_plan_pull_requestu_uruchamia_skrypt_mutacji_modelu_tylko_gdy_zmiana_dotyka_modelu(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], changed: str, reported: str
+) -> None:
+    def offline(*arguments: str) -> str:
+        raise subprocess.CalledProcessError(1, ["gh", *arguments], stderr="gh: not logged in")
+
+    repo = repository(tmp_path / "repo", {"src/pakiet/a.py": "def a(x: int) -> bool:\n    return x > 1\n", **WITH_MODEL})
+    commit(repo, "baza")
+    git(repo, "branch", "baza")
+    with (repo / changed).open("a", encoding="utf-8") as file:
+        file.write("\n")
+    commit(repo, "zmiana")
+    for module in (plan_ci, mutacje_skilli, szybko):
+        monkeypatch.setattr(module, "ROOT", repo)
+    monkeypatch.setattr(mutacje_skilli, "SKILLS", repo / ".agents" / "skills")
+    monkeypatch.setattr(czasy_ci, "_gh", offline)
+
+    code = plan_ci.main(["plan", "--zdarzenie", "pull_request", "--baza", "baza", "--czasy", str(tmp_path / "czasy"), "--wyjscie", str(tmp_path / "plan.json")])
+    out = capsys.readouterr().out
+    plan = plan_ci.Plan.z_json((tmp_path / "plan.json").read_text(encoding="utf-8"))
+    units = {unit.partition("#")[0] for job in plan.zadania for unit in job.jednostki}
+
+    assert code == 0, out
+    assert any(line.startswith(reported) for line in out.splitlines()), out
+    assert (f"skill:verify-a/{Path(MODEL_SCRIPT).name}" in units) == reported.startswith("WYBRANY")
+
+
 @pytest.mark.parametrize("event", ["pull_request", "noc"])
 def test_noca_podstawa_z_ci_czesci_biegnie_kazda_czescia_kazdego_n_a_pull_request_czesciami_jednego(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], event: str
