@@ -7,11 +7,13 @@ zakres jawnej zmiany, bez gita i bez uruchamiania kroków. Plan CI (``tests/test
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from pathlib import Path
 import re
 import sys
 
 import pytest
+import yaml
 
 from tests.fixtures.git_repo import repository
 
@@ -367,16 +369,21 @@ def test_podstawa_ci_ktora_uruchamia_wybrany_skrypt_mutacji_nie_biegnie_drugi_ra
 
 
 @pytest.mark.parametrize(
-    ("event", "parts"),
-    [(Zdarzenie.NOC, ((1, 1), (1, 2), (2, 2), (1, 3), (2, 3), (3, 3))), (Zdarzenie.PULL_REQUEST, ()), (Zdarzenie.PUSH, ())],
-    ids=["noc", "pull-request", "push"],
+    ("event", "n", "parts"),
+    [
+        (Zdarzenie.NOC, 3, ((1, 1), (1, 2), (2, 2), (1, 3), (2, 3), (3, 3))),
+        (Zdarzenie.NOC, 2, ((1, 1), (1, 2), (2, 2))),
+        (Zdarzenie.PULL_REQUEST, 3, ()),
+        (Zdarzenie.PUSH, 3, ()),
+    ],
+    ids=["noc, ci-czesci 3", "noc, ci-czesci 2", "pull-request", "push"],
 )
 def test_noca_podstawa_z_ci_czesci_biegnie_kazda_czescia_kazdego_n_a_pull_request_i_push_czesci_wybiera_plan(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, event: Zdarzenie, parts: tuple[tuple[int, int], ...]
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, event: Zdarzenie, n: int, parts: tuple[tuple[int, int], ...]
 ) -> None:
     # Argument odróżnia podstawę od polecenia mutacji skryptu, więc podstawa biegnie także obok skryptu.
     command = ".agents/skills/verify-a/scripts/sprawdz_a.py --czesciami"
-    repo = _repo(tmp_path, monkeypatch, {**SKILLS, ".agents/skills/verify-a/SKILL.md": _with_ci("verify-a", command).replace("ci: ", "ci-czesci: 3\nci: ")})
+    repo = _repo(tmp_path, monkeypatch, {**SKILLS, ".agents/skills/verify-a/SKILL.md": _with_ci("verify-a", command).replace("ci: ", f"ci-czesci: {n}\nci: ")})
 
     praca = zakres(event, frozenset({".agents/skills/verify-a/scripts/sprawdz_a.py"}), repo)
 
@@ -432,15 +439,87 @@ def test_polecenia_skilla_to_jego_wybrane_kroki_i_wywolania_w_krokach_ci_ktore_b
     assert praca.polecenia(repo / ".agents/skills/verify-zly") == []
 
 
-# Ścieżka skryptu skilla w tekście workflow.
-SKILL_SCRIPT = re.compile(r"\.agents/skills/[\w-]+/scripts/")
+# Katalog skilli w napisie workflow: ``.agents`` albo segment ścieżki ``skills`` z ``/`` lub ``\``.
+KATALOG_SKILLI = re.compile(r"\.agents\b|(?<![\w-])skills[/\\]|[/\\]skills(?![\w-])")
+
+
+def _napisy(wezel: object) -> Iterator[str]:
+    """Każda wartość drzewa YAML jako napis."""
+
+    if isinstance(wezel, dict):
+        for wartosc in wezel.values():
+            yield from _napisy(wartosc)
+    elif isinstance(wezel, list):
+        for element in wezel:
+            yield from _napisy(element)
+    else:
+        yield str(wezel)
+
+
+def _odwolania_do_skilli(workflow: str) -> list[str]:
+    """Napisy workflow, które wskazują katalog skilli (``KATALOG_SKILLI``)."""
+
+    return [napis for napis in _napisy(yaml.safe_load(workflow)) if KATALOG_SKILLI.search(napis)]
+
+
+def _workflow(krok: str) -> str:
+    return f"name: CI\non: pull_request\njobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n{krok}"
+
+
+@pytest.mark.parametrize(
+    "krok",
+    [
+        "      - run: python .agents/skills/verify-a/scripts/sprawdz_a.py\n",
+        "      - run: python -m runpy .agents/skills/verify-a/scripts/sprawdz_a.py\n",
+        "      - working-directory: .agents/skills/verify-a/scripts\n        run: python sprawdz_a.py\n",
+        "      - run: cd .agents/skills/verify-a && python scripts/sprawdz_a.py\n",
+        "      - run: python .agents/skills/${{ matrix.skill }}/scripts/sprawdz.py\n",
+        "      - env:\n          SKILL: .agents/skills/verify-a\n        run: python $SKILL/scripts/sprawdz_a.py\n",
+        "      - shell: pwsh\n        run: python .agents\\skills\\verify-a\\scripts\\sprawdz_a.py\n",
+        "      - run: for s in .agents/skills/*/scripts/check_*_mutations.py; do python $s; done\n",
+        "      - run: cd .agents\n      - run: python skills/verify-a/scripts/sprawdz_a.py\n",
+        '      - run: cd "${{ vars.KATALOG }}" && python skills/verify-a/scripts/sprawdz_a.py\n',
+        "      - working-directory: ${{ vars.KATALOG }}/skills\n        run: python verify-a/scripts/sprawdz_a.py\n",
+        "      - shell: pwsh\n        run: python ${{ vars.KATALOG }}\\skills\\verify-a\\scripts\\sprawdz_a.py\n",
+        '      - uses: ./.github/actions/skill\n        with:\n          katalog: "${{ github.workspace }}/.agents"\n',
+    ],
+    ids=["ścieżka", "runpy", "working-directory", "cd", "matrix", "env", "backslash", "glob", "cd w osobnym kroku", "skills/ ze zmiennej", "/skills ze zmiennej", "\\skills ze zmiennej", "with"],
+)
+def test_odwolanie_workflow_do_katalogu_skilli_w_kazdej_postaci_jest_zgloszone(krok: str) -> None:
+    assert _odwolania_do_skilli(_workflow(krok)) != []
+
+
+def test_komentarz_nazwa_kroku_i_runner_mutacji_skilli_nie_sa_odwolaniem_do_katalogu_skilli() -> None:
+    krok = (
+        "      # Runs .agents/skills/verify-a/scripts/sprawdz_a.py through the plan.\n"
+        "      - name: Plan the mutation scripts of the skills changed since the base\n"
+        "        run: python tools/ci/mutacje_skilli.py --plan .ci-plan/plan.json --id mutacje-skilli-1\n"
+        "      - uses: org/skills-cache@v1\n"
+        "        with:\n          path: docs/myskills/\n"
+    )
+
+    assert _odwolania_do_skilli(_workflow(krok)) == []
 
 
 def test_workflowy_runow_nie_wywoluja_skryptow_skilli_poza_planem() -> None:
     """Polecenia skilli w CI pochodzą z zakresu (kroki skilli i ``KROKI``), więc ``ci.yml`` i ``mutacje-nocne.yml`` nie
-    wywołują skryptu skilla wprost: takie wywołanie nie trafiłoby do ``LICZY CI``. Granica: workflow skilla Windows
-    (``verify-centrum-na-windowsie.yml``) to osobny run poza planem."""
+    wywołują skryptu skilla wprost: takie wywołanie nie trafiłoby do ``LICZY CI``.
 
-    workflows = {name: (ROOT / ".github" / "workflows" / name).read_text(encoding="utf-8") for name in ("ci.yml", "mutacje-nocne.yml")}
+    Strażnik zabrania więcej niż wywołania: żadna wartość YAML tych dwóch workflowów (``run``,
+    ``working-directory``, ``env``, ``with``, macierz, nazwa kroku) nie wskazuje katalogu skilli, czyli nie zawiera
+    ``.agents`` ani segmentu ścieżki ``skills`` z ``/`` lub ``\\`` (``KATALOG_SKILLI``). Łapie więc dosłowną ścieżkę
+    skryptu, ``runpy``, ``working-directory`` i ``cd`` do folderu skilla, ``${{ matrix.* }}`` i glob w ścieżce, ścieżkę
+    w ``env`` i ścieżkę Windows. Skrypty skilli workflow uruchamia tylko przez plan i runner
+    (``tools/ci/mutacje_skilli.py``, ``tools/plan_ci.py``), które nie nazywają katalogu skilli.
 
-    assert {name: SKILL_SCRIPT.findall(text) for name, text in workflows.items()} == {"ci.yml": [], "mutacje-nocne.yml": []}
+    Granica: komentarze YAML nie są sprawdzane. Nie łapie ścieżki złożonej w czasie runu z części bez tych segmentów
+    (``".ag""ents"``, wynik innego kroku spoza planu) ani skryptu spoza ``.agents``, który sam uruchamia skrypt
+    skilla; to łapie przegląd. Workflow skilla Windows (``verify-centrum-na-windowsie.yml``) to osobny run poza
+    planem."""
+
+    workflows = {
+        "ci.yml": (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8"),
+        "mutacje-nocne.yml": (ROOT / ".github" / "workflows" / "mutacje-nocne.yml").read_text(encoding="utf-8"),
+    }
+
+    assert {name: _odwolania_do_skilli(text) for name, text in workflows.items()} == {"ci.yml": [], "mutacje-nocne.yml": []}

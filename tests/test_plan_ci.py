@@ -479,9 +479,9 @@ def test_limit_kroku_pytest_to_trzy_sciany_zadania_z_planu_a_najmniej_dziesiec_m
     assert plan_ci.limit_pytest_s(job) == limit_s
 
 
-@pytest.mark.parametrize(("event", "minutes"), [(Zdarzenie.PULL_REQUEST, 106), (Zdarzenie.PUSH, 96)])
+@pytest.mark.parametrize(("event", "minutes"), [(Zdarzenie.PULL_REQUEST, 106), (Zdarzenie.PUSH, 96), (Zdarzenie.NOC, 96)])
 def test_github_zabija_zadanie_pytest_dopiero_po_limitach_wszystkich_jego_krokow(event: Zdarzenie, minutes: int) -> None:
-    # 401 s ściany: pytest 1203 s, na pull request ponowienie 600 s, E2E 900 s, straż czasu 3000 s, narzut 600 s; w górę do minuty.
+    # 401 s ściany: pytest 1203 s, tylko na pull request ponowienie 600 s, E2E 900 s, straż czasu 3000 s, narzut 600 s; w górę do minuty.
     job = plan_ci.Zadanie("windows-3.14-1", "windows-3.14", "pytest (Python 3.14, 1/1)", ("pytest:tests/test_adr.py", "krok:e2e", "krok:timing"), 401.0)
     plan = plan_ci.Plan(event, plan_ci.CEL_S, (), (job,))
 
