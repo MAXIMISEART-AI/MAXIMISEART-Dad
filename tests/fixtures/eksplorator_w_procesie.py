@@ -10,8 +10,9 @@ wczytaniu dodaje hook audytu (``sys.addaudithook``). Hook dostaje zdarzenie ``ex
 ``import``, ``importlib``, ``runpy``, ``exec_module``, ``exec(compile(...))``, niezależnie od tego, czy wczytuje test,
 fixtura, ``conftest.py`` czy pomocnik z ``tests/fixtures``, i czy wywołuje go wprost, w wątku, przez ``submit``,
 ``partial``, alias albo ``map``. Na kodzie z pliku eksploratora hook rzuca ``EksploratorWProcesie`` przed jego
-pierwszą linią, więc eksplorator nie zaczyna biec, a krok testu (przygotowanie, test, sprzątanie), w którym to się
-stało, pada z tym komunikatem, także gdy wywołujący złapał wyjątek albo wątek go połknął. Wczytanie przy zbieraniu
+pierwszą linią (ścieżkę pliku kodu rozwiązuje z dowiązaniami symbolicznymi, więc dowiązanie do pliku eksploratora
+albo do jego katalogu też się liczy), więc eksplorator nie zaczyna biec, a krok testu (przygotowanie, test, sprzątanie),
+w którym to się stało, pada z tym komunikatem, także gdy wywołujący złapał wyjątek albo wątek go połknął. Wczytanie przy zbieraniu
 (import na górze modułu testu albo ``conftest.py``) wywraca zbieranie tym samym wyjątkiem, chyba że kod go złapie;
 eksplorator i wtedy nie biegnie. Moduł, który pomocnik zostawił w ``sys.modules`` po zatrzymanym wczytaniu, kolejny
 import oddaje pusty, bez wykonania kodu.
@@ -19,8 +20,9 @@ import oddaje pusty, bez wykonania kodu.
 Strażnik nie widzi testu, który nie biegnie (pominięty albo odznaczony), kodu eksploratora z pliku spoza
 ``.agents/skills/*/scripts/`` (kopia w innym katalogu albo pod inną nazwą), skompilowanego pod inną nazwą pliku albo
 wywołanego bez ``exec`` (obiekt kodu jako funkcja), ani kodu, który wykonał się przed tym pluginem (ciało
-``tests/conftest.py``), ani nie sprawdza limitu czasu osobnego procesu. Proces potomny z ``fork`` dziedziczy hook, a nowy
-interpreter (``subprocess``) go nie ma.
+``tests/conftest.py``), ani nie sprawdza limitu czasu osobnego procesu. Osobny proces to nowy interpreter
+(``subprocess``), który hooka nie ma; proces potomny z ``fork`` (``multiprocessing`` na Linuksie pod Pythonem 3.11)
+dziedziczy hook i liczy się jak proces pytest.
 Hooka audytu nie da się zdjąć, więc dodaje go tylko pytest, nigdy kod produktu.
 """
 
@@ -54,8 +56,9 @@ def _message(paths: list[str]) -> str:
     return (
         f"Kod eksploratora przeplotów miał się wykonać w procesie pytest: {', '.join(dict.fromkeys(paths))}. "
         "Wątek modelu porzucony przez eksplorator trzyma prawdziwą blokadę do końca procesu i wiesza worker (#651). "
-        "Uruchom eksplorator w osobnym procesie z limitem, np. subprocess.run([sys.executable, str(EXPLORER), ...], "
-        "timeout=..., check=False), jak tests/test_jedno_uruchomienie_naraz.py, albo dopisz go do IN_PROCESS_EXPLORERS "
+        "Uruchom eksplorator w osobnym procesie z limitem, czyli w nowym interpreterze, np. subprocess.run([sys.executable, "
+        "str(EXPLORER), ...], timeout=..., check=False), jak tests/test_jedno_uruchomienie_naraz.py; dziecko z fork "
+        "(multiprocessing) dziedziczy tego strażnika i liczy się jak proces pytest. Albo dopisz go do IN_PROCESS_EXPLORERS "
         "w tests/fixtures/eksplorator_w_procesie.py z powodem, dla którego nie porzuca wątku z blokadą."
     )
 
@@ -63,7 +66,7 @@ def _message(paths: list[str]) -> str:
 def _audit(event: str, args: tuple[object, ...]) -> None:
     if event != "exec":
         return
-    path = Path(os.path.abspath(cast(CodeType, args[0]).co_filename))
+    path = Path(os.path.realpath(cast(CodeType, args[0]).co_filename))
     if path.match(EXPLORERS) and path.stem not in IN_PROCESS_EXPLORERS:
         _stopped.append(str(path))
         raise EksploratorWProcesie(_message([str(path)]))

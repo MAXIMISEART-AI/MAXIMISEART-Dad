@@ -430,7 +430,7 @@ ZamienNumer(q) ==
     /\ UNCHANGED <<plik, issues, zyje, draining, again, armed, stopped, nieczytany, undeleted, lista, biez, nr, kom,
                    bezZnacznika, passes, blokada, bezBlokady, zamkniecia, nadawanie, sieci, zgubione, odmowy, wylaczenia, slady>>
 
-\* outbox.py _send_all po Delivered: _stopped_on = None, on_delivered, _first_comments,
+\* outbox.py _send_all po Delivered: _stopped_on = None, listener.delivered (i post jego wysyłek), _first_comments,
 \* _remember_address (jego OSError trafia tylko do dziennika), potem znacznik dostarczenia:
 \* replace_atomically(path, _queue_text(...)) w suppress(OSError). Ten krok to atomic_file.py
 \* replace_atomically: temporary.write_text; jego OSError usuwa plik tymczasowy i wychodzi z suppress.

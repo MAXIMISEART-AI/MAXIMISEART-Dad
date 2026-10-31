@@ -481,6 +481,21 @@ def test_wiszacy_test_zostawia_stosy_watkow_przed_limitem_kroku_ale_po_limicie_p
     assert ini["timeout"] < ini["faulthandler_timeout"] < plan_ci.LIMIT_PYTEST_MIN_S
 
 
+def test_polecenie_pytest_kroku_drukuje_stosy_testu_ktory_wisi_dluzej_niz_faulthandler_timeout(
+    mini_repo: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    (mini_repo / "pytest.ini").write_text("[pytest]\njunit_family = xunit1\nfaulthandler_timeout = 1\n", encoding="utf-8")
+    (mini_repo / "tests" / "test_wisi.py").write_text("import time\n\n\ndef test_wisi() -> None:\n    time.sleep(4)\n", encoding="utf-8")
+    job = plan_ci.Zadanie("linux-3.14-1", "linux-3.14", "pytest (Python 3.14, Linux, 1/1)", ("pytest:tests/test_wisi.py",), 1.0)
+
+    code = plan_ci.wykonaj(plan_ci.Plan("push", plan_ci.CEL_S, (), (job,)), job.id)
+    out = capsys.readouterr().out
+
+    assert code == 0, out
+    assert "Timeout (0:00:01)!" in out, out
+    assert re.search(r'File ".*test_wisi\.py", line 5 in test_wisi', out), out
+
+
 FLAKY = (
     "import pathlib\n\nimport pytest\n\n\n"
     "def test_stabilny() -> None:\n    pass\n\n\n"

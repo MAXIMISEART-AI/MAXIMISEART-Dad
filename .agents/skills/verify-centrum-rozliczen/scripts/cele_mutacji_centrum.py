@@ -13,6 +13,7 @@ from pathlib import Path
 APP = Path("src/rozliczenia/centrum/app.py")
 # The committed frontend build: a change of the frontend source needs its anchor here after `npm run regen`.
 BUILD = Path("src/rozliczenia/centrum/static/assets/index.js")
+CASE_DELIVERY = Path("src/rozliczenia/centrum/case_delivery.py")
 CATALOG = Path("src/rozliczenia/centrum/catalog.py")
 DAD_NOTES = Path("src/rozliczenia/centrum/dad_notes.py")
 DIAGNOSIS = Path("src/rozliczenia/centrum/diagnosis.py")

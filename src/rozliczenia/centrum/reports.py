@@ -30,16 +30,16 @@ from collections.abc import Callable
 from dataclasses import astuple, dataclass
 from datetime import datetime, timezone
 import hashlib
-from typing import Final, Literal
+from typing import Final, Literal, assert_never
 
 from rozliczenia.call_trace import CallTrace
 from rozliczenia.centrum import contract, report_messages
-from rozliczenia.centrum.dad_cases import REPORT, Case, DadCases
+from rozliczenia.centrum.dad_cases import REPORT, Case, CaseNews, CaseNumbered, CaseRejected, DadCases
 from rozliczenia.centrum.deadline import within
 from rozliczenia.centrum.diagnosis import Diagnosis
 from rozliczenia.centrum.keyed_box import KeyedBox, NoKey
 from rozliczenia.centrum.log import CentrumLog
-from rozliczenia.centrum.outbox import DELIVERY_WAIT_S, Outbox, Post, ReportIssue
+from rozliczenia.centrum.outbox import DELIVERY_WAIT_S, Outbox, Post, ReportIssue, fingerprint_line
 from rozliczenia.centrum.report_box import FindOutcome
 from rozliczenia.centrum.tool_freshness import CommitSource
 from rozliczenia.centrum.tool_update import UpdateResult
@@ -187,12 +187,6 @@ class UpdateReport:
             "```",
         ]
         return _report(self.message, lines, fingerprint)
-
-
-def fingerprint_line(fingerprint: str) -> str:
-    """Wiersz treści Zgłoszenia z odciskiem problemu, po którym Centrum znajduje otwarte Zgłoszenie w skrzynce."""
-
-    return f"- Odcisk problemu: {fingerprint}"
 
 
 def _message_lines(message: Message) -> list[str]:
@@ -398,8 +392,9 @@ class Reports:
     """Zgłoszenia z tego komputera: uchwyt Zgłoszenia każdego źródła, wysyłka przez kolejkę Skrzynki i sprawy.
 
     „Wyślij do Maksa” zapisuje sprawę bez numeru, kładzie zamrożony podgląd w kolejce jako ``ReportIssue`` i czeka na
-    skrzynkę najwyżej ``DELIVERY_WAIT_S``. Numer issue dopisuje ``delivered`` (``Outbox.on_delivered``), także po
-    następnym starcie Centrum, i oddaje stan „wysłane” każdemu żywemu uchwytowi tego problemu. Jeden problem ma jedno
+    skrzynkę najwyżej ``DELIVERY_WAIT_S``. Numer issue dopisują sprawie Sprawy taty w Skrzynce (``case_delivery``),
+    także po następnym starcie Centrum, a ``Reports`` słyszy o nim od Spraw taty (``DadCases.watch``) i oddaje stan
+    „wysłane” każdemu żywemu uchwytowi tego problemu; o odrzuconej treści tak samo. Jeden problem ma jedno
     otwarte Zgłoszenie: podgląd pyta skrzynkę o otwarte Zgłoszenie z tym odciskiem, kolejka przejmuje je zamiast
     zakładać nowe, a problem, którego Zgłoszenie czeka w kolejce, nie trafia do niej drugi raz.
     """
@@ -424,6 +419,7 @@ class Reports:
         # Ostatnia odpowiedź skrzynki w tej pracy Centrum: odcisk problemu → numer otwartego Zgłoszenia albo None.
         self._open: dict[str, int | None] = {}
         self._handles: dict[str, weakref.WeakSet[ReportHandle]] = {}
+        cases.watch(REPORT, self._heard)
 
     def handle(self, fingerprint: ProblemFingerprint, *, shown: ReportShown | None = None) -> ReportHandle:
         """Uchwyt Zgłoszenia problemu ``fingerprint`` bez podglądu; stan bez pytania skrzynki.
@@ -436,37 +432,21 @@ class Reports:
             self._handles.setdefault(fingerprint.digest, weakref.WeakSet()).add(handle)
         return handle
 
-    def delivered(self, post: Post, number: int) -> None:
-        """Kolejka dostarczyła wysyłkę (``Outbox.on_delivered``): sprawa Zgłoszenia dostaje numer issue.
+    def _heard(self, news: CaseNews) -> None:
+        """Sprawa Zgłoszenia dostała numer issue albo skrzynka odrzuciła jej treść: uchwyty tego problemu to pokazują."""
 
-        Wysyłki innych celów pomija.
-        """
-
-        if not isinstance(post.target, ReportIssue):
-            return
-        fingerprint = post.target.line.removeprefix(fingerprint_line(""))
-        if not self._cases.numbered(REPORT, fingerprint, number):
-            return
         with self._lock:
-            self._open[fingerprint] = number
-            handles = list(self._handles.get(fingerprint, ()))
+            if isinstance(news, CaseNumbered):
+                self._open[news.case_id] = news.number
+            handles = list(self._handles.get(news.case_id, ()))
         for handle in handles:
-            handle._delivered()
-
-    def rejected(self, post: Post) -> None:
-        """Skrzynka odrzuciła treść wysyłki (``Outbox.on_rejected``): Zgłoszenie tego problemu jest odrzucone.
-
-        Wysyłki innych celów pomija.
-        """
-
-        if not isinstance(post.target, ReportIssue):
-            return
-        fingerprint = post.target.line.removeprefix(fingerprint_line(""))
-        self._cases.rejected(fingerprint)
-        with self._lock:
-            handles = list(self._handles.get(fingerprint, ()))
-        for handle in handles:
-            handle._rejected()
+            match news:
+                case CaseNumbered():
+                    handle._delivered()
+                case CaseRejected():
+                    handle._rejected()
+                case _:
+                    assert_never(news)
 
     def _preview(self, source: StopReport | UpdateReport) -> _Preview:
         fingerprint = source.fingerprint.digest
@@ -483,7 +463,7 @@ class Reports:
         case = Case(REPORT, fingerprint, preview.report.what, self._commit(), datetime.now(timezone.utc), number=None)
         # Własny identyfikator wysyłki: odcisk wraca po zamknięciu, a kolejka czeka na dostarczenie po identyfikatorze.
         post = Post.of(
-            ReportIssue(fingerprint_line(fingerprint), preview.report.title),
+            ReportIssue(fingerprint=fingerprint, title=preview.report.title),
             period=preview.period,
             run_id=uuid.uuid4().hex,
             blocks=[preview.report.body],

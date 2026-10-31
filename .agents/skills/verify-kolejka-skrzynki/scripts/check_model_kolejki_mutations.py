@@ -133,7 +133,7 @@ MUTATIONS = (
         NEW,
     ),
     Mutation(
-        "odrzucony komentarz usuwa plik zamiast _rejected (_send_all: _remove po _on_rejected)",
+        "odrzucony komentarz usuwa plik zamiast _rejected (_send_all: _remove po _listener.rejected)",
         (
             Edit(
                 MODEL,
