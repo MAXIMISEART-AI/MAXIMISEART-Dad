@@ -16,6 +16,8 @@ pilnuje:
   - src/rozliczenia/preparation_process.py
   - src/rozliczenia/quantity_rules.py
   - src/rozliczenia/engine.py
+  - src/rozliczenia/inea_only_quantities.py
+  - src/rozliczenia/period_folder.py
   - tools/syntetyczne_wzorce.py
   - requirements.txt
 ---

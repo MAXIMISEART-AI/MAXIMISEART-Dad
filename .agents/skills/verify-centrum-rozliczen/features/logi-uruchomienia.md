@@ -4,13 +4,15 @@ After every Uruchomienie procesu Dad starts in Centrum, Centrum writes one JSON
 file of Logi Uruchomienia to `logs/uruchomienia/` next to its log (ADR 0015),
 whatever the mode, result and ending. The file says whether it was a `podgląd`
 or a `zapis`, carries the card's result, ending, Rodzaj Zatrzymania, summary and
-Komunikaty in three parts with their codes, the Szablony pracowników with their
-outcome and time, the tool's commit and its Wydanie, and the process's files by name (with
-size and whether OneDrive holds them only online). Dad sees nothing of it on the
+Komunikaty in three parts with their codes, the number of problems, the call trace of a Zatrzymanie, the
+Szablony pracowników with their outcome and time, the tool's commit and its Wydanie, and the process's files by
+name (with size and whether OneDrive holds them only online). A Przebieg rozliczeń adds how many Ilości tylko dla
+INEA it left empty (`inea_only_cleared`, ADR 0018), and an Uporządkowanie INTERMAX its Wpisy urządzenia i
+czynności INTERMAX (`intermax_entries`, ADR 0019): INTERMAX row numbers and operator names, no other row content. Dad sees nothing of it on the
 card: no alert, toast or text; only the previews of a Zgłoszenie
 (`zgloszenie.md`) and of an Uwaga taty pinned to the Uruchomienie
-(`uwaga-taty.md`) carry a line to its Logi. No path and no workbook
-content reach the file. The same Logi wait in the queue of the skrzynka
+(`uwaga-taty.md`) carry a line to its Logi. No path and no cell content
+of a Wiersz danych reach the file. The same Logi wait in the queue of the skrzynka
 Zgłoszeń (`config/zgloszenia/kolejka/`, like the Kontrola ilości) and go to the
 period's issue labelled `logi-uruchomienia`, which they keep using after Maks
 closes it, one comment per Uruchomienie: a summary, then the file's JSON in a

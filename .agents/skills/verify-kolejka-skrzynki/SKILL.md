@@ -88,12 +88,15 @@ and `_Server` in `server.py` (`DEFINITIONS` in `sprawdz_model_kolejki.py`). Only
 rest of their files, is drift. Name these three files here without their
 `src/…` path in backticks: such a path makes the whole file covered.
 
-**Sync commit: `b23f4180`** (2026-10-30, #666: a pass of the queue holds the
-system lock of `przejscie.lock` in the queue folder, `_folder_lock`, and a
-queue that finds it held by another Centrum process arms the `RETRY_S` wake).
-The checker and the model share it: at this commit both were confirmed to
-describe the code above. The checker runs one Centrum at a time and always
-gets the lock, so #666 changed only the model. Before it, `2900e8c2` (#664
+**Sync commit: `05430811`** (2026-10-31). The checker and the model share it:
+at this commit both were confirmed to describe the code above. Since the
+previous sync `b23f4180` only `73d7f1ba8` (tools to `tools/ci` and
+`tools/lib`) changed a covered file, a comment in `app.py` outside `lifespan`,
+and the import path of `sprawdz_kolejke.py`; neither check changed. At
+`b23f4180` (#666) a pass of the queue started to hold the system lock of
+`przejscie.lock` in the queue folder, `_folder_lock`, and a queue that finds it
+held by another Centrum process arms the `RETRY_S` wake. The checker runs one
+Centrum at a time and always gets the lock, so #666 changed only the model. Before it, `2900e8c2` (#664
 merged with `main` after #665: a queue file that `_queued` cannot read arms
 the `RETRY_S` wake, and after a refused comment the queue file keeps the
 number of the Uwaga's issue) was the sync of both; the checker never fails a
@@ -104,7 +107,7 @@ them, `6f94edb8` was the sync of both, and since the checker's earlier sync
 model describes. To see whether they need another look:
 
 ```bash
-git log --oneline b23f4180..HEAD -- src/rozliczenia/centrum/outbox.py src/rozliczenia/centrum/keyed_box.py src/rozliczenia/centrum/report_box.py src/rozliczenia/centrum/atomic_file.py
+git log --oneline 05430811..HEAD -- src/rozliczenia/centrum/outbox.py src/rozliczenia/centrum/keyed_box.py src/rozliczenia/centrum/report_box.py src/rozliczenia/centrum/atomic_file.py
 ```
 
 A change to the three definitions above shows as a `UWAGA:` line of

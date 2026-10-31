@@ -8,7 +8,7 @@ this index before driving, then the feature file as the recipe.
 - macOS with Microsoft Excel in `/Applications`, and the app running the agent
   allowed to control Microsoft Excel (Automatyzacja).
 - `run_excel_verification.py` built the fixture, `DOCTOR OK` passed, and
-  Przygotowanie pliku zbiorczego ended `OK` for `08_14_09_2026`.
+  Przygotowanie pliku zbiorczego ended `WYMAGA_SPRAWDZENIA` for `08_14_09_2026` (its Ostrzeżenia about the Ilości usług).
 - The Rejestr zleceń is `verify-rozliczenia`'s synthetic one: Zlecenia
   skuteczne `PREP-SYN-ZL-2`, `-4`, `-7`, `-6`, `-8`, `-9` in Plik zbiorczy order
   (Adrian Testowy, Kamil Syntetyczny, Adrian Testowy, Darek Fikcyjny twice,

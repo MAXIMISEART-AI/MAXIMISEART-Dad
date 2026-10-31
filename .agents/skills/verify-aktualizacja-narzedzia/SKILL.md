@@ -136,7 +136,17 @@ Covered files: `src/rozliczenia/centrum/tool_update.py`,
 `src/rozliczenia/centrum/restart_guardian.py`,
 `src/rozliczenia/centrum/launcher.py`.
 
-Sync commit: `33e4b1de` (2026-10-29). Since `9f7c2de9` the covered files
+Sync commit: `05430811` (2026-10-31). Since `33e4b1de` the covered files
+did not change, and no code outside them started to read or write the
+clone, Dad's files, the journal, its lease or the result file. `da260363`
+made the closing Centrum hold the port until the outbox finished sending,
+and `b23f4180` reverted that in `server.py` and `shutdown.py`: the outbox
+now takes `przejscie.lock` without waiting, so `_port_released` waits for
+the same shutdown as before. `73d7f1ba` changed only comments in `app.py`
+and `contract.py`, and the script imports nothing from `tools/`. No action
+of the model changed.
+
+`33e4b1de` (2026-10-29). Since `9f7c2de9` the covered files
 changed only in `ToolUpdates._failed`, which takes the card's next step from
 `update_messages.UpdateFailure` instead of comparing the Komunikat's code. The
 model does not describe the view, so no action of the model changed.

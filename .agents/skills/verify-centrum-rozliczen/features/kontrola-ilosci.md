@@ -5,10 +5,14 @@ sends a Kontrola ilości to the skrzynka Zgłoszeń by itself (ADR 0013). Dad
 sees nothing of it: no Komunikat, no file among his unsent Zgłoszenia, no
 wait. Without a key or network the Kontrola waits as a JSON file in
 `config/zgloszenia/kolejka/`, and Centrum sends it again at its next start, in
-the background, so the start does not wait for the skrzynka, and with every
-later post to the queue (the Logi of the next Uruchomienie, an Uwaga taty). The
-queue sends its files oldest first and stops at the first failure, so the Logi
-of the same RUN, queued before it, go first. Each period has one Kontrola issue:
+the background, so the start does not wait for the skrzynka, with every
+later post to the queue (the Logi of the next Uruchomienie, an Uwaga taty), and
+by itself a minute after a pass that stopped for no network or key, skipped an
+unreadable file, or found another Centrum's pass on the folder (`RETRY_S`). The
+queue sends its files oldest first, so the Logi of the same RUN, queued before
+it, go first. A failure that every later file would meet (no key, no network,
+refused key) stops the pass; content the skrzynka rejects stays in the queue,
+and the pass goes on to the next file. Each period has one Kontrola issue:
 a later RUN comments on the open one, and after Maks closes it the next one
 opens a new issue.
 
@@ -39,5 +43,5 @@ Preconditions:
 
 - The issue body holds CZYNNOŚCI and UMOWA of the synthetic Plik zbiorczy, which carry the fixture's row marker. Never copy the body into evidence: the self-test fails on the marker.
 - The Kontrola issue takes a number in the skrzynka before the Zgłoszenia of features/zgloszenie.md. Drives look issues up by label (`zgloszenie._issues`), never by `1.json`.
-- After a restart `/api/runs/current` is idle, so the last result card is gone; later features start a new Uruchomienie from the form.
+- After a restart `/api/runs/current` is idle; Uruchomienia shows the last card restored from its Logi (`karta-z-logow.md`), and later features start a new Uruchomienie from the form.
 - `diagnoza` expects no key before `zgloszenie`, so the drive removes it at the end.

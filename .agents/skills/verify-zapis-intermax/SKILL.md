@@ -70,7 +70,7 @@ happens first. Each is one indivisible step of this code:
 | the Excel lock check | `workbook_files.is_open_in_excel` on INTERMAX, in `ensure_available` (`check`, `Register.read`, `workbook_content`), in both `before_replace` and in the restore's sorting of a failed replace |
 | the temporary file | `temporary.write_bytes(content)` in `intermax_file.save`, inside `workbook_save.write_atomically`; may raise `OSError` |
 | the write check | `Register.check` on the re-read temporary file in `intermax_file.save`; may find a mismatch (`WriteMismatch`). The restore compares bytes and has no such point |
-| the Kopia | `intermax_copies.make_copy(register.content, …)` in `before_replace`, after the write check; in the restore `make_copy(current, …, "restore")`; may raise `OSError` |
+| the Kopia | `intermax_copies.make_copy(register.content, …)` in `before_replace`, after the write check; in the restore `make_copy(current, …, "restore")`; may raise `OSError`, and raises `FileExistsError` (`O_EXCL`) when a Kopia of that name exists, which the restore turns into its own Zatrzymanie (`restored_moment_ago`) |
 | the replace | `os.replace` of the temporary file over INTERMAX in the `replace` that `intermax_file._replace` (for `save` and `restore`) gives `workbook_save.write_atomically`; may raise `OSError`, may be refused by OneDrive (`PermissionError` without the `~$` lock, which `save` retries), and raises `PermissionError` while the `~$` lock exists, as Windows does for a file Excel holds |
 | the pause before a retry | `waiting.pause` in that `replace`, after a refusal and before it reads INTERMAX again (`workbook_content`) and retries; may last the whole retry time (`_RETRY_S`), so the next refusal ends in `HeldByOneDrive`. The checker's `Waiting` clock moves only in this pause and never sleeps |
 | the old Kopie | `intermax_copies.keep_newest` after the replace; may raise `OSError`, which `order_register` and `restore` turn into a warning |
@@ -89,13 +89,17 @@ Covered files: `src/rozliczenia/intermax_ordering.py`,
 (`workbook_content`, `ensure_available`, `is_open_in_excel`,
 `excel_lock_file`).
 
-**Sync commit: `c567dff6`** (2026-10-26, #472: Przywracanie Kopii INTERMAX through the same retried replace, the
-limit of 10 over both names). At this commit the
-checker was confirmed to describe the code above. To see whether it needs
+**Sync commit: `054308111`** (2026-10-31, `main` after #710). At this commit the
+checker was confirmed to describe the code above. From the previous sync commit `c567dff6` (#472) only one change
+reached a step in the table: the restore catches `FileExistsError` from its Kopia (a second restore in the same
+second, `6fec33e9b`), which the checker now runs as a third start. `WorkbookSaveError` carries its target and
+`SaveProblem` instead of a sentence (`b41bf175e`), the save also sets the active tab and the sheet view (`_tabs`,
+`_with_view`) and Wpisy urządzenia i czynności INTERMAX, and the summary counts them; none of these adds, removes or
+reorders a step between the read and the replace. To see whether it needs
 another look:
 
 ```bash
-git log --oneline c567dff6..HEAD -- src/rozliczenia/intermax_ordering.py src/rozliczenia/intermax_copies.py src/rozliczenia/intermax_file.py src/rozliczenia/workbook_save.py src/rozliczenia/workbook_files.py
+git log --oneline 054308111..HEAD -- src/rozliczenia/intermax_ordering.py src/rozliczenia/intermax_copies.py src/rozliczenia/intermax_file.py src/rozliczenia/workbook_save.py src/rozliczenia/workbook_files.py
 ```
 
 Read each listed commit against the table. A change matters when it adds,
@@ -138,13 +142,16 @@ with 10 older Kopie (earlier days, alternately `przed przywróceniem` and `przed
 uporządkowaniem`, so that their order by name differs from their order in time;
 the oldest holds the earlier INTERMAX, the others their own bytes), runs
 `order_register` or `restore` of the oldest Kopia, and picks at every point in
-the table. It re-runs the code from scratch for every schedule.
+the table. A third start runs the restore as a second one in the same second: the
+Kopie folder also holds `INTERMAX przed przywróceniem` with the run's own moment,
+so `make_copy` raises `FileExistsError` and the restore must stop with that Kopia
+and every other one as they were. It re-runs the code from scratch for every schedule.
 
 Bounds: at most one worker's change, one Excel opening, one failed file step,
 one failed write check, two OneDrive refusals of the replace, one pause that
-lasts the whole retry time and one killed process per run. That is 1780
-schedules: 895 of Uporządkowanie and 885 of the restore (305 before the
-retried replace, #505).
+lasts the whole retry time and one killed process per run. That is 1879
+schedules: 895 of Uporządkowanie, 885 of the restore (305 before the
+retried replace, #505) and 99 of the second restore in the same second.
 
 Not covered:
 
@@ -165,7 +172,14 @@ Not covered:
   Excel or not a workbook), which `tests/test_centrum_przywracanie_kopii_intermax.py`
   covers, and a restore running beside an Uruchomienie, which `RunHost` refuses
   (`verify-jedno-uruchomienie-naraz`);
-- the order of Kopie by the moment in their name around a clock change.
+- the order of Kopie by the moment in their name around a clock change;
+- an earlier Kopia whose bytes a successful run rewrites: KOPIE_NAJNOWSZE
+  compares names only, so a `make_copy` that overwrote a Kopia of the same name
+  would be caught only where the run then stops (ZATRZYMANIE_BEZ_SLADU), as in
+  the second restore in the same second;
+- a second Uporządkowanie in the same second (its `FileExistsError` becomes the
+  ordinary Zatrzymanie `copy_failed`): after an Uporządkowanie no Surowe
+  zlecenia are left to order.
 
 ## Known findings
 
@@ -261,6 +275,8 @@ temporary copy of the checkout (`tools/mutacje.py`) and must end with
 - Kopie sorted by name instead of by the moment in their name;
 - a restore without the Kopia of the current state;
 - the Kopia of the current state left after a failed restore;
+- a Kopia that overwrites a Kopia of the same name (no `O_EXCL`), which the
+  second restore in the same second then removes when it stops;
 - a restore that replaces INTERMAX with the bytes it read instead of the
   chosen Kopia.
 

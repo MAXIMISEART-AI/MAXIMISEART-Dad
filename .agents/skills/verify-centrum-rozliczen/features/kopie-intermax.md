@@ -1,8 +1,8 @@
 # Kopie INTERMAX
 
 When INTERMAX breaks, Dad opens Konfiguracja and finds the card `Kopie INTERMAX`:
-the Kopie INTERMAX from before every Uporządkowanie and every restore, newest
-first, each with its date and time from the file name and a quiet note of what
+the 10 newest Kopie INTERMAX from before an Uporządkowanie or a restore (each write
+removes older ones of both names, `intermax_copies.KEPT`), newest first, each with its date and time from the file name and a quiet note of what
 it was made before. `Przywróć` on a row asks one sentence: the changes made in
 INTERMAX after that time disappear. `Przywróć tę kopię` first saves the current
 INTERMAX as a Kopia `INTERMAX przed przywróceniem RRRR-MM-DD GG-MM-SS.xlsx`,
