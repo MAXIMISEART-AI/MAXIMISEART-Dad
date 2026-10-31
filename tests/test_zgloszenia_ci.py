@@ -1,4 +1,4 @@
-"""``tools/zgloszenia_ci.py``: issue flaky testu, issue czerwonego `main` z rozpoznaniem zderzenia i jego zamknięcie.
+"""``tools/ci/zgloszenia_ci.py``: issue flaky testu, issue czerwonego `main` z rozpoznaniem zderzenia i jego zamknięcie.
 
 Historia `main` to prawdziwy Git z PR-ami scalonymi merge'em, a GitHub to zapisane odpowiedzi API w kształcie
 odpowiedzi z runów 26.10.
@@ -22,7 +22,8 @@ import pytest
 from tests.fixtures.ci_workflow import jobs
 from tests.fixtures.git_repo import commit, git
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools/lib"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools/ci"))
 
 import niestabilne_testy
 import zgloszenia_ci

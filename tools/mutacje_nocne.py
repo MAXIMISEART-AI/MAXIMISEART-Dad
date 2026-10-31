@@ -1,4 +1,6 @@
-"""Mutacje nocne (ADR 0021): mutacje linii zmienionych na ``main`` od ostatniej nocy i issue dla przeżytych.
+"""Liczy nocne mutacje na main i zgłasza przeżyte w issue PR-ów; użyj (plan), by bez testów zobaczyć bazę i części najbliższej nocy.
+
+Mutacje nocne (ADR 0021): mutacje linii zmienionych na ``main`` od ostatniej nocy i issue dla przeżytych.
 
 Workflow ``mutacje-nocne.yml`` biegnie raz na dobę na ``main`` i ręcznie (``workflow_dispatch`` z opcjonalnym ``od``).
 
@@ -51,6 +53,8 @@ import re
 import subprocess
 import sys
 from typing import Any
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools/ci"))
 
 import mutacje_skilli
 import mutacje_zmiany

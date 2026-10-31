@@ -11,6 +11,8 @@ from typing import NamedTuple
 from openpyxl import load_workbook
 from openpyxl.worksheet.worksheet import Worksheet
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "tools/lib"))
+
 from wynik_uruchomienia import Link, ProcessResult, check_metrics, contract, figures, finish, hyperlinks, load_result
 from skrypt_skilla import Parser
 

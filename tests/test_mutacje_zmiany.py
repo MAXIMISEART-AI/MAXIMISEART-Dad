@@ -10,16 +10,15 @@ import datetime
 import json
 import os
 from pathlib import Path
-import shutil
 import subprocess
 import sys
 
 import pytest
 
-from tests.fixtures.git_repo import commit, git, repository
+from tests.fixtures.git_repo import commit, copy_files, git, repository
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "tools"))
+sys.path.insert(0, str(ROOT / "tools" / "ci"))
 
 from mutacje_zmiany import Hunk, exceptions, fingerprint, mutants, selected  # noqa: E402
 import pokrycie_procesu  # noqa: E402
@@ -44,8 +43,7 @@ def _repo(tmp_path: Path, test: str, changed: str = CHANGED, base: str = BASE, c
     if other:
         files["src/rozliczenia/inny.py"] = other
     repo = repository(tmp_path, files)
-    for name in ("szybko.py", "mutacje_zmiany.py", "pokrycie_linii.py", "pokrycie_procesu.py"):
-        shutil.copy2(ROOT / "tools" / name, repo / "tools" / name)
+    copy_files(repo, ("tools/szybko.py", "tools/mutacje_zmiany.py", "tools/ci/pytest_pokrycie.py", "tools/ci/pokrycie_procesu.py"))
     commit(repo, "baza")
     git(repo, "branch", "--quiet", "baza")
     (repo / MODULE).write_text(changed, encoding="utf-8")
@@ -60,7 +58,7 @@ def _run(repo: Path, *arguments: str, trial: bool = False, log: Path | None = No
             [sys.executable, str(repo / "tools" / "mutacje_zmiany.py"), "--baza", "baza", "--rownolegle", "2", *arguments],
             cwd=repo,
             # Jeden worker xdist: testy biegną w kolejności z pliku, więc fixture sesji ustawia zawsze pierwszy z nich.
-            # Narzędzie biegnie jak w zadaniu CI, bo poza nim odmawia startu (tools/ciezkie_ci.py).
+            # Narzędzie biegnie jak w zadaniu CI, bo poza nim odmawia startu (tools/lib/ciezkie_ci.py).
             env={
                 **os.environ,
                 "PYTEST_XDIST_AUTO_NUM_WORKERS": "1",
@@ -617,7 +615,7 @@ def test_z_predykatu_napisu_biegnie_in_na_startswith() -> None:
 
 
 def test_predykat_napisu_biegnie_tylko_na_linii_bez_innej_mutacji() -> None:
-    # #486 ``tools/sciezki_w_kodzie.py:67``: przy zbiorze ``GLOBS.startswith(name)`` tylko rzuca ``AttributeError``, a
+    # #486 ``tools/lib/sciezki_w_kodzie.py:67``: przy zbiorze ``GLOBS.startswith(name)`` tylko rzuca ``AttributeError``, a
     # przeżywało ``bez `name in GLOBS` w `and` ``.
     code = 'GLOBS = frozenset({"glob", "rglob"})\n\n\ndef f(node, name, t):\n    if isinstance(node, str) and name in GLOBS:\n        return t\n'
     hunks = [Hunk(5, 1, ())]
@@ -901,11 +899,11 @@ def test_pokrycie_przypisuje_zmieniona_linie_testom_ktore_ja_wykonuja_w_watku_i_
     found.mkdir()
     settings = {"linie": {str(module): [5, 9, 18]}, "wynik": str(found)}
     done = subprocess.run(
-        [sys.executable, "-m", "pytest", "-q", "-p", "pokrycie_linii", "-p", "no:cacheprovider", "test_modul.py"],
+        [sys.executable, "-m", "pytest", "-q", "-p", "pytest_pokrycie", "-p", "no:cacheprovider", "test_modul.py"],
         cwd=tmp_path,
         env={
             **{name: value for name, value in os.environ.items() if name != pokrycie_procesu.TEST},
-            "PYTHONPATH": os.pathsep.join([str(site), str(ROOT / "tools"), str(tmp_path)]),
+            "PYTHONPATH": os.pathsep.join([str(site), str(ROOT / "tools" / "ci"), str(tmp_path)]),
             "POKRYCIE_LINII": json.dumps(settings),
         },
         capture_output=True,

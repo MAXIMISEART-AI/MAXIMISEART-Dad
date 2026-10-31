@@ -1,4 +1,6 @@
-"""Plan CI: ile zadań pytest i Mutation checks startuje w runie ``ci.yml`` i co biegnie w każdym.
+"""Drukuje plan runu CI gałęzi (plan --baza origin/main): zadania pytest i Mutation checks, ich pliki i kroki skilli; użyj przed pushem albo gdy CI biegło inaczej.
+
+Plan CI: ile zadań pytest i Mutation checks startuje w runie ``ci.yml`` i co biegnie w każdym.
 
 Pracę pytest wyznacza ``zakres`` (ADR 0020). Na pushu to pełne CI ``main``: trzy tory (``TORY``: Windows 3.11, Windows
 3.14, Linux 3.14), na każdym każdy plik testów ``tests/``, oraz kroki CI (``KROKI``) na swoich torach: E2E na obu
@@ -7,22 +9,22 @@ na każdym pliki z wyboru ``tools/szybko.py`` dla zmiany od bazy, bez jego budż
 (węzeł ``plik::test`` biegnie sam, gdy jego pliku nie ma w wyborze). Zmiana pliku z ``szybko.FULL`` albo pod
 ``.github/workflows/`` wybiera wszystkie pliki. Na Windows 3.11 E2E biegnie przy zmianie pod ``src/``, a straż czasu
 przy zmianie w domknięciu jej skryptów (``STRAZ``); przy wyborze wszystkich plików oba.
-Praca Mutation checks to tor ``MUTACJE`` (Windows 3.14): kroki skilli z wyboru ``tools/mutacje_skilli.py`` (na pull
+Praca Mutation checks to tor ``MUTACJE`` (Windows 3.14): kroki skilli z wyboru ``tools/ci/mutacje_skilli.py`` (na pull
 request podstawy ``ci:``, których werdykt mogą zmienić zmiany od bazy, na pushu wszystkie kroki), każda podstawa ``ci:`` i
 każdy skrypt mutacji osobno. Zdarzenie ``noc`` (workflow ``mutacje-nocne.yml``, ADR 0021) nie ma pytest, a jego Mutation
 checks to skrypty mutacji skilli, których werdykt mogły zmienić zmiany ``main`` od bazy nocy, i każda część każdej
 liczby części podstawy z ``ci-czesci``, którą pull request uruchomiłby przy tych zmianach. Koszt jednostki to ściana, którą dodaje do zadania: plik waży sumę czasów swoich testów przez
-``WORKERY`` workerów xdist, krok swój czas. Czasy to mediany z ostatnich runów main (``tools/czasy_ci.py``). Plik albo
+``WORKERY`` workerów xdist, krok swój czas. Czasy to mediany z ostatnich runów main (``tools/ci/czasy_ci.py``). Plik albo
 krok skilla bez pomiaru waży medianę zmierzonych jednostek tego rodzaju na torze, a bez żadnych pomiarów wagę z
 ``DOMYSLNIE``: plan to wypisuje i biegnie dalej, bo brak czasów psuje tylko równowagę zadań, nie zbiór pracy.
 
 Ściana zadania to narzut (od startu zadania do pracy), start pytest, suma kosztów jego jednostek i koniec zadania;
 narzut i start też są z pomiarów. Plan dzieli każdy tor na najmniej zadań o ścianie najwyżej ``cel_s`` (LPT: najdłuższa jednostka do
 zadania o najmniejszej sumie). Plik dłuższy niż zadanie dzieli się na k udziałów o tej samej wadze: udział k biegnie
-z ``-p tools.pytest_czesc`` (testy pliku posortowane po id, po kolei). Skrypt mutacji dłuższy niż zadanie dzieli się tak samo na
+z ``-p tools.ci.pytest_czesc`` (testy pliku posortowane po id, po kolei). Skrypt mutacji dłuższy niż zadanie dzieli się tak samo na
 najwyżej tyle części, ile ma mutacji: część biegnie z ``MUTACJE_CZESC=k/n`` (``tools/mutacje.py``), z podstawą
 poleceń swoich mutacji. Podstawa ``ci:`` z ``ci-czesci: <n>`` dzieli się tak samo na najwyżej n części (część k
-skrypt bierze z ``MUTACJE_CZESC=k/n``, ``tools/skrypt_skilla.py``), a bez niego nie. Plan drukuje najdłuższą jednostkę
+skrypt bierze z ``MUTACJE_CZESC=k/n``, ``tools/lib/skrypt_skilla.py``), a bez niego nie. Plan drukuje najdłuższą jednostkę
 każdego toru po podziale: poniżej niej ściana zadania nie zejdzie.
 Zadanie Mutation checks instaluje Chromium tylko wtedy, gdy ma krok skilla, którego skrypty importują Playwright. Gdy
 run (``STALE_ZADANIA``, zadania pytest i Mutation checks) przekroczyłby ``ZADANIA_RUNU`` na pull request albo
@@ -67,6 +69,9 @@ import subprocess
 import sys
 import tempfile
 import time
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools/ci"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools/lib"))
 
 import czasy_ci
 import mutacje
@@ -478,7 +483,7 @@ def _pytest(pliki: Mapping[str, list[tuple[int, int]]]) -> tuple[str, ...]:
     CZESCI.parent.mkdir(parents=True, exist_ok=True)
     CZESCI.write_text(json.dumps(czesci, indent=1), encoding="utf-8")
     # Bez '=' w argumentach: shim py (cmd) dzieli argument na '='.
-    return (sys.executable, "-m", "pytest", "-n", "auto", "-p", "tools.pytest_czesc", "--czesci", str(CZESCI), *pliki, "--junitxml", str(JUNIT))
+    return (sys.executable, "-m", "pytest", "-n", "auto", "-p", "tools.ci.pytest_czesc", "--czesci", str(CZESCI), *pliki, "--junitxml", str(JUNIT))
 
 
 def _polecenia(krok: Krok) -> list[tuple[tuple[str, ...], float]]:

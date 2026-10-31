@@ -22,6 +22,7 @@ import urllib.request
 import uuid
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "tools"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "tools/lib"))
 
 from drive import DEFAULT_REPEATS, FEATURES
 from quiet_machine import MachineBusy, QuietMachine

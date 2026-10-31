@@ -13,7 +13,7 @@ Dlaczego PR dostaje mniej sprawdzeń niż `main`, mówi [ADR 0020](../adr/0020-c
   Pomija przy tym plik testu, który już przeszedł, jeśli od tamtej pory nie zmienił się ani on, ani nic, od czego zależy.
 - Zmiana pliku z `szybko.FULL` albo pod `.github/workflows/` wybiera wszystkie pliki testów, E2E i straż czasu.
 - E2E biegnie na Windows 3.11 przy zmianie pod `src/`, a straż czasu przy zmianie w domknięciu jej skryptów (`STRAZ` w `tools/plan_ci.py`).
-- Mutation checks biegną tylko wtedy, gdy `tools/mutacje_skilli.py` wybrał dla zmiany podstawę skilla (polecenie `ci:`).
+- Mutation checks biegną tylko wtedy, gdy `tools/ci/mutacje_skilli.py` wybrał dla zmiany podstawę skilla (polecenie `ci:`).
   Kiedy ją wybiera, mówi [`docs/agents/skille.md`](skille.md).
 - Skrypty mutacji skilli (`check_*_mutations.py`) na PR nie biegną, tylko w pełnym CI `main` i nocą na `main` (sekcja `Change mutations` niżej).
 - Mutacje zmienionych linii na PR nie biegną, tylko nocą na `main` (sekcja `Change mutations` niżej).
@@ -67,7 +67,7 @@ Dlaczego PR dostaje mniej sprawdzeń niż `main`, mówi [ADR 0020](../adr/0020-c
 
 ## Status `scalenie z main`
 
-- Status `scalenie z main` na HEAD PR mówi, czy scalenie PR z obecnym `main` przechodzi bez konfliktu, ruff i mypy dla obu systemów (`tools/scalenia_pr.py` w workflow `scalenia.yml`, po każdym pushu do `main`).
+- Status `scalenie z main` na HEAD PR mówi, czy scalenie PR z obecnym `main` przechodzi bez konfliktu, ruff i mypy dla obu systemów (`tools/ci/status_scalenia.py` w workflow `scalenia.yml`, po każdym pushu do `main`).
 - Ruleset go nie wymaga, więc gotowość PR od niego nie zależy, choć `gh pr checks` kończy się kodem 1, gdy jest czerwony.
 - `failure` znaczy, że PR trzeba zaktualizować z `origin/main` i poprawić, a opis statusu nazywa pliki z konfliktem albo kroki, które padły.
 - `error` z „sam nie przechodzi” znaczy, że czerwony jest `main`, nie PR.
@@ -87,8 +87,8 @@ Dlaczego PR dostaje mniej sprawdzeń niż `main`, mówi [ADR 0020](../adr/0020-c
 | Reguła | Co jej pilnuje |
 |---|---|
 | Rebase albo merge `main` do gałęzi robisz tylko przy konflikcie albo gdy `main` zmienił te same pliki co PR. | werdykt `AKTUALIZACJA` z `tools/praca_w_toku.py --aktualizacja`, drukowany też przez bramę `tools/hooks/pre-push`; `tests/test_praca_w_toku.py`, `tests/test_brama_pre_push.py` |
-| Ciężkie zadania CI (`change-mutations`, `mutations`) liczy GitHub, a lokalnie biegną tylko do odtworzenia porażki z runu Actions tej gałęzi albo, na jego commicie, z runu `mutacje-nocne.yml`. | `tools/ciezkie_ci.py`, `tests/test_ciezkie_ci.py`, `tests/test_na_scalonych_pr.py` |
-| Lista dłuższa niż `TARGETED` mutacji w `tools/mutacje.py` to ręczne `change-mutations`, więc poza CI biegnie tylko z tymi samymi wyjątkami, a skrypty mutacji skilli `verify-*` (`check_all`) nie mają tego limitu. | `tools/ciezkie_ci.py` (`TARGETED`), `tests/test_ciezkie_ci.py` |
+| Ciężkie zadania CI (`change-mutations`, `mutations`) liczy GitHub, a lokalnie biegną tylko do odtworzenia porażki z runu Actions tej gałęzi albo, na jego commicie, z runu `mutacje-nocne.yml`. | `tools/lib/ciezkie_ci.py`, `tests/test_ciezkie_ci.py`, `tests/test_na_scalonych_pr.py` |
+| Lista dłuższa niż `TARGETED` mutacji w `tools/mutacje.py` to ręczne `change-mutations`, więc poza CI biegnie tylko z tymi samymi wyjątkami, a skrypty mutacji skilli `verify-*` (`check_all`) nie mają tego limitu. | `tools/lib/ciezkie_ci.py` (`TARGETED`), `tests/test_ciezkie_ci.py` |
 | Bramka PR uruchamia pytest na Windows 3.11 i Linux 3.14 na wyborze `tools/szybko.py` dla zmiany, a zmiana pliku z `szybko.FULL` albo pod `.github/workflows/` wybiera wszystkie pliki, E2E i straż czasu. | `tests/test_plan_ci.py::test_bramka_pr_biegnie_na_windows_311_i_linuksie_z_wyborem_szybko_a_e2e_i_straz_czasu_tylko_przy_ich_zmianie` |
 | Do bramki PR dokładasz tylko to, co złapałoby defekt, który przez nią przeszedł, z dowodem z backtestu, a plan wzorcowych PR-ów L i C ponad limit testów, zadań albo prognozy ściany to decyzja Maksa. | limitu testów, zadań i prognozy ściany (+20%) pilnuje `tests/test_ksztalt_bramki.py`, a dowodu z backtestu tylko przegląd |
 | Trwający run `main` kończy się, a nowy push do PR anuluje run jego starszego commitu. | `tests/test_zadania_ci.py::test_push_do_main_nie_anuluje_trwajacego_runu_a_nowy_push_pr_anuluje_stary` |

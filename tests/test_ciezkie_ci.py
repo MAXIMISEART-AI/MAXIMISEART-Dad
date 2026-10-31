@@ -13,17 +13,17 @@ import json
 import os
 from pathlib import Path
 import re
-import shutil
 import subprocess
 import sys
 
 import pytest
 import yaml
 
-from tests.fixtures.git_repo import commit, git, repository
+from tests.fixtures.git_repo import commit, copy_files, git, repository
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "tools"))
+sys.path.insert(0, str(ROOT / "tools" / "lib"))
+sys.path.insert(0, str(ROOT / "tools" / "ci"))
 
 from ciezkie_ci import HEAVY, NIGHTLY, mutations_refusal, refusal  # noqa: E402
 import plan_ci  # noqa: E402
@@ -38,8 +38,7 @@ def _repo(tmp_path: Path) -> Path:
     """Repozytorium z narzędziami na gałęzi ``praca``, odbitej od ``main`` z jednym commitem."""
 
     repo = repository(tmp_path / "repo", {".gitignore": "__pycache__/\n", "src/rozliczenia/__init__.py": ""})
-    for name in ("szybko.py", "mutacje_zmiany.py", "pokrycie_linii.py", "pokrycie_procesu.py"):
-        shutil.copy2(ROOT / "tools" / name, repo / "tools" / name)
+    copy_files(repo, ("tools/szybko.py", "tools/mutacje_zmiany.py", "tools/ci/pytest_pokrycie.py", "tools/ci/pokrycie_procesu.py"))
     git(repo, "checkout", "--quiet", "-b", "main")
     commit(repo, "baza")
     git(repo, "checkout", "--quiet", "-b", "praca")

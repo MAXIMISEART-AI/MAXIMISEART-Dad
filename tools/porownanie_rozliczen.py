@@ -1,4 +1,6 @@
-"""Porównanie znaczeniowe dwóch Folderów rozliczeń pracowników: bramka poprawności wspinaczki (spec #141).
+"""Porównuje znaczeniowo dwa Foldery rozliczeń pracowników (spec #141); użyj jako bramki, gdy zmiana silnika ma dać te same rozliczenia.
+
+Porównanie znaczeniowe dwóch Folderów rozliczeń pracowników: bramka poprawności wspinaczki (spec #141).
 
 Użycie (z katalogu repozytorium):
 

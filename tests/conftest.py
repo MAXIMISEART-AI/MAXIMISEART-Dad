@@ -21,7 +21,10 @@ from rozliczenia.centrum.log import CentrumLog
 from tests.fixtures.git_config import hermetic_git
 from tests.fixtures.kwarantanna import KWARANTANNA
 
+# Testy importują narzędzia tak, jak skrypt z ``tools/`` widzi je na ``sys.path``: narzędzia agenta, biblioteki i CI.
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools/lib"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools/ci"))
 
 import niestabilne_testy
 

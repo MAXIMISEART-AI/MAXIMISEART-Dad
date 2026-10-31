@@ -1,4 +1,6 @@
-"""Skrypt dla maszyn: jedno Uruchomienie procesu, wynik jako JSON.
+"""Jedno Uruchomienie procesu (settlement, preparation, intermax) z wynikiem JSON; użyj w E2E, benchmarku i skillach zamiast Centrum rozliczeń.
+
+Skrypt dla maszyn: jedno Uruchomienie procesu, wynik jako JSON.
 
 Użycie (z katalogu repozytorium):
 
