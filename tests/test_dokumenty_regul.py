@@ -1,5 +1,6 @@
 """Dokumenty z regułami łamią linie tylko na końcu zdania: zmiana jednego słowa zmienia jedną linię, nie cały akapit.
 
+Frontmatter skilla (YAML między liniami ``---`` na początku pliku) to nie proza, więc go pomija.
 ``GLOSSARY.md`` i ``README.md`` są jeszcze łamane twardo, więc dołączą do ``DOCUMENTS`` po przeformatowaniu.
 """
 
@@ -10,7 +11,7 @@ from pathlib import Path
 import re
 
 ROOT = Path(__file__).resolve().parents[1]
-DOCUMENTS = ("AGENTS.md", "CODING_STANDARDS.md", "docs/agents/pr-i-ci.md", "docs/agents/przeglad.md", "docs/agents/skille.md")
+DOCUMENTS = ("AGENTS.md", "CODING_STANDARDS.md", "docs/agents/pr-i-ci.md", ".agents/skills/przeglad/SKILL.md", "docs/agents/skille.md")
 FENCE = "```"
 NOT_PROSE = re.compile(r"\s*(?:#+\s|\||```)")
 LIST_ITEM = re.compile(r"\s*(?:-|\d+\.)\s")
@@ -26,8 +27,11 @@ def _lines_broken_mid_sentence(text: str) -> Iterator[int]:
 
     lines = text.splitlines()
     fenced = False
+    front_matter = lines[:1] == ["---"]
     for number, (line, following) in enumerate(zip(lines, [*lines[1:], ""], strict=True), start=1):
-        if line.lstrip().startswith(FENCE):
+        if front_matter:
+            front_matter = number == 1 or line != "---"
+        elif line.lstrip().startswith(FENCE):
             fenced = not fenced
         elif (
             not fenced
@@ -91,3 +95,19 @@ def test_sprawdzenie_pomija_kod_tabele_i_naglowki_a_wskazuje_lamanie_w_srodku_zd
     )
 
     assert list(_lines_broken_mid_sentence(document)) == [2, 5, 11]
+
+
+def test_sprawdzenie_pomija_frontmatter_skilla_a_sprawdza_proze_po_nim() -> None:
+    document = "\n".join(
+        [
+            "---",
+            "name: skill",
+            "description: Opis",
+            "---",
+            "",
+            "Akapit łamany",
+            "w środku zdania.",
+        ]
+    )
+
+    assert list(_lines_broken_mid_sentence(document)) == [6]
