@@ -48,6 +48,7 @@ from rozliczenia.centrum import outbox as outbox_module
 from rozliczenia.centrum.keyed_box import KeyedBox
 from rozliczenia.centrum.log import CentrumLog
 from rozliczenia.centrum.outbox import (
+    Deliveries,
     KnownIssue,
     NewIssue,
     Outbox,
@@ -68,6 +69,19 @@ from rozliczenia.centrum.report_box import (
 )
 
 KEY = "github_pat_SYNTETYCZNY_KLUCZ"
+
+
+class _Unchanged:
+    """Słuchacz kolejki bez Spraw taty: każda wysyłka idzie bez zmian i bez wysyłek następczych."""
+
+    def prepare(self, post: Post, sent: Deliveries) -> Post | None:
+        return post
+
+    def delivered(self, post: Post, number: int) -> tuple[Post, ...]:
+        return ()
+
+    def rejected(self, post: Post) -> None:
+        return None
 # Passes beyond one per failure until the queue must be empty; a pass without a failure delivers or removes each file.
 EXTRA_PASSES = 3
 DRAIN_FAILURE = "wysyłka do Skrzynki Zgłoszeń"
@@ -250,7 +264,7 @@ class Scope:
 
 
 REPORT = ReportIssue(
-    "- Odcisk problemu: 4f1c2d", "Zgłoszenie: Przebieg rozliczeń zatrzymany"
+    fingerprint="4f1c2d", title="Zgłoszenie: Przebieg rozliczeń zatrzymany"
 )
 THREAD = PeriodThread(
     "kontrola-ilosci",
@@ -631,6 +645,7 @@ def execute(
             KeyedBox(box, lambda: KEY, clock=clock),
             _Log(work / "centrum.log", failures),
             clock=clock,
+            listener=_Unchanged(),
         )
 
     with _queue_threads(started_threads):

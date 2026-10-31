@@ -13,7 +13,7 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "tools"))
 sys.path.insert(0, str(Path(__file__).resolve().parents[4] / ".agents/skills/verify-centrum-rozliczen/scripts"))
 
-from cele_mutacji_centrum import BUILD, DAD_NOTES, UWAGA
+from cele_mutacji_centrum import BUILD, CASE_DELIVERY, DAD_NOTES, UWAGA
 from mutacje import Edit, Mutation, check_all
 
 FIELDS = Edit(BUILD, "`-m-1 flex flex-col gap-5 overflow-y-auto p-1`", "`-m-1 flex min-h-0 flex-col gap-5 p-1`")
@@ -90,9 +90,9 @@ MUTATIONS = (
         "komentarz z odnośnikiem do odrzuconych Logów nie powstaje",
         (
             Edit(
-                DAD_NOTES,
-                "        outbox.post(Post(target, period=None, run_id=run_id, header=None, parts=(_logs_gone(run_id),)))\n",
-                "        pass\n",
+                CASE_DELIVERY,
+                "        return (Post(KnownIssue(NOTE.label, number), period=None, run_id=run_id, header=None, parts=(_logs_gone(run_id),)),)\n",
+                "        return ()\n",
             ),
         ),
         UWAGA,
@@ -102,9 +102,9 @@ MUTATIONS = (
         "komentarz po odrzuconych Logach bez odnośnika",
         (
             Edit(
-                DAD_NOTES,
-                "            return replace(post, parts=(_logs_arrived(post.run_id, address),))\n",
-                "            return post\n",
+                CASE_DELIVERY,
+                "                return replace(post, parts=(_logs_arrived(post.run_id, address),))\n",
+                "                return post\n",
             ),
         ),
         UWAGA,
@@ -112,13 +112,13 @@ MUTATIONS = (
     ),
     Mutation(
         "„nie dotarły” zamienione na „w drodze”",
-        (Edit(DAD_NOTES, "        return _rejected_logs_line(run_id)\n", "        return _logs_line(run_id, None)\n"),),
+        (Edit(CASE_DELIVERY, "        return _rejected_logs_line(run_id)\n", "        return logs_line(run_id, None)\n"),),
         UWAGA,
         "wysłana Uwaga mówi, że Logi są w drodze, choć Skrzynka je odrzuciła",
     ),
     Mutation(
         "„nie powstały” zamienione na „nie dotarły”",
-        (Edit(DAD_NOTES, "    if rejected(run_id):\n", "    if True:\n"),),
+        (Edit(CASE_DELIVERY, "    if sent.rejected(run_id, RUN_LOGS_LABEL):\n", "    if True:\n"),),
         UWAGA,
         "Uwaga obiecuje odnośnik do Logów, których nie ma w kolejce",
     ),

@@ -20,7 +20,8 @@ from rozliczenia.centrum import update_messages
 from rozliczenia.centrum.keyed_box import KeyedBox, read_report_key
 from rozliczenia.centrum.log import CentrumLog
 from rozliczenia.centrum.dad_cases import DAD_CASES_FILE, NOTE, REPORT, Case, DadCases
-from rozliczenia.centrum.outbox import RETRY_S, Outbox, Post, ReportIssue
+from rozliczenia.centrum.case_delivery import case_outbox
+from rozliczenia.centrum.outbox import RETRY_S, Outbox, Post, ReportIssue, fingerprint_line
 from rozliczenia.centrum.report_box import IssuesOutcome, Label, Refused, Unreachable
 from rozliczenia.centrum.reports import (
     SEARCH_DEADLINE_S,
@@ -28,7 +29,6 @@ from rozliczenia.centrum.reports import (
     ReportHandle,
     Reports,
     UpdateReport,
-    fingerprint_line,
 )
 from rozliczenia.centrum.tool_update import NO_CONNECTION, OTHER_BRANCH, UpdateResult
 from rozliczenia.message import Message
@@ -107,14 +107,10 @@ class Computer:
             self.clock = ManualClock()
         self.since = new_line()
         keyed = KeyedBox(self.box, lambda: read_report_key(self.config), clock=self.clock)
-        outbox = Outbox(
-            self.config / "zgloszenia" / "kolejka",
-            keyed,
-            self.log,
-            clock=self.clock,
-            on_delivered=lambda post, number: reports.delivered(post, number),
-        )
         stored = DadCases(self.config, self.log, pause=self.clock.pause)
+        outbox = case_outbox(
+            self.config / "zgloszenia" / "kolejka", keyed, self.log, stored, clock=self.clock, addresses=None
+        )
         reports = Reports(keyed, outbox, lambda: TOOL_COMMIT, stored, search_deadline_s=self.search_deadline_s)
         self.outbox, self.keyed, self.stored = outbox, keyed, stored
         return reports
@@ -307,15 +303,19 @@ def test_ponowne_dostarczenie_tej_samej_sprawy_nie_zmienia_stanu_wyslanych(compu
     [case] = cases
     report = source(computer)
     post = Post(
-        ReportIssue(fingerprint_line(report.fingerprint.digest), "tytuł"),
+        ReportIssue(fingerprint=report.fingerprint.digest, title="tytuł"),
         period=None,
-        run_id=case["id"],
+        run_id="ponowna-wysylka",
         header=None,
         parts=(body,),
     )
+    assert computer.outbox is not None
 
-    reports.delivered(post, 1)
+    computer.outbox.post(post)
 
+    assert wait_for(lambda: computer.queued() == [])
+    assert computer.box.sent[0].number == case["number"]
+    assert len(computer.box.sent) == 1
     assert computer.cases() == cases
 
 

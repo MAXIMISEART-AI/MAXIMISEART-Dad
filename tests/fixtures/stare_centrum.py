@@ -32,6 +32,7 @@ from rozliczenia.centrum.report_box import (
 
 from tests.fixtures.clock import ManualClock
 from tests.fixtures.potomne import wait_for
+from tests.fixtures.sluchacz_kolejki import QueueListener
 
 ROOT = Path(__file__).resolve().parents[2]
 KEY = "github_pat_SYNTETYCZNY_KLUCZ"
@@ -94,7 +95,7 @@ class SharedBox:
 def queue_on(directory: Path, box: SharedBox, log: Path, clock: ManualClock) -> Outbox:
     """Kolejka Centrum na folderze ``directory`` ze skrzynką ``box`` i kluczem do Zgłoszeń."""
 
-    return Outbox(directory, KeyedBox(box, lambda: KEY, clock=clock), CentrumLog(log), clock=clock)
+    return Outbox(directory, KeyedBox(box, lambda: KEY, clock=clock), CentrumLog(log), clock=clock, listener=QueueListener())
 
 
 @dataclass

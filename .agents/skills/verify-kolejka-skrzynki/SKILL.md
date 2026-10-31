@@ -88,8 +88,18 @@ and `_Server` in `server.py` (`DEFINITIONS` in `sprawdz_model_kolejki.py`). Only
 rest of their files, is drift. Name these three files here without their
 `src/…` path in backticks: such a path makes the whole file covered.
 
-**Sync commit: `05430811`** (2026-10-31). The checker and the model share it:
+**Sync commit: `a27e0695`** (2026-10-31). The checker and the model share it:
 at this commit both were confirmed to describe the code above. Since the
+previous sync `05430811` only `a27e0695` (#718) changed a covered file:
+`Outbox` takes one `Listener` (`prepare`, `delivered`, `rejected`) instead
+of `prepare`, `on_delivered` and `on_rejected`, and `_send_all` queues the
+wysyłki that `Listener.delivered` returns with `post` at the place where the
+old `on_delivered` of the Sprawy taty called `post` itself; `ReportIssue`
+carries the fingerprint, its line comes from it, and the queue file keeps the
+line as before. No box call, retry, marker, removal or `_waiting` changed and
+no `Target` was added, so neither check changed: the checker passes a
+listener that changes nothing, and the model leaves the listener out as
+before. At `05430811`, since the
 previous sync `b23f4180` only `73d7f1ba8` (tools to `tools/ci` and
 `tools/lib`) changed a covered file, a comment in `app.py` outside `lifespan`,
 and the import path of `sprawdz_kolejke.py`; neither check changed. At
@@ -107,7 +117,7 @@ them, `6f94edb8` was the sync of both, and since the checker's earlier sync
 model describes. To see whether they need another look:
 
 ```bash
-git log --oneline 05430811..HEAD -- src/rozliczenia/centrum/outbox.py src/rozliczenia/centrum/keyed_box.py src/rozliczenia/centrum/report_box.py src/rozliczenia/centrum/atomic_file.py
+git log --oneline a27e0695..HEAD -- src/rozliczenia/centrum/outbox.py src/rozliczenia/centrum/keyed_box.py src/rozliczenia/centrum/report_box.py src/rozliczenia/centrum/atomic_file.py
 ```
 
 A change to the three definitions above shows as a `UWAGA:` line of
@@ -117,7 +127,7 @@ removes or reorders a box call, changes what a retry does with an issue it
 finds, changes when the marker is written or the file removed, changes which
 failure stops a pass (`_waiting`), or adds a `Target`. A new `Target` also needs
 a scope in `SCOPES` and a branch in `_check` in `explore_outbox.py`. Changes to
-the text of a wysyłka, the log lines, `prepare`, `delivered`, `wait_delivered`
+the text of a wysyłka, the log lines, the `Listener`, `delivered`, `wait_delivered`
 and the addresses file do not matter here. Move the sync commit forward only
 after the checker and the model match the code at the new commit and both
 checks and their mutations pass there.
@@ -193,7 +203,7 @@ delivered file with its marker that waits for the next start, two queues on one 
 `_folder_lock`), a process killed in the middle of `replace_atomically` (it leaves a `.tmp` that
 `resume` removes), `prepare` holding a wysyłka back, a queue thread running at
 the same time as `post` or `wait_delivered` (the checker runs each thread to its
-end), `on_delivered` (Sprawy taty), and
+end), the `Listener` (Sprawy taty) and the wysyłki it returns, and
 more wysyłki or failures than the bounds above. The TLA+ model below checks, on its
 own abstraction of this code, two queues on one folder, also in two Centrum
 processes, a process killed in the middle of `replace_atomically`, a queue thread running at the same time
@@ -508,8 +518,8 @@ Checked only with the bounds in the configurations. Assumed and not checked:
 - `Refused`, `NoKey` and `Unreachable` are one failure (`Stop`); the refusal
   memory of `KeyedBox` (`REFUSED_KEPT_S`) is not modelled.
 - Not modelled: `Gone` (a known issue Maks deleted), closed issues
-  (`closed="new_issue"` or `"reuse"`), `prepare`, `on_delivered`,
-  `on_rejected`, the addresses file, more than 1 000 issues of a label, and
+  (`closed="new_issue"` or `"reuse"`), the `Listener` (`prepare`, `delivered`
+  and `rejected`), the addresses file, more than 1 000 issues of a label, and
   Python exceptions (BEZ_WYJATKU stays with the checker).
 - No promise looks at `.tmp` files, so the model does not check that
   `resume` removes them.
