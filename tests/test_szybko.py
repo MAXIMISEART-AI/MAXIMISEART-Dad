@@ -31,6 +31,15 @@ BY_CHANGE_ONLY = {
         "src/, katalogu (import message_samples) i pliku tests/expected/komunikaty.txt (literał)"
     ),
     "tests/test_mutacje.py": "sprawdza silnik mutacji na repozytoriach testu, a nie całe repozytorium",
+    "tests/test_mutacje_skilli.py::test_na_pull_request_biegna_same_podstawy_a_noca_same_skrypty_mutacji": (
+        "sprawdza wybór kroków skilli na repozytorium testu, a nie całe repozytorium"
+    ),
+    "tests/test_mutacje_skilli.py::test_noca_skrypt_mutacji_biegnie_przy_zmianie_folderu_skilla_albo_runnera": (
+        "sprawdza wybór skryptów mutacji na repozytorium testu, a nie całe repozytorium"
+    ),
+    "tests/test_mutacje_skilli.py::test_ze_zmianami_od_bazy_podstawa_ci_biegnie_przy_trafieniu_w_pilnuje_albo_folder_skilla": (
+        "sprawdza wybór podstaw na repozytorium testu, a nie całe repozytorium"
+    ),
     "tests/test_mutacje_nocne.py": (
         "sprawdza narzędzie na repozytoriach testu i atrapie GitHuba; mutacje-nocne.yml czyta ścieżką, którą graf widzi"
     ),
@@ -39,6 +48,15 @@ BY_CHANGE_ONLY = {
     "tests/test_podstawa_w_czesciach.py": "sprawdza podział podstawy Centrum; graf wybiera go przy zmianie skilla, skrypt_skilla.py i mutacje_skilli.py",
     "tests/test_praca_w_toku.py": "sprawdza werdykt narzędzia na repozytoriach testu, a nie całe repozytorium; trwa ok. 19 s",
     "tests/test_scal_pr.py": "sprawdza narzędzie na atrapie gh i repozytoriach testu, a nie całe repozytorium",
+    "tests/test_skille_dla_zmiany.py::test_liczy_ci_i_liczy_noc_wymieniaja_dokladnie_kroki_skilla_ktore_uruchamia_plan_pull_requestu_i_nocy": (
+        "sprawdza linie LICZY CI i LICZY NOC na repozytorium testu, a nie całe repozytorium"
+    ),
+    "tests/test_skille_dla_zmiany.py::test_liczy_ci_wymienia_e2e_tylko_gdy_plan_pull_requestu_go_uruchamia": (
+        "sprawdza linię LICZY CI na repozytorium testu, a nie całe repozytorium"
+    ),
+    "tests/test_skille_dla_zmiany.py::test_skill_z_poleceniami_w_ci_zostaje_w_skillach_verify_a_liczy_ci_wymienia_jego_polecenia": (
+        "sprawdza wybór skilli na repozytorium testu, a nie całe repozytorium"
+    ),
     "tests/test_szybko.py": "sprawdza samo szybko w repozytoriach testu; graf wybiera go przy zmianie tools/szybko.py i tabel reguł",
     "tests/test_zadania_ci.py": "sprawdza ci.yml, który czyta ścieżką widoczną dla grafu, i plan na atrapach zapisów",
     "tests/test_zgoda.py": (
@@ -739,8 +757,27 @@ def _lines_outside_rule_tables(text: str) -> list[str]:
     return outside
 
 
+def _named_tests(guard: str) -> list[str]:
+    """Testy z komórki strażnika: plik, węzeł ``plik::test`` i skrót ``::test`` pliku nazwanego wcześniej w komórce."""
+
+    tests: list[str] = []
+    file = ""
+    for found in re.finditer(r"(tests/test_\w+\.py)?::(\w+)|tests/test_\w+\.py", guard):
+        if found[2] is None:
+            file = found[0]
+            tests.append(file)
+        else:
+            file = found[1] or file
+            tests.append(f"{file}::{found[2]}")
+    return tests
+
+
 def test_kazdy_test_z_tabel_regul_jest_testem_struktury_albo_ma_powod() -> None:
-    """Tabele reguł żyją w ``RULE_TABLES``: plik bez tabeli i tabela w innym pliku Markdown wywracają test."""
+    """Tabele reguł żyją w ``RULE_TABLES``: plik bez tabeli i tabela w innym pliku Markdown wywracają test.
+
+    Węzeł ``plik::test`` z tabeli biegnie sam albo z całym plikiem, bo inny węzeł tego pliku w ``STRUCTURE`` go nie
+    uruchamia; sam plik z tabeli wystarcza z dowolnym swoim węzłem.
+    """
 
     rows = {path: _rule_rows(path.read_text(encoding="utf-8")) for path in RULE_TABLES}
     listed = ["git", "ls-files", "--cached", "--others", "--exclude-standard", "*.md"]
@@ -751,8 +788,9 @@ def test_kazdy_test_z_tabel_regul_jest_testem_struktury_albo_ma_powod() -> None:
         if ROOT / name not in rows and (ROOT / name).is_file() and _rule_rows((ROOT / name).read_text(encoding="utf-8"))
     ]
     guards = [row.rsplit("|", 2)[-2] for found in rows.values() for row in found]
-    named = {path for guard in guards for path in re.findall(r"tests/test_\w+\.py", guard)}
-    structure = {node.partition("::")[0] for node in szybko.STRUCTURE}
+    named = {test for guard in guards for test in _named_tests(guard)}
+    whole_files = {node for node in szybko.STRUCTURE if "::" not in node}
+    files_with_node = {node.partition("::")[0] for node in szybko.STRUCTURE}
 
     collected = subprocess.run(
         [sys.executable, "-m", "pytest", "--collect-only", "-q", "-p", "no:cacheprovider", *szybko.STRUCTURE],
@@ -771,7 +809,10 @@ def test_kazdy_test_z_tabel_regul_jest_testem_struktury_albo_ma_powod() -> None:
     }
     assert outside == {}, "tabela w pliku reguł to tabela reguł: nagłówek z RULE_TABLE_HEADERS"
     assert elsewhere == [], "dopisz plik z tabelą reguł do RULE_TABLES"
-    undecided = named - structure - BY_CHANGE_ONLY.keys()
+    runs_every_time = {test for test in named if test in szybko.STRUCTURE or test in files_with_node or test.partition("::")[0] in whole_files}
+    with_reason = {test for test in named if {test, test.partition("::")[0]} & BY_CHANGE_ONLY.keys()}
+    undecided = named - runs_every_time - with_reason
     assert undecided == set(), "dopisz test do STRUCTURE w tools/szybko.py albo powód do BY_CHANGE_ONLY"
-    assert BY_CHANGE_ONLY.keys() - named == set(), "BY_CHANGE_ONLY ma test spoza tabeli"
+    named_files = {test.partition("::")[0] for test in named}
+    assert BY_CHANGE_ONLY.keys() - named - named_files == set(), "BY_CHANGE_ONLY ma test spoza tabeli"
     assert collected.returncode == 0, collected.stdout
