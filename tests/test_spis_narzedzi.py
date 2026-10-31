@@ -50,32 +50,49 @@ def _first_paragraph(path: Path) -> list[str]:
     return docstring.split("\n\n", 1)[0].splitlines()
 
 
-def _required_subcommands(path: Path) -> list[str]:
-    """Podkomendy ``add_parser`` narzędzia, którego ``add_subparsers`` ma ``required=True``; pusta lista bez takich.
+def _is_required_group(node: ast.AST) -> bool:
+    return (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "add_subparsers"
+        and any(keyword.arg == "required" and isinstance(keyword.value, ast.Constant) and keyword.value.value is True for keyword in node.keywords)
+    )
 
-    Nazwę podkomendy czyta tylko ze stałej w ``add_parser("<nazwa>")``: narzędzie z ``required=True``, które dodaje
-    podkomendę inaczej (w pętli, ze zmiennej) albo nie dodaje żadnej, to ``ValueError``, bo test nie wie, którą z nich
-    pierwsze zdanie ma wymienić, a pusta lista przepuściłaby je bez sprawdzenia.
+
+def _required_subcommands(path: Path) -> list[str]:
+    """Podkomendy ``add_parser`` wołane na grupie z ``add_subparsers(required=True)``; pusta lista bez takiej grupy.
+
+    Grupa to nazwa, której przypisano ``add_subparsers(required=True)``; ``add_parser`` innej grupy (np. zagnieżdżonej
+    bez ``required``) się nie liczy. Nazwę podkomendy czyta tylko ze stałej w ``add_parser("<nazwa>")``: obowiązkowa
+    grupa, która dodaje podkomendę inaczej (w pętli, ze zmiennej), nie dodaje żadnej albo nie jest przypisana do nazwy,
+    to ``ValueError``, bo test nie wie, którą podkomendę pierwsze zdanie ma wymienić, a pusta lista przepuściłaby ją bez
+    sprawdzenia.
     """
 
-    calls = [
-        (node.func.attr, node)
-        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8")))
-        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
-    ]
-    required = any(
-        method == "add_subparsers"
-        and any(keyword.arg == "required" and isinstance(keyword.value, ast.Constant) and keyword.value.value is True for keyword in call.keywords)
-        for method, call in calls
-    )
-    if not required:
+    nodes = list(ast.walk(ast.parse(path.read_text(encoding="utf-8"))))
+    if not any(_is_required_group(node) for node in nodes):
         return []
-    parsers = [call for method, call in calls if method == "add_parser"]
+    groups = {
+        target.id
+        for node in nodes
+        if isinstance(node, ast.Assign) and _is_required_group(node.value)
+        for target in node.targets
+        if isinstance(target, ast.Name)
+    }
+    parsers = [
+        node
+        for node in nodes
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "add_parser"
+        and isinstance(node.func.value, ast.Name)
+        and node.func.value.id in groups
+    ]
     names = [call.args[0].value for call in parsers if call.args and isinstance(call.args[0], ast.Constant) and isinstance(call.args[0].value, str)]
     if not parsers or len(names) != len(parsers):
         raise ValueError(
             f"{path.name}: add_subparsers(required=True), a nazwy każdej podkomendy nie da się odczytać ze stałej w "
-            'add_parser("<nazwa>"); dodaj każdą podkomendę osobnym add_parser ze stałą nazwą'
+            'add_parser("<nazwa>") tej grupy; przypisz grupę do nazwy i dodaj każdą podkomendę osobnym add_parser ze stałą nazwą'
         )
     return names
 
@@ -223,6 +240,17 @@ def test_obowiazkowa_podkomenda_spoza_stalej_nie_przechodzi_po_cichu(tmp_path: P
 
     with pytest.raises(ValueError, match=r"nazwy każdej podkomendy nie da się odczytać ze stałej"):
         _required_subcommands(tool)
+
+
+def test_podkomendy_zagniezdzonej_grupy_bez_required_sie_nie_licza(tmp_path: Path) -> None:
+    tool = tmp_path / "narzedzie.py"
+    tool.write_text(
+        PARSER.format("required=True")
+        + "inner = commands.add_parser('pokaz').add_subparsers(dest='co')\nfor name in ('a', 'b'):\n    inner.add_parser(name)\n",
+        encoding="utf-8",
+    )
+
+    assert _required_subcommands(tool) == ["plan", "wykonaj", "pokaz"]
 
 
 def test_podkomenda_liczy_sie_tylko_cala_w_nawiasie() -> None:
