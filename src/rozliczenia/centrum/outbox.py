@@ -16,13 +16,13 @@ Issue okresu kolejka znajduje po wierszu rozpoznawczym przy każdej próbie wysy
 komentarze. Bez niego zakłada nowe issue: pierwsza część (albo nagłówek) jest jego treścią, kolejne komentarzami.
 ``NewIssue`` zawsze zakłada nowe issue tak samo, bez wiersza rozpoznawczego; gdy skrzynka odrzuci treść komentarza
 do issue, które już założyła, plik zapamiętuje jego numer i następna próba dopisuje resztę do niego. Kto czeka na wynik (Uwaga taty),
-dostaje numer issue przez ``on_delivered`` i może poczekać na dostarczenie przez ``wait_delivered``.
+może poczekać na dostarczenie przez ``wait_delivered``.
 
 Adres pierwszego komentarza każdej dostarczonej wysyłki (np. Logów Uruchomienia, do których prowadzi przypięta
 Uwaga taty) kolejka dopisuje do pliku ``addresses`` i wczytuje przy następnym starcie Centrum, więc ``delivered``
-zna też wysyłki poprzednich prac Centrum. Tuż przed wysłaniem wysyłka przechodzi przez ``prepare``: Uwaga taty
-uzupełnia w nim odnośnik do Logów, które skrzynka przyjęła po jej zapisaniu, a wysyłka, która czeka na inną
-(odnośnik do Logów odrzuconych w tej pracy Centrum), zostaje w kolejce do następnego przejścia.
+zna też wysyłki poprzednich prac Centrum. Co wysyłka znaczy poza kolejką, wie jej słuchacz (``Listener``, w Centrum
+Sprawy taty w Skrzynce, ``case_delivery``): tuż przed wysłaniem może ją zmienić albo zostawić w kolejce do następnego
+przejścia, a po przyjęciu albo odrzuceniu treści przez skrzynkę dostaje wynik i oddaje wysyłki, które z niego wynikają.
 """
 
 from __future__ import annotations
@@ -36,7 +36,7 @@ from contextlib import contextmanager, suppress
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, BinaryIO, Final, Literal, assert_never, get_args
+from typing import Any, BinaryIO, Final, Literal, Protocol, assert_never, get_args
 
 from rozliczenia.centrum.atomic_file import replace_atomically
 from rozliczenia.centrum.clock import Clock
@@ -65,8 +65,10 @@ SCHEMA_VERSION: Final = 2
 _PERIOD_THREAD_SCHEMA: Final = 1
 # Miejsce w komentarzu na nagłówek części i wiersz rozpoznawczy, ponad tekst bloków.
 _FRAME_RESERVE: Final = 2_000
-# Etykieta Zgłoszenia jak ``dad_cases.REPORT``, który sam zależy od kolejki.
+# Etykieta Zgłoszenia jak ``dad_cases.REPORT``.
 _REPORT_LABEL: Final[Label] = "zgloszenie"
+# Początek wiersza odcisku problemu w treści Zgłoszenia (``fingerprint_line``).
+_FINGERPRINT_PREFIX: Final = "- Odcisk problemu: "
 # Po przejściu, które stanęło na przyczynie dla całej kolejki (brak sieci, brak klucza, odmowa klucza), kolejka
 # próbuje znowu po minucie. Odrzucony klucz nie kosztuje przy tym zapytania: ``KeyedBox`` odpowiada ``Refused`` bez
 # sieci przez kwadrans, a brak klucza to odczyt pliku. Nieudana próba DNS raz na minutę nic nie kosztuje, a dłuższa
@@ -181,17 +183,30 @@ class KnownIssue:
     number: int
 
 
-@dataclass(frozen=True)
-class ReportIssue:
-    """Zgłoszenie: jedno otwarte issue z etykietą ``zgloszenie`` na odcisk problemu (``line``: jego wiersz w treści).
+def fingerprint_line(fingerprint: str) -> str:
+    """Wiersz treści Zgłoszenia z odciskiem problemu, po którym Centrum znajduje otwarte Zgłoszenie w skrzynce."""
 
-    Dostarczenie szuka otwartego Zgłoszenia z tym wierszem. Gdy jest (założyła je przerwana próba tej wysyłki, inny
-    komputer albo wcześniejsze Zgłoszenie, którego Centrum jeszcze nie znało), wysyłka je przejmuje bez nowego issue i
-    bez komentarza. Bez niego zakłada issue z ``title`` i częścią 1, a resztę części dopisuje komentarzami.
+    return f"{_FINGERPRINT_PREFIX}{fingerprint}"
+
+
+@dataclass(frozen=True, kw_only=True)
+class ReportIssue:
+    """Zgłoszenie: jedno otwarte issue z etykietą ``zgloszenie`` na odcisk problemu ``fingerprint``.
+
+    Dostarczenie szuka otwartego Zgłoszenia z wierszem odcisku (``line``). Gdy jest (założyła je przerwana próba tej
+    wysyłki, inny komputer albo wcześniejsze Zgłoszenie, którego Centrum jeszcze nie znało), wysyłka je przejmuje bez
+    nowego issue i bez komentarza. Bez niego zakłada issue z ``title`` i częścią 1, a resztę części dopisuje
+    komentarzami.
     """
 
-    line: str
+    fingerprint: str
     title: str
+
+    @property
+    def line(self) -> str:
+        """Wiersz odcisku w treści issue; w pliku kolejki zapisany tak samo."""
+
+        return fingerprint_line(self.fingerprint)
 
     @property
     def label(self) -> Label:
@@ -333,7 +348,12 @@ def _target(entry: dict[str, Any], kind: object) -> Target | None:
     if kind == "known_issue":
         return KnownIssue(entry["label"], entry["number"]) if type(entry["number"]) is int else None
     if kind == "report_issue":
-        return ReportIssue(_string(entry["line"]), _string(entry["title"]))
+        # Plik kolejki niesie wiersz odcisku; odcisk to reszta wiersza po jego stałym początku.
+        line = _string(entry["line"])
+        fingerprint = line.removeprefix(_FINGERPRINT_PREFIX)
+        if fingerprint == line:
+            return None
+        return ReportIssue(fingerprint=fingerprint, title=_string(entry["title"]))
     if kind != "period_thread" or entry["closed"] not in _CLOSED:
         return None
     return PeriodThread(entry["label"], _string(entry["line"]), entry["closed"], _string(entry["title"]))
@@ -583,17 +603,38 @@ def _waiting(outcome: Failure) -> tuple[WaitingCause, Literal["stop", "next"]]:
             assert_never(outcome)
 
 
+class Deliveries(Protocol):
+    """Co kolejka wie o swoich dostarczonych i odrzuconych wysyłkach; ``Outbox`` podaje siebie słuchaczowi jako ten widok."""
+
+    def delivered(self, run_id: str, label: Label) -> str | None: ...
+
+    def rejected(self, run_id: str, label: Label) -> bool: ...
+
+
+class Listener(Protocol):
+    """Kto nadaje wysyłce znaczenie poza kolejką; wszystko w wątku wysyłki, bez blokady kolejki.
+
+    ``prepare`` dostaje wysyłkę z pliku tuż przed wysłaniem i zwraca tę, która pójdzie, albo ``None``: wysyłka czeka na
+    inną i zostaje w kolejce do następnego przejścia. ``delivered`` dostaje każdą wysyłkę przyjętą przez skrzynkę i
+    numer jej issue, zanim ``wait_delivered`` się obudzi i plik dostanie znacznik, i zwraca wysyłki następcze, które
+    kolejka kładzie wtedy w swoich plikach. ``rejected`` dostaje każdą wysyłkę, której treść skrzynka odrzuciła, zanim
+    przejście pójdzie dalej.
+    """
+
+    def prepare(self, post: Post, sent: Deliveries) -> Post | None: ...
+
+    def delivered(self, post: Post, number: int) -> Sequence[Post]: ...
+
+    def rejected(self, post: Post) -> None: ...
+
+
 class Outbox:
     """Pliki kolejki w ``directory`` i jedyny wątek, który je wysyła, także sam po porażce skrzynki.
 
     Każdy plik ma jednego autora (``post``, nowa nazwa) i jednego czytelnika naraz, który go oznacza i usuwa
     (przejście wątku ``skrzynka-kolejka`` z blokadą folderu), więc same pliki nie potrzebują blokady. ``_lock`` chroni
     tylko to, czy wątek już biegnie, i adresy dostarczonych wysyłek; zbiory nazw plików i plik ``addresses`` zna tylko
-    ten jeden wątek.
-    ``on_delivered`` dostaje każdą wysyłkę przyjętą przez skrzynkę i numer jej issue, w wątku wysyłki, zanim plik
-    dostanie znacznik. ``on_rejected`` dostaje każdą wysyłkę, której treść skrzynka odrzuciła, w wątku wysyłki, zanim
-    przejście pójdzie dalej. ``prepare`` dostaje wysyłkę z pliku tuż przed wysłaniem i zwraca tę, która pójdzie, albo
-    ``None``: wysyłka czeka na inną i zostaje w kolejce do następnego przejścia.
+    ten jeden wątek. ``listener`` dostaje każdą wysyłkę przed wysłaniem i jej wynik (``Listener``).
 
     Dwie kolejki jednego folderu w tym procesie nie wysyłają naraz (``_claimed``): kolejka, która zastanie przejście
     drugiej, nie wysyła nic, a druga po swoim przejściu robi następne. Kolejka, która zastanie blokadę folderu u kolejki
@@ -601,10 +642,10 @@ class Outbox:
 
     Przejście, które stanęło na przyczynie dla całej kolejki, pominęło plik, którego nie dało się odczytać, albo
     zastało blokadę folderu u innego procesu, nastawia jedno budzenie ``clock`` za ``RETRY_S``, chyba że już jest
-    nastawione; budzenie rusza wysyłkę w tle. Uszkodzona treść pliku, odrzucona treść i wysyłka czekająca w
-    ``prepare`` budzenia nie nastawiają: ponowienie im nie pomoże. Linia „skrzynka-czeka” trafia do dziennika tylko przy
-    zmianie przyczyny (zeruje ją każde dostarczenie i przejście do końca), bo budzenie co minutę zapełniłoby ostatnie
-    wpisy, które niesie Diagnoza.
+    nastawione; budzenie rusza wysyłkę w tle. Uszkodzona treść pliku, odrzucona treść i wysyłka, którą zatrzymał
+    ``Listener.prepare``, budzenia nie nastawiają: ponowienie im nie pomoże. Linia „skrzynka-czeka” trafia do dziennika
+    tylko przy zmianie przyczyny (zeruje ją każde dostarczenie i przejście do końca), bo budzenie co minutę zapełniłoby
+    ostatnie wpisy, które niesie Diagnoza.
     """
 
     def __init__(
@@ -614,18 +655,14 @@ class Outbox:
         log: CentrumLog,
         *,
         clock: Clock,
-        on_delivered: Callable[[Post, int], None] = lambda _post, _number: None,
-        on_rejected: Callable[[Post], None] = lambda _post: None,
-        prepare: Callable[[Post], Post | None] = lambda post: post,
+        listener: Listener,
         addresses: Path | None = None,
     ) -> None:
         self._directory = directory
         self._box = box
         self._log = log
         self._clock = clock
-        self._on_delivered = on_delivered
-        self._on_rejected = on_rejected
-        self._prepare = prepare
+        self._listener = listener
         self._addresses = addresses
         self._sequence = itertools.count(1)
         self._lock = threading.Lock()  # _draining, _again, _retry_armed, _first_comments, _rejected_posts
@@ -775,7 +812,7 @@ class Outbox:
             if queued.delivered:
                 self._remove(path)
                 continue
-            post = self._prepare(queued.post)
+            post = self._listener.prepare(queued.post, self)
             if post is None:
                 continue
             label, period = post.target.label, post.period
@@ -801,11 +838,12 @@ class Outbox:
                 with self._lock:
                     self._rejected_posts.add((post.run_id, label))
                 self._log.box_post_waiting(label=label, period=period, cause=cause, file=path.name)
-                self._on_rejected(post)
+                self._listener.rejected(post)
                 continue
             self._stopped_on = None
             self._log.box_post_sent(label=label, period=period, number=outcome.number)
-            self._on_delivered(post, outcome.number)
+            for follow_up in self._listener.delivered(post, outcome.number):
+                self.post(follow_up)
             with self._changed:
                 self._first_comments[post.run_id, label] = outcome.comments[0].url if outcome.comments else None
                 self._changed.notify_all()

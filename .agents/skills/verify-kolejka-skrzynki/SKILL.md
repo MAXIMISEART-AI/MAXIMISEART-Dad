@@ -117,7 +117,7 @@ removes or reorders a box call, changes what a retry does with an issue it
 finds, changes when the marker is written or the file removed, changes which
 failure stops a pass (`_waiting`), or adds a `Target`. A new `Target` also needs
 a scope in `SCOPES` and a branch in `_check` in `explore_outbox.py`. Changes to
-the text of a wysyłka, the log lines, `prepare`, `delivered`, `wait_delivered`
+the text of a wysyłka, the log lines, the `Listener`, `delivered`, `wait_delivered`
 and the addresses file do not matter here. Move the sync commit forward only
 after the checker and the model match the code at the new commit and both
 checks and their mutations pass there.
@@ -193,7 +193,7 @@ delivered file with its marker that waits for the next start, two queues on one 
 `_folder_lock`), a process killed in the middle of `replace_atomically` (it leaves a `.tmp` that
 `resume` removes), `prepare` holding a wysyłka back, a queue thread running at
 the same time as `post` or `wait_delivered` (the checker runs each thread to its
-end), `on_delivered` (Sprawy taty), and
+end), the `Listener` (Sprawy taty) and the wysyłki it returns, and
 more wysyłki or failures than the bounds above. The TLA+ model below checks, on its
 own abstraction of this code, two queues on one folder, also in two Centrum
 processes, a process killed in the middle of `replace_atomically`, a queue thread running at the same time
@@ -508,8 +508,8 @@ Checked only with the bounds in the configurations. Assumed and not checked:
 - `Refused`, `NoKey` and `Unreachable` are one failure (`Stop`); the refusal
   memory of `KeyedBox` (`REFUSED_KEPT_S`) is not modelled.
 - Not modelled: `Gone` (a known issue Maks deleted), closed issues
-  (`closed="new_issue"` or `"reuse"`), `prepare`, `on_delivered`,
-  `on_rejected`, the addresses file, more than 1 000 issues of a label, and
+  (`closed="new_issue"` or `"reuse"`), the `Listener` (`prepare`, `delivered`
+  and `rejected`), the addresses file, more than 1 000 issues of a label, and
   Python exceptions (BEZ_WYJATKU stays with the checker).
 - No promise looks at `.tmp` files, so the model does not check that
   `resume` removes them.

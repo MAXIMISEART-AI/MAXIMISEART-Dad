@@ -6,6 +6,7 @@ zmianą oraz z pierwszych wersji Zgłoszeń (2026-10-20) i Uwag taty (2026-10-23
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import datetime, timezone
 import json
 from pathlib import Path
@@ -15,11 +16,11 @@ from typing import Any
 
 import pytest
 
+from rozliczenia.centrum.case_delivery import case_outbox
 from rozliczenia.centrum.dad_cases import DAD_CASES_FILE, NOTE, OLD_NOTES_FILE, OLD_REPORTS_FILE, REPORT, Case, DadCases
-from rozliczenia.centrum.dad_notes import after_delivery, with_logs
 from rozliczenia.centrum.keyed_box import KeyedBox
 from rozliczenia.centrum.log import CentrumLog
-from rozliczenia.centrum.outbox import KnownIssue, NewIssue, Outbox, PeriodThread, Post
+from rozliczenia.centrum.outbox import KnownIssue, NewIssue, PeriodThread, Post
 from rozliczenia.centrum.report_box import (
     Closure,
     CommentOutcome,
@@ -28,10 +29,11 @@ from rozliczenia.centrum.report_box import (
     Label,
     Refused,
     SendOutcome,
+    Sent,
     Unreachable,
 )
 
-from tests.fixtures.centrum import centrum
+from tests.fixtures.centrum import RUN_LOGS_IN_BACKGROUND, FakeIssue, FakeReportBox, centrum
 from tests.fixtures.clock import ManualClock
 from tests.fixtures.locked_file import lock_file
 
@@ -269,17 +271,31 @@ def test_tytul_nie_tekst_i_nieczytelny_czas_zostawiaja_sprawe_bez_nich(tmp_path:
 
 
 def test_numer_issue_dostaje_tylko_sprawa_z_wysylki_o_jej_etykiecie_i_identyfikatorze(tmp_path: Path) -> None:
-    config = old_files(tmp_path)
-    stored = DadCases(config, log(tmp_path), pause=ManualClock().pause)
+    stored = DadCases(old_files(tmp_path), log(tmp_path), pause=ManualClock().pause)
+    skrzynka = Skrzynka(tmp_path, stored, FakeReportBox(outcomes=[Sent(20)], issues=[ZGLOSZENIE_3], background=LOGS))
 
-    for target, number in (
-        (NewIssue("uwaga-taty", "Wiersz zniknął"), 20),
-        (PeriodThread(label="logi-uruchomienia", line="- Logi", closed="reuse", title="Logi"), 30),
-        (KnownIssue("zgloszenie", 3), 31),
-    ):
-        stored.delivered(Post(target, period=None, run_id=QUEUED_NOTE, header=None, parts=("treść",)), number)
+    skrzynka.sent(
+        *(
+            Post(target, period=None, run_id=QUEUED_NOTE, header=None, parts=("treść",))
+            for target in (
+                NewIssue("uwaga-taty", "Wiersz zniknął"),
+                PeriodThread(label="logi-uruchomienia", line="- Logi", closed="reuse", title="Logi"),
+                KnownIssue("zgloszenie", 3),
+            )
+        )
+    )
 
     assert [case.number for case in cases(tmp_path)] == [7, 9, 11, 12, 20]
+
+
+def test_uwaga_dostarczona_drugi_raz_ma_numer_nowego_issue(tmp_path: Path) -> None:
+    stored = DadCases(tmp_path / "config", log(tmp_path), pause=ManualClock().pause)
+    stored.add(NEW)
+
+    answers = (stored.numbered(NOTE, NEW.id, 20), stored.numbered(NOTE, NEW.id, 21))
+
+    assert answers == (True, True)
+    assert [case.number for case in cases(tmp_path)] == [21]
 
 
 def test_sprawe_wskazuje_rodzaj_i_identyfikator_a_z_kilku_wysylek_liczy_sie_ostatnia(tmp_path: Path) -> None:
@@ -405,7 +421,7 @@ def test_sprawa_bez_zmian_nie_zapisuje_pliku(tmp_path: Path) -> None:
     stored = DadCases(config, log(tmp_path), pause=ManualClock().pause)
 
     stored.forget(NOTE, "nieznana")
-    stored.delivered(Post(NewIssue("uwaga-taty", "x"), period=None, run_id="nieznana", header=None, parts=("x",)), 3)
+    stored.numbered(NOTE, "nieznana", 3)
 
     assert not (config / DAD_CASES_FILE).exists()
 
@@ -480,11 +496,6 @@ def test_sprawa_bez_czasow_i_z_polskimi_literami_wraca_z_pliku_bez_zmian(tmp_pat
     assert "Brakuje ilości" in (tmp_path / "config" / DAD_CASES_FILE).read_text(encoding="utf-8")
 
 
-def _outbox(tmp_path: Path) -> Outbox:
-    clock = ManualClock()
-    return Outbox(tmp_path / "kolejka", KeyedBox(AnsweringBox({}), lambda: None, clock=clock), log(tmp_path), clock=clock)
-
-
 PINNED_ID = "0a9b8c7d6e5f4a3b2c1d0e9f8a7b6c5d"
 PINNED_RUN = "b4c3d2e1f0a94b8c"
 WAITING_LOGS = f"Logi Uruchomienia: w drodze (Uruchomienie {PINNED_RUN})"
@@ -492,6 +503,43 @@ REJECTED_LOGS = (
     f"Logi Uruchomienia: nie dotarły, Skrzynka odrzuciła ich treść (Uruchomienie {PINNED_RUN}). "
     "Odnośnik przyjdzie w komentarzu, gdy dotrą."
 )
+LOGS_GONE = f"Logi Uruchomienia nie dotrą: Centrum przestało je wysyłać (Uruchomienie {PINNED_RUN})."
+LOGS: frozenset[Label] = RUN_LOGS_IN_BACKGROUND
+ZGLOSZENIE_3 = FakeIssue(3, "zgloszenie", "Zgłoszenie", "- Odcisk problemu: 3f0c1b2a9d8e7f60")
+UWAGA_12 = FakeIssue(12, "uwaga-taty", "Brakuje ilości przy montażu", "Uwaga")
+
+
+class Skrzynka:
+    """Kolejka Skrzynki Zgłoszeń Centrum ze Sprawami taty ``stored`` (``case_outbox``) na fałszywej skrzynce."""
+
+    def __init__(self, tmp_path: Path, stored: DadCases, box: FakeReportBox) -> None:
+        clock = ManualClock()
+        self.box = box
+        self.directory = tmp_path / "kolejka"
+        self.directory.mkdir()
+        self.outbox = case_outbox(
+            self.directory, KeyedBox(box, lambda: KEY, clock=clock), log(tmp_path), stored, clock=clock, addresses=None
+        )
+
+    def sent(self, *posts: Post) -> None:
+        """Kładzie ``posts`` w kolejce i czeka na koniec przejścia, także wysyłek następczych z tego przejścia."""
+
+        for post in posts:
+            assert self.outbox.post(post)
+        assert not self.outbox.wait_delivered("", "kontrola-ilosci", timeout_s=30)
+        assert sorted(self.directory.glob("*.json")) == []
+
+    def logs_delivered(self, *run_ids: str) -> None:
+        """Logi Uruchomień ``run_ids`` doszły do Skrzynki z adresem komentarza."""
+
+        logs = PeriodThread(label="logi-uruchomienia", line="- Logi", closed="reuse", title="Logi")
+        self.sent(*(Post(logs, period=None, run_id=run_id, header="Logi okresu", parts=("Logi",)) for run_id in run_ids))
+        assert all(self.outbox.delivered(run_id, "logi-uruchomienia") is not None for run_id in run_ids)
+
+    def texts(self) -> list[str]:
+        """Treści i komentarze wszystkich issue skrzynki, także Logów."""
+
+        return [text for issue in (*self.box.issues, *self.box.background_issues) for text in (issue.body, *issue.comments)]
 
 
 OTHER_TARGETS = {
@@ -501,18 +549,18 @@ OTHER_TARGETS = {
 }
 
 
-def _queued(tmp_path: Path) -> list[Path]:
-    return sorted((tmp_path / "kolejka").glob("*.json")) if (tmp_path / "kolejka").exists() else []
-
-
 @pytest.mark.parametrize("target", OTHER_TARGETS.values(), ids=OTHER_TARGETS.keys())
 def test_wysylka_innej_etykiety_o_identyfikatorze_uwagi_idzie_bez_zmian(
     tmp_path: Path, target: PeriodThread | KnownIssue | NewIssue
 ) -> None:
     stored = DadCases(old_files(tmp_path), log(tmp_path), pause=ManualClock().pause)
-    post = Post(target, period=None, run_id=PINNED_ID, header=None, parts=(f"Treść\n{WAITING_LOGS}",))
+    skrzynka = Skrzynka(tmp_path, stored, FakeReportBox(issues=[ZGLOSZENIE_3], background=LOGS))
+    # Logi także pod identyfikatorem Uwagi: wysyłka innej etykiety nie dostaje odnośnika, choć Logi o nim są.
+    skrzynka.logs_delivered(PINNED_RUN, PINNED_ID)
 
-    assert with_logs(post, stored, lambda run_id: "https://logi", lambda run_id: False) == post
+    skrzynka.sent(Post(target, period=None, run_id=PINNED_ID, header=None, parts=(f"Treść\n{WAITING_LOGS}",)))
+
+    assert f"Treść\n{WAITING_LOGS}" in skrzynka.texts()
 
 
 @pytest.mark.parametrize(
@@ -522,31 +570,34 @@ def test_tylko_nowa_uwaga_dostaje_komentarz_o_odrzuconych_logach(
     tmp_path: Path, target: PeriodThread | KnownIssue | NewIssue
 ) -> None:
     stored = DadCases(old_files(tmp_path), log(tmp_path), pause=ManualClock().pause)
-    post = Post(target, period=None, run_id=PINNED_ID, header=None, parts=(f"Treść\n{REJECTED_LOGS}",))
+    skrzynka = Skrzynka(tmp_path, stored, FakeReportBox(issues=[ZGLOSZENIE_3, UWAGA_12], background=LOGS))
 
-    after_delivery(post, 40, stored, _outbox(tmp_path))
+    skrzynka.sent(Post(target, period=None, run_id=PINNED_ID, header=None, parts=(f"Treść\n{REJECTED_LOGS}",)))
 
-    assert _queued(tmp_path) == []
+    assert LOGS_GONE not in skrzynka.texts()
 
 
 def test_nowa_uwaga_po_odrzuconych_logach_dostaje_komentarz(tmp_path: Path) -> None:
     stored = DadCases(old_files(tmp_path), log(tmp_path), pause=ManualClock().pause)
-    post = Post(NewIssue("uwaga-taty", "Uwaga"), period=None, run_id=PINNED_ID, header=None, parts=(REJECTED_LOGS,))
+    skrzynka = Skrzynka(tmp_path, stored, FakeReportBox(background=LOGS))
+    note = Post(NewIssue("uwaga-taty", "Uwaga"), period=None, run_id=PINNED_ID, header=None, parts=(REJECTED_LOGS,))
 
-    after_delivery(post, 40, stored, _outbox(tmp_path))
+    skrzynka.sent(note)
 
-    assert len(_queued(tmp_path)) == 1
+    [issue] = skrzynka.box.issues_with("uwaga-taty")
+    assert (issue.body, issue.comments) == (REJECTED_LOGS, [LOGS_GONE])
+    assert stored.find(NOTE, PINNED_ID) == replace(OLD_CASES[3], number=issue.number)
 
 
 def test_wysylka_uwagi_nieznanej_temu_komputerowi_idzie_bez_zmian(tmp_path: Path) -> None:
-    stored = DadCases(tmp_path / "config", log(tmp_path), pause=ManualClock().pause)
-    post = Post(NewIssue("uwaga-taty", "Uwaga"), period=None, run_id="nieznana", header=None, parts=(WAITING_LOGS,))
+    stored = DadCases(old_files(tmp_path), log(tmp_path), pause=ManualClock().pause)
+    skrzynka = Skrzynka(tmp_path, stored, FakeReportBox(background=LOGS))
+    skrzynka.logs_delivered(PINNED_RUN)
 
-    prepared = with_logs(post, stored, lambda run_id: "https://logi", lambda run_id: False)
-    after_delivery(post, 41, stored, _outbox(tmp_path))
+    skrzynka.sent(Post(NewIssue("uwaga-taty", "Uwaga"), period=None, run_id="nieznana", header=None, parts=(WAITING_LOGS,)))
 
-    assert prepared == post
-    assert _queued(tmp_path) == []
+    [issue] = skrzynka.box.issues_with("uwaga-taty")
+    assert (issue.body, issue.comments) == (WAITING_LOGS, [])
 
 
 def test_sprawdzanie_powiadomien_w_tle_nie_wstrzymuje_zamkniecia_centrum(tmp_path: Path) -> None:

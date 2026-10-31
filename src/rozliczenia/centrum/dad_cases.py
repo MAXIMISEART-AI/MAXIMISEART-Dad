@@ -2,8 +2,10 @@
 
 Sprawa ma rodzaj (``NOTE``, ``REPORT``), który mówi, pod jaką etykietą leży w Skrzynce Zgłoszeń i jak nazywa ją
 słownik, numer issue i ostatnie znane zamknięcie przez Maksa. Uwaga taty jest sprawą od „Wyślij” i bez numeru czeka
-w kolejce Skrzynki, dopóki ``delivered`` nie dopisze numeru. Zgłoszenie też idzie kolejką (ADR 0007), ale jego
-``id`` to odcisk problemu, który wraca po zamknięciu, więc numer dopisuje ``numbered`` tylko czekającej sprawie.
+w kolejce Skrzynki, dopóki ``numbered`` nie dopisze numeru. Zgłoszenie też idzie kolejką (ADR 0007), ale jego
+``id`` to odcisk problemu, który wraca po zamknięciu (``CaseKind.recurs``), więc numer dostaje tylko czekająca sprawa.
+Numer i odrzuconą treść podają Sprawy taty w Skrzynce (``case_delivery``), a kto pokazuje stan sprawy (uchwyt
+Zgłoszenia), słyszy o nich przez ``watch``.
 Stan sprawy (``DadCases.state``) wynika tylko z tabeli ``_STATES``, a sprawy, która czeka w Kolejce wysyłki, także
 z tego, na co czeka (``DadCases.hold``): na internet, na Token do Zgłoszeń (brak albo odmowa Skrzynki) albo na nic, bo
 Skrzynka odrzuciła jej treść. Odrzuconą treść kolejka ponawia dopiero przy następnym starcie Centrum, więc Sprawy taty
@@ -33,7 +35,6 @@ from rozliczenia.centrum import contract
 from rozliczenia.centrum.atomic_file import StateFile
 from rozliczenia.centrum.keyed_box import KeyedBox, NoKey
 from rozliczenia.centrum.log import CentrumLog
-from rozliczenia.centrum.outbox import Post
 from rozliczenia.centrum.report_box import (
     Closure,
     CloseReason,
@@ -53,15 +54,22 @@ _OLD_NOTES_SCHEMA: Final = 1
 
 @dataclass(frozen=True)
 class CaseKind:
-    """Rodzaj sprawy taty: klucz w kontrakcie i pliku stanu, etykieta w Skrzynce Zgłoszeń i nazwa ze słownika."""
+    """Rodzaj sprawy taty: klucz w kontrakcie i pliku stanu, etykieta w Skrzynce Zgłoszeń, nazwa ze słownika i to,
+    czy ``id`` sprawy wraca w następnej sprawie tego rodzaju.
+
+    ``recurs``: ``id`` to odcisk problemu, który wraca po zamknięciu Zgłoszenia, więc numer issue dostaje tylko
+    czekająca sprawa. Inaczej ``id`` to jedna wysyłka (Uwaga taty), a każde jej dostarczenie, także ponowne po
+    przerwaniu przed znacznikiem (kolejka zakłada wtedy drugie issue), daje sprawie numer tego issue.
+    """
 
     key: Literal["uwaga", "zgloszenie"]
     label: Label
     name: str
+    recurs: bool
 
 
-REPORT: Final = CaseKind("zgloszenie", "zgloszenie", "Zgłoszenie")
-NOTE: Final = CaseKind("uwaga", "uwaga-taty", "Uwaga taty")
+REPORT: Final = CaseKind("zgloszenie", "zgloszenie", "Zgłoszenie", recurs=True)
+NOTE: Final = CaseKind("uwaga", "uwaga-taty", "Uwaga taty", recurs=False)
 KINDS: Final = (REPORT, NOTE)
 _BY_KEY: Final[Mapping[str, CaseKind]] = {kind.key: kind for kind in KINDS}
 
@@ -109,6 +117,26 @@ class Case:
         return self.number is not None and self.closure is None
 
 
+@dataclass(frozen=True)
+class CaseNumbered:
+    """Sprawa ``case_id`` dostała numer issue ``number``, bo skrzynka przyjęła jej wysyłkę."""
+
+    case_id: str
+    number: int
+
+
+@dataclass(frozen=True)
+class CaseRejected:
+    """Skrzynka odrzuciła w tej pracy Centrum treść wysyłki sprawy ``case_id``."""
+
+    case_id: str
+
+
+CaseNews = CaseNumbered | CaseRejected
+Watcher = Callable[[CaseNews], None]
+"""Kto pokazuje stan spraw jednego rodzaju; dostaje wiadomość w wątku kolejki, poza blokadą spraw, i nie rzuca."""
+
+
 class DadCases:
     """Sprawy taty z tego komputera w pliku stanu obok Ustawień taty."""
 
@@ -117,6 +145,7 @@ class DadCases:
         self._lock = threading.Lock()
         self._cases = _load(config_directory)
         self._rejected: set[str] = set()  # ``id`` spraw, których treść Skrzynka odrzuciła w tej pracy Centrum
+        self._watchers: dict[CaseKind, list[Watcher]] = {}
 
     def all(self) -> list[Case]:
         with self._lock:
@@ -141,20 +170,25 @@ class DadCases:
         self._change(lambda cases: [known for known in cases if known != case])
 
     def numbered(self, kind: CaseKind, case_id: str, number: int) -> bool:
-        """Numer issue dla czekającej sprawy ``kind`` o ``case_id``; ``False``, gdy żadna taka nie czeka.
+        """Numer issue ``number`` dla sprawy ``kind`` o ``case_id``, którą przyjęła skrzynka; ``False``, gdy żadnej nie dostała.
 
+        Rodzaj, którego ``id`` wraca (``CaseKind.recurs``, Zgłoszenie), daje numer tylko ostatniej czekającej sprawie.
         Gdy inna sprawa ma już ten numer (wysyłka przejęła otwarte Zgłoszenie znane z tego komputera; numery issue są
         wspólne dla całej Skrzynki), czekająca znika, bo jedno issue to jedna sprawa i jedno Powiadomienie. Ten sam
-        numer drugi raz to ``False``.
+        numer drugi raz to ``False``. Inny rodzaj (Uwaga) daje numer każdej swojej sprawie o ``case_id``, także już
+        numerowanej. Obserwatorzy rodzaju (``watch``) słyszą o numerze, gdy któraś sprawa go dostała.
         """
 
         found: list[Case] = []
 
+        def ours(case: Case) -> bool:
+            return case.kind == kind and case.id == case_id
+
         def change(cases: list[Case]) -> list[Case]:
-            pending = next(
-                (case for case in reversed(cases) if case.kind == kind and case.id == case_id and case.number is None),
-                None,
-            )
+            if not kind.recurs:
+                found.extend(case for case in cases if ours(case))
+                return [replace(case, number=number) if ours(case) else case for case in cases]
+            pending = next((case for case in reversed(cases) if ours(case) and case.number is None), None)
             if pending is None:
                 return cases
             found.append(pending)
@@ -163,26 +197,29 @@ class DadCases:
             return [replace(case, number=number) if case is pending else case for case in cases]
 
         self._change(change)
+        if found:
+            self._tell(kind, CaseNumbered(case_id, number))
         return bool(found)
 
-    def delivered(self, post: Post, number: int) -> None:
-        """Dopisuje numer issue sprawie z wysyłki, którą przyjęła skrzynka; wysyłki, które nie są sprawą, pomija."""
-
-        def numbered(case: Case) -> Case:
-            ours = case.kind.label == post.target.label and case.id == post.run_id
-            return replace(case, number=number) if ours else case
-
-        self._change(lambda cases: [numbered(case) for case in cases])
-
-    def rejected(self, case_id: str) -> None:
-        """Skrzynka odrzuciła w tej pracy Centrum treść wysyłki sprawy o ``case_id`` (``Outbox.on_rejected``).
-
-        ``id`` Uwagi to identyfikator jej wysyłki, a odcisk Zgłoszenia podaje ``Reports.rejected``. Identyfikator
-        wysyłki, która nie jest sprawą (Logi Uruchomienia), żadnej sprawy nie zmienia.
-        """
+    def rejected(self, kind: CaseKind, case_id: str) -> None:
+        """Skrzynka odrzuciła w tej pracy Centrum treść wysyłki sprawy ``kind`` o ``case_id``; słyszą o tym obserwatorzy
+        rodzaju (``watch``)."""
 
         with self._lock:
             self._rejected.add(case_id)
+        self._tell(kind, CaseRejected(case_id))
+
+    def watch(self, kind: CaseKind, watcher: Watcher) -> None:
+        """``watcher`` słyszy odtąd o każdym numerze issue i odrzuconej treści spraw rodzaju ``kind``."""
+
+        with self._lock:
+            self._watchers.setdefault(kind, []).append(watcher)
+
+    def _tell(self, kind: CaseKind, news: CaseNews) -> None:
+        with self._lock:
+            watchers = list(self._watchers.get(kind, ()))
+        for watcher in watchers:
+            watcher(news)
 
     def hold(self, case_id: str, box: KeyedBox) -> Hold:
         """Na co czeka sprawa o ``case_id`` w Kolejce wysyłki; nie pyta Skrzynki o token, gdy werdykt jest znany.

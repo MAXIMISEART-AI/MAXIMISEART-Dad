@@ -31,7 +31,7 @@ from rozliczenia.centrum.report_box import (
     Unreachable,
 )
 from rozliczenia.centrum.keyed_box import KeyedBox, NoKey
-from rozliczenia.centrum.reports import fingerprint_line
+from rozliczenia.centrum.outbox import fingerprint_line
 
 from tests.fixtures.clock import ManualClock
 

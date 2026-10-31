@@ -7,7 +7,9 @@ Centrum nieosiągalna rozsądnym kosztem.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 import itertools
+import json
 from pathlib import Path
 import shutil
 import threading
@@ -16,12 +18,13 @@ import pytest
 
 from rozliczenia.centrum.keyed_box import KeyedBox
 from rozliczenia.centrum.log import CentrumLog
-from rozliczenia.centrum.outbox import RETRY_S, Frame, NewIssue, Outbox, PeriodThread, Post, ReportIssue
+from rozliczenia.centrum.outbox import RETRY_S, Frame, KnownIssue, NewIssue, Outbox, PeriodThread, Post, ReportIssue
 from rozliczenia.centrum.report_box import COMMENT_LIMIT, Refused, Rejected, Unreachable
 
 from tests.fixtures.centrum import FakeIssue, FakeReportBox
 from tests.fixtures.clock import ManualClock
 from tests.fixtures.potomne import wait_for
+from tests.fixtures.sluchacz_kolejki import QueueListener
 from tests.fixtures.stare_centrum import SharedBox, old_centrum, queue_on
 
 KEY = "github_pat_SYNTETYCZNY_KLUCZ"
@@ -52,16 +55,19 @@ ROOT = Path(__file__).resolve().parents[1]
 class Queue:
     """Kolejka na folderze w ``tmp_path`` ze skrzynką ``box`` i kluczem ``key`` (``None``: bez klucza).
 
-    ``delivered`` to Uruchomienie i numer issue każdej wysyłki, którą przyjęła skrzynka (``on_delivered``).
+    ``delivered`` to Uruchomienie i numer issue każdej wysyłki, którą przyjęła skrzynka (``listener``).
     """
 
-    def __init__(self, tmp_path: Path, box: FakeReportBox, key: str | None = KEY) -> None:
+    def __init__(
+        self, tmp_path: Path, box: FakeReportBox, key: str | None = KEY, listener: QueueListener | None = None
+    ) -> None:
         self.directory = tmp_path / "config" / "zgloszenia" / "kolejka"
         self.log_path = tmp_path / "logs" / "centrum-rozliczen.log"
         self.box = box
         self.key = key
         self.clock = ManualClock()
-        self.delivered: list[tuple[str, int]] = []
+        self.listener = listener or QueueListener()
+        self.delivered = self.listener.numbers
         self.outbox = self.restarted()
 
     def restarted(self) -> Outbox:
@@ -73,7 +79,7 @@ class Queue:
             keyed,
             CentrumLog(self.log_path),
             clock=self.clock,
-            on_delivered=lambda post, number: self.delivered.append((post.run_id, number)),
+            listener=self.listener,
         )
 
     def passed(self) -> None:
@@ -712,7 +718,7 @@ def test_po_wyslaniu_kolejka_zna_adres_pierwszego_komentarza_uruchomienia(tmp_pa
 
 
 FINGERPRINT_LINE = "- Odcisk problemu: 0123456789abcdef"
-REPORT = ReportIssue(FINGERPRINT_LINE, "BRAK_WZORCA: Nie znaleziono wzorca.")
+REPORT = ReportIssue(fingerprint="0123456789abcdef", title="BRAK_WZORCA: Nie znaleziono wzorca.")
 REPORT_BODY = f"Zgłoszenie z Centrum rozliczeń.\n\n## Narzędzie\n\n{FINGERPRINT_LINE}\n"
 
 
@@ -795,3 +801,72 @@ def test_plik_zgloszenia_zapisany_w_kolejce_wychodzi_po_starcie(tmp_path: Path) 
 
     assert queue.box.wait_until(lambda box: len(box.sent) == 1)
     assert (queue.box.sent[0].title, queue.box.sent[0].body) == (REPORT.title, REPORT_BODY)
+
+
+def report_file(line: str) -> str:
+    """Plik kolejki Zgłoszenia, jak go zapisuje Centrum od #426: cel niesie wiersz odcisku problemu ``line``."""
+
+    target = {"kind": "report_issue", "label": "zgloszenie", "line": line, "title": "BRAK_WZORCA: Nie znaleziono wzorca."}
+    return json.dumps(
+        {
+            "schema_version": 2,
+            "target": target,
+            "period": "08_14_09_2026",
+            "run_id": RUN_ID,
+            "header": None,
+            "parts": [REPORT_BODY],
+            "delivered_parts": 0,
+            "issue": None,
+        }
+    )
+
+
+def test_plik_zgloszenia_z_wierszem_odcisku_przejmuje_otwarte_zgloszenie_tego_odcisku(tmp_path: Path) -> None:
+    open_report = FakeIssue(7, "zgloszenie", REPORT.title, REPORT_BODY)
+    queue = Queue(tmp_path, FakeReportBox(issues=[open_report]))
+    queue.directory.mkdir(parents=True)
+    (queue.directory / "20261023T101500000000Z-0001-zgloszenie-3f2a9c1b.json").write_text(
+        report_file(FINGERPRINT_LINE), encoding="utf-8"
+    )
+
+    queue.outbox.resume()
+
+    assert wait_for(lambda: queue.files() == [])
+    assert queue.delivered == [(RUN_ID, 7)]
+    assert (queue.box.issues, open_report.comments) == ([open_report], [])
+
+
+def test_plik_zgloszenia_z_samym_odciskiem_bez_jego_wiersza_zostaje_nieczytelny(tmp_path: Path) -> None:
+    queue = Queue(tmp_path, FakeReportBox())
+    queue.directory.mkdir(parents=True)
+    name = "20261023T101500000000Z-0001-zgloszenie-3f2a9c1b.json"
+    (queue.directory / name).write_text(report_file("0123456789abcdef"), encoding="utf-8")
+
+    queue.outbox.resume()
+    queue.passed()
+
+    assert queue.files() == [name]
+    assert queue.log().count(f"skrzynka-nieczytelny plik={name}") == 1
+    assert queue.box.issues == []
+
+
+class FollowingUp(QueueListener):
+    """Słuchacz, który po każdej przyjętej Uwadze oddaje kolejce komentarz do jej issue."""
+
+    def delivered(self, post: Post, number: int) -> Sequence[Post]:
+        super().delivered(post, number)
+        if not isinstance(post.target, NewIssue):
+            return ()
+        return (Post(KnownIssue("uwaga-taty", number), None, "komentarz", None, ("Komentarz po Uwadze",)),)
+
+
+def test_wysylka_nastepcza_sluchacza_idzie_w_tym_samym_przejsciu_kolejki(tmp_path: Path) -> None:
+    queue = Queue(tmp_path, FakeReportBox(), listener=FollowingUp())
+
+    queue.outbox.post(Post(NewIssue("uwaga-taty", "Uwaga taty"), None, RUN_ID, None, ("Uwaga",)))
+    queue.passed()
+
+    [issue] = queue.box.issues_with("uwaga-taty")
+    assert issue.comments == ["Komentarz po Uwadze"]
+    assert queue.delivered == [(RUN_ID, issue.number), ("komentarz", issue.number)]
+    assert queue.files() == []
