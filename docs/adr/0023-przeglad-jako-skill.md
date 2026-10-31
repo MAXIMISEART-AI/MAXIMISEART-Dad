@@ -20,6 +20,21 @@ Rozrzut dwóch powtórzeń tego samego wariantu to ok. ±0,12 trafności, więc 
 - Tryb recenzenta ma kroki: `tools/scal_pr.py N --przeglad` drukuje kontekst, recenzent dopisuje każde potwierdzone znalezisko od razu do pliku rundy, a `tools/scal_pr.py N --werdykt <plik>` sprawdza obie pierwsze linie, SHA HEAD i zgodność `PASS`/`FAIL` z liczbą Ważnych, zanim opublikuje werdykt jako komentarz PR.
 - Tryb autora to tylko to, co autor czyta, zanim zleci przegląd po pushu: autor nie przegląda własnego diffu przed pushem.
 
+## Co jest porażką: dziura w sprawdzeniu
+
+Decyzja Maksa z 31.10: dziura w sprawdzeniu daje `FAIL`, wąsko.
+W PR, który dodaje albo zmienia sprawdzenie (test struktury, checker, hook, skrypt mutacji, bramka CI, reguła lintu), Ważne jest odtworzony przypadek, który według wiersza reguły, docstringu albo opisu PR to sprawdzenie powinno wywrócić, a ono go przepuszcza, i fałszywy alarm sprawdzenia na poprawnym wejściu.
+To Ważne także wtedy, gdy produkt na tym SHA zachowuje się dobrze, bo sprawdzenie jest produktem tego PR: dziura w nim to defekt jego zachowania.
+Poza tym Drobne zostają luką bez defektu: przeżyta mutacja w kodzie, który zachowuje się poprawnie, jest Drobne także w kodzie sprawdzenia, gdy recenzent nie odtworzył przypadku, który ono przepuszcza wbrew swojej regule.
+Czysty PR z nowym sprawdzeniem bez dziury dalej dostaje `PASS`.
+
+Przypadki, które po tej decyzji są Ważne:
+
+- #496: hook `PermissionRequest` miał oddawać agentowi odmowę, zanim Claude Code zapyta człowieka o zgodę na `rm`, a przepuszczał `cd <katalog> && \rm -f logi/*` i `cd <katalog> && env rm -f logi/*`, na których Claude Code dalej pytał, bo słowo polecenia musiało być dosłownie `rm`.
+  Repo zachowywało się dobrze, a dziura była w samym hooku.
+- #408 i #670: w pomiarze zaliczone do czystych, a część recenzentów dawała im Ważne za przypadek, który sprawdzenie z PR przepuszcza wbrew swojej regule.
+  Ten spór rozstrzyga ta decyzja: takie znalezisko jest Ważne, a pomiar liczy je odtąd jako przypadki z błędem, nie jako fałszywe Ważne.
+
 ## Dowód
 
 Wariant L1 (ta decyzja) względem stanu wyjściowego:
