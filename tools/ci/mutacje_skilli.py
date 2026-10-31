@@ -11,8 +11,8 @@ wydrukował na końcu ``MUTACJE OK``. Skrypt biegnie przez ``tools/lib/potomne.p
 potomne giną po jego końcu i po limicie, a cały skrypt ginie razem z runnerem, choćby zabitym
 przez SIGKILL. Kończy się ``MUTACJE SKILLI OK`` albo ``MUTACJE SKILLI FAIL | <skrypty>``.
 
-Z ``--zmiany-od REF`` biegnie tylko krok, którego werdykt może zmienić zmiana od ``REF`` (``szybko.changed_since``, z
-niezacommitowanymi), jak na pull request w CI (ADR 0020): podstawy skilli. Skill deklaruje we frontmatterze ``SKILL.md``
+Z ``--zmiany-od REF`` biegnie tylko krok, którego werdykt może zmienić zmiana od ``REF`` (``changed_since`` z
+``tools/lib/wplyw_zmiany.py``, z niezacommitowanymi), jak na pull request w CI (ADR 0020): podstawy skilli. Skill deklaruje we frontmatterze ``SKILL.md``
 klucz ``pilnuje:``, listę globów ścieżek względem korzenia repozytorium (``*`` obejmuje też ``/``). Podstawa skilla
 biegnie, gdy zmieniony jest plik z ``pilnuje`` albo plik w folderze skilla; ten sam wybór (``hits``) wskazuje skille
 ``verify-*`` w ``tools/skille_dla_zmiany.py``. Skrypty mutacji na pull request nie biegną, tylko nocą na ``main``
@@ -22,8 +22,8 @@ skilla (``model_watched``): na pull request biegnie, gdy zmieniony jest plik w t
 sprawdzenie, które uruchamiają jego mutacje, bo zmiana modelu, która zostawia mutację bez werdyktu (``BŁĄD MODELU``
 po #667), inaczej czerwieni dopiero ``main``. Z ``--zmiany-od REF --noc`` biegną same skrypty mutacji, a skrypt biegnie, gdy zmieniony
 jest plik w folderze skilla, runner mutacji (``RUNNER``) albo sprawdzenie, które uruchamiają jego mutacje. Importów ani
-plików, które krok czyta, wybór nie liczy: każdy krok uruchamia pełne CI ``main``. Zmiana ``INFRASTRUCTURE`` uruchamia
-każdy krok swojego rodzaju, a skill bez klucza ``pilnuje`` albo z kluczem, którego nie da się odczytać, biegnie zawsze.
+plików, które krok czyta, wybór nie liczy: każdy krok uruchamia pełne CI ``main``. Zmiana ścieżki z ``Context.SKILL_STEPS``
+tabeli reguł ``tools/lib/wplyw_zmiany.py`` uruchamia każdy krok swojego rodzaju, a skill bez klucza ``pilnuje`` albo z kluczem, którego nie da się odczytać, biegnie zawsze.
 Pominięty krok dostaje linię ``POMINIĘTY``.
 
 Krok to podstawa skilla albo jeden jego skrypt mutacji. W CI kroki dzieli między zadania Mutation checks plan runu
@@ -67,7 +67,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tools"))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tools/lib"))
 
 import potomne
-import szybko
+from wplyw_zmiany import Context, changed_since, run_all
 
 ROOT = Path(__file__).resolve().parents[2]
 SKILLS = ROOT / ".agents" / "skills"
@@ -78,8 +78,6 @@ VERDICT = "MUTACJE OK"
 BASELINE = "PODSTAWA"
 # Najdłuższy skrypt trwał w CI na Windows 770 s; limit łapie zawieszenie, a nie wolny runner.
 LIMIT_S = 30 * 60
-# Zmiana, po której na pull request biegnie każdy krok każdego skilla: biblioteki, zadanie CI, końce linii kopii.
-INFRASTRUCTURE = ("requirements.txt", ".github/workflows/ci.yml", ".gitattributes")
 # Runner mutacji: jego zmiana może zmienić werdykt każdego skryptu mutacji.
 RUNNER = ("tools/mutacje.py", "tools/ci/mutacje_skilli.py")
 # Powód w ``Hits`` dla pliku w folderze skilla.
@@ -364,8 +362,8 @@ def _why_run(step: Step, changed: frozenset[str], night: bool) -> tuple[bool, st
     (``night``) skrypt mutacji i podstawa z ``ci-czesci``, której plan CI daje nocą każdą część każdej liczby części.
 
     Podstawa biegnie przy trafieniu w ``pilnuje`` albo w folder skilla, skrypt mutacji nocą przy zmianie ścieżki z
-    ``watched``, a na pull request przy zmianie ścieżki z ``model_watched``. Zmiana ``INFRASTRUCTURE`` uruchamia każdy
-    krok swojego rodzaju.
+    ``watched``, a na pull request przy zmianie ścieżki z ``model_watched``. Zmiana ścieżki z ``Context.SKILL_STEPS``
+    uruchamia każdy krok swojego rodzaju.
     """
 
     if not night and step.verdict is not None:
@@ -375,7 +373,7 @@ def _why_run(step: Step, changed: frozenset[str], night: bool) -> tuple[bool, st
     found = hits(step.skill, changed)
     if found.always:
         return True, found.always
-    if infrastructure := changed.intersection(INFRASTRUCTURE):
+    if infrastructure := run_all(changed, Context.SKILL_STEPS):
         return True, _changes(infrastructure)
     if step.verdict is None:
         if found.files:
@@ -427,7 +425,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     if args.noc and args.zmiany_od is None:
         parser.error("--noc wybiera kroki zmiany, więc wymaga --zmiany-od")
-    selection = wybor(None if args.zmiany_od is None else szybko.changed_since(args.zmiany_od), night=args.noc)
+    selection = wybor(None if args.zmiany_od is None else changed_since(ROOT, args.zmiany_od), night=args.noc)
     failed = dict(selection.failed)
     for name, why in sorted(failed.items()):
         print(f"FAIL {name}: {why}", flush=True)

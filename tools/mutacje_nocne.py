@@ -55,10 +55,12 @@ import sys
 from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools/ci"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools/lib"))
 
 import mutacje_skilli
 import mutacje_zmiany
 import plan_ci
+from wplyw_zmiany import Context
 from zgloszenia_ci import MERGE, REPO, SQUASH, GhApi, GitHub, blok_kodu
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -277,7 +279,7 @@ def przypisz_skrypty(github: GitHub, root: Path, od: str, padly: Sequence[str]) 
         except Exception:  # noqa: BLE001 - tabela, której nie da się wczytać, wskazuje tylko folder skilla
             sciezki = (folder,)
         # Grupa bez ścieżek daje ostatni commit nocy.
-        for grupa in ((sciezki[0],), (*sciezki[1:], *mutacje_skilli.INFRASTRUCTURE), ()):
+        for grupa in ((sciezki[0],), (*sciezki[1:], *Context.SKILL_STEPS.paths()), ()):
             if commit := _git(root, "log", "-1", "--format=%H", f"{od}..HEAD", "--", *grupa):
                 break
         else:

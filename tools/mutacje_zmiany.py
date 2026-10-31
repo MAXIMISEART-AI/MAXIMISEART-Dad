@@ -40,7 +40,7 @@ albo ``… if … else …`` innego systemu, kod po ``if`` z takim warunkiem, kt
 na tym systemie, i sam warunek. Kod tylko dla innego systemu w innej postaci (stała czytana tylko w jego gałęzi,
 warunek przez ``startswith`` albo zmienną) przeżywa i potrzebuje wyjątku.
 
-Najpierw biegną raz testy dotknięte zmianą, wybrane jak w ``tools/szybko.py``, z pluginem
+Najpierw biegną raz testy dotknięte zmianą, wybrane jak w ``tools/szybko.py`` (``tools/lib/wplyw_zmiany.py``), z pluginem
 ``tools/ci/pytest_pokrycie.py``. Zapisuje on, które testy wykonują które zmienione linie i jakikolwiek kod zmienionych
 plików, także w procesach Pythona uruchomionych przez test, oraz linie wykonane dla wielu testów naraz: przy imporcie
 modułu i w fixture o zasięgu szerszym niż test. Testy muszą przejść, inaczej wynik mutacji niczego nie dowodzi.
@@ -49,7 +49,7 @@ Potem każda mutacja biegnie przez silnik ``tools/mutacje.py`` (własna kopia ch
 wykonały jej linie. Pokrycie tylko przyspiesza wykrycie: mutacja, która je przeżyła, biegnie drugi raz, po jednej
 naraz z ``--rownolegle`` workerami xdist, i dopiero ta porażka daje ``NIEWYKRYTA``. Drugi raz biegną testy, które
 wykonały jakikolwiek kod jej pliku albo uruchomiły proces i dochodzą do pliku importem albo nazwą pliku, katalogu
-lub globu w teście albo jego fixture, a wszystkie testy dotknięte plikiem, gdy linię wykonano
+lub globu w teście albo jego fixture (``Repository.reaching``), a wszystkie testy dotknięte plikiem, gdy linię wykonano
 dla wielu testów naraz albo leży w funkcji z ``@cache``, ``@lru_cache`` albo ``@cached_property`` (wynik pierwszego wywołania dostają też
 inne testy). Taką mutację przed testami pliku sprawdzają jeszcze, po kilka mutacji naraz jak w pierwszym przebiegu,
 testy, które wykonały jakikolwiek kod jej pliku (linia ``(testy kodu pliku)``): tabelę modułu wykonuje import, a
@@ -115,7 +115,7 @@ from __future__ import annotations
 import argparse
 import ast
 from collections import defaultdict
-from collections.abc import Iterable, Iterator, Sequence
+from collections.abc import Iterator, Sequence
 from dataclasses import dataclass, field, replace
 import datetime
 import difflib
@@ -139,7 +139,7 @@ import ciezkie_ci
 import mutacje
 import pokrycie_procesu
 import potomne
-import szybko
+import wplyw_zmiany
 
 ROOT = Path(__file__).resolve().parents[1]
 BASE = "origin/main"
@@ -704,30 +704,6 @@ class Coverage:
         return sorted(executed | {test for test in self.spawners if test.split("::")[0] in runners})
 
 
-def runners(paths: Iterable[str]) -> dict[str, frozenset[str]]:
-    """Pliki testów, które dochodzą do każdego z ``paths`` importem albo nazwą pliku w teście lub fixture.
-
-    Tylko taki test uruchamia proces z kodem pliku, którego zapis nie widzi (``-I``, kopia narzędzia). Plik nazwany
-    tylko w innym narzędziu się nie liczy: ``tests/fixtures/git_repo.py`` kopiuje ``tools/ci_lokalnie.py``, które
-    nazywa ``tools/mutacje_zmiany.py``, więc inaczej każdy test z repozytorium Gita (``git`` to też proces) sprawdzał
-    każdą mutację tego pliku.
-    """
-
-    graph = szybko.Dependencies.of(ROOT, szybko._files(ROOT))
-    found: dict[str, set[str]] = defaultdict(set)
-    for test in sorted(path for path in graph.depends_on if szybko._is_test(path)):
-        reached, pending = {test}, [test]
-        while pending:
-            source = pending.pop()
-            named = graph.folder_files.get(source, set()) if source.startswith("tests/") else set()
-            for target in (graph.depends_on.get(source, set()) | named) - reached:
-                reached.add(target)
-                pending.append(target)
-        for path in reached:
-            found[path].add(test)
-    return {path: frozenset(found[path]) for path in paths}
-
-
 def _coverage(
     tests: Sequence[str], lines: dict[str, frozenset[int]], timeout: float
 ) -> tuple[subprocess.CompletedProcess[str], Coverage]:
@@ -853,11 +829,12 @@ def _mutate(args: argparse.Namespace, survived: list[tuple[Mutant, str]], gate: 
         where = f" w części {number}/{count}" if every else ""
         return 0, f"MUTACJE ZMIANY OK | brak mutacji zmienionych linii src/ i tools/ od {args.baza}{where}"
     paths = {mutant.path for mutant in found}
-    by_file = {path: sorted(szybko.select(ROOT, frozenset({path})).fingerprints) for path in paths}
+    repository = wplyw_zmiany.Repository.scan(ROOT)
+    by_file = {path: list(repository.impact(frozenset({path})).tests) for path in paths}
     tests = sorted({test for chosen in by_file.values() for test in chosen})
     part = f" (część {number}/{count} z {len(every)})" if count > 1 else ""
     print(f"Mutacje: {len(found)}{part} w {len(paths)} plikach src/ i tools/ od {args.baza}. Testy dotknięte zmianą: {len(tests)}.", flush=True)
-    near = runners(paths)
+    near = {path: repository.reaching(path) for path in paths}
     clock = [time.monotonic()]
     coverage = Coverage()
     if tests:

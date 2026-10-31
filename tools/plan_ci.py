@@ -5,9 +5,10 @@ Plan CI: ile zadań pytest i Mutation checks startuje w runie ``ci.yml`` i co bi
 Pracę pytest wyznacza ``zakres`` (ADR 0020). Na pushu to pełne CI ``main``: trzy tory (``TORY``: Windows 3.11, Windows
 3.14, Linux 3.14), na każdym każdy plik testów ``tests/``, oraz kroki CI (``KROKI``) na swoich torach: E2E na obu
 Windows, straż czasu na Windows 3.14. Na pull request to bramka PR: tory Windows 3.11 (minimum u taty) i Linux 3.14,
-na każdym pliki z wyboru ``tools/szybko.py`` dla zmiany od bazy, bez jego budżetu, i testy ``szybko.STRUCTURE``
-(węzeł ``plik::test`` biegnie sam, gdy jego pliku nie ma w wyborze). Zmiana pliku z ``szybko.FULL`` albo pod
-``.github/workflows/`` wybiera wszystkie pliki. Na Windows 3.11 E2E biegnie przy zmianie pod ``src/``, a straż czasu
+na każdym pliki z wyboru ``tools/szybko.py`` dla zmiany od bazy, bez jego budżetu, i testy ``STRUCTURE``
+(węzeł ``plik::test`` biegnie sam, gdy jego pliku nie ma w wyborze); wybór i ``STRUCTURE`` daje
+``tools/lib/wplyw_zmiany.py``. Zmiana ścieżki, która w jego tabeli reguł uruchamia wszystko w bramce PR
+(``Context.PR_GATE``: pliki, od których zależy każdy test, i ``.github/workflows/``), wybiera wszystkie pliki. Na Windows 3.11 E2E biegnie przy zmianie pod ``src/``, a straż czasu
 przy zmianie w domknięciu jej skryptów (``STRAZ``); przy wyborze wszystkich plików oba.
 Praca Mutation checks to tor ``MUTACJE`` (Windows 3.14): kroki skilli z wyboru ``tools/ci/mutacje_skilli.py`` (na pull
 request podstawy ``ci:``, których werdykt mogą zmienić zmiany od bazy, i skrypt mutacji modelu przy zmianie modelu, na
@@ -84,7 +85,7 @@ import mutacje_skilli
 import niestabilne_testy
 from niestabilne_testy import FlakyTest, ZapisKwarantanny
 import potomne
-import szybko
+from wplyw_zmiany import Context, Repository, changed_since, run_all, with_structure
 
 ROOT = Path(__file__).resolve().parents[1]
 WERSJA = 1
@@ -325,13 +326,11 @@ def zakres(zdarzenie: str, zmiana: frozenset[str], root: Path = ROOT) -> Zakres:
     if zdarzenie == "push":
         return Zakres(TORY, tuple(pliki_testow(root)), "wszystkie pliki")
     windows, linux = (tor for tor in TORY if tor.nazwa in ("windows-3.11", "linux-3.14"))
-    if full := sorted(sciezka for sciezka in zmiana if sciezka in szybko.FULL or sciezka.startswith(".github/workflows/")):
+    if full := run_all(zmiana, Context.PR_GATE):
         return Zakres((replace(windows, kroki=("e2e", "timing")), linux), tuple(pliki_testow(root)), f"FULL ({', '.join(full)})")
-    wybor = szybko.reach(root, zmiana)
-    wybrane = list(wybor.tests)
-    struktura = [wezel for wezel in szybko.STRUCTURE if wezel.partition("::")[0] not in wybrane]
+    wybor = Repository.scan(root).impact(zmiana)
     kroki = ("e2e",) * any(sciezka.startswith("src/") for sciezka in zmiana) + ("timing",) * any(skrypt in wybor.distances for skrypt in STRAZ)
-    return Zakres((replace(windows, kroki=kroki), linux), (*wybrane, *struktura), f"wybór {len(wybrane)} plików")
+    return Zakres((replace(windows, kroki=kroki), linux), with_structure(wybor.tests), f"wybór {len(wybor.tests)} plików")
 
 
 def wycen(tor: Tor, pliki: Sequence[str], czasy: czasy_ci.Czasy) -> Wycena:
@@ -488,8 +487,8 @@ def _plan(args: argparse.Namespace) -> int:
     czasy = czasy_ci.z_mainu(katalog, odswiez_po_s=0 if args.czasy else czasy_ci.ODSWIEZ_S)
     if czasy.blad:
         print(f"CZASY CI | {czasy.blad}; plan waży pracę bez pomiaru domyślnie")
-    zmiana = None if args.zdarzenie == "push" else szybko.changed_since(args.baza)
-    praca = zakres(args.zdarzenie, zmiana or frozenset())
+    zmiana = None if args.zdarzenie == "push" else changed_since(ROOT, args.baza)
+    praca = zakres(args.zdarzenie, zmiana or frozenset(), ROOT)
     wybor = mutacje_skilli.wybor(zmiana, night=args.zdarzenie == NOC)
     wyceny = [*(wycen(tor, praca.pliki, czasy) for tor in praca.tory), wycen_mutacje([krok for krok, _ in wybor.chosen], czasy, args.zdarzenie)]
     bledy = tuple(f"{nazwa}: {powod}" for nazwa, powod in sorted(wybor.failed.items()))

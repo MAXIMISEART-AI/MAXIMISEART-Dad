@@ -2,7 +2,7 @@
 
 Wypisuje skille ``verify-*``, które obowiązują dla zmiany od bazy (domyślnie ``origin/main``), każdy z powodem.
 
-Zmiana to ``szybko.changed_since``: pliki z ``git diff`` od rozgałęzienia z bazą oraz pliki niezacommitowane i
+Zmiana to ``changed_since`` z ``tools/lib/wplyw_zmiany.py``: pliki z ``git diff`` od rozgałęzienia z bazą oraz pliki niezacommitowane i
 nieśledzone. Skill deklaruje we frontmatterze ``SKILL.md`` klucz ``pilnuje:``, listę globów ścieżek względem korzenia
 repozytorium (``*`` obejmuje też ``/``). Skill obowiązuje, gdy zmieniony plik pasuje do jego globu albo leży w jego
 folderze: to ten sam wybór (``mutacje_skilli.hits``), który na pull request uruchamia w CI podstawę skilla. Skill bez
@@ -34,10 +34,11 @@ import subprocess
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools/ci"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools/lib"))
 
 from mutacje_skilli import ROOT, SKILLS, Step, hits, wybor
 import plan_ci
-import szybko
+from wplyw_zmiany import changed_since
 
 VERDICT = "SKILLE VERIFY"
 IN_CI = "LICZY CI"
@@ -67,7 +68,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("baza", nargs="?", default="origin/main", help="Commit albo gałąź, od której liczy się zmiana.")
     args = parser.parse_args(argv)
     try:
-        files = szybko.changed_since(args.baza)
+        files = changed_since(ROOT, args.baza)
     except subprocess.CalledProcessError as error:
         detail = (error.stderr.strip().splitlines() or [f"kod {error.returncode}"])[0]
         print(f"{VERDICT}: nieznane (git {error.cmd[1]}: {detail})")

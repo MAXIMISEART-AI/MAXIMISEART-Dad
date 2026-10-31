@@ -16,8 +16,10 @@ from tests.fixtures.git_repo import commit, git, repository
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
+sys.path.insert(0, str(ROOT / "tools" / "lib"))
 
 import szybko  # noqa: E402
+from wplyw_zmiany import STRUCTURE  # noqa: E402
 
 BY_CHANGE_ONLY = {
     "tests/test_brama_pre_push.py": "sprawdza zachowanie bramy pushem w repozytorium testu, a nie całe repozytorium",
@@ -165,7 +167,7 @@ def wspolny_cache_mypy(tmp_path_factory: pytest.TempPathFactory, monkeypatch: py
 
 def _structure_stubs(body: str) -> dict[str, str]:
     stubs: dict[str, str] = {}
-    for node in szybko.STRUCTURE:
+    for node in STRUCTURE:
         path, _, name = node.partition("::")
         header = "from pathlib import Path\n" if "Path(" in body else ""
         stubs[path] = stubs.get(path, header) + f"\n\ndef {name or 'test_struktura'}() -> None:\n    {body}\n"
@@ -181,7 +183,7 @@ def _repo(tmp_path: Path, structure: str = "pass") -> Path:
     pyproject = (repo / "pyproject.toml").read_text(encoding="utf-8")
     current = f'requires-python = ">={sys.version_info[0]}.{sys.version_info[1]}"'
     (repo / "pyproject.toml").write_text(re.sub(r"requires-python = .*", current, pyproject), encoding="utf-8")
-    for name in (".gitignore", "tools/szybko.py"):
+    for name in (".gitignore", "tools/szybko.py", "tools/lib/wplyw_zmiany.py"):
         shutil.copy2(ROOT / name, repo / name)
     commit(repo, "baza")
     git(repo, "update-ref", "refs/remotes/origin/main", "HEAD")
@@ -234,7 +236,7 @@ def _commit_times(repo: Path, expensive: dict[str, float]) -> None:
     """Czasy CI z main, jakie szybko pobrał dziś do ``.git/czasy-ci`` (artefakt ``czasy-ci``, ``tools/ci/czasy_ci.py``), i
     commit dotychczasowych zmian jako ``origin/main``."""
 
-    times = {test: 0.1 for test in BASE_FILES if szybko._is_test(test)} | expensive
+    times = {test: 0.1 for test in BASE_FILES if test.startswith("tests/test_")} | expensive
     keys = {f"pytest:{test}": [{"run": 7, "proba": 1, "zadanie": "pytest (Python 3.14, Linux, 1/2)", "s": s, "status": "ok"}] for test, s in times.items()}
     artifact = {"wersja": 1, "runy": [{"run": 7, "proba": 1, "sha": "0" * 40, "zdarzenie": "push"}], "tory": {szybko.TIMES_TOR: keys}}
     _write(repo, ".git/czasy-ci/7.json", json.dumps(artifact))
@@ -342,45 +344,15 @@ def test_nowy_niesledzony_test_biegnie(tmp_path: Path) -> None:
     assert answered.returncode == 1
 
 
-@pytest.mark.parametrize(
-    ("changed", "failing"),
-    [
-        ("tools/narzedzie.py", "tests/test_narzedzie.py::test_narzedzie"),
-        ("docs/dane/wpis.md", "tests/test_dane.py::test_dane"),
-        ("docs/wzorce/zestaw/wpis.md", "tests/test_zestaw.py::test_zestaw"),
-        ("skille/a/OPIS.md", "tests/test_opisy.py::test_opisy"),
-        ("src/witryna/strona.html", "tests/test_strona.py::test_tytul"),
-    ],
-    ids=[
-        "skrypt, który test uruchamia",
-        "plik katalogu, który test czyta",
-        "plik katalogu, który test wskazuje końcem jego ścieżki",
-        "plik z globu na katalogu",
-        "plik danych pakietu, który czyta jego moduł",
-    ],
-)
-def test_test_jest_dotkniety_zmiana_pliku_ktory_wskazuje_sciezka(tmp_path: Path, changed: str, failing: str) -> None:
+def test_zmiana_konfiguracji_uruchamia_pelny_zestaw_i_mowi_dlaczego(tmp_path: Path) -> None:
     repo = _repo(tmp_path)
-    _write(repo, changed, "print('inny')\n")
-
-    answered = _szybko(repo)
-
-    assert f"FAILED {failing}" in answered.stdout
-    assert "test_zawsze_pada" not in answered.stdout
-
-
-@pytest.mark.parametrize(
-    "changed", ["pyproject.toml", "requirements.txt", "tests/conftest.py", "tests/fixtures/git_config.py"]
-)
-def test_zmiana_konfiguracji_albo_conftest_uruchamia_pelny_zestaw(tmp_path: Path, changed: str) -> None:
-    repo = _repo(tmp_path)
-    (repo / changed).parent.mkdir(parents=True, exist_ok=True)
-    with (repo / changed).open("a", encoding="utf-8") as file:
+    with (repo / "pyproject.toml").open("a", encoding="utf-8") as file:
         file.write("\n")
+    (repo / "tests" / "conftest.py").write_text("", encoding="utf-8")
 
     answered = _szybko(repo)
 
-    assert f"Testy pełny zestaw (zmiana w {changed}):" in answered.stdout
+    assert "Testy pełny zestaw (zmiana w pyproject.toml, tests/conftest.py):" in answered.stdout
     assert "FAILED tests/test_zawsze_pada.py::test_niedotkniety" in answered.stdout
     assert answered.returncode == 1
 
@@ -473,25 +445,24 @@ def test_bez_czasow_ci_szybko_mowi_w_jednej_linii_dlaczego(tmp_path: Path) -> No
     assert line in answered.stdout.splitlines(), answered.stdout
 
 
-# Zmieniony ``src/a.py`` i ``docs/dane.md``: ``test_dane`` czyta ``docs/dane.md``, a ``src/czyta.py`` czyta go dla
-# ``test_czyta``.
-FROZEN = szybko.Dependencies(
-    depends_on={
-        "tests/test_a_drogi.py": {"src/a.py"},
-        "tests/test_a_tani.py": {"src/a.py"},
-        "src/b.py": {"src/a.py"},
-        "tests/test_b.py": {"src/b.py"},
-        "src/c.py": {"src/b.py"},
-        "tests/test_c_drogi.py": {"src/c.py"},
-        "tests/test_c_tani.py": {"src/c.py"},
-        "tests/test_c_bez_czasu.py": {"src/c.py"},
-        "tests/test_czyta.py": {"src/czyta.py"},
-        "tests/test_obok.py": {"src/obok.py"},
-        "src/d.py": {"src/czyta.py", "src/a.py"},
-    },
-    folder_files={"tests/test_dane.py": {"docs/dane.md"}, "src/czyta.py": {"docs/dane.md"}},
-)
-FROZEN_CHANGE = {"src/a.py", "docs/dane.md"}
+# Odległości od zmiany ``src/a.py`` i ``docs/dane.md`` w grafie z
+# ``tests/test_wplyw_zmiany.py::test_odleglosc_od_zmiany_to_najkrotsza_droga_w_grafie_zaleznosci``.
+FROZEN_DISTANCES = {
+    "src/a.py": 0,
+    "docs/dane.md": 0,
+    "tests/test_a_drogi.py": 1,
+    "tests/test_a_tani.py": 1,
+    "src/b.py": 1,
+    "tests/test_dane.py": 1,
+    "src/czyta.py": 1,
+    "src/d.py": 1,
+    "tests/test_b.py": 2,
+    "tests/test_czyta.py": 2,
+    "src/c.py": 2,
+    "tests/test_c_drogi.py": 3,
+    "tests/test_c_tani.py": 3,
+    "tests/test_c_bez_czasu.py": 3,
+}
 FROZEN_TIMES = {
     "tests/test_a_drogi.py": 33.0,
     "tests/test_a_tani.py": 1.0,
@@ -502,28 +473,6 @@ FROZEN_TIMES = {
     "tests/test_c_tani.py": 2.0,
     "tests/test_obok.py": 2.0,
 }
-
-
-def test_odleglosc_od_zmiany_to_najkrotsza_droga_w_grafie_zaleznosci() -> None:
-    distances = FROZEN.distances_from(FROZEN_CHANGE)
-
-    assert distances == {
-        "src/a.py": 0,
-        "docs/dane.md": 0,
-        "tests/test_a_drogi.py": 1,
-        "tests/test_a_tani.py": 1,
-        "src/b.py": 1,
-        "tests/test_dane.py": 1,
-        "src/czyta.py": 1,
-        "src/d.py": 1,
-        "tests/test_b.py": 2,
-        "tests/test_czyta.py": 2,
-        "src/c.py": 2,
-        "tests/test_c_drogi.py": 3,
-        "tests/test_c_tani.py": 3,
-        "tests/test_c_bez_czasu.py": 3,
-    }
-    assert FROZEN.affected_by(FROZEN_CHANGE) == set(distances)
 
 
 @pytest.mark.parametrize(
@@ -537,9 +486,9 @@ def test_odleglosc_od_zmiany_to_najkrotsza_droga_w_grafie_zaleznosci() -> None:
     ids=["budżet na część dalszych", "budżet zerowy"],
 )
 def test_plan_bierze_zawsze_odleglosc_1_a_dalsze_w_budzecie_i_nazywa_zostawione(budget_s: float, deferred: tuple[str, ...]) -> None:
-    tests = sorted(path for path in FROZEN.affected_by(FROZEN_CHANGE) if szybko._is_test(path))
+    tests = sorted(path for path in FROZEN_DISTANCES if path.startswith("tests/"))
 
-    chosen = szybko.plan(tests, FROZEN.distances_from(FROZEN_CHANGE), FROZEN_TIMES, budget_s)
+    chosen = szybko.plan(tests, FROZEN_DISTANCES, FROZEN_TIMES, budget_s)
 
     # Plik spoza tabeli kosztuje tyle, co mediana tabeli: 2,5 s.
     costs = {**dict.fromkeys(tests, 2.5), **FROZEN_TIMES}
@@ -556,7 +505,7 @@ def test_testy_struktury_biegna_przy_zmianie_ktora_ich_nie_dotyka(tmp_path: Path
     answered = _szybko(repo)
 
     failed = set(re.findall(r"^FAILED (\S+)", answered.stdout, re.MULTILINE))
-    assert {node if "::" in node else f"{node}::test_struktura" for node in szybko.STRUCTURE} <= failed
+    assert {node if "::" in node else f"{node}::test_struktura" for node in STRUCTURE} <= failed
     assert answered.returncode == 1
 
 
@@ -799,11 +748,11 @@ def test_kazdy_test_z_tabel_regul_jest_testem_struktury_albo_ma_powod() -> None:
     ]
     guards = [row.rsplit("|", 2)[-2] for found in rows.values() for row in found]
     named = {test for guard in guards for test in _named_tests(guard)}
-    whole_files = {node for node in szybko.STRUCTURE if "::" not in node}
-    files_with_node = {node.partition("::")[0] for node in szybko.STRUCTURE}
+    whole_files = {node for node in STRUCTURE if "::" not in node}
+    files_with_node = {node.partition("::")[0] for node in STRUCTURE}
 
     collected = subprocess.run(
-        [sys.executable, "-m", "pytest", "--collect-only", "-q", "-p", "no:cacheprovider", *szybko.STRUCTURE],
+        [sys.executable, "-m", "pytest", "--collect-only", "-q", "-p", "no:cacheprovider", *STRUCTURE],
         cwd=ROOT,
         capture_output=True,
         text=True,
@@ -819,10 +768,10 @@ def test_kazdy_test_z_tabel_regul_jest_testem_struktury_albo_ma_powod() -> None:
     }
     assert outside == {}, "tabela w pliku reguł to tabela reguł: nagłówek z RULE_TABLE_HEADERS"
     assert elsewhere == [], "dopisz plik z tabelą reguł do RULE_TABLES"
-    runs_every_time = {test for test in named if test in szybko.STRUCTURE or test in files_with_node or test.partition("::")[0] in whole_files}
+    runs_every_time = {test for test in named if test in STRUCTURE or test in files_with_node or test.partition("::")[0] in whole_files}
     with_reason = {test for test in named if {test, test.partition("::")[0]} & BY_CHANGE_ONLY.keys()}
     undecided = named - runs_every_time - with_reason
-    assert undecided == set(), "dopisz test do STRUCTURE w tools/szybko.py albo powód do BY_CHANGE_ONLY"
+    assert undecided == set(), "dopisz test do STRUCTURE w tools/lib/wplyw_zmiany.py albo powód do BY_CHANGE_ONLY"
     named_files = {test.partition("::")[0] for test in named}
     assert BY_CHANGE_ONLY.keys() - named - named_files == set(), "BY_CHANGE_ONLY ma test spoza tabeli"
     assert collected.returncode == 0, collected.stdout

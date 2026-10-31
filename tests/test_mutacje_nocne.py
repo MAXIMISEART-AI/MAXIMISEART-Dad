@@ -604,6 +604,26 @@ def test_skrypt_mutacji_skilla_ktory_padl_noca_trafia_do_issue_pr_ktory_ostatni_
 
 
 
+def test_skrypt_mutacji_skilla_ktory_padl_noca_po_zmianie_bibliotek_trafia_do_issue_pr_ktory_je_zmienil(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Biblioteki uruchamiają każdy skrypt mutacji, więc PR, który je zmienił po runnerze z #23, dostaje skrypt verify-b.
+    repo, baza = _historia_skilli(tmp_path)
+    (repo / "requirements.txt").write_text("pytest\n", encoding="utf-8")
+    commit(repo, "Zmień biblioteki (#24)")
+    monkeypatch.setattr(mutacje_skilli, "ROOT", repo)
+    monkeypatch.setattr(mutacje_skilli, "SKILLS", repo / ".agents" / "skills")
+    github = GitHubWPamieci()
+    zapisy = _wykonania(
+        tmp_path / "zapisy",
+        {"mutacje-1": (PLAN_SKILLI.digest, {SKRYPT_A: "ok"}), "mutacje-2": (PLAN_SKILLI.digest, {SKRYPT_A: "ok", SKRYPT_B: "fail"})},
+    )
+
+    kod = mutacje_nocne.zglos(github, repo, baza, zapisy, 0, RUN, PLAN_SKILLI)
+
+    assert (kod, [issue["title"] for issue in github.issues]) == (0, ["Przeżyte mutacje skilli z #24"])
+
+
 def test_skrypt_ktory_padl_znowu_trafia_komentarzem_do_issue_bez_jego_linii_a_skrypt_z_odpowiedzia_nie_wraca(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
