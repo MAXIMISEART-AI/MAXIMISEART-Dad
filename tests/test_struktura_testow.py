@@ -7,7 +7,7 @@ Wspólne dane i pomocniki są w ``tests.fixtures``.
 from __future__ import annotations
 
 import ast
-from collections.abc import Iterable, Iterator
+from collections.abc import Iterable, Iterator, Sequence
 from itertools import pairwise
 from pathlib import Path
 import re
@@ -187,15 +187,15 @@ def _unpacked(target: ast.expr, value: ast.expr | None) -> Iterator[tuple[str, a
             yield name.id, None
 
 
-def _bindings(nodes: Iterable[ast.AST]) -> dict[str, list[ast.expr | None]]:
-    """Każda wartość przypisana nazwie w węzłach; ``None``, gdy nazwę wiąże coś innego niż przypisanie.
+def _bindings(tree: ast.Module) -> dict[str, list[ast.expr | None]]:
+    """Każda wartość przypisana nazwie w module; ``None``, gdy nazwę wiąże coś innego niż przypisanie.
 
     ``took += x`` to ``took = took + x``: dla ``_constant`` nazwa zależy od siebie, więc nie jest stałą, a dla
     ``_measured`` niesie odczyt zegara z ``x``.
     """
 
     bound: dict[str, list[ast.expr | None]] = {}
-    for node in nodes:
+    for node in ast.walk(tree):
         if isinstance(node, ast.Assign):
             for target in node.targets:
                 for bound_name, value in _unpacked(target, node.value):
@@ -274,7 +274,7 @@ def _constant_time_bounds(tree: ast.Module) -> Iterator[tuple[ast.Compare, str]]
     """
 
     names = imports(tree)
-    bound = _bindings(ast.walk(tree))
+    bound = _bindings(tree)
     parents = {child: node for node in ast.walk(tree) for child in ast.iter_child_nodes(node)}
     for statement in ast.walk(tree):
         if not isinstance(statement, ast.Assert):
@@ -327,16 +327,47 @@ def test_zmierzony_czas_nie_jest_ograniczony_stala_liczba() -> None:
     )
 
 
-EXPLORER_FILE = re.compile(r"(explore_\w+)(?:\.py)?")
-EXPLORER_RUNS = frozenset({"explore", "main"})
+EXPLORER = re.compile(r"explore_\w+")
+# Wywołania, które wykonują w swoim procesie moduł z jego nazwy albo ścieżki albo przygotowują to wykonanie (spec,
+# loader), oraz ``exec``, ``eval`` i ``compile``, które wykonują kod z napisu.
+LOADERS = frozenset(
+    {
+        "builtins.__import__",
+        "importlib.__import__",
+        "importlib.import_module",
+        "importlib.util.find_spec",
+        "importlib.util.spec_from_file_location",
+        "importlib.machinery.SourceFileLoader",
+        "importlib.machinery.SourcelessFileLoader",
+        "pytest.importorskip",
+        "runpy.run_module",
+        "runpy.run_path",
+        "builtins.compile",
+        "builtins.eval",
+        "builtins.exec",
+    }
+)
+CODE_FROM_TEXT = frozenset({"builtins.compile", "builtins.eval", "builtins.exec"})
+# Atrybuty ścieżki, które zachowują nazwę pliku: ``EXPLORER.stem`` to wciąż ``explore_runs``, a ``EXPLORER.parent`` już nie.
+KEEPS_NAME = frozenset({"name", "stem"})
 IN_PROCESS_EXPLORERS = {
     "explore_publication": (
         "prowadzi greenlety na wątku testu: nie ma wątku sprawdzenia, który mógłby porzucić z prawdziwą blokadą, "
         "a limit pytest przerywa go jak każdy wiszący test (werdykt #660 r3, punkt 4)"
     ),
 }
-Scope = ast.Module | ast.FunctionDef | ast.AsyncFunctionDef | ast.Lambda
-SCOPES = (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)
+Function = ast.FunctionDef | ast.AsyncFunctionDef | ast.Lambda
+Scope = ast.Module | ast.ClassDef | Function
+SCOPES = (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)
+# Nazwa w zakresie, parametr funkcji i funkcja, które wyrażenie już rozwija, żeby rekurencja w module testu się kończyła.
+Seen = frozenset[tuple[str, ast.AST] | ast.AST]
+
+
+def _explorer_named(text: str) -> frozenset[str]:
+    """Eksplorator, który nazywa napis: plik (``scripts/explore_runs.py``, ``.pyc``) albo moduł (``scripts.explore_runs``)."""
+
+    stem = re.sub(r"\.pyc?$", "", re.split(r"[/\\]", text)[-1]).rpartition(".")[2]
+    return frozenset({stem}) if EXPLORER.fullmatch(stem) else frozenset()
 
 
 def _own_nodes(scope: Scope) -> Iterator[ast.AST]:
@@ -346,204 +377,603 @@ def _own_nodes(scope: Scope) -> Iterator[ast.AST]:
     while pending:
         node = pending.pop()
         yield node
-        if not isinstance(node, (*SCOPES, ast.ClassDef)):
+        if not isinstance(node, SCOPES):
             pending.extend(ast.iter_child_nodes(node))
 
 
-Frames = dict[Scope, dict[str, frozenset[str]]]
-# Nazwa w zakresie i funkcja, które wyrażenie już rozwija, żeby rekurencja w module testu się kończyła.
-Seen = frozenset[tuple[str, Scope] | ast.FunctionDef | ast.AsyncFunctionDef]
+def _targets(target: ast.expr, value: ast.expr) -> Iterator[tuple[str, ast.expr]]:
+    """Nazwa w celu przypisania i jej wartość: ``a, b = x, y`` wiąże ``a`` z ``x``, inny kształt każdą nazwę z całością."""
+
+    if isinstance(target, ast.Name):
+        yield target.id, value
+    elif isinstance(target, ast.Starred):
+        yield from _targets(target.value, value)
+    elif isinstance(target, (ast.Tuple, ast.List)):
+        paired = value.elts if isinstance(value, (ast.Tuple, ast.List)) and len(value.elts) == len(target.elts) else None
+        for index, item in enumerate(target.elts):
+            yield from _targets(item, paired[index] if paired else value)
 
 
-class _Explorers:
-    """Które eksploratory (``explore_<co>``) może wskazywać wyrażenie modułu testu.
+def _sources(nodes: Iterable[ast.AST]) -> dict[str, list[ast.expr]]:
+    """Wyrażenia, z których nazwa w zakresie bierze wartość: przypisanie, ``:=``, pętla i comprehension (zbiór, po
+    którym idą) oraz ``with ... as`` (menedżer kontekstu)."""
 
-    Eksplorator wskazuje napis z nazwą jego pliku albo modułu (``"explore_runs.py"``), import (``import explore_runs``)
-    i nazwa przypisana takiemu wyrażeniu w swoim zakresie albo w module. Wynik wywołania wskazuje to, co jego argumenty
-    i obiekt, na którym biegnie metoda (``spec_from_file_location(..., EXPLORER)``, ``module_from_spec(spec)``),
-    a wywołanie funkcji z tego modułu także to, co wskazuje jej ``return``, z parametrami związanymi z argumentami tego
-    wywołania albo z wartościami domyślnymi (``_load()``, ``_load(EXPLORER)``, ale nie ``_load(SCRIPT)``). Atrybut
-    eksploratora (``explorer.runs``) nie jest już eksploratorem. Napis z kodem dla ``subprocess`` (``"-c", "import
-    explore_runs"``) nie jest napisem z nazwą pliku, więc nie wskazuje niczego.
+    found: dict[str, list[ast.expr]] = {}
+    for node in nodes:
+        pairs: list[tuple[ast.expr, ast.expr]] = []
+        if isinstance(node, ast.Assign):
+            pairs = [(target, node.value) for target in node.targets]
+        elif isinstance(node, (ast.AugAssign, ast.AnnAssign, ast.NamedExpr)) and node.value is not None:
+            pairs = [(node.target, node.value)]
+        elif isinstance(node, (ast.For, ast.AsyncFor, ast.comprehension)):
+            pairs = [(node.target, node.iter)]
+        elif isinstance(node, ast.withitem) and node.optional_vars is not None:
+            pairs = [(node.optional_vars, node.context_expr)]
+        for target, value in pairs:
+            for name, bound in _targets(target, value):
+                found.setdefault(name, []).append(bound)
+    return found
+
+
+def _called(expression: ast.expr) -> str | None:
+    """Nazwa funkcji w ``f`` albo ``obiekt.f``."""
+
+    if isinstance(expression, ast.Name):
+        return expression.id
+    return expression.attr if isinstance(expression, ast.Attribute) else None
+
+
+def _arguments(call: ast.Call) -> list[ast.expr]:
+    return [*call.args, *(keyword.value for keyword in call.keywords)]
+
+
+def _parametrized(names: ast.expr) -> set[str]:
+    """Nazwy parametrów z pierwszego argumentu ``pytest.mark.parametrize``: ``"a, b"`` albo ``("a", "b")``."""
+
+    if isinstance(names, ast.Constant) and isinstance(names.value, str):
+        return {name.strip() for name in names.value.split(",")}
+    if isinstance(names, (ast.Tuple, ast.List)):
+        return {item.value for item in names.elts if isinstance(item, ast.Constant) and isinstance(item.value, str)}
+    return set()
+
+
+class _Loads:
+    """Wczytania eksploratora przeplotów (``explore_<co>``) w procesie testu w jednym module ``tests/``.
+
+    Wczytanie to ``import`` albo ``from ... import`` modułu eksploratora i wywołanie z ``LOADERS``, którego argument
+    może nazywać eksplorator: napis z nazwą jego pliku albo modułu (``"explore_runs.py"``, ``"explore_runs"``) i każde
+    wyrażenie zbudowane z takiego napisu, także przez nazwy. Nazwa bierze wartość z przypisania, ``:=``, pętli,
+    comprehension i ``with ... as`` w swoim zakresie albo w zakresach nad nim, a parametr funkcji z wartości domyślnej,
+    z argumentów każdego jej wywołania w module (także gdy funkcję podano dalej: ``partial(_load, EXPLORER)``,
+    ``submit(_load, EXPLORER)``), z ``pytest.mark.parametrize`` i z ``return``/``yield`` fixtury o tej nazwie w module
+    albo w ``conftest.py`` nad nim. Kod z napisu dla ``exec``/``eval``/``compile`` sprawdza ten sam parser; napis
+    z kodem dla ``subprocess`` (``"-c", "import explore_runs"``) nie jest wczytaniem w procesie testu.
+
+    Wczytanie nie zależy od tego, co test robi potem z modułem, więc postać wywołania ``explore`` albo ``main``
+    (alias, ``getattr``, ``Thread(target=...)``, ``partial``, moduł podany przez fixturę) nie ma znaczenia.
+
+    Znana granica, której parser nie widzi: nazwa albo ścieżka eksploratora spoza modułu i jego ``conftest.py``
+    (stała zaimportowana z innego modułu, ``request.getfixturevalue``, ``params`` fixtury), sklejona z kawałków
+    (``f"explore_{co}.py"``, ``glob("explore_*.py")``) albo wzięta z atrybutu innego niż ``name``/``stem``; loader spoza
+    ``LOADERS`` (``zipimport``, własny ``importlib.abc.Loader``), kopia pliku eksploratora pod inną nazwą i moduł spoza
+    ``tests/``, który sam importuje eksplorator (dziś żaden skrypt skilla ani narzędzie tego nie robi).
     """
 
-    def __init__(self, tree: ast.Module) -> None:
+    def __init__(self, tree: ast.Module, conftests: Sequence[_Loads] = ()) -> None:
+        self.tree = tree
+        self.conftests = conftests
         self.names = imports(tree)
         self.parents = {child: node for node in ast.walk(tree) for child in ast.iter_child_nodes(node)}
-        self.scopes = {node: _bindings(_own_nodes(node)) for node in ast.walk(tree) if isinstance(node, SCOPES)}
-        self.functions = {
-            node.name: node for node in ast.walk(tree) if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-        }
+        self.scopes = {node: _sources(_own_nodes(node)) for node in ast.walk(tree) if isinstance(node, SCOPES)}
+        self.functions: dict[str, list[Function]] = {}
+        self.calls: dict[str, list[ast.Call]] = {}
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                self.functions.setdefault(node.name, []).append(node)
+            elif isinstance(node, ast.Assign) and isinstance(node.value, ast.Lambda):
+                for target in node.targets:
+                    if isinstance(target, ast.Name):
+                        self.functions.setdefault(target.id, []).append(node.value)
+            elif isinstance(node, ast.Call):
+                for name in {_called(node.func), *map(_called, _arguments(node))}:
+                    if name is not None:
+                        self.calls.setdefault(name, []).append(node)
+
+    def loads(self) -> Iterator[tuple[ast.stmt | ast.Call, str]]:
+        for node in ast.walk(self.tree):
+            if isinstance(node, ast.Import):
+                found = frozenset().union(*(_explorer_named(alias.name) for alias in node.names))
+            elif isinstance(node, ast.ImportFrom):
+                found = _explorer_named(node.module or "").union(*(_explorer_named(alias.name) for alias in node.names))
+            elif isinstance(node, ast.Call) and dotted(node.func, self.names, "builtins") in LOADERS:
+                found = self._loaded(node)
+            else:
+                continue
+            for explorer in sorted(found):
+                yield node, explorer
+
+    def _loaded(self, call: ast.Call) -> frozenset[str]:
+        code = call.args[0] if call.args else None
+        if (
+            dotted(call.func, self.names, "builtins") in CODE_FROM_TEXT
+            and isinstance(code, ast.Constant)
+            and isinstance(code.value, str)
+        ):
+            try:
+                tree = ast.parse(code.value)
+            except SyntaxError:
+                pass
+            else:
+                return frozenset(explorer for _, explorer in _Loads(tree).loads())
+        return frozenset().union(*(self.of(argument) for argument in _arguments(call)))
+
+    def of(self, expression: ast.AST, seen: Seen = frozenset()) -> frozenset[str]:
+        """Eksploratory, które może nazywać wartość wyrażenia."""
+
+        if isinstance(expression, ast.Constant):
+            return _explorer_named(expression.value) if isinstance(expression.value, str) else frozenset()
+        if isinstance(expression, ast.Name):
+            return self._name(expression, seen)
+        if isinstance(expression, ast.Attribute):
+            return self.of(expression.value, seen) if expression.attr in KEEPS_NAME else frozenset()
+        if isinstance(expression, Definition):
+            return frozenset()
+        found = frozenset().union(*(self.of(child, seen) for child in ast.iter_child_nodes(expression)))
+        if isinstance(expression, ast.Call):
+            if isinstance(expression.func, ast.Attribute):
+                found |= self.of(expression.func.value, seen)
+            for function in self.functions.get(_called(expression.func) or "", []):
+                found |= self._returned(function, seen)
+        return found
 
     def _scope(self, node: ast.AST) -> Scope:
         while not isinstance(node, SCOPES):
             node = self.parents[node]
         return node
 
-    def _name(self, name: ast.Name, seen: Seen, frames: Frames) -> frozenset[str]:
-        imported = self.names.get(name.id, "").rpartition(".")[2]
-        if EXPLORER_FILE.fullmatch(imported):
-            return frozenset({imported})
+    def _name(self, name: ast.Name, seen: Seen) -> frozenset[str]:
         node: ast.AST = name
         while node in self.parents:
             scope = self._scope(self.parents[node])
-            if name.id in frames.get(scope, {}):
-                return frames[scope][name.id]
-            if name.id in self.scopes[scope]:
+            sources = self.scopes[scope].get(name.id, [])
+            parameter = isinstance(scope, Function) and name.id in {
+                argument.arg for argument in ast.walk(scope.args) if isinstance(argument, ast.arg)
+            }
+            if sources or parameter:
                 if (name.id, scope) in seen:
                     return frozenset()
-                values = [value for value in self.scopes[scope][name.id] if value is not None]
-                return frozenset().union(*(self.of(value, seen | {(name.id, scope)}, frames) for value in values))
+                inner = seen | {(name.id, scope)}
+                found = frozenset().union(*(self.of(source, inner) for source in sources))
+                if isinstance(scope, Function) and parameter:
+                    found |= self._parameter(scope, name.id, inner)
+                return found
             node = scope
         return frozenset()
 
-    def _parameters(
-        self, function: ast.FunctionDef | ast.AsyncFunctionDef, call: ast.Call, seen: Seen, frames: Frames
-    ) -> dict[str, frozenset[str]]:
-        """Co wskazuje każdy parametr ``function`` w wywołaniu ``call``: jego argument albo wartość domyślna.
-
-        Znana granica: argument ``*args`` wiąże się z jednym parametrem, a ``**kwargs`` z żadnym.
-        """
-
+    def _parameter(self, function: Function, name: str, seen: Seen) -> frozenset[str]:
         arguments = function.args
-        positional = [*arguments.posonlyargs, *arguments.args]
+        positional = [parameter.arg for parameter in [*arguments.posonlyargs, *arguments.args]]
         with_default = positional[len(positional) - len(arguments.defaults) :]
-        defaults = {parameter.arg: default for parameter, default in zip(with_default, arguments.defaults, strict=True)}
-        defaults |= {
-            parameter.arg: default
+        defaults = [*zip(with_default, arguments.defaults, strict=True)]
+        defaults += [
+            (parameter.arg, default)
             for parameter, default in zip(arguments.kwonlyargs, arguments.kw_defaults, strict=True)
             if default is not None
-        }
-        count = min(len(positional), len(call.args))
-        given = {parameter.arg: argument for parameter, argument in zip(positional[:count], call.args[:count], strict=True)}
-        given |= {keyword.arg: keyword.value for keyword in call.keywords if keyword.arg is not None}
-        return {name: self.of(default, seen) for name, default in defaults.items()} | {
-            name: self.of(argument, seen, frames) for name, argument in given.items()
-        }
-
-    def of(self, expression: ast.AST, seen: Seen = frozenset(), frames: Frames | None = None) -> frozenset[str]:
-        frames = frames or {}
-        if isinstance(expression, ast.Constant) and isinstance(expression.value, str):
-            matched = EXPLORER_FILE.fullmatch(expression.value)
-            return frozenset({matched.group(1)}) if matched else frozenset()
-        if isinstance(expression, ast.Name):
-            return self._name(expression, seen, frames)
-        if isinstance(expression, (ast.Attribute, Definition)):
-            return frozenset()
-        found = frozenset().union(*(self.of(child, seen, frames) for child in ast.iter_child_nodes(expression)))
-        if not isinstance(expression, ast.Call):
-            return found
-        if isinstance(expression.func, ast.Attribute):
-            found |= self.of(expression.func.value, seen, frames)
-        function = self.functions.get(expression.func.id) if isinstance(expression.func, ast.Name) else None
-        if function is not None and function not in seen:
-            inside = {**frames, function: self._parameters(function, expression, seen, frames)}
-            returned = [node.value for node in ast.walk(function) if isinstance(node, ast.Return) and node.value]
-            found |= frozenset().union(*(self.of(value, seen | {function}, inside) for value in returned))
+        ]
+        found = frozenset().union(*(self.of(default, seen) for parameter, default in defaults if parameter == name))
+        found |= self._calls(function, name, positional, seen)
+        if not isinstance(function, ast.Lambda):
+            found |= self._parametrize(function, name, seen) | self._fixture(name, seen)
         return found
 
-    def run_in_process(self, call: ast.Call) -> frozenset[str]:
-        """Eksploratory, których ``explore`` albo ``main`` biegnie w tym wywołaniu w procesie testu.
+    def _calls(self, function: Function, name: str, positional: list[str], seen: Seen) -> frozenset[str]:
+        """Co wskazuje parametr ``name`` w każdym wywołaniu ``function`` w module, także przez metodę obiektu."""
 
-        ``explorer.explore(...)``, ``explore_runs.main(...)``, ``main(...)`` po ``from explore_runs import main``
-        i ``runpy.run_path(EXPLORER)``. Znana granica: wywołanie przez inną nazwę (``run = explorer.main``)
-        i przez ``getattr``.
-        """
+        callee = function.name if not isinstance(function, ast.Lambda) else _lambda_name(self.parents[function])
+        method = isinstance(self.parents.get(function), ast.ClassDef)
+        variadic = function.args.vararg.arg if function.args.vararg else None
+        keywords = function.args.kwarg.arg if function.args.kwarg else None
+        found: frozenset[str] = frozenset()
+        for call in self.calls.get(callee or "", []):
+            if _called(call.func) != callee:
+                found = found.union(*(self.of(argument, seen) for argument in _arguments(call) if _called(argument) != callee))
+                continue
+            bound = positional[1:] if method and isinstance(call.func, ast.Attribute) else positional
+            for index, argument in enumerate(call.args):
+                if isinstance(argument, ast.Starred):
+                    found |= self.of(argument.value, seen)
+                elif (bound[index] if index < len(bound) else variadic) == name:
+                    found |= self.of(argument, seen)
+            for keyword in call.keywords:
+                if keyword.arg in (None, name) or (name == keywords and keyword.arg not in positional):
+                    found |= self.of(keyword.value, seen)
+        return found
 
-        function = call.func
-        if isinstance(function, ast.Attribute) and function.attr in EXPLORER_RUNS:
-            return self.of(function.value)
-        if isinstance(function, ast.Name):
-            owner, _, attribute = self.names.get(function.id, "").rpartition(".")
-            if attribute in EXPLORER_RUNS and EXPLORER_FILE.fullmatch(owner.rpartition(".")[2]):
-                return frozenset({owner.rpartition(".")[2]})
-        if dotted(function, self.names, "") in {"runpy.run_path", "runpy.run_module"}:
-            return frozenset().union(*(self.of(argument) for argument in call.args[:1]))
+    def _parametrize(self, function: ast.FunctionDef | ast.AsyncFunctionDef, name: str, seen: Seen) -> frozenset[str]:
+        found: frozenset[str] = frozenset()
+        for decorator in function.decorator_list:
+            if not isinstance(decorator, ast.Call) or not decorator.args:
+                continue
+            if not (dotted(decorator.func, self.names, "") or "").endswith(".parametrize"):
+                continue
+            values = [*decorator.args[1:2], *(keyword.value for keyword in decorator.keywords if keyword.arg == "argvalues")]
+            if name in _parametrized(decorator.args[0]):
+                found = found.union(*(self.of(value, seen) for value in values))
+        return found
+
+    def _fixture(self, name: str, seen: Seen) -> frozenset[str]:
+        """``return`` i ``yield`` fixtury ``name`` z tego modułu, a gdy jej tu nie ma, z najbliższego ``conftest.py``."""
+
+        for module in (self, *self.conftests):
+            fixtures = [function for function in module.functions.get(name, []) if module._is_fixture(function)]
+            if fixtures:
+                return frozenset().union(*(module._returned(fixture, seen) for fixture in fixtures))
         return frozenset()
 
+    def _is_fixture(self, function: Function) -> bool:
+        decorators = [] if isinstance(function, ast.Lambda) else function.decorator_list
+        return any(
+            (dotted(decorator.func if isinstance(decorator, ast.Call) else decorator, self.names, "") or "").endswith("fixture")
+            for decorator in decorators
+        )
 
-def _explorers_in_process(tree: ast.Module) -> Iterator[tuple[ast.Call, str]]:
-    explorers = _Explorers(tree)
-    calls = sorted((node for node in ast.walk(tree) if isinstance(node, ast.Call)), key=lambda call: call.lineno)
-    for call in calls:
-        for explorer in sorted(explorers.run_in_process(call)):
-            yield call, explorer
+    def _returned(self, function: Function, seen: Seen) -> frozenset[str]:
+        if function in seen:
+            return frozenset()
+        if isinstance(function, ast.Lambda):
+            values = [function.body]
+        else:
+            values = [
+                node.value
+                for node in _own_nodes(function)
+                if isinstance(node, (ast.Return, ast.Yield, ast.YieldFrom)) and node.value is not None
+            ]
+        return frozenset().union(*(self.of(value, seen | {function}) for value in values))
 
 
-LOADER = """
+def _lambda_name(assignment: ast.AST) -> str | None:
+    """Nazwa, której przypisano ``lambda`` (``load = lambda path: ...``)."""
+
+    targets = assignment.targets if isinstance(assignment, ast.Assign) else []
+    return next((target.id for target in targets if isinstance(target, ast.Name)), None)
+
+
+def _modules(root: Path) -> dict[Path, _Loads]:
+    """``_Loads`` każdego modułu pod ``root``; fixtury bierze z ``conftest.py`` swojego katalogu i katalogów nad nim."""
+
+    modules: dict[Path, _Loads] = {}
+    for path in sorted(root.rglob("*.py"), key=lambda path: (len(path.parts), path.name != "conftest.py", path)):
+        conftests = [
+            modules[folder / "conftest.py"]
+            for folder in [path.parent, *path.parent.parents]
+            if folder / "conftest.py" in modules
+        ]
+        modules[path] = _Loads(ast.parse(path.read_text(encoding="utf-8")), conftests)
+    return modules
+
+
+def _in_process(root: Path) -> list[tuple[str, int, str, str]]:
+    """Każde wczytanie eksploratora pod ``root``: plik, linia, postać wczytania i eksplorator."""
+
+    found = []
+    for path, module in sorted(_modules(root).items()):
+        for node, explorer in module.loads():
+            shape = f"{ast.unparse(node.func)}(…)" if isinstance(node, ast.Call) else ast.unparse(node)
+            found.append((path.relative_to(root).as_posix(), node.lineno, shape, explorer))
+    return sorted(found)
+
+
+PRELUDE = """
+import importlib
 import importlib.util
+import runpy
+import subprocess
+import sys
 from pathlib import Path
 
-EXPLORER = Path("scripts") / "explore_runs.py"
-SCRIPT = Path("scripts") / "sprawdz_model.py"
+import pytest
+
+SCRIPTS = Path("scripts")
+EXPLORER = SCRIPTS / "explore_runs.py"
+SCRIPT = SCRIPTS / "sprawdz_model.py"
 
 
-def _load(path=EXPLORER):
+def _load(path=SCRIPT):
     spec = importlib.util.spec_from_file_location(path.stem, path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+"""
+HELPER = "spec = importlib.util.spec_from_file_location(path.stem, path)"
+CONFTEST = """
+import importlib
+from pathlib import Path
+
+import pytest
 
 
-def test_wczytuje_eksplorator():
-    module = _load(EXPLORER)
+@pytest.fixture
+def explorer():
+    return importlib.import_module("explore_runs")
 
 
-def test_ta_sama_nazwa_w_innym_zakresie():
-    module = _load(SCRIPT)
-    module.main([])
+@pytest.fixture
+def explorer_path():
+    return Path("scripts") / "explore_outbox.py"
 """
 
 
 @pytest.mark.parametrize(
-    ("test", "in_process"),
+    ("test", "loads"),
     [
-        pytest.param("_load().explore(SCOPE)", ["explore_runs"], id="wynik-wczytania-z-domyslna-sciezka"),
-        pytest.param("explorer = _load(EXPLORER)\nexplorer.main([])", ["explore_runs"], id="nazwa-wczytanego-modulu"),
-        pytest.param("import explore_runs as er\ner.main([])", ["explore_runs"], id="import-z-inna-nazwa"),
-        pytest.param("from explore_outbox import explore\nexplore(SCOPE)", ["explore_outbox"], id="import-funkcji"),
-        pytest.param("from scripts import explore_runs\nexplore_runs.main([])", ["explore_runs"], id="import-z-pakietu"),
-        pytest.param("import runpy\nrunpy.run_path(str(EXPLORER))", ["explore_runs"], id="runpy"),
-        pytest.param("_load(SCRIPT).main([])", [], id="inny-skrypt-przez-ten-sam-pomocnik"),
-        pytest.param("_load().runs.main()", [], id="atrybut-eksploratora"),
         pytest.param(
-            "import subprocess, sys\nsubprocess.run([sys.executable, '-c', 'import explore_runs; explore_runs.main([])'], timeout=9)",
+            "@pytest.fixture\n"
+            "def explorer():\n"
+            "    spec = importlib.util.spec_from_file_location('explore_runs', SCRIPTS / 'explore_runs.py')\n"
+            "    module = importlib.util.module_from_spec(spec)\n"
+            "    spec.loader.exec_module(module)\n"
+            "    return module\n"
+            "def test_w_procesie(explorer):\n"
+            "    explorer.explore(explorer.SCOPES['zamknij-w-trakcie'])\n",
+            [("spec = importlib.util.spec_from_file_location('explore_runs', SCRIPTS / 'explore_runs.py')", "explore_runs")],
+            id="fixtura-z-przegladu",
+        ),
+        pytest.param(
+            "@pytest.fixture\ndef explorer():\n    yield _load(EXPLORER)\ndef test_w_procesie(explorer):\n    explorer.main([])\n",
+            [(HELPER, "explore_runs")],
+            id="fixtura-z-yield-przez-pomocnika",
+        ),
+        pytest.param("def test_w_procesie(explorer):\n    explorer.main([])\n", [], id="modul-z-fixtury-conftest"),
+        pytest.param(
+            "def test_w_procesie(explorer_path):\n    runpy.run_path(str(explorer_path))\n",
+            [("runpy.run_path(str(explorer_path))", "explore_outbox")],
+            id="sciezka-z-fixtury-conftest",
+        ),
+        pytest.param(
+            "import threading\ndef test_w_procesie():\n    threading.Thread(target=_load(EXPLORER).explore, args=(1,)).start()\n",
+            [(HELPER, "explore_runs")],
+            id="thread-target",
+        ),
+        pytest.param(
+            "from functools import partial\ndef test_w_procesie():\n    partial(_load, EXPLORER)().main([])\n",
+            [(HELPER, "explore_runs")],
+            id="partial",
+        ),
+        pytest.param(
+            "from concurrent.futures import ThreadPoolExecutor\n"
+            "def test_w_procesie():\n"
+            "    ThreadPoolExecutor().submit(_load, path=EXPLORER).result(timeout=60)\n",
+            [(HELPER, "explore_runs")],
+            id="submit",
+        ),
+        pytest.param("import explore_runs as er\n", [("import explore_runs as er", "explore_runs")], id="import"),
+        pytest.param(
+            "from explore_outbox import explore\n",
+            [("from explore_outbox import explore", "explore_outbox")],
+            id="import-funkcji",
+        ),
+        pytest.param(
+            "from scripts import explore_runs\n", [("from scripts import explore_runs", "explore_runs")], id="import-z-pakietu"
+        ),
+        pytest.param(
+            "import scripts.explore_intermax\n",
+            [("import scripts.explore_intermax", "explore_intermax")],
+            id="import-modulu-pakietu",
+        ),
+        pytest.param(
+            "SCOPES = importlib.import_module('explore_outbox').SCOPES\n",
+            [("SCOPES = importlib.import_module('explore_outbox').SCOPES", "explore_outbox")],
+            id="import_module",
+        ),
+        pytest.param(
+            "runpy.run_module(mod_name='explore_runs')\n", [("runpy.run_module(mod_name='explore_runs')", "explore_runs")], id="run_module"
+        ),
+        pytest.param(
+            "runpy.run_path(path_name=str(EXPLORER))\n", [("runpy.run_path(path_name=str(EXPLORER))", "explore_runs")], id="run_path-po-nazwie"
+        ),
+        pytest.param("_load(path=EXPLORER)\n", [(HELPER, "explore_runs")], id="argument-po-nazwie"),
+        pytest.param("_load(*[EXPLORER])\n", [(HELPER, "explore_runs")], id="argumenty-z-gwiazdka"),
+        pytest.param("_load(**{'path': EXPLORER})\n", [(HELPER, "explore_runs")], id="argumenty-ze-slownika"),
+        pytest.param(
+            "def _run(path=EXPLORER):\n    return runpy.run_path(str(path))\n",
+            [("return runpy.run_path(str(path))", "explore_runs")],
+            id="wartosc-domyslna",
+        ),
+        pytest.param(
+            "def _run(*paths):\n    return [runpy.run_path(str(path)) for path in paths]\n_run(SCRIPT, EXPLORER)\n",
+            [("return [runpy.run_path(str(path)) for path in paths]", "explore_runs")],
+            id="parametr-z-gwiazdka",
+        ),
+        pytest.param(
+            "def _run(**paths):\n    return runpy.run_path(str(paths['x']))\n_run(x=EXPLORER)\n",
+            [("return runpy.run_path(str(paths['x']))", "explore_runs")],
+            id="parametr-z-dwiema-gwiazdkami",
+        ),
+        pytest.param("exec(EXPLORER.read_text())\n", [("exec(EXPLORER.read_text())", "explore_runs")], id="exec-tresci-pliku"),
+        pytest.param(
+            "exec('import explore_runs\\nexplore_runs.main([])')\n", [("exec('import explore_runs\\nexplore_runs.main([])')", "explore_runs")], id="exec-kodu"
+        ),
+        pytest.param(
+            "with open(EXPLORER) as source:\n    exec(source.read())\n", [("exec(source.read())", "explore_runs")], id="with"
+        ),
+        pytest.param("for path in (SCRIPT, EXPLORER):\n    _load(path)\n", [(HELPER, "explore_runs")], id="petla"),
+        pytest.param(
+            "@pytest.mark.parametrize('name, path', [('model', SCRIPT), ('eksplorator', EXPLORER)])\n"
+            "def test_w_procesie(name, path):\n"
+            "    _load(path)\n",
+            [(HELPER, "explore_runs")],
+            id="parametrize",
+        ),
+        pytest.param(
+            "def _path(name):\n    return SCRIPTS / f'{name}.py'\n_load(_path('explore_runs'))\n",
+            [(HELPER, "explore_runs")],
+            id="sciezka-z-pomocnika",
+        ),
+        pytest.param(
+            "class TestEksplorator:\n"
+            "    def _run(self, path):\n"
+            "        return runpy.run_path(str(path))\n"
+            "    def test_w_procesie(self):\n"
+            "        self._run(EXPLORER)\n",
+            [("return runpy.run_path(str(path))", "explore_runs")],
+            id="metoda",
+        ),
+        pytest.param(
+            "load = lambda path: runpy.run_path(str(path))\nload(EXPLORER)\n",
+            [("load = lambda path: runpy.run_path(str(path))", "explore_runs")],
+            id="lambda",
+        ),
+        *(
+            pytest.param(f"{call}\n", [(call, "explore_runs")], id=call.partition("(")[0])
+            for call in [
+                "__import__('explore_runs')",
+                "importlib.__import__('explore_runs')",
+                "importlib.util.find_spec('explore_runs')",
+                "importlib.machinery.SourceFileLoader('explore_runs', str(EXPLORER)).load_module()",
+                "importlib.machinery.SourcelessFileLoader('m', 'scripts/explore_runs.pyc').load_module()",
+                "pytest.importorskip('scripts.explore_runs')",
+                "compile(EXPLORER.read_text(), str(EXPLORER), 'exec')",
+                "eval(\"__import__('explore_runs')\")",
+                "runpy.run_path('scripts/explore_runs.py')",
+                "runpy.run_path('scripts\\\\explore_runs.py')",
+                "importlib.import_module(EXPLORER.stem)",
+            ]
+        ),
+        pytest.param("name, path = SCRIPT, EXPLORER\n_load(path)\n", [(HELPER, "explore_runs")], id="rozpakowanie"),
+        pytest.param("path: Path = EXPLORER\n_load(path)\n", [(HELPER, "explore_runs")], id="przypisanie-z-adnotacja"),
+        pytest.param("if (path := EXPLORER):\n    _load(path)\n", [(HELPER, "explore_runs")], id="walrus"),
+        pytest.param(
+            "def _run(*, path=EXPLORER):\n    return runpy.run_path(str(path))\n",
+            [("return runpy.run_path(str(path))", "explore_runs")],
+            id="domyslna-parametru-po-nazwie",
+        ),
+        pytest.param("path, name = SCRIPT, EXPLORER\n_load(path)\n", [], id="rozpakowanie-innej-nazwy"),
+        pytest.param(
+            "def _explorer():\n    return SCRIPTS / 'explore_runs.py'\nrunpy.run_path(str(_explorer()))\n",
+            [("runpy.run_path(str(_explorer()))", "explore_runs")],
+            id="sciezka-z-return-pomocnika",
+        ),
+        pytest.param(
+            "explorer = lambda: EXPLORER\nrunpy.run_path(str(explorer()))\n",
+            [("runpy.run_path(str(explorer()))", "explore_runs")],
+            id="sciezka-z-lambdy",
+        ),
+        pytest.param(
+            "@pytest.mark.parametrize('path', argvalues=[EXPLORER])\ndef test_w_procesie(path):\n    _load(path)\n",
+            [(HELPER, "explore_runs")],
+            id="parametrize-argvalues",
+        ),
+        pytest.param("_load()\n_load(SCRIPT)\n", [], id="inny-skrypt-przez-ten-sam-pomocnik"),
+        pytest.param("_load(EXPLORER.parent / 'sprawdz_model.py')\n", [], id="katalog-eksploratora"),
+        pytest.param(
+            "@pytest.mark.parametrize('path', [SCRIPT], ids=['explore_runs'])\ndef test_model(path):\n    _load(path)\n",
+            [],
+            id="ids-parametrize",
+        ),
+        pytest.param(
+            "subprocess.run([sys.executable, '-c', 'import explore_runs; explore_runs.main([])'], timeout=9)\n",
             [],
             id="kod-w-napisie-dla-subprocess",
         ),
-        pytest.param("import subprocess, sys\nsubprocess.run([sys.executable, str(EXPLORER)], timeout=9)", [], id="sciezka-dla-subprocess"),
+        pytest.param("subprocess.run([sys.executable, str(EXPLORER)], timeout=9)\n", [], id="sciezka-dla-subprocess"),
+        pytest.param(
+            "def test_model():\n"
+            "    path = SCRIPT\n"
+            "    def inner():\n"
+            "        path = EXPLORER\n"
+            "        return path\n"
+            "    runpy.run_path(str(path))\n",
+            [],
+            id="ta-sama-nazwa-w-zagniezdzonej-funkcji",
+        ),
+        pytest.param(
+            "path = SCRIPT\npath = path.with_suffix('.txt')\nrunpy.run_path(str(path))\n", [], id="nazwa-z-samej-siebie"
+        ),
+        pytest.param(
+            "def _again(path):\n    return _again(path)\nrunpy.run_path(str(_again(SCRIPT)))\n", [], id="rekurencja"
+        ),
     ],
 )
-def test_eksplorator_w_procesie_testu_to_wywolanie_explore_albo_main_modulu_eksploratora(test: str, in_process: list[str]) -> None:
-    body = "".join(f"    {line}\n" for line in test.splitlines())
-    tree = ast.parse(f"{LOADER}\n\ndef test_przyklad():\n{body}")
+def test_wczytanie_eksploratora_w_procesie_testu_to_import_albo_loader_z_jego_nazwa(
+    tmp_path: Path, test: str, loads: list[tuple[str, str]]
+) -> None:
+    (tmp_path / "conftest.py").write_text(CONFTEST, encoding="utf-8")
+    module = tmp_path / "test_przyklad.py"
+    module.write_text(f"{PRELUDE}\n{test}", encoding="utf-8")
 
-    assert [explorer for _, explorer in _explorers_in_process(tree)] == in_process
+    lines = module.read_text(encoding="utf-8").splitlines()
+    found = [(lines[line - 1].strip(), explorer) for path, line, _, explorer in _in_process(tmp_path) if path == module.name]
+
+    assert found == loads
+
+
+def test_fixtura_z_conftest_tego_katalogu_i_katalogu_nad_nim_podaje_sciezke_eksploratora(tmp_path: Path) -> None:
+    test = "import runpy\ndef test_w_procesie(explorer_path):\n    runpy.run_path(explorer_path)\n"
+    (tmp_path / "pakiet").mkdir()
+    (tmp_path / "conftest.py").write_text(CONFTEST, encoding="utf-8")
+    (tmp_path / "_test_przed_conftest.py").write_text(test, encoding="utf-8")
+    (tmp_path / "pakiet" / "test_przyklad.py").write_text(test, encoding="utf-8")
+
+    assert _in_process(tmp_path) == [
+        ("_test_przed_conftest.py", 3, "runpy.run_path(…)", "explore_outbox"),
+        ("conftest.py", 10, "importlib.import_module(…)", "explore_runs"),
+        ("pakiet/test_przyklad.py", 3, "runpy.run_path(…)", "explore_outbox"),
+    ]
+
+
+def _violations(tests: Path) -> list[str]:
+    """Wczytania eksploratora spoza ``IN_PROCESS_EXPLORERS`` w module pod ``tests`` i wpisy, których nic nie wczytuje."""
+
+    found, excepted = [], set()
+    for path, line, shape, explorer in _in_process(tests):
+        if explorer in IN_PROCESS_EXPLORERS:
+            excepted.add(explorer)
+        else:
+            found.append(f"{tests.name}/{path}:{line}: {shape} wczytuje {explorer} w procesie testu")
+    return found + [
+        f"IN_PROCESS_EXPLORERS: {explorer} nie jest już wczytany w procesie testu, usuń wpis"
+        for explorer in sorted(IN_PROCESS_EXPLORERS.keys() - excepted)
+    ]
+
+
+@pytest.mark.parametrize(
+    ("modules", "violations"),
+    [
+        pytest.param(
+            {"test_a.py": "import explore_runs\n", "test_b.py": "import explore_publication\n"},
+            ["tests/test_a.py:1: import explore_runs wczytuje explore_runs w procesie testu"],
+            id="wyjatek-i-wczytanie-spoza-wyjatkow",
+        ),
+        pytest.param(
+            {"test_a.py": "import subprocess\n"},
+            ["IN_PROCESS_EXPLORERS: explore_publication nie jest już wczytany w procesie testu, usuń wpis"],
+            id="wpis-bez-wczytania",
+        ),
+    ],
+)
+def test_wczytanie_spoza_wyjatkow_i_wpis_wyjatku_bez_wczytania_to_bledy(
+    tmp_path: Path, modules: dict[str, str], violations: list[str]
+) -> None:
+    (tmp_path / "tests").mkdir()
+    for name, text in modules.items():
+        (tmp_path / "tests" / name).write_text(text, encoding="utf-8")
+
+    assert _violations(tmp_path / "tests") == violations
 
 
 def test_eksplorator_przeplotow_biegnie_we_wlasnym_procesie_testu_z_limitem() -> None:
     """Eksplorator przeplotów skilla ``verify-*`` (``.agents/skills/*/scripts/explore_*.py``) biegnie w teście przez
-    ``subprocess`` z limitem, nie w procesie pytest.
+    ``subprocess`` z limitem, a test nie wczytuje jego modułu w procesie pytest.
 
     Wątek modelu, który czeka na prawdziwą blokadę spoza modelu, staje na zawsze, a eksplorator porzuca go razem z tą
     blokadą. W workerze pytest stawał wtedy każdy następny test Centrum, który brał tę blokadę, a sesja wisiała bez
     linii LUKA (#651, przegląd #660 rundy 1 i 2). Objaw widać tylko przy defekcie, więc żaden zielony test go nie
-    pokaże. Sprawdzenie czyta AST modułów testów (``_Explorers``), nie tekst: kod w napisie dla ``subprocess`` nie
-    jest wywołaniem. Wyjątki są w ``IN_PROCESS_EXPLORERS`` z powodem.
+    pokaże. Sprawdzenie czyta AST modułów ``tests/`` (``_Loads``, tam też granica tego, czego nie widzi) i szuka
+    wczytania modułu, nie wywołania ``explore`` albo ``main``: moduł, którego nie ma w procesie, nie biegnie w nim
+    żadną drogą. Wyjątki są w ``IN_PROCESS_EXPLORERS`` z powodem.
     """
 
-    found, excepted = [], set()
-    for path in sorted(TESTS.rglob("*.py")):
-        name = path.relative_to(TESTS).as_posix()
-        for call, explorer in _explorers_in_process(ast.parse(path.read_text(encoding="utf-8"))):
-            if explorer in IN_PROCESS_EXPLORERS:
-                excepted.add(explorer)
-            else:
-                found.append(f"tests/{name}:{call.lineno}: {ast.unparse(call.func)}(…) uruchamia {explorer} w procesie testu")
-    found += [
-        f"IN_PROCESS_EXPLORERS: {explorer} nie biegnie już w procesie testu, usuń wpis"
-        for explorer in sorted(IN_PROCESS_EXPLORERS.keys() - excepted)
-    ]
+    found = _violations(TESTS)
 
     assert not found, "\n".join(
         [
