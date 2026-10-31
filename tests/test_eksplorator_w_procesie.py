@@ -185,6 +185,20 @@ IN_PROCESS = {
                 runpy.run_path("scripts/explore_fake.py")
         """,
     },
+    "dowiazanie_pliku": {
+        "test_x.py": """
+            def test_x(tmp_path):
+                (tmp_path / "wczytywany.py").symlink_to(EXPLORER)
+                runpy.run_path(str(tmp_path / "wczytywany.py"))
+        """,
+    },
+    "dowiazanie_katalogu": {
+        "test_x.py": """
+            def test_x(tmp_path):
+                (tmp_path / "skrypty").symlink_to(SCRIPTS, target_is_directory=True)
+                runpy.run_path(str(tmp_path / "skrypty" / "explore_fake.py"))
+        """,
+    },
     "exec_compile": {
         "test_x.py": """
             def test_x():
@@ -259,6 +273,14 @@ def _outcomes(tmp_path: Path, workers: list[str]) -> tuple[dict[str, str], set[s
     return outcomes, {path.stem for path in scripts.glob("*.wykonany")}
 
 
+def _symlinks_allowed(folder: Path) -> bool:
+    try:
+        (folder / "proba-dowiazania").symlink_to(folder, target_is_directory=True)
+    except OSError:
+        return False
+    return True
+
+
 @pytest.fixture(scope="module", params=[[], ["-n", "2"]], ids=["bez-xdist", "xdist"])
 def wyniki(request: pytest.FixtureRequest, tmp_path_factory: pytest.TempPathFactory) -> Iterator[tuple[dict[str, str], set[str]]]:
     yield _outcomes(tmp_path_factory.mktemp("eksplorator"), request.param)
@@ -266,9 +288,11 @@ def wyniki(request: pytest.FixtureRequest, tmp_path_factory: pytest.TempPathFact
 
 @pytest.mark.parametrize("case", IN_PROCESS)
 def test_kod_eksploratora_w_procesie_pytest_wywraca_test_zanim_eksplorator_zacznie_biec(
-    wyniki: tuple[dict[str, str], set[str]], case: str
+    wyniki: tuple[dict[str, str], set[str]], case: str, tmp_path: Path
 ) -> None:
     outcomes, ran = wyniki
+    if case.startswith("dowiazanie") and not _symlinks_allowed(tmp_path):
+        pytest.skip("dowiązanie symboliczne wymaga uprawnień, których ten Windows nie daje")
 
     assert "EksploratorWProcesie" in outcomes[case] and f"explore_{case}.py" in outcomes[case], outcomes[case]
     assert f"explore_{case}" not in ran

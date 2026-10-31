@@ -270,6 +270,7 @@ def _selection_repo(root: Path) -> str:
 
 
 def _append(root: Path, name: str) -> None:
+    (root / name).parent.mkdir(parents=True, exist_ok=True)
     with (root / name).open("a", encoding="utf-8") as file:
         file.write("\n")
 
@@ -340,6 +341,9 @@ def _model_skill(root: Path, name: str, edited: tuple[str, ...]) -> None:
         (MODEL_CHECK, True),
         # Folder skilla poza modelem i runner mutacji uruchamiają skrypt tylko nocą.
         (".agents/skills/verify-m/SKILL.md", False),
+        # Sąsiad folderu modelu, którego nazwa zaczyna się od „model”, nie jest modelem.
+        (".agents/skills/verify-m/model-notatki.md", False),
+        (".agents/skills/verify-m/modele/M.tla", False),
         ("tools/mutacje.py", False),
         ("requirements.txt", False),
         ("src/pakiet/routing.py", False),

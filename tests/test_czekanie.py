@@ -342,7 +342,9 @@ def test_hook_trzyma_w_pamieci_jedno_cialo_petli_naraz(monkeypatch: pytest.Monke
         '{"tool_name": "Bash"}',
         # Zagnieżdżenie głębsze niż stos Pythona: w JSON-ie i w poleceniu (``"$(`` w ``"$(`` …). Na Pythonie 3.14
         # runnera CI 100 000 ``[`` kończy się ``ValueError`` na końcu wejścia, nie ``RecursionError`` (#694), a milion
-        # przepełnia stos o każdym limicie, który da się ustawić, nawet przy kilku bajtach stosu na poziom.
+        # przepełnia stos przy każdym skończonym limicie do ok. 140 MB (ok. 144 B stosu na poziom); przy ``ulimit -s
+        # unlimited`` na Linuksie mieści się na stosie, kończy ``ValueError``, i test nie odróżnia hooka bez
+        # ``RecursionError``. Żadne zadanie CI nie zdejmuje limitu stosu.
         "[" * 1_000_000,
         json.dumps({"tool_input": {"command": '"$(' * 1000 + "until ! gh pr checks 1; do sleep 30; done"}}),
     ],
