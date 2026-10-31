@@ -1,4 +1,4 @@
-"""Benchmark Przebiegu rozliczeń na lustrze folderów taty, bez danych klientów.
+"""Mierzy czas Przebiegu rozliczeń (measure) na lustrze folderów taty, bez danych klientów; użyj przed i po zmianie wydajności silnika.
 
 Użycie (z katalogu repozytorium):
 
@@ -80,6 +80,8 @@ import platform
 import sys
 from pathlib import Path
 from typing import Any
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools/lib"))
 
 from benchmark import DEFAULT_DIRECTORY, BenchmarkError
 from benchmark.dziennik import (

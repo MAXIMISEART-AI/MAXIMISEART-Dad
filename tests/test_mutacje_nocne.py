@@ -28,7 +28,7 @@ from tests.fixtures.ci_workflow import jobs
 from tests.fixtures.git_repo import commit, git, repository
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "tools"))
+sys.path.insert(0, str(ROOT / "tools" / "ci"))
 
 import mutacje_nocne  # noqa: E402
 import mutacje_skilli  # noqa: E402
@@ -496,7 +496,7 @@ def test_kazda_czesc_mutuje_od_bazy_planu_i_wgrywa_zapis_pod_nazwa_ktora_czyta_z
 @pytest.mark.parametrize(("kod_narzedzia", "czesc_przechodzi"), [(0, True), (1, True), (2, False)], ids=["ok", "przezyly-mutacje", "awaria"])
 def test_czesc_pada_tylko_przy_awarii_a_przezyte_mutacje_zostawia_zgloszeniu(tmp_path: Path, kod_narzedzia: int, czesc_przechodzi: bool) -> None:
     """Kod 1 to przeżyte mutacje, które zgłasza ostatnie zadanie; inna porażka czerwieni część, więc ``--odtwarzam``
-    (``tools/ciezkie_ci.py`` chce zadania ``failure``) ma co odtworzyć."""
+    (``tools/lib/ciezkie_ci.py`` chce zadania ``failure``) ma co odtworzyć."""
 
     krok = next(krok for krok in _nocne()["jobs"]["change-mutations"]["steps"] if "tools/mutacje_zmiany.py" in krok.get("run", ""))
     atrapa = tmp_path / "bin" / "python"
@@ -516,7 +516,7 @@ def _instalacje_na_linuksie(zadanie: dict[str, Any]) -> list[str]:
 
 
 def test_czesc_instaluje_to_samo_co_czesci_pytest_na_linuksie() -> None:
-    # Część uruchamia testy dotknięte zmianą, a testy tools/scal_pr.py i tools/scalenia_pr.py wołają ruff i mypy.
+    # Część uruchamia testy dotknięte zmianą, a testy tools/scal_pr.py i tools/ci/status_scalenia.py wołają ruff i mypy.
     assert _instalacje_na_linuksie(_nocne()["jobs"]["change-mutations"]) == _instalacje_na_linuksie(jobs()["pytest"])
 
 

@@ -44,7 +44,7 @@ addopts = ["--strict-config", "--dist", "worksteal"]
 # Najwolniejszy test trwa kilka sekund; zawieszony test kończy się błędem zamiast blokować przebieg.
 timeout = 120
 markers = ["dlugi: test trwa kilka razy dłużej niż inne; xdist zaczyna od niego kawałek listy workera"]
-# Junit z --junitxml (zadania pytest w CI) ma plik każdego testu, z którego tools/czasy_ci.py liczy czas pliku.
+# Junit z --junitxml (zadania pytest w CI) ma plik każdego testu, z którego tools/ci/czasy_ci.py liczy czas pliku.
 junit_family = "xunit1"
 
 [tool.setuptools.packages.find]
@@ -73,7 +73,7 @@ extend-exclude = [".claude"]
 "tools/hooks/czekanie.py" = "py39"
 "tools/hooks/zgoda.py" = "py39"
 "tools/setup_worktree.py" = "py39"
-"tools/potomne.py" = "py39"
+"tools/lib/potomne.py" = "py39"
 
 [tool.ruff.lint]
 extend-select = [

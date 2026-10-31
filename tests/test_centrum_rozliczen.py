@@ -73,9 +73,9 @@ def test_po_aktualizacji_narzedzia_przegladarka_dostaje_nowy_pakiet_pod_ta_sama_
 
 
 def _exported_contract(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
-    """Kontrakt OpenAPI, który eksportuje ``tools/export_openapi.py`` z bieżącego kodu serwera."""
+    """Kontrakt OpenAPI, który eksportuje ``tools/ci/export_openapi.py`` z bieżącego kodu serwera."""
 
-    spec = importlib.util.spec_from_file_location("export_openapi", ROOT / "tools" / "export_openapi.py")
+    spec = importlib.util.spec_from_file_location("export_openapi", ROOT / "tools" / "ci" / "export_openapi.py")
     assert spec is not None and spec.loader is not None
     export = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(export)

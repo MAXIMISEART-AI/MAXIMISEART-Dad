@@ -28,7 +28,7 @@ import openpyxl
 
 import excel
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "tools"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "tools/lib"))
 sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "src"))
 
 from rozliczenia.workbook_files import QUANTITY_COLUMNS

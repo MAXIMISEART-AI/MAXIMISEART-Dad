@@ -14,7 +14,7 @@ import tomllib
 from typing import Literal, TextIO
 import uuid
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "tools"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "tools/lib"))
 
 from skrypt_skilla import SKIPPED, Parser, new_run
 

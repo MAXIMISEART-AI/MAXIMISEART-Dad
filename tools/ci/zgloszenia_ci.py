@@ -3,7 +3,7 @@
 Wejście to jeden zakończony run workflow ``CI``. Narzędzie najpierw ustala akcje (``Zaloz``, ``Skomentuj``, ``Zamknij``),
 potem je wykonuje; z ``--bez-zapisu`` tylko je drukuje.
 
-- **Flaky test.** Każdy test z artefaktów ``flaky-testy-*`` runu (``tools/niestabilne_testy.py``) dostaje jedno
+- **Flaky test.** Każdy test z artefaktów ``flaky-testy-*`` runu (``tools/lib/niestabilne_testy.py``) dostaje jedno
   otwarte issue ``Flaky test: <test>`` z etykietą ``flaky-test``: nowe albo komentarz do otwartego. Runu PR z forka
   narzędzie nie czyta, bo fork pisze własny ``ci.yml``. Z artefaktu bierze tylko id testu, które da się zgłosić (``niestabilne_testy.zgloszalny``),
   a wpis z innym odrzuca z linią w logu, nie ruszając reszty; id trafia do treści issue tylko w bloku kodu, przycięte.
@@ -23,7 +23,7 @@ potem je wykonuje; z ``--bez-zapisu`` tylko je drukuje.
 Historię `main` narzędzie czyta z Gita checkoutu (w workflow pełna historia `main`), a resztę z ``gh api`` (w workflow
 z ``GH_TOKEN``, lokalnie z logowaniem Maksa).
 
-    .venv/bin/python tools/zgloszenia_ci.py --run 40380584486 --bez-zapisu
+    .venv/bin/python tools/ci/zgloszenia_ci.py --run 40380584486 --bez-zapisu
 """
 
 from __future__ import annotations
@@ -42,9 +42,11 @@ from typing import Any, Protocol
 import urllib.parse
 import zipfile
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tools/lib"))
+
 import niestabilne_testy
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 REPO = "repos/{owner}/{repo}"
 MAIN = "main"
 REQUIRED = "Required CI status"

@@ -1,4 +1,6 @@
-"""Narzędzie Wydań: mechaniczna część „wydaj nową wersję” (skill ``wydanie``, ADR 0014).
+"""Narzędzie Wydań (plan, potem wydaj): nowa wersja z tagiem v* i GitHub Release (ADR 0014); uruchamiaj tylko z workflow skilla wydanie.
+
+Narzędzie Wydań: mechaniczna część „wydaj nową wersję” (skill ``wydanie``, ADR 0014).
 
 ``plan`` pobiera `main` i tagi Wydań tak jak Aktualizacja narzędzia (``tool_update.fetch_main_line``) i zapisuje
 plan Wydania w pliku JSON: najnowszy commit z linii pierwszych rodziców `main` z zielonym ``Required CI status``
@@ -42,6 +44,8 @@ import zipfile
 from pydantic import BaseModel, TypeAdapter
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools/lib"))
 
 import niestabilne_testy
 import potomne

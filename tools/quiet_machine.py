@@ -1,4 +1,6 @@
-"""One measurement at a time on this machine, on a quiet CPU; other runs wait only while it measures.
+"""Pokazuje, co trzyma maszynę (--status), i pilnuje jednego pomiaru wydajności naraz na cichym procesorze; użyj, gdy pomiar czeka.
+
+One measurement at a time on this machine, on a quiet CPU; other runs wait only while it measures.
 
 A measurement (``--feature wydajnosc``, ``benchmark_przebiegu.py measure``) waits,
 holding nothing, until no run is registered in a lock directory shared by every

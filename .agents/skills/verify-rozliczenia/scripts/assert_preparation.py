@@ -16,6 +16,8 @@ from openpyxl.workbook.workbook import Workbook
 from openpyxl.worksheet.worksheet import Worksheet
 
 from create_preparation_fixture import REGISTER_NAME, completed_activities, order_contract, order_devices
+sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "tools/lib"))
+
 from wynik_uruchomienia import (
     check_metrics,
     contract,

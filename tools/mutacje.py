@@ -1,4 +1,4 @@
-"""Pokazuje, że test albo sprawdzenie pada na zepsutej wersji kodu (mutacji).
+"""Dowodzi, że test albo sprawdzenie pada na zepsutym kodzie (mutacji); użyj raz dla każdego testu dodanego albo zmienionego w zmianie.
 
 Każda mutacja dostaje własną kopię checkoutu: odłączony ``git worktree`` z HEAD w katalogu
 tymczasowym z naniesionymi niezacommitowanymi zmianami (także dodanymi do indeksu), więc ``git``
@@ -15,7 +15,7 @@ zdąży zacząć się albo skończyć przed końcem czasu wywołującego (``dead
 Mutacje biegną po kolei, bo równoległe testy przekraczają swoje limity czasu; ``--rownolegle`` puszcza
 naraz najwyżej ``PARALLEL``, a ich polecenia dostają ``PYTEST_XDIST_AUTO_NUM_WORKERS=1`` (chyba że wywołujący je
 ustawił), bo gołe ``pytest -n auto`` w teście każdej z nich bierze wszystkie rdzenie komputera.
-Polecenia i kopie biegną przez ``tools/potomne.py``: procesy potomne polecenia giną z jego końcem, a
+Polecenia i kopie biegną przez ``tools/lib/potomne.py``: procesy potomne polecenia giną z jego końcem, a
 przekroczony czas, przerwanie (Ctrl-C) i zabicie narzędzia kończą polecenie i usuwają kopie.
 
     .venv/bin/python tools/mutacje.py --zmiana src/rozliczenia/x.py 'stary kod' 'nowy kod' \\
@@ -26,7 +26,7 @@ Plik JSON to lista ``{"nazwa", "zmiany": [[plik, kotwica, zamiana], ...]}`` z op
 ``"polecenie"`` (argumenty Pythona), które zastępuje polecenie po ``--``, i opcjonalnym
 ``"oczekiwane"``, początkiem ostatniej linii wyjścia, który wykrywa mutację zamiast kodu wyjścia.
 Lista dłuższa niż ``ciezkie_ci.TARGETED`` mutacji to ręczne ``change-mutations``: poza CI narzędzie odmawia
-jej startu (kod 2 i linia ``CIĘŻKIE CI ODMOWA``) na zasadach ``tools/ciezkie_ci.py``. Skrypty
+jej startu (kod 2 i linia ``CIĘŻKIE CI ODMOWA``) na zasadach ``tools/lib/ciezkie_ci.py``. Skrypty
 ``check_<co>_mutations.py`` skilli ``verify-*`` używają tego samego silnika przez ``check_all``, który
 takiego limitu nie ma.
 
@@ -53,6 +53,8 @@ import subprocess
 import sys
 import threading
 import time
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools/lib"))
 
 import ciezkie_ci
 import potomne

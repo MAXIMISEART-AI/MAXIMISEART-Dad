@@ -115,7 +115,7 @@ import threading
 import time
 from typing import Any
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "tools"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "tools/lib"))
 sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "src"))
 
 from rozliczenia import intermax_process, preparation_process, settlement_process

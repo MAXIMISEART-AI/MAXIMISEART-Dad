@@ -24,7 +24,7 @@ from openpyxl.styles import Font, PatternFill
 from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.worksheet import Worksheet
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "tools"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "tools/lib"))
 
 from skrypt_skilla import Parser, create_run_root
 

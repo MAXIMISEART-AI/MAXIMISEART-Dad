@@ -29,6 +29,7 @@ from tests.fixtures.git_repo import commit, git
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
+sys.path.insert(0, str(ROOT / "tools" / "ci"))
 
 import mutacje  # noqa: E402
 import mutacje_skilli  # noqa: E402
@@ -292,7 +293,7 @@ def test_podstawa_ci_uruchamia_jednostki_swojej_czesci_do_konca_i_pada_gdy_padla
 
     done = subprocess.run(
         [sys.executable, str(tmp_path / BASELINE.name)],
-        env={**os.environ, "PYTHONPATH": str(ROOT / "tools"), "MUTACJE_CZESC": part, "PADA": failing},
+        env={**os.environ, "PYTHONPATH": str(ROOT / "tools" / "lib"), "MUTACJE_CZESC": part, "PADA": failing},
         capture_output=True,
         text=True,
         encoding="utf-8",

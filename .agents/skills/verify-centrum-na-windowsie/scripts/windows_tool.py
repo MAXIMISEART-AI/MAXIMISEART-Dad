@@ -27,7 +27,7 @@ import sys
 from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[4] / ".agents/skills/verify-centrum-rozliczen/scripts"))
-sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "tools"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "tools/lib"))
 sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "src"))
 
 import create_centrum_fixture

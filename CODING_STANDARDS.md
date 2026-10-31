@@ -2,7 +2,7 @@
 
 Rules for writing and reviewing code and tests in a repository where agents write every line.
 A rule that a check enforces sits in its section's table, one row per rule, beside the check that guards it: the reviewer does not repeat that check.
-A bullet is a judgement call that no check makes: the reviewer reports a broken bullet as Drobne, and as Ważne only with the behaviour defect it causes, proved as `docs/agents/przeglad.md` asks.
+A bullet is a judgement call that no check makes: the reviewer reports a broken bullet as Drobne, and as Ważne only with the behaviour defect it causes, proved as the skill [`przeglad`](.agents/skills/przeglad/SKILL.md) asks.
 
 ## Fixing a Mistake Class
 
@@ -119,10 +119,12 @@ When a fix of a rule keeps growing a list of exceptions, replace the list with t
 | Rule | Guard |
 |---|---|
 | Check the operating system with `sys.platform == "win32"`. | ruff `TID251` (`pyproject.toml`), mypy for both systems in `tools/ci_lokalnie.py` |
-| A command of a tool in `tools/` that takes time or starts its own processes runs through `potomne.run`, and a copy of a commit comes from `potomne.commit_copy` ([`tools/potomne.py`](tools/potomne.py)), because they die together with the tool, even one killed by SIGKILL. | `tests/test_potomne.py` |
+| A command of a tool in `tools/` that takes time or starts its own processes runs through `potomne.run`, and a copy of a commit comes from `potomne.commit_copy` ([`tools/lib/potomne.py`](tools/lib/potomne.py)), because they die together with the tool, even one killed by SIGKILL. | `tests/test_potomne.py` |
 | A concurrent mutation run (`tools/mutacje.py --rownolegle`, a skill's `check_all`) runs at most `PARALLEL` mutations at once and gives each mutation's command `PYTEST_XDIST_AUTO_NUM_WORKERS=1` unless the caller set it, so a test's nested `pytest -n auto` does not multiply over the cores of the Mac that agents share. | `tests/test_mutacje.py` |
 | The files that the system Python runs before `.venv` (the list in `per-file-target-version` in `pyproject.toml`) work under the Python 3.9 of macOS. | ruff `per-file-target-version`, `tests/test_systemowy_python.py` |
 | A tool or skill script that runs as its own process adds `src` to `sys.path` itself, because CI on Windows does not install the package. | `tests/test_skrypty_bez_instalacji.py` |
+| `tools/` holds only the tools an agent or a human runs, and each opens its docstring with one line of 80–160 characters that says what it does and when to use it, which the generated `## Narzędzia` block of `AGENTS.md` lists; a script that only a workflow runs lives in `tools/ci/`, a module without an entry point of its own in `tools/lib/`, and neither `AGENTS.md` nor a skill points to `tools/ci/`, and no command in `docs/agents/`, `README.md` or a tool's docstring runs a script from `tools/ci/`, because a script the agent runs itself belongs in `tools/` and its list. | `tests/test_spis_narzedzi.py` |
+| A tool whose parser requires a subcommand (`add_subparsers(required=True)`) names at least one of its subcommands in brackets in the first sentence of its docstring, the line the `## Narzędzia` block lists, as in `(plan --baza origin/main)`, because in the measurement of 30–31 October 2026 agents that knew the tool only from the list ran it without one, and a bare word does not tell the subcommand from the same Polish word in the sentence (ADR 0022). | `tests/test_spis_narzedzi.py::test_pierwsze_zdanie_narzedzia_z_obowiazkowa_podkomenda_ja_wymienia` |
 
 ## Frontend
 

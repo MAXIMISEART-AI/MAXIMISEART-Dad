@@ -27,7 +27,7 @@ import sys
 import time
 from typing import TextIO
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "tools"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "tools/lib"))
 
 from skrypt_skilla import Parser
 
