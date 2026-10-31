@@ -41,7 +41,8 @@ Luka w teście nie jest defektem, który trafi do taty: ten zatrzymuje Wydanie z
   Powód: zmiana modelu, po której mutacja kończy się `BŁĄD MODELU` zamiast naruszenia, nie zmienia werdyktu podstawy ani testów, więc przechodzi bramkę i przegląd, a czerwieni dopiero pełne CI `main`.
   Tak było przy #667 29.10: `Stop` dostał `UNCHANGED nieczytany`, a dwie mutacje, które zastępują `Stop`, nie ustawiały `nieczytany` i dawały `MODEL KOLEJKI: BŁĄD MODELU (1)`.
   Ten sam błąd przeszedł przegląd w powtórce zadania podczas hillclimbu przeglądu 30–31.10, bo recenzent skryptów z `LICZY NOC` nie uruchamia.
-  Koszt: 10 z 212 merge'y 23–30.10 zmieniło model TLA+ jakiegoś skilla, a 6 merge'y w tym oknie zmieniło model kolejki, jej skrypt mutacji modelu albo sprawdzenie modelu, czyli dostałoby ten krok; skrypt trwa 37–72 s, więc ok. 3% PR-ów ma ok. minutę dłuższe Mutation checks.
+  Koszt: 10 z 212 merge'y 23–30.10 zmieniło model TLA+ jakiegoś skilla, a 6 merge'y w tym oknie zmieniło model kolejki, jej skrypt mutacji modelu albo sprawdzenie modelu, czyli dostałoby ten krok.
+  Skrypt trwa 37–72 s na Macu, a w CI na Windows 156 s (mediana z runów `main`), które plan dzieli na części nie dłuższe od podstawy skilla, biegnącej przy tej samej zmianie, więc ok. 3% PR-ów zajmuje runnery o ok. 4 min dłużej, a ściana runu nie rośnie.
   Pozostałe skrypty mutacji skilli mutują kod produktu, który pilnuje też pytest bramki, i zostają w nocy.
 - Podstawa z `ci-czesci:` biegnie na PR w częściach jednego n, które plan wybiera z celu ściany, więc ta sama noc, przy zmianie, która wybrałaby ją na PR, uruchamia każdą część każdego n od 1 do `ci-czesci`.
   Część, która pada tylko przy innym n (na przykład część zaczynająca się od funkcji, która potrzebuje stanu wcześniejszej), wychodzi tak w nocy, a nie dopiero na PR, którego cel ściany zmieni n.
