@@ -119,7 +119,6 @@ STRUCTURE = (
     # ``.gitignore`` czyta tu ``git check-ignore``, nie Python, więc graf nie wiąże go z tym testem.
     "tests/test_centrum_rozliczen.py::test_lokalne_pliki_taty_sa_poza_gitem",
 )
-STATIC_JOBS = ("ruff", "mypy")
 MODULE_ROOTS = ("src", ".", "tools", "tools/lib", "tools/ci")
 SKILL_SCRIPTS = ".agents/skills/*/scripts"
 GREEN = "szybko-zielone.json"
@@ -564,8 +563,7 @@ def _imports_on_oldest(root: Path) -> list[ci_lokalnie.Step]:
 
 
 def _steps(root: Path, tests: Iterable[str], junit: Path) -> list[ci_lokalnie.Step]:
-    static = (step for step in ci_lokalnie._steps(root) if step.job in STATIC_JOBS)
-    return [*static, _pytest(root, "pytest", _pytest_arguments(tests, junit)), *_imports_on_oldest(root)]
+    return [*ci_lokalnie.static_steps(root), _pytest(root, "pytest", _pytest_arguments(tests, junit)), *_imports_on_oldest(root)]
 
 
 def _environment(root: Path) -> dict[str, str]:

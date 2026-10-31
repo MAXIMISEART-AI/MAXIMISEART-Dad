@@ -60,6 +60,8 @@ COMMANDS_ELSEWHERE = {
 }
 OUTPUT_ON_FAILURE = 40
 EVERY_COMMIT_JOBS = ("ruff", "mypy", "pytest")
+# Zadania bramy pre-push (``--tylko ruff,mypy``); ich krokami biegną też szybko i brama typów mutacji (tools/mutacje.py).
+STATIC_JOBS = ("ruff", "mypy")
 
 
 @dataclass(frozen=True)
@@ -101,6 +103,12 @@ def _steps(root: Path) -> list[Step]:
             root,
         ),
     ]
+
+
+def static_steps(root: Path) -> list[Step]:
+    """Kroki ruff i mypy obu systemów w ``root``, w kolejności bramy pre-push."""
+
+    return [step for step in _steps(root) if step.job in STATIC_JOBS]
 
 
 def _dependencies_fresh(frontend: Path) -> bool:
