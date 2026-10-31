@@ -60,6 +60,8 @@ tymczasowym. Wtedy mutację tej linii od razu sprawdzają te same testy. Test, k
 ``tests/fixtures/git_repo.py`` kopiuje ``tools/ci_lokalnie.py``, a ten nazywa ``tools/mutacje_zmiany.py``.
 Kod, który biegnie tylko w takim procesie z ``-I`` uruchomionym przez inne narzędzie, dostaje więc ``NIEWYKRYTA``,
 nawet gdy test tamtego narzędzia by go wykrył: potrzebuje testu, który sam nazywa jego plik.
+Mutacja, po której testy wiszą (``ZAWIESZENIE``), liczy się jak wykryta z dopiskiem ``liczona jako wykryta: CI
+czerwienieje na limicie`` (``mutacje.in_ci``) i nie biegnie z szerszymi testami, bo CI czerwienieje na takim teście.
 Linia ``CZAS`` mówi, ile trwała każda faza.
 
 Mutacja, która przeżywa, to obietnica bez testu: dopisz test, który ją wykrywa. Mutacja równoważna (kod robi to samo)
@@ -894,12 +896,14 @@ def _mutate(args: argparse.Namespace, survived: list[tuple[Mutant, str]]) -> tup
     while queued:
         verdicts = mutacje.verdicts([m for _, m, _ in queued], workers=args.rownolegle, limit_s=args.limit_s, deadline=deadline)
         further: list[tuple[Mutant, mutacje.Mutation, list[list[str]]]] = []
-        for (mutant, mutation, remaining), (verdict, last) in zip(queued, verdicts, strict=True):
+        for (mutant, mutation, remaining), (verdict, shown) in zip(queued, verdicts, strict=True):
+            # ZAWIESZENIE czerwieni CI, więc kończy mutację jak WYKRYTA, bez szerszych testów, które wisiałyby znowu.
+            caught, last = mutacje.in_ci(verdict, shown)
             if verdict == mutacje.NO_VERDICT:
                 unchecked += 1
-            elif verdict != "WYKRYTA" and not remaining:
+            elif not caught and not remaining:
                 survived.append((mutant, texts[mutant.path]))
-            if verdict in ("WYKRYTA", mutacje.NO_VERDICT) or not remaining:
+            if caught or verdict == mutacje.NO_VERDICT or not remaining:
                 print(f"{verdict}: {mutation.name} → {last}{label}", flush=True)
             elif remaining[1:]:
                 further.append((mutant, replace(mutation, command=_command(remaining[0])), remaining[1:]))
@@ -908,10 +912,11 @@ def _mutate(args: argparse.Namespace, survived: list[tuple[Mutant, str]]) -> tup
         middle += len(further)
         queued, label = further, " (testy kodu pliku)"
     clock.append(time.monotonic())
-    for (mutant, mutation), (verdict, last) in zip(wide, mutacje.verdicts([m for _, m in wide], workers=1, limit_s=args.limit_s, deadline=deadline), strict=True):
+    for (mutant, mutation), (verdict, shown) in zip(wide, mutacje.verdicts([m for _, m in wide], workers=1, limit_s=args.limit_s, deadline=deadline), strict=True):
+        caught, last = mutacje.in_ci(verdict, shown)
         if verdict == mutacje.NO_VERDICT:
             unchecked += 1
-        elif verdict != "WYKRYTA":
+        elif not caught:
             survived.append((mutant, texts[mutant.path]))
         print(f"{verdict}: {mutation.name} → {last} (testy pliku)", flush=True)
     clock.append(time.monotonic())

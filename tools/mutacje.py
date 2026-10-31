@@ -16,12 +16,22 @@ albo linia ``+++ Timeout +++`` metody ``thread`` bez xdist); worker xdist, któr
 nie zostawia takiej linii, więc tam ZAWIESZENIE widać tylko po ``--limit-s``. Mutacja, która nie zdąży zacząć się
 albo skończyć przed końcem czasu wywołującego (``deadline`` w ``verdicts``), dostaje BEZ WERDYKTU.
 
+ZAWIESZENIE czerwieni CI: pytest-timeout kończy test porażką, a zadanie, które przekroczy swój limit, kończy linia
+``LIMIT`` (#709). Dlatego ``in_ci`` liczy je jak WYKRYTA z dopiskiem, a liczą tak noc (``tools/mutacje_zmiany.py``) i
+``check_all`` skryptów mutacji skilli, więc zawieszenie nie trafia do issue ``Przeżyte mutacje z #N``. Porażką jest
+tylko w narzędziu z wiersza poleceń, którego używa przegląd PR.
+
 Narzędzie z wiersza poleceń uruchamia każdą mutację NIEWYKRYTA na HEAD także na merge-base HEAD z ``--baza`` (bez
 niezacommitowanych zmian), z podstawą jej polecenia na merge-base. Gdy tam jest WYKRYTA, dostaje REGRES: zmiana
-osłabiła test, który ją łapał. Z ``--jak-ci`` polecenie każdej mutacji to ``pytest -n 1`` z plikami zadań pytest, w
-których plan CI pull requestu (``tools/plan_ci.py plan --baza``) stawia pliki testów zmienione od merge-base, na torze
-systemu, na którym biegnie narzędzie. Jeden worker dzieli proces z sąsiadami z zadania, jak w CI, a plik, który plan
-dzieli na udziały, biegnie cały.
+osłabiła test, który ją łapał. Gdy merge-base to HEAD bez niezacommitowanych zmian, drugiego przebiegu nie ma, a gdy
+merge-base nie ma (checkout bez ``--baza``), REGRES jest pominięty z linią ``MERGE-BASE`` na stderr.
+
+Z ``--jak-ci [RUN]`` narzędzie pobiera artefakt ``plan`` runu CI ``RUN`` (bez numeru: ostatniego runu ``ci.yml``
+gałęzi, którą śledzi bieżąca) i dla każdego zadania pytest toru systemu, na którym biegnie, w którym ten run postawił
+plik testów zmieniony od merge-base, robi z każdej mutacji osobną mutację z poleceniem ``pytest -n 1`` z plikami tego
+zadania. Odtwarza więc skład zadania tego runu, a nie planu z dzisiejszych czasów. Nie odtwarza podziału na workery:
+CI biegnie z ``-n auto``, a tu cały skład dzieli jeden proces, więc sąsiad z innego workera CI też jest w nim. Plik,
+który plan dzieli na udziały, biegnie cały.
 Mutacje biegną po kolei, bo równoległe testy przekraczają swoje limity czasu; ``--rownolegle`` puszcza
 naraz najwyżej ``PARALLEL``, a ich polecenia dostają ``PYTEST_XDIST_AUTO_NUM_WORKERS=1`` (chyba że wywołujący je
 ustawił), bo gołe ``pytest -n auto`` w teście każdej z nich bierze wszystkie rdzenie komputera.
@@ -31,7 +41,7 @@ przekroczony czas, przerwanie (Ctrl-C) i zabicie narzędzia kończą polecenie i
     .venv/bin/python tools/mutacje.py --zmiana src/rozliczenia/x.py 'stary kod' 'nowy kod' \\
         -- -m pytest -q tests/test_x.py -k nazwa_testu
     .venv/bin/python tools/mutacje.py --plik mutacje.json -- -m pytest -q tests/test_x.py
-    .venv/bin/python tools/mutacje.py --jak-ci --zmiana src/rozliczenia/x.py 'stary kod' 'nowy kod'
+    .venv/bin/python tools/mutacje.py --jak-ci 41204010349 --zmiana src/rozliczenia/x.py 'stary kod' 'nowy kod'
 
 Plik JSON to lista ``{"nazwa", "zmiany": [[plik, kotwica, zamiana], ...]}`` z opcjonalnym
 ``"polecenie"`` (argumenty Pythona), które zastępuje polecenie po ``--``, i opcjonalnym
@@ -101,6 +111,15 @@ class Verdict(StrEnum):
 
 
 NO_VERDICT = Verdict.NO_VERDICT
+HANG_CAUGHT = "liczona jako wykryta: CI czerwienieje na limicie"
+
+
+def in_ci(verdict: Verdict, last: str) -> tuple[bool, str]:
+    """Czy CI złapałoby mutację z tym werdyktem, i ostatnia linia do logu; ZAWIESZENIE dostaje dopisek ``HANG_CAUGHT``."""
+
+    if verdict is Verdict.HANG:
+        return True, f"{last} ({HANG_CAUGHT})"
+    return verdict is Verdict.CAUGHT, last
 
 
 @dataclass(frozen=True)
@@ -140,17 +159,19 @@ def _git(*arguments: str) -> bytes:
     return subprocess.run(["git", *arguments], cwd=ROOT, capture_output=True, check=True).stdout
 
 
+def _uncommitted() -> list[str]:
+    """Ścieżki, w których checkout różni się od HEAD: zmienione, także w indeksie, usunięte i nieśledzone."""
+
+    changed = _git("diff", "--name-only", "-z", "--no-renames", "HEAD") + _git("ls-files", "-z", "--others", "--exclude-standard")
+    return sorted(set(filter(None, changed.decode("utf-8").split("\0"))))
+
+
 @contextmanager
 def checkout_copy(commit: str | None = None) -> Iterator[Path]:
     """Kopia HEAD z niezacommitowanymi zmianami checkoutu albo, z ``commit``, kopia samego commitu."""
 
-    changed = (
-        b""
-        if commit is not None
-        else _git("diff", "--name-only", "-z", "--no-renames", "HEAD") + _git("ls-files", "-z", "--others", "--exclude-standard")
-    ).decode("utf-8")
+    names = [] if commit is not None else _uncommitted()
     with potomne.commit_copy(ROOT, commit or "HEAD") as copy:
-        names = sorted(set(filter(None, changed.split("\0"))))
         present = [name for name in names if (ROOT / name).is_symlink() or (ROOT / name).is_file()]
         # Najpierw usunięcia: ścieżka, która zmieniła typ, zwalnia miejsce na plik albo katalog o tej nazwie.
         for name in sorted(set(names) - set(present)):
@@ -302,9 +323,13 @@ def _against_base(
         return list(found)
     fork = subprocess.run(["git", "merge-base", "HEAD", base], cwd=ROOT, capture_output=True, text=True, encoding="utf-8", check=False)
     if fork.returncode:
-        print(f"MERGE-BASE: brak merge-base HEAD z {base}, więc NIEWYKRYTA bez porównania ({fork.stderr.strip()})", flush=True)
+        # Na stderr: pierwsza linia wyjścia to werdykt mutacji, także w checkoucie CI bez gałęzi bazy.
+        print(f"MERGE-BASE: brak merge-base HEAD z {base}, więc REGRES niesprawdzony, a NIEWYKRYTA bez porównania ({fork.stderr.strip()})", file=sys.stderr, flush=True)
         return list(found)
     commit = fork.stdout.strip()
+    if commit == _git("rev-parse", "HEAD").decode("utf-8").strip() and not _uncommitted():
+        # Merge-base to sam checkout, więc drugi przebieg dałby te same werdykty.
+        return list(found)
     red = _baseline([mutations[index] for index in survived], limit_s, commit)
     compared = [index for index in survived if mutations[index].command not in red]
     there = verdicts([mutations[index] for index in compared], workers=workers, limit_s=limit_s, commit=commit)
@@ -324,7 +349,11 @@ def _against_base(
 
 
 def check_all(mutations: Sequence[Mutation], *, parallel: bool = True, limit_s: float = TIMEOUT, base: str | None = None) -> int:
-    """Podstawa i werdykt każdej mutacji; z ``base`` mutacja NIEWYKRYTA biegnie też na merge-base (REGRES)."""
+    """Podstawa i werdykt każdej mutacji; kod 0, gdy CI złapałoby każdą (``in_ci``).
+
+    Z ``base``, czyli w przeglądzie z wiersza poleceń, porażką jest wszystko poza WYKRYTA, także ZAWIESZENIE, a mutacja
+    NIEWYKRYTA biegnie też na merge-base HEAD z ``base`` (REGRES).
+    """
 
     if not mutations:
         print("MUTACJE: brak mutacji, więc nie ma czego dowieść")
@@ -347,8 +376,9 @@ def check_all(mutations: Sequence[Mutation], *, parallel: bool = True, limit_s: 
     found = list(verdicts(mutations, workers=workers, limit_s=limit_s))
     if base is not None:
         found = _against_base(mutations, found, base, workers=workers, limit_s=limit_s)
-    for mutation, (verdict, last) in zip(mutations, found, strict=True):
-        failures += verdict is not Verdict.CAUGHT
+    for mutation, (verdict, shown) in zip(mutations, found, strict=True):
+        caught, last = (verdict is Verdict.CAUGHT, shown) if base is not None else in_ci(verdict, shown)
+        failures += not caught
         harm = f" ({mutation.harm})" if mutation.harm else ""
         print(f"{verdict}: {mutation.name}{harm} → {last}", flush=True)
     print("MUTACJE OK" if not failures else f"MUTACJE: {failures} bez oczekiwanego wyniku")
@@ -370,37 +400,66 @@ def _from_file(path: Path, command: tuple[str, ...], *, own_command: bool = True
     ]
 
 
-def ci_files(jobs: Iterable[tuple[str, Sequence[str]]], tracks: Collection[str], tested: Collection[str]) -> list[str]:
-    """Pliki testów (i węzły ``plik::test``) zadań pytest (tor, jednostki) z ``tracks``, w których stoi plik z ``tested``.
+def ci_jobs(jobs: Iterable[tuple[str, str, Sequence[str]]], tracks: Collection[str], tested: Collection[str]) -> list[tuple[str, list[str]]]:
+    """Nazwa i pliki testów (i węzły ``plik::test``) każdego zadania pytest (tor, nazwa, jednostki) z ``tracks``, w
+    którym stoi plik z ``tested``.
 
-    Kolejność jak w planie, bez powtórzeń; udział pliku ``#k/n`` to cały plik.
+    Kolejność zadań i plików jak w planie, bez powtórzeń; udział pliku ``#k/n`` to cały plik.
     """
 
-    units = [[unit.removeprefix("pytest:").partition("#")[0] for unit in units if unit.startswith("pytest:")] for track, units in jobs if track in tracks]
-    return list(dict.fromkeys(name for job in units if any(name.partition("::")[0] in tested for name in job) for name in job))
+    found = []
+    for track, name, units in jobs:
+        files = list(dict.fromkeys(unit.removeprefix("pytest:").partition("#")[0] for unit in units if unit.startswith("pytest:")))
+        if track in tracks and any(file.partition("::")[0] in tested for file in files):
+            found.append((name, files))
+    return found
 
 
-def _ci_command(base: str) -> tuple[str, ...]:
-    """``pytest -n 1`` z plikami zadań pytest planu CI pull requestu, w których stoją testy zmienione od ``base``."""
+def _output(command: Sequence[str]) -> str:
+    """Wyjście polecenia ``gh`` albo ``git``; porażka to ``ValueError`` z końcem jego błędu."""
+
+    done = potomne.run(command, cwd=ROOT)
+    if done.returncode:
+        raise ValueError(f"{' '.join(command[:3])} padł: {(done.stderr.strip() or done.stdout.strip())[-300:]}")
+    return done.stdout.strip()
+
+
+def _last_run() -> str:
+    """Numer ostatniego runu ``ci.yml`` gałęzi, którą śledzi bieżąca (bez śledzonej: bieżącej)."""
+
+    head = _output(["git", "rev-parse", "--symbolic-full-name", "HEAD"])
+    if not head.startswith("refs/heads/"):
+        raise ValueError("HEAD nie jest na gałęzi, więc podaj numer runu CI: --jak-ci <id runu>")
+    branch = _output(["git", "for-each-ref", "--format=%(upstream:lstrip=3)", head]) or head.removeprefix("refs/heads/")
+    runs = json.loads(_output(["gh", "run", "list", "--workflow", "ci.yml", "--branch", branch, "--limit", "1", "--json", "databaseId"]))
+    if not runs:
+        raise ValueError(f"gałąź {branch} nie ma runu CI, więc podaj numer runu: --jak-ci <id runu>")
+    return str(runs[0]["databaseId"])
+
+
+def _ci_mutations(mutations: Sequence[Mutation], run: str, base: str) -> list[Mutation]:
+    """Każda mutacja raz na każde zadanie pytest runu ``run`` (pusty: ``_last_run``), w którym stoi test zmieniony od
+    ``base``, z poleceniem ``pytest -n 1`` z plikami tego zadania."""
 
     # Przez import_module: plan_ci importuje ten moduł, a kopie narzędzi w repozytoriach testów nie mają ani jego, ani szybko.
     plan_ci = importlib.import_module("plan_ci")
     szybko = importlib.import_module("szybko")
+    try:
+        tested = szybko.changed_since(base)
+    except subprocess.CalledProcessError as error:
+        raise ValueError(f"brak merge-base HEAD z {base}, więc nie wiadomo, które testy zmieniono: {error.stderr.strip()}") from error
+    run = run or _last_run()
     with tempfile.TemporaryDirectory(prefix="plan-ci-") as folder:
-        path = Path(folder) / "plan.json"
-        # Bez GITHUB_OUTPUT: plan z narzędzia nie jest macierzą zadań runu.
-        env = {name: value for name, value in os.environ.items() if name != "GITHUB_OUTPUT"}
-        done = potomne.run([sys.executable, str(ROOT / "tools/plan_ci.py"), "plan", "--baza", base, "--wyjscie", str(path)], cwd=ROOT, env=env)
-        if done.returncode:
-            raise ValueError(f"tools/plan_ci.py plan --baza {base} padł: {(done.stderr.strip() or done.stdout.strip())[-300:]}")
-        plan = plan_ci.Plan.z_json(path.read_text(encoding="utf-8"))
-    jobs: list[tuple[str, tuple[str, ...]]] = [(job.tor, tuple(job.jednostki)) for job in plan.zadania]
-    tracks: set[str] = {track.nazwa for track in plan_ci.TORY if track.os.startswith("windows") == (sys.platform == "win32")}
-    tested: frozenset[str] = szybko.changed_since(base) & set(plan_ci.pliki_testow(ROOT))
-    files = ci_files(jobs, tracks, tested)
-    if not files:
-        raise ValueError(f"zmiana od {base} nie zmienia pliku testów, który plan CI stawia w zadaniu pytest")
-    return ("-m", "pytest", "-q", "-n", "1", "-p", "no:cacheprovider", *files)
+        _output(["gh", "run", "download", run, "--name", "plan", "--dir", folder])
+        plan = plan_ci.Plan.z_json((Path(folder) / "plan.json").read_text(encoding="utf-8"))
+    tracks = {track.nazwa for track in plan_ci.TORY if track.os.startswith("windows") == (sys.platform == "win32")}
+    jobs = ci_jobs([(job.tor, job.nazwa, job.jednostki) for job in plan.zadania], tracks, tested)
+    if not jobs:
+        raise ValueError(f"run {run} nie stawia w zadaniu pytest toru {', '.join(sorted(tracks))} pliku testów zmienionego od {base}")
+    commands = {name: ("-m", "pytest", "-q", "-n", "1", "-p", "no:cacheprovider", *files) for name, files in jobs}
+    for name, command in commands.items():
+        print(f"JAK CI: run {run}, {name}: {' '.join(command)}", flush=True)
+    return [replace(mutation, name=f"{mutation.name} [{name}]", command=command) for mutation in mutations for name, command in commands.items()]
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -421,30 +480,35 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--rownolegle", action="store_true", help="Mutacje naraz, każda w swojej kopii.")
     parser.add_argument("--limit-s", type=float, default=TIMEOUT, help="Limit czasu jednego polecenia w sekundach.")
     parser.add_argument("--baza", default=BASE, help=f"Gałąź, z której merge-base z HEAD daje REGRES i plan --jak-ci (domyślnie {BASE}).")
-    parser.add_argument("--jak-ci", action="store_true", help="Polecenie z plików zadań pytest planu CI, w których stoją zmienione testy, bez polecenia po --.")
+    parser.add_argument(
+        "--jak-ci",
+        nargs="?",
+        const="",
+        metavar="RUN",
+        help="Polecenie z plików każdego zadania pytest runu CI RUN (bez numeru: ostatniego runu gałęzi), w którym stoją zmienione testy, bez polecenia po --.",
+    )
     ciezkie_ci.argument(parser)
     args = parser.parse_args(arguments[:split])
-    if args.jak_ci and command:
+    jak_ci = args.jak_ci is not None
+    if jak_ci and command:
         parser.error("--jak-ci składa polecenie samo, więc nie podawaj go po --")
     try:
-        mutations = _from_file(args.plik, command, own_command=not args.jak_ci) if args.plik else []
+        mutations = _from_file(args.plik, command, own_command=not jak_ci) if args.plik else []
         if args.zmiana:
             edits = tuple(Edit(Path(file), anchor, replacement) for file, anchor, replacement in args.zmiana)
             mutations.append(Mutation(args.nazwa, edits, command))
     except ValueError as error:
         parser.error(str(error))
-    if not mutations or not (args.jak_ci or all(mutation.command for mutation in mutations)):
+    if not mutations or not (jak_ci or all(mutation.command for mutation in mutations)):
         parser.error("podaj mutację (--zmiana albo --plik) i polecenie po --, np. -- -m pytest -q tests/test_x.py, albo --jak-ci")
+    if jak_ci:
+        try:
+            mutations = _ci_mutations(mutations, args.jak_ci, args.baza)
+        except ValueError as error:
+            parser.error(str(error))
     if refused := ciezkie_ci.mutations_refusal(len(mutations), args.odtwarzam, root=ROOT):
         print(refused)
         return 2
-    if args.jak_ci:
-        try:
-            ci = _ci_command(args.baza)
-        except ValueError as error:
-            parser.error(str(error))
-        print(f"JAK CI: {' '.join(ci)}", flush=True)
-        mutations = [replace(mutation, command=ci) for mutation in mutations]
     return check_all(mutations, parallel=args.rownolegle, limit_s=args.limit_s, base=args.baza)
 
 

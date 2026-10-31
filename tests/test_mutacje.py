@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import signal
 import subprocess
@@ -23,7 +24,6 @@ from tests.fixtures.potomne import beating
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
 
-import mutacje  # noqa: E402
 import plan_ci  # noqa: E402
 
 TOOL = ROOT / "tools" / "mutacje.py"
@@ -288,10 +288,11 @@ def test_polecenie_bez_wyniku_w_limicie_czasu_daje_zawieszenie(tmp_path: Path) -
     [
         pytest.param(
             "signal",
-            "Failed: Timeout (>1.0s) from pytest-timeout.",
+            re.escape("Failed: Timeout (>1.0s) from pytest-timeout."),
             marks=pytest.mark.skipif(sys.platform == "win32", reason="metoda signal pytest-timeout potrzebuje SIGALRM"),
         ),
-        ("thread", "+" * 35 + " Timeout " + "+" * 36),
+        # Szerokość nagłówka zależy od terminala, w którym biegnie pytest.
+        ("thread", r"\++ Timeout \++"),
     ],
 )
 def test_test_skonczony_przez_pytest_timeout_po_mutacji_daje_zawieszenie_a_nie_wykryta(tmp_path: Path, method: str, line: str) -> None:
@@ -309,17 +310,34 @@ def test_test_skonczony_przez_pytest_timeout_po_mutacji_daje_zawieszenie_a_nie_w
         *("--", "-m", "pytest", "-q", "-n", "0", "-p", "no:cacheprovider", "--timeout", "1", "--timeout-method", method, "tests/test_wisi.py"),
     )
 
-    assert (answered.returncode, answered.stdout.splitlines()[0]) == (1, f"ZAWIESZENIE: mutacja → {line}"), answered.stdout + answered.stderr
+    assert answered.returncode == 1, answered.stdout + answered.stderr
+    assert re.fullmatch(f"ZAWIESZENIE: mutacja → {line}", answered.stdout.splitlines()[0]), answered.stdout + answered.stderr
 
 
-def test_mutacja_niewykryta_bez_merge_base_z_baza_zostaje_niewykryta_z_powodem(tmp_path: Path) -> None:
+def test_mutacja_niewykryta_bez_merge_base_z_baza_zostaje_niewykryta_z_powodem_na_stderr(tmp_path: Path) -> None:
+    """Checkout CI nie ma gałęzi bazy, a pierwsza linia wyjścia zostaje werdyktem mutacji."""
+
     repo = _small_repository(tmp_path)
 
     answered = _in_repository(repo, "--baza", "glowna", "--zmiana", PACKAGE, "WARTOSC = 0", "WARTOSC = 1", "--", "-c", "")
 
-    assert answered.returncode == 1
-    assert answered.stdout.splitlines()[0].startswith("MERGE-BASE: brak merge-base HEAD z glowna, więc NIEWYKRYTA bez porównania")
-    assert answered.stdout.splitlines()[1:] == ["NIEWYKRYTA: mutacja → kod wyjścia 0", "MUTACJE: 1 bez oczekiwanego wyniku"]
+    assert (answered.returncode, answered.stdout.splitlines()) == (1, ["NIEWYKRYTA: mutacja → kod wyjścia 0", "MUTACJE: 1 bez oczekiwanego wyniku"])
+    assert answered.stderr.startswith("MERGE-BASE: brak merge-base HEAD z glowna, więc REGRES niesprawdzony, a NIEWYKRYTA bez porównania"), answered.stderr
+
+
+def test_merge_base_rowny_czystemu_checkoutowi_nie_uruchamia_mutacji_drugi_raz(tmp_path: Path) -> None:
+    # Bez .gitignore pliki __pycache__ narzędzi byłyby niezacommitowaną zmianą checkoutu.
+    repo = repository(tmp_path / "repo", {PACKAGE: "WARTOSC = 0\n", ".gitignore": "__pycache__/\n"})
+    commit(repo, "baza")
+    git(repo, "branch", "glowna")
+    runs = tmp_path / "przebiegi"
+    counted = f"import pathlib; path = pathlib.Path({str(runs)!r}); path.write_text(path.read_text() + '.' if path.exists() else '.')"
+
+    answered = _in_repository(repo, "--baza", "glowna", "--zmiana", PACKAGE, "WARTOSC = 0", "WARTOSC = 1", "--", "-c", counted)
+
+    assert answered.stdout.splitlines() == ["NIEWYKRYTA: mutacja → kod wyjścia 0", "MUTACJE: 1 bez oczekiwanego wyniku"], answered.stderr
+    # Podstawa i mutacja na HEAD; podstawa i mutacja na merge-base dałyby to samo.
+    assert runs.read_text(encoding="utf-8") == ".."
 
 
 def test_test_ktory_pada_na_tekscie_linii_pytest_timeout_daje_wykryta(tmp_path: Path) -> None:
@@ -480,29 +498,135 @@ def test_naraz_biegnie_najwyzej_osiem_mutacji(tmp_path: Path) -> None:
 
 
 
-@pytest.mark.parametrize(
-    ("win32", "files"),
-    [
-        (False, ["tests/test_a.py", "tests/test_zmieniony.py", "tests/test_struktury.py::test_x", "tests/test_d.py"]),
-        (True, ["tests/test_zmieniony.py", "tests/test_b.py"]),
-    ],
-    ids=["linux", "windows"],
-)
-def test_jak_ci_biegna_pliki_zadan_pytest_toru_systemu_w_ktorych_plan_stawia_zmienione_testy(win32: bool, files: list[str]) -> None:
-    def job(track: str, number: int, *units: str) -> plan_ci.Zadanie:
-        return plan_ci.Zadanie(f"{track}-{number}", track, f"pytest {track} {number}", units, 1.0)
+def test_skrypt_mutacji_skilla_liczy_zawieszenie_jak_wykryta(tmp_path: Path) -> None:
+    """CI czerwienieje na teście, który wisi, więc noc nie zgłasza skryptu skilla, którego mutacja wiesza polecenie."""
 
-    plan = (
-        job("linux-3.14", 1, "pytest:tests/test_a.py", "pytest:tests/test_zmieniony.py#1/2", "pytest:tests/test_struktury.py::test_x"),
-        job("linux-3.14", 2, "pytest:tests/test_zmieniony.py#2/2", "pytest:tests/test_d.py"),
-        job("linux-3.14", 3, "pytest:tests/test_c.py"),
-        job("windows-3.11", 1, "pytest:tests/test_zmieniony.py", "pytest:tests/test_b.py"),
-        job("windows-3.11", 2, "pytest:tests/test_c.py", "pytest:tests/test_d.py"),
-        job("mutacje", 1, "skill:verify-x/ci"),
+    repo = repository(tmp_path / "repo", {PACKAGE: "WISI = False\n"})
+    commit(repo, "baza")
+    hangs = "import time, rozliczenia\nif rozliczenia.WISI:\n    time.sleep(60)\n"
+    script = (
+        "import sys\nsys.path.insert(0, 'tools')\nfrom pathlib import Path\nfrom mutacje import Edit, Mutation, check_all\n"
+        f"hanging = Mutation('wisi', (Edit(Path({PACKAGE!r}), 'WISI = False', 'WISI = True'),), ('-c', {hangs!r}))\n"
+        "raise SystemExit(check_all([hanging], limit_s=3))\n"
     )
-    tracks = {track.nazwa for track in plan_ci.TORY if track.os.startswith("windows") == win32}
 
-    assert mutacje.ci_files([(z.tor, z.jednostki) for z in plan], tracks, {"tests/test_zmieniony.py", "tests/test_usuniety.py"}) == files
+    answered = subprocess.run([sys.executable, "-c", script], cwd=repo, capture_output=True, text=True, encoding="utf-8", timeout=120, check=False)
+
+    expected = ["ZAWIESZENIE: wisi → brak wyniku po 3 s (liczona jako wykryta: CI czerwienieje na limicie)", "MUTACJE OK"]
+    assert (answered.returncode, answered.stdout.splitlines()) == (0, expected), answered.stdout + answered.stderr
+
+
+LINUX_1 = "pytest (Python 3.14, Linux, 1/2)"
+
+
+def _ci_repository(tmp_path: Path, plans: dict[str, list[plan_ci.Zadanie]], runs: list[int]) -> tuple[Path, dict[str, str], Path]:
+    """Repozytorium z gałęzią ``praca``, która zmienia ``tests/test_zmieniony.py`` od ``glowna``, środowisko z atrapą
+    ``gh`` na ``PATH`` i plik jej wywołań; atrapa podaje artefakt ``plan`` runów z ``plans`` i listę runów ``runs``."""
+
+    neighbour = "import rozliczenia\n\n\ndef test_sasiad():\n    assert rozliczenia.WARTOSC == 0\n"
+    files = {
+        PACKAGE: "WARTOSC = 0\n",
+        "tests/test_sasiad.py": neighbour,
+        "tests/test_inny.py": neighbour.replace("sasiad", "inny"),
+        "tests/test_windows.py": "def test_windows():\n    pass\n",
+        "tests/test_zmieniony.py": "def test_zmieniony():\n    pass\n",
+    }
+    repo = repository(tmp_path / "repo", files)
+    shutil.copytree(ROOT / "tools", repo / "tools", dirs_exist_ok=True, ignore=shutil.ignore_patterns("__pycache__"))
+    git(repo, "checkout", "--quiet", "-b", "praca")
+    commit(repo, "baza")
+    git(repo, "branch", "glowna")
+    (repo / "tests/test_zmieniony.py").write_text("def test_zmieniony():\n    assert True\n", encoding="utf-8")
+    commit(repo, "zmiana testu")
+    gh = tmp_path / "gh"
+    gh.mkdir()
+    for run, jobs in plans.items():
+        (gh / f"plan-{run}.json").write_text(plan_ci.Plan("pull_request", 300.0, (), tuple(jobs)).do_json(), encoding="utf-8")
+    (gh / "runy.json").write_text(json.dumps([{"databaseId": run} for run in runs]), encoding="utf-8")
+    calls = gh / "wywolania"
+    (gh / "gh.py").write_text(
+        "import pathlib, shutil, sys\n"
+        "here = pathlib.Path(__file__).parent\n"
+        "arguments = sys.argv[1:]\n"
+        "with (here / 'wywolania').open('a', encoding='utf-8') as log:\n    log.write(' '.join(arguments) + chr(10))\n"
+        "if arguments[:2] == ['run', 'list']:\n    print((here / 'runy.json').read_text(encoding='utf-8'))\n"
+        "elif arguments[:2] == ['run', 'download'] and (here / f'plan-{arguments[2]}.json').exists():\n"
+        "    shutil.copy(here / f'plan-{arguments[2]}.json', pathlib.Path(arguments[arguments.index('--dir') + 1]) / 'plan.json')\n"
+        "else:\n    sys.exit(f'gh: atrapa nie zna {arguments}')\n",
+        encoding="utf-8",
+    )
+    (gh / "gh").write_text(f'#!/bin/sh\nexec "{sys.executable}" "{gh / "gh.py"}" "$@"\n', encoding="utf-8")
+    (gh / "gh").chmod(0o755)
+    return repo, {**WITHOUT_XDIST_WORKERS, "PATH": f"{gh}{os.pathsep}{os.environ['PATH']}"}, calls
+
+
+def _job(track: str, name: str, *units: str) -> plan_ci.Zadanie:
+    return plan_ci.Zadanie(f"{track}-{name[-4]}", track, name, units, 60.0)
+
+
+PLAN = [
+    _job("linux-3.14", LINUX_1, "pytest:tests/test_sasiad.py", "pytest:tests/test_zmieniony.py#1/2"),
+    _job("linux-3.14", "pytest (Python 3.14, Linux, 2/2)", "pytest:tests/test_inny.py", "krok:timing"),
+    _job("windows-3.11", "pytest (Python 3.11, 1/1)", "pytest:tests/test_zmieniony.py", "pytest:tests/test_windows.py"),
+    _job("mutacje", "Mutation checks (1/1)", "skill:verify-x/ci"),
+]
+CHANGE = ("--zmiana", PACKAGE, "WARTOSC = 0", "WARTOSC = 1")
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="atrapa gh to skrypt sh")
+def test_jak_ci_uruchamia_mutacje_z_plikami_zadania_runu_w_ktorym_stoi_zmieniony_test(tmp_path: Path) -> None:
+    """Sąsiad z zadania runu wykrywa mutację, której sam zmieniony test nie widzi; inne zadania i tor Windows nie biegną."""
+
+    repo, env, _ = _ci_repository(tmp_path, {"123": PLAN}, [])
+
+    answered = _in_repository(repo, "--jak-ci", "123", "--baza", "glowna", *CHANGE, env=env)
+
+    lines = answered.stdout.splitlines()
+    command = "-m pytest -q -n 1 -p no:cacheprovider tests/test_sasiad.py tests/test_zmieniony.py"
+    assert (answered.returncode, lines[0], lines[2:]) == (0, f"JAK CI: run 123, {LINUX_1}: {command}", ["MUTACJE OK"]), answered.stdout + answered.stderr
+    assert lines[1].startswith(f"WYKRYTA: mutacja [{LINUX_1}] → 1 failed, 1 passed"), answered.stdout
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="atrapa gh to skrypt sh")
+@pytest.mark.parametrize("tracked", [True, False], ids=["galaz-sledzona", "galaz-bez-sledzonej"])
+def test_jak_ci_bez_numeru_bierze_ostatni_run_ci_galezi(tmp_path: Path, tracked: bool) -> None:
+    repo, env, calls = _ci_repository(tmp_path, {"456": PLAN}, [456])
+    if tracked:
+        git(repo, "remote", "add", "origin", str(tmp_path / "zdalne"))
+        git(repo, "update-ref", "refs/remotes/origin/feat/x", "HEAD")
+        git(repo, "branch", "--quiet", "--set-upstream-to", "origin/feat/x")
+
+    answered = _in_repository(repo, "--jak-ci", "--baza", "glowna", *CHANGE, env=env)
+
+    assert answered.stdout.splitlines()[0].startswith(f"JAK CI: run 456, {LINUX_1}: "), answered.stdout + answered.stderr
+    branch = "feat/x" if tracked else "praca"
+    asked = [line.rsplit(" --dir ", 1)[0] for line in calls.read_text(encoding="utf-8").splitlines()]
+    assert asked == [f"run list --workflow ci.yml --branch {branch} --limit 1 --json databaseId", "run download 456 --name plan"]
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="atrapa gh to skrypt sh")
+@pytest.mark.parametrize(
+    ("arguments", "runs", "detached", "error"),
+    [
+        ((), [], False, "gałąź praca nie ma runu CI, więc podaj numer runu: --jak-ci <id runu>"),
+        ((), [456], True, "HEAD nie jest na gałęzi, więc podaj numer runu CI: --jak-ci <id runu>"),
+        (("789",), [], False, "run 789 nie stawia w zadaniu pytest toru linux-3.14 pliku testów zmienionego od glowna"),
+        (("999",), [], False, "gh run download padł: gh: atrapa nie zna"),
+    ],
+    ids=["galaz-bez-runu", "odlaczony-head", "run-bez-zmienionego-testu-na-torze", "run-bez-artefaktu"],
+)
+def test_jak_ci_bez_zadania_do_odtworzenia_odmawia_z_powodem(
+    tmp_path: Path, arguments: tuple[str, ...], runs: list[int], detached: bool, error: str
+) -> None:
+    other = [_job("windows-3.11", "pytest (Python 3.11, 1/1)", "pytest:tests/test_zmieniony.py"), PLAN[1]]
+    repo, env, _ = _ci_repository(tmp_path, {"456": PLAN, "789": other}, runs)
+    if detached:
+        git(repo, "checkout", "--quiet", "--detach")
+
+    answered = _in_repository(repo, "--jak-ci", *arguments, "--baza", "glowna", *CHANGE, env=env)
+
+    assert answered.returncode == 2, answered.stdout + answered.stderr
+    assert answered.stderr.splitlines()[-1].partition(": error: ")[2].startswith(error), answered.stderr
 
 
 @pytest.mark.parametrize(
