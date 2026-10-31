@@ -6,6 +6,7 @@ Zaakceptowana (decyzja Maksa z 29.10: „nie możemy na każdy nowy PR odpalać 
 Zastępuje część [ADR 0020](0020-ci-w-poziomach.md) o Change mutations na PR: poziom bramki PR i `tools/scal_pr.py` przestają na nie czekać.
 Zastępuje też część ADR 0020 o skryptach mutacji skilli na PR: biegną nocą na `main` i w pełnym CI `main`.
 Opiera się na [ADR 0014](0014-tata-dostaje-tylko-wydania.md) i ADR 0020, według których granicą bezpieczeństwa taty jest Wydanie, a nie PR.
+Zmieniona 31.10 (#701, zgoda Maksa w wątku T3: „okej zgadzam się na wdrożenie tego”): skrypt mutacji modelu TLA+ skilla biegnie też na PR, który zmienia jego model (sekcja Decyzja).
 
 ## Kontekst
 
@@ -35,6 +36,14 @@ Luka w teście nie jest defektem, który trafi do taty: ten zatrzymuje Wydanie z
   Ta sama noc uruchamia skrypty skilli, których folder, runner mutacji albo sprawdzenie zmieniło się od jej bazy, w zadaniach planu `tools/plan_ci.py plan --zdarzenie noc`, a pełne CI `main` dalej uruchamia każdy skrypt.
   Skrypt, który padł, trafia linią `SKRYPT <skrypt>` do issue `Przeżyte mutacje skilli z #N` z etykietą `ready-for-agent` PR-u, który ostatni zmienił folder skilla, bez powtórzeń; zadanie bez zapisu czerwieni przebieg.
   `tools/skille_dla_zmiany.py` wymienia te skrypty w linii `LICZY NOC`, więc agent nie uruchamia ich przed pushem.
+- Wyjątkiem jest skrypt mutacji modelu TLA+, którego każda mutacja psuje plik w folderze `model/` skilla (dziś `check_model_kolejki_mutations.py` skilla `verify-kolejka-skrzynki`).
+  Biegnie na PR, gdy PR zmienia plik w tym folderze (`*.tla`, `*.cfg`, `oczekiwane.json`), sam skrypt albo sprawdzenie, które uruchamiają jego mutacje (`sprawdz_model_kolejki.py`), a wybiera go to samo `tools/ci/mutacje_skilli.py` (`model_watched`) dla planu PR i dla linii `LICZY CI` w `tools/skille_dla_zmiany.py`.
+  Powód: zmiana modelu, po której mutacja kończy się `BŁĄD MODELU` zamiast naruszenia, nie zmienia werdyktu podstawy ani testów, więc przechodzi bramkę i przegląd, a czerwieni dopiero pełne CI `main`.
+  Tak było przy #667 29.10: `Stop` dostał `UNCHANGED nieczytany`, a dwie mutacje, które zastępują `Stop`, nie ustawiały `nieczytany` i dawały `MODEL KOLEJKI: BŁĄD MODELU (1)`.
+  Ten sam błąd przeszedł przegląd w powtórce zadania podczas hillclimbu przeglądu 30–31.10, bo recenzent skryptów z `LICZY NOC` nie uruchamia.
+  Koszt: 10 z 212 merge'y 23–30.10 zmieniło model TLA+ jakiegoś skilla, a 6 merge'y w tym oknie zmieniło model kolejki, jej skrypt mutacji modelu albo sprawdzenie modelu, czyli dostałoby ten krok.
+  Skrypt trwa 37–72 s na Macu, a w CI na Windows 156 s (mediana z runów `main`), które plan dzieli na części nie dłuższe od podstawy skilla, biegnącej przy tej samej zmianie, więc ok. 3% PR-ów zajmuje runnery o ok. 4 min dłużej, a ściana runu nie rośnie.
+  Pozostałe skrypty mutacji skilli mutują kod produktu, który pilnuje też pytest bramki, i zostają w nocy.
 - Podstawa z `ci-czesci:` biegnie na PR w częściach jednego n, które plan wybiera z celu ściany, więc ta sama noc, przy zmianie, która wybrałaby ją na PR, uruchamia każdą część każdego n od 1 do `ci-czesci`.
   Część, która pada tylko przy innym n (na przykład część zaczynająca się od funkcji, która potrzebuje stanu wcześniejszej), wychodzi tak w nocy, a nie dopiero na PR, którego cel ściany zmieni n.
   Pełne CI `main` uruchamia podstawę raz, w częściach z planu: wszystkie części każdego n przy każdym pushu `main` kosztowałyby ok. 55 min runnera Windows na merge.
@@ -45,6 +54,7 @@ Luka w teście nie jest defektem, który trafi do taty: ten zatrzymuje Wydanie z
   PR, który by ją zamknął, jest osobną pracą z kolejki `ready-for-agent`.
 - Recenzent nie omawia już mutacji w `PASS`, a przegląd PR kończy się razem z bramką.
 - PR, który osłabia sprawdzenie skilla tak, że jego mutacja przeżywa, pokaże dopiero pełne CI `main` po merge'u i noc, która przypisze porażkę do issue jego PR.
+  Wyjątkiem jest zmiana modelu TLA+ skilla ze skryptem mutacji modelu: ta dostaje czerwone Mutation checks na PR.
 - Noc mutuje zmiany wielu PR-ów naraz, więc pokrycie biegnie na testach wielu plików; części po plikach trzymają je w 10–15 min, a gdy zmian jest więcej niż na 20 części, części rosną.
 - Przebieg nocny, który nie skończył się sukcesem, nie zakłada issue o sobie; widać go w Actions, a następna noc powtarza jego zakres.
 
@@ -52,4 +62,5 @@ Luka w teście nie jest defektem, który trafi do taty: ten zatrzymuje Wydanie z
 
 - Change mutations na PR, ale bez czekania na nie w `tools/scal_pr.py`. Każdy PR dalej zajmowałby trzy runnery po 15 min, a wynik po merge'u i tak musiałby trafić do issue.
 - Mutacje tylko PR-ów z etykietą albo powyżej rozmiaru zmiany. Luki w testach są w małych zmianach tak samo, a wybór PR-ów to osąd, którego nic nie sprawdza.
+- Każdy skrypt mutacji skilla na PR, który zmienia folder skilla (#701). Skrypty mutacji kodu produktu trwają do 13 min, a błąd z #667, który przeszedł bramkę i przegląd, był zmianą modelu TLA+, której nie widzą podstawa skilla ani pytest.
 - Mutacje przy Wydaniu. Wydanie zbiera zmiany wielu dni, więc przebieg byłby długi, a luka wychodziłaby dopiero wtedy, gdy autor PR jest już przy innej pracy.

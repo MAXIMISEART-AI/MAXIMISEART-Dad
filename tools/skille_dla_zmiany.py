@@ -13,9 +13,11 @@ Każdy skill, który obowiązuje, dostaje linię ``<skill>: <plik> (<glob>), …
 którego polecenia liczy CI, bo jego workflow ma kroki, których CI nie zrobi (osąd, prawdziwe Wzorce, Excel na Macu).
 Przed nią linia ``LICZY CI: <skill> (<polecenie>, …); …`` wymienia polecenia tych skilli, które liczy CI na tym SHA, tak
 jak plan runu pull request: podstawy skilla z wyboru ``mutacje_skilli.wybor`` i wywołania jego skryptów w ``ci.yml`` i w
-krokach CI, które ``plan_ci.zakres`` daje tej zmianie (E2E przy zmianie ``src/``). Linia ``LICZY NOC: <skill>
-(<skrypt>, …); …`` wymienia skrypty mutacji tych skilli, które po merge'u liczy noc na ``main`` (``mutacje_skilli.wybor``
-z ``night``, ADR 0021). Agent nie uruchamia ich lokalnie poza odtworzeniem czerwonego kroku CI albo issue nocy. Gdy git
+krokach CI, które ``plan_ci.zakres`` daje tej zmianie (E2E przy zmianie ``src/``), także skrypt mutacji modelu, gdy
+zmiana dotyka jego modelu (``mutacje_skilli.model_watched``). Linia ``LICZY NOC: <skill> (<skrypt>, …); …`` wymienia
+skrypty mutacji tych skilli, które po merge'u liczy noc na ``main`` (``mutacje_skilli.wybor`` z ``night``, ADR 0021), a
+pull request nie: skrypt z ``LICZY CI`` w niej nie stoi. Agent nie uruchamia ich lokalnie poza odtworzeniem czerwonego
+kroku CI albo issue nocy. Gdy git
 nie wyznaczy zmiany (np. nie ma bazy), ostatnia linia to ``SKILLE VERIFY: nieznane (<powód>)``, a kod wyjścia 1.
 
     .venv/bin/python tools/skille_dla_zmiany.py            # macOS i Linux
@@ -84,7 +86,7 @@ def main(argv: list[str] | None = None) -> int:
         chosen.append(skill_md.parent.name)
         if runs := ci_runs(skill_md.parent, chosen_steps, ci_steps):
             in_ci.append(f"{skill_md.parent.name} ({', '.join(' '.join(run) for run in runs)})")
-        if scripts := [Path(step.command[0]).name for step in night_steps if step.skill == skill_md.parent]:
+        if scripts := [Path(step.command[0]).name for step in night_steps if step.skill == skill_md.parent and step not in chosen_steps]:
             at_night.append(f"{skill_md.parent.name} ({', '.join(scripts)})")
         more = f" i {len(reasons) - SHOWN} innych" if len(reasons) > SHOWN else ""
         print(f"{skill_md.parent.name}: {', '.join(reasons[:SHOWN])}{more}")
