@@ -95,7 +95,7 @@ Covered files: `src/rozliczenia/intermax_replace.py` (`replace_register`,
 `src/rozliczenia/workbook_files.py` (`workbook_content`, `ensure_available`,
 `is_open_in_excel`, `excel_lock_file`).
 
-**Sync commit: `3713b4c1b`** (2026-10-31, #716). At this commit the checker was
+**Sync commit: `95df8f2a9`** (2026-10-31, #716). At this commit the checker was
 confirmed to describe the code above. Since the previous sync commit `054308111` (#710) both runs replace INTERMAX
 through one sequence, `intermax_replace.replace_register`: the steps of the table are in the same order, with one new
 step, the check of the Kopia's name (`Disk.exists`) before the Kopia, which `3713b4c1b` took beside `Disk`, so no point
@@ -107,7 +107,7 @@ Excel lock a second time while it sorts a failed replace; a Kopia of a name that
 whether it needs another look:
 
 ```bash
-git log --oneline 3713b4c1b..HEAD -- src/rozliczenia/intermax_replace.py src/rozliczenia/intermax_ordering.py src/rozliczenia/intermax_restore.py src/rozliczenia/intermax_copies.py src/rozliczenia/intermax_file.py src/rozliczenia/workbook_save.py src/rozliczenia/workbook_files.py
+git log --oneline 95df8f2a9..HEAD -- src/rozliczenia/intermax_replace.py src/rozliczenia/intermax_ordering.py src/rozliczenia/intermax_restore.py src/rozliczenia/intermax_copies.py src/rozliczenia/intermax_file.py src/rozliczenia/workbook_save.py src/rozliczenia/workbook_files.py
 ```
 
 Read each listed commit against the table. A change matters when it adds,
