@@ -23,14 +23,15 @@ liczą tak noc (``tools/mutacje_zmiany.py``) i ``check_all`` skryptów mutacji s
 (test tylko wolniejszy), więc noc i skrypty skilli liczą go jak przeżytą. W narzędziu z wiersza poleceń, którego używa
 przegląd PR, oba są porażką.
 
-Mutację, którą polecenie przepuściło (NIEWYKRYTA, PRZEKROCZONY CZAS), noc i ``check_all`` skryptów skilli sprawdzają
-jeszcze bramą typów (``type_gate``): krokami ruff i mypy obu systemów bramy pre-push (``tools/ci_lokalnie.py --tylko
-ruff,mypy``) na kopii z mutacją, z diagnostykami w JSON. Gdy któryś zgłasza diagnostykę, która mówi, że kod jest błędny
+Mutację, którą polecenie przepuściło (NIEWYKRYTA, PRZEKROCZONY CZAS), noc (poza cofnięciem fragmentu do bazy, które
+przywraca kod, który bramę przeszedł) i ``check_all`` skryptów skilli sprawdzają jeszcze bramą typów (``type_gate``):
+krokami ruff i mypy obu systemów bramy pre-push (``tools/ci_lokalnie.py --tylko ruff,mypy``) na kopii z mutacją, z
+diagnostykami w JSON. Gdy któryś zgłasza diagnostykę, która mówi, że kod jest błędny
 (``wrong``: z ruff tylko niezdefiniowana nazwa i błąd składni, z mypy każdy błąd typów poza pozostałościami jak
 ``unused-ignore``), mutacja jest WYKRYTA PRZEZ BRAMĘ TYPÓW z nazwą kroku i tą diagnostyką, a ``in_ci`` liczy ją jak
 WYKRYTA, bo takiej zmiany nie wpuszczą brama pre-push i zadanie CI „Ruff, mypy”. Diagnostyka, że coś zostało nieużyte
-(F401, F841), nie liczy się: zostawia ją sama mutacja jednej linii, np. cofnięcie fragmentu z użyciem importu, który
-dodał inny fragment zmiany, więc nie dowodzi, że test jest zbędny.
+(F401, F841), nie liczy się: zostawia ją sama mutacja jednej linii, np. ``return wynik`` → ``return None``, więc nie
+dowodzi, że test jest zbędny.
 Brama biegnie tylko dla takich mutacji, raz najpierw bez mutacji, a gdy wtedy zgłasza cokolwiek, linia ``BRAMA TYPÓW
 CZERWONA`` na stderr zostawia werdykty bez zmian; tak jest w zadaniach skryptów skilli w CI, które instalują tylko
 ``requirements.txt``, bez ruff i mypy (``ci.yml`` i ``mutacje-nocne.yml``), więc tam brama nic nie zmienia. Narzędzie
@@ -362,9 +363,10 @@ class Gate(Protocol):
 # Kody ruff, które mówią, że kod jest błędny: nazwa, której nie ma (także w ``__all__`` i przed przypisaniem), i błąd
 # składni. Inne reguły ruff mówią o stylu albo o czymś nieużytym (F401, F841), czyli o artefakcie mutacji jednej linii.
 RUFF_WRONG = frozenset({"F821", "F822", "F823", "invalid-syntax"})
-# Kody mypy, które mówią o pozostałości po zmienionym kodzie, a nie o błędzie typów: ``unused-ignore`` i
-# ``redundant-cast`` ze ``strict``, ``unreachable`` z ``warn_unreachable``, ``redundant-expr`` i ``redundant-self``.
-MYPY_LEFTOVER = frozenset({"unused-ignore", "redundant-cast", "redundant-expr", "redundant-self", "unreachable"})
+# Kody mypy, które mówią o pozostałości po zmienionym kodzie albo o typie, którego mypy nie zna, a nie o błędzie typów:
+# ``unused-ignore``, ``redundant-cast`` i ``no-any-return`` ze ``strict``, ``unreachable`` z ``warn_unreachable``,
+# ``redundant-expr`` i ``redundant-self``.
+MYPY_LEFTOVER = frozenset({"unused-ignore", "redundant-cast", "no-any-return", "redundant-expr", "redundant-self", "unreachable"})
 
 
 def _relative(name: str, copy: Path) -> str:
@@ -417,14 +419,15 @@ def wrong(finding: Finding) -> bool:
     """Czy diagnostyka bramy typów mówi, że kod jest błędny, a więc liczy się jako wykrycie mutacji.
 
     Ruff liczy się tylko kodami z listy ``RUFF_WRONG``, bo prawie każda jego reguła to styl albo coś nieużytego, a mutacja
-    jednej linii zostawia nieużyte: cofnięcie fragmentu z użyciem importu, który dodał inny fragment, zostawia F401, a
-    ``return wynik`` → ``return None`` zostawia F841, choć kod bez poprawki przeszedł bramę i jest w ``main``.
-    Mypy liczy się każdym kodem poza ``MYPY_LEFTOVER``, bo każdy jego kod poza tymi mówi, że program jest źle otypowany
-    (także opcjonalne kody ``enable_error_code``: ``exhaustive-match`` #674, ``truthy-bool``). Pozostałości zgłaszają
-    tylko sprawdzenia, które trzeba włączyć (``strict``, ``warn_unreachable``, ``enable_error_code``), więc ich lista jest
-    zamknięta konfiguracją mypy w ``pyproject.toml``, a lista dozwolonych wymieniałaby kilkadziesiąt kodów błędów typów,
-    z których każdy przeoczony zakładałby fałszywe issue. Diagnostyka bez kodu (wyjście, którego nie dało się przeczytać)
-    nie liczy się nigdy: brama, która nie wie, co znalazła, nie zabiera mutacji z issue.
+    jednej linii zostawia nieużyte: ``return wynik`` → ``return None`` zostawia F841, choć kod przed mutacją przeszedł
+    bramę. Mypy liczy się każdym kodem poza ``MYPY_LEFTOVER``, bo każdy jego kod poza tymi mówi, że program jest źle
+    otypowany (także opcjonalne kody ``enable_error_code``: ``exhaustive-match``, ``truthy-bool``); ``no-any-return``
+    mówi tylko, że mypy nie zna typu wyniku, więc jest pozostałością jak ``unused-ignore``. Lista dozwolonych
+    wymieniałaby kilkadziesiąt kodów błędów typów, z których każdy przeoczony zakładałby fałszywe issue.
+    Żadna lista nie odróżnia artefaktu cofnięcia fragmentu do bazy: cofnięty fragment przeszedł bramę, więc każdy jej
+    błąd na nim to niezgodność z resztą zmiany, i dlatego noc cofnięć bramą nie sprawdza (``tools/mutacje_zmiany.py``).
+    Diagnostyka bez kodu (wyjście, którego nie dało się przeczytać) nie liczy się nigdy: brama, która nie wie, co
+    znalazła, nie zabiera mutacji z issue.
     """
 
     return finding.code is not None and _TOOLS[finding.job].wrong(finding.code)

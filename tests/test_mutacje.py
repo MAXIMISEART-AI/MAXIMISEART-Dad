@@ -526,8 +526,19 @@ def test_naraz_biegnie_najwyzej_osiem_mutacji(tmp_path: Path) -> None:
         pytest.param(
             "NIC = 0", "NIC = 1  # brama: ruff F821", 0, [re.escape("WYKRYTA PRZEZ BRAMĘ TYPÓW: m → ruff: src/rozliczenia/__init__.py:3: F821"), "MUTACJE OK"]
         ),
+        pytest.param(
+            "NIC = 0", "NIC = 1  # brama: ruff F822", 0, [re.escape("WYKRYTA PRZEZ BRAMĘ TYPÓW: m → ruff: src/rozliczenia/__init__.py:3: F822"), "MUTACJE OK"]
+        ),
+        pytest.param(
+            "NIC = 0",
+            "NIC = 1  # brama: ruff invalid-syntax",
+            0,
+            [re.escape("WYKRYTA PRZEZ BRAMĘ TYPÓW: m → ruff: src/rozliczenia/__init__.py:3: invalid-syntax"), "MUTACJE OK"],
+        ),
         pytest.param("NIC = 0", "NIC = 1  # brama: ruff F401", 1, [r"NIEWYKRYTA: m → 2 passed in .*", "MUTACJE: 1 bez oczekiwanego wyniku"]),
         pytest.param("NIC = 0", "NIC = 1  # brama: mypy unused-ignore", 1, [r"NIEWYKRYTA: m → 2 passed in .*", "MUTACJE: 1 bez oczekiwanego wyniku"]),
+        pytest.param("NIC = 0", "NIC = 1  # brama: mypy redundant-cast", 1, [r"NIEWYKRYTA: m → 2 passed in .*", "MUTACJE: 1 bez oczekiwanego wyniku"]),
+        pytest.param("NIC = 0", "NIC = 1  # brama: mypy no-any-return", 1, [r"NIEWYKRYTA: m → 2 passed in .*", "MUTACJE: 1 bez oczekiwanego wyniku"]),
         pytest.param("NIC = 0", "NIC = 1  # brama: mypy -", 1, [r"NIEWYKRYTA: m → 2 passed in .*", "MUTACJE: 1 bez oczekiwanego wyniku"]),
         pytest.param(
             "NIC = 0",
@@ -549,8 +560,12 @@ def test_naraz_biegnie_najwyzej_osiem_mutacji(tmp_path: Path) -> None:
         "brama-mypy",
         "przekroczony-czas-brama-mypy",
         "brama-ruff",
+        "brama-ruff-nazwa-w-all",
+        "brama-ruff-blad-skladni",
         "brama-ruff-nieuzyty-import",
         "brama-mypy-nieuzyty-ignore",
+        "brama-mypy-zbedny-cast",
+        "brama-mypy-wynik-any",
         "brama-mypy-bez-kodu",
         "brama-bez-wyniku",
         "nieaktualna",
@@ -562,7 +577,8 @@ def test_skrypt_mutacji_skilla_liczy_zawieszenie_i_brame_typow_jak_wykryta_a_inn
     """pytest-timeout czerwieni CI, więc noc nie zgłasza skryptu skilla, którego mutacja wiesza test do tego limitu; test
     tylko wolniejszy niż limit narzędzia w CI przechodzi, więc jego mutacja jest porażką, jak przed werdyktem ZAWIESZENIE.
     Mutację, którą testy przepuściły, a o której ruff albo mypy bramy pre-push mówią, że kod jest błędny, CI też by nie
-    wpuściło (#703); nieużyty import albo ``# type: ignore`` to tylko artefakt mutacji jednej linii."""
+    wpuściło (#703); nieużyty import, ``# type: ignore`` albo ``cast`` i wynik ``Any`` to tylko artefakt mutacji jednej
+    linii."""
 
     tests = (
         "import time\n\nimport pytest\nimport rozliczenia\n\n\n"
@@ -865,3 +881,16 @@ def test_brama_typow_czyta_diagnostyki_ruff_i_mypy_z_json(
     checked = mutacje.static_gate(tmp_path, limit_s=60, stop=threading.Event(), deadline=None)
 
     assert checked == mutacje.Checked(tuple(mutacje.Finding(*finding) for finding in findings))
+
+
+def test_krok_bramy_typow_bez_wyniku_w_limicie_daje_kopie_bez_werdyktu(tmp_path: Path) -> None:
+    """Krok, który wisi dłużej niż ``limit_s``, nie daje diagnostyk, więc brama nie wie, czy mutacja przeżyła: noc liczy
+    BEZ WERDYKTU i sprawdza ją następnej nocy, zamiast zgłosić ją w issue."""
+
+    (tmp_path / "ruff").mkdir()
+    (tmp_path / "ruff" / "__init__.py").write_text("", encoding="utf-8")
+    (tmp_path / "ruff" / "__main__.py").write_text("import time\ntime.sleep(60)\n", encoding="utf-8")
+
+    checked = mutacje.static_gate(tmp_path, limit_s=1, stop=threading.Event(), deadline=None)
+
+    assert checked == mutacje.Checked((), "ruff: brak wyniku po 1 s")

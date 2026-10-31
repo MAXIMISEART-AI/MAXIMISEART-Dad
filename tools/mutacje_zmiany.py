@@ -67,8 +67,11 @@ przechodzi.
 Mutację, która przeżyła ostatni przebieg testów albo nie ma żadnego testu, sprawdza jeszcze brama typów
 (``mutacje.type_gate``): ruff i mypy obu systemów, kroki bramy pre-push. Mutacja, po której któryś zgłasza, że kod jest
 błędny (niezdefiniowana nazwa, błąd składni, błąd typów), to ``WYKRYTA PRZEZ BRAMĘ TYPÓW`` z nazwą kroku i tym błędem, i
-nie trafia do zapisu ani do issue. Nieużyty import albo zmienna (F401, F841) po cofnięciu fragmentu się nie liczy, więc
-fragment, którego nie sprawdza żaden test, dalej przeżywa (``mutacje.wrong``).
+nie trafia do zapisu ani do issue (``mutacje.wrong``). Cofnięcia fragmentu do bazy (``Mutant.revert``) brama nie
+sprawdza: przywraca ono kod, który przeszedł bramę, więc jej błąd na nim powstaje tylko z niezgodności z niecofniętymi
+fragmentami tej samej zmiany (import, adnotacja, typ w innym miejscu). Pełne cofnięcie zmiany przeszłoby bramę, a testy
+by go nie złapały, więc takie cofnięcie przeżywa i trafia do issue; gdy zmiana była tylko typów, agent odpowiada
+``nie warto`` (#671, #674).
 Linia ``CZAS`` mówi, ile trwała każda faza, także brama typów.
 
 Mutacja, która przeżywa, to obietnica bez testu: dopisz test, który ją wykrywa. Mutacja równoważna (kod robi to samo)
@@ -931,11 +934,15 @@ def _mutate(args: argparse.Namespace, survived: list[tuple[Mutant, str]], gate: 
         unchecked += verdict == mutacje.NO_VERDICT
         print(f"{verdict}: {mutation.name} → {last} (testy pliku)", flush=True)
     clock.append(time.monotonic())
-    found_by_tests = [(verdict, shown) for _, _, verdict, shown, _ in passed]
-    gated = mutacje.type_gate(
-        [mutation for _, mutation, *_ in passed], found_by_tests, workers=args.rownolegle, limit_s=args.limit_s, deadline=deadline, gate=gate
+    # Cofnięcie do bazy przywraca kod, który przeszedł bramę, więc jej błąd mówi tylko o niezgodności z resztą zmiany.
+    checked = [(mutation, (verdict, shown)) for mutant, mutation, verdict, shown, _ in passed if not mutant.revert]
+    gated = iter(
+        mutacje.type_gate(
+            [mutation for mutation, _ in checked], [found for _, found in checked], workers=args.rownolegle, limit_s=args.limit_s, deadline=deadline, gate=gate
+        )
     )
-    for (mutant, mutation, _, _, label), (verdict, shown) in zip(passed, gated, strict=True):
+    for mutant, mutation, tests_verdict, tests_shown, label in passed:
+        verdict, shown = (tests_verdict, tests_shown) if mutant.revert else next(gated)
         caught, last = mutacje.in_ci(verdict, shown)
         if verdict == mutacje.NO_VERDICT:
             unchecked += 1
@@ -948,7 +955,7 @@ def _mutate(args: argparse.Namespace, survived: list[tuple[Mutant, str]], gate: 
     print(
         f"CZAS | pokrycie {coverage_s:.0f} s | testy linii {narrow_s:.0f} s ({len(narrow)} mutacji, w tym {uncovered} bez drugiego"
         f" i {middle} z testami kodu pliku) | testy pliku {wide_s:.0f} s ({len(wide)} mutacji)"
-        f" | brama typów {gate_s:.0f} s ({len(passed)} mutacji)",
+        f" | brama typów {gate_s:.0f} s ({len(checked)} mutacji)",
         flush=True,
     )
     summary = f"mutacje={len(found)} | wyjątki={excused} | innego systemu={other_system}"
