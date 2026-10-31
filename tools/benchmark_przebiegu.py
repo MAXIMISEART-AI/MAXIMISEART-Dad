@@ -1,4 +1,4 @@
-"""Mierzy czas Przebiegu rozliczeń na lustrze folderów taty, bez danych klientów; użyj przed i po zmianie wydajności silnika.
+"""Mierzy czas Przebiegu rozliczeń (measure) na lustrze folderów taty, bez danych klientów; użyj przed i po zmianie wydajności silnika.
 
 Użycie (z katalogu repozytorium):
 

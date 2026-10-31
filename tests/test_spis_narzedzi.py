@@ -7,7 +7,10 @@ wskazują ``tools/ci/``. Skrypt, który agent uruchamia sam według ``docs/agent
 narzędzia (plan runu, odtworzenie części nocnych mutacji), leży w ``tools/``, bo inaczej spis go nie ma, a agent bierze
 najbliższą pozycję spisu: polecenie ``python … tools/ci/…`` w tych dokumentach to błąd. Pierwsze zdanie docstringu (zarazem pierwsza linia ``--help``) mówi w jednej linii
 ``MIN_CHARS``–``MAX_CHARS`` znaków, co narzędzie robi i kiedy go użyć, a pierwsze ``SAME_WORDS`` słów odróżnia je od
-każdego innego narzędzia. Blok między ``START`` i ``END`` zapisuje ten test z ``ZAPISZ_EXPECT=1``, jak plik expect.
+każdego innego narzędzia. Narzędzie z obowiązkową podkomendą (``add_subparsers(required=True)``) wymienia w tym
+zdaniu w nawiasie co najmniej jedną z nich, np. „(plan --baza origin/main)”, bo agent, który zna je tylko ze spisu,
+inaczej woła narzędzie bez podkomendy; nawias odróżnia podkomendę od tego samego słowa w zdaniu („Drukuje plan runu”).
+Blok między ``START`` i ``END`` zapisuje ten test z ``ZAPISZ_EXPECT=1``, jak plik expect.
 
 Granica: test nie ocenia, czy zdanie mówi „kiedy” słowami sytuacji agenta (czerwone CI, przed merge'em); to łapie
 tylko przegląd.
@@ -43,6 +46,28 @@ def _tools() -> list[Path]:
 def _first_paragraph(path: Path) -> list[str]:
     docstring = ast.get_docstring(ast.parse(path.read_text(encoding="utf-8"))) or ""
     return docstring.split("\n\n", 1)[0].splitlines()
+
+
+def _required_subcommands(path: Path) -> list[str]:
+    """Podkomendy ``add_parser`` narzędzia, którego ``add_subparsers`` ma ``required=True``; pusta lista bez takich."""
+
+    calls = [
+        (node.func.attr, node)
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8")))
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+    ]
+    required = any(
+        method == "add_subparsers"
+        and any(keyword.arg == "required" and isinstance(keyword.value, ast.Constant) and keyword.value.value is True for keyword in call.keywords)
+        for method, call in calls
+    )
+    names = [call.args[0].value for method, call in calls if method == "add_parser" and call.args and isinstance(call.args[0], ast.Constant)]
+    return [name for name in names if isinstance(name, str)] if required else []
+
+
+def _names_subcommand_in_brackets(sentence: str, subcommands: list[str]) -> bool:
+    brackets = " ".join(re.findall(r"\(([^)]*)\)", sentence))
+    return any(re.search(rf"(?<![\w-]){re.escape(name)}(?![\w-])", brackets) for name in subcommands)
 
 
 def _index() -> str:
@@ -123,3 +148,31 @@ def test_dokument_agenta_nie_kaze_mu_uruchamiac_skryptu_ci() -> None:
             "albo każ agentowi użyć narzędzia z tools/, które go uruchamia.",
         ]
     )
+
+
+def test_pierwsze_zdanie_narzedzia_z_obowiazkowa_podkomenda_ja_wymienia() -> None:
+    missing = {}
+    for path in _tools():
+        subcommands = _required_subcommands(path)
+        sentence = " ".join(_first_paragraph(path))
+        if subcommands and not _names_subcommand_in_brackets(sentence, subcommands):
+            missing[path.relative_to(ROOT).as_posix()] = subcommands
+
+    assert missing == {}, (
+        f"te narzędzia wymagają podkomendy, a pierwsze zdanie docstringu (pozycja spisu) żadnej nie wymienia w nawiasie: {missing}; "
+        "napisz w nim w nawiasie podkomendę, której agent używa, np. „(plan --baza origin/main)”."
+    )
+
+
+def test_podkomendy_sa_obowiazkowe_tylko_z_required_true(tmp_path: Path) -> None:
+    parser = "import argparse\ncommands = argparse.ArgumentParser().add_subparsers({})\ncommands.add_parser('plan')\ncommands.add_parser('wykonaj')\n"
+    (tmp_path / "wymaga.py").write_text(parser.format("dest='polecenie', required=True"), encoding="utf-8")
+    (tmp_path / "nie_wymaga.py").write_text(parser.format("dest='polecenie'"), encoding="utf-8")
+
+    assert (_required_subcommands(tmp_path / "wymaga.py"), _required_subcommands(tmp_path / "nie_wymaga.py")) == (["plan", "wykonaj"], [])
+
+
+def test_podkomenda_liczy_sie_tylko_cala_w_nawiasie() -> None:
+    sentences = ["Drukuje plan runu CI.", "Drukuje plan runu (planem).", "Drukuje plan runu (plan --baza origin/main)."]
+
+    assert [_names_subcommand_in_brackets(sentence, ["plan", "wykonaj"]) for sentence in sentences] == [False, False, True]

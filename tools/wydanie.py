@@ -1,4 +1,4 @@
-"""Narzędzie Wydań: plan i wydanie nowej wersji (tag v*, GitHub Release, ADR 0014); uruchamiaj tylko z workflow skilla wydanie.
+"""Narzędzie Wydań (plan, potem wydaj): nowa wersja z tagiem v* i GitHub Release (ADR 0014); uruchamiaj tylko z workflow skilla wydanie.
 
 Narzędzie Wydań: mechaniczna część „wydaj nową wersję” (skill ``wydanie``, ADR 0014).
 

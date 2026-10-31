@@ -1,4 +1,4 @@
-"""Liczy nocne mutacje na main i zgłasza przeżyte w issue PR-ów; użyj z plan, by bez testów zobaczyć bazę i części najbliższej nocy.
+"""Liczy nocne mutacje na main i zgłasza przeżyte w issue PR-ów; użyj (plan), by bez testów zobaczyć bazę i części najbliższej nocy.
 
 Mutacje nocne (ADR 0021): mutacje linii zmienionych na ``main`` od ostatniej nocy i issue dla przeżytych.
 
